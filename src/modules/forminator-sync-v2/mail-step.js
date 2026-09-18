@@ -464,7 +464,7 @@ export async function runSendMailStep(env, {
   let attachmentIds = [];
   if (Array.isArray(target.mail_attachments) && target.mail_attachments.length > 0) {
     try {
-      const opgelost = await resolveMailAttachments(env, target.mail_attachments);
+      const opgelost = await resolveMailAttachments(env, target.mail_attachments, contextObject);
       attachmentIds = opgelost.ids;
     } catch (err) {
       throw new MailStepError('send_mail: ' + (err && err.message ? err.message : String(err)));

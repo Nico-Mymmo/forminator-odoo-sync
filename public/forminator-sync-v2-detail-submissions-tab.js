@@ -392,10 +392,12 @@
     };
     var actionColors = { created: 'badge-success', updated: 'badge-info', skipped: 'badge-ghost', failed: 'badge-error', posted: 'badge-success',
       mail_scheduled: 'badge-info', mail_queued: 'badge-success', mail_skipped: 'badge-ghost',
-      mail_already_queued: 'badge-ghost', mail_failed: 'badge-error' };
+      mail_already_queued: 'badge-ghost', mail_failed: 'badge-error',
+      pdf_generated: 'badge-success', pdf_reused: 'badge-ghost', pdf_failed: 'badge-error' };
     var actionLabels = { created: 'aangemaakt', updated: 'bijgewerkt', skipped: 'geen wijziging', failed: 'mislukt', posted: 'notitie geplaatst',
       mail_scheduled: 'mail klaargezet (later)', mail_queued: 'mail klaargezet', mail_skipped: 'geen mail',
-      mail_already_queued: 'mail stond al klaar', mail_failed: 'mail mislukt' };
+      mail_already_queued: 'mail stond al klaar', mail_failed: 'mail mislukt',
+      pdf_generated: 'pdf gemaakt', pdf_reused: 'pdf bestond al', pdf_failed: 'pdf mislukt' };
 
     // ── Mailstatus-icoon in de hoofdlijn ──────────────────────────────────
     // Compacte weergave van waar de mail van deze indiening staat:

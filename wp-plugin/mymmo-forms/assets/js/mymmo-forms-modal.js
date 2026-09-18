@@ -194,12 +194,38 @@
 
   // ── Open en dicht ─────────────────────────────────────────────────────────
 
+  /**
+   * Laten weten dat dit venster open- of dichtgaat.
+   *
+   * De stappenreeks van een callout heeft dat nodig: daar staat de eerste stap
+   * in de PAGINA, en zodra het venster opengaat hoort hij erin te staan (zie
+   * mymmo-forms-steps.js). Een gebeurtenis en geen rechtstreekse aanroep --
+   * dit bestand hoort niets van stappen te weten.
+   *
+   * De melding bij het SLUITEN gaat meteen, niet na de uitloopbeweging: het oog
+   * van de bezoeker gaat naar de plek waar het venster vandaan kwam, en daar
+   * hoort het kaartje dan al te staan. Andersom zie je een kwart seconde een
+   * leeg kaartje.
+   */
+  function meldVenster(venster, open) {
+    try {
+      venster.dispatchEvent(new CustomEvent('mymmo:venster', {
+        bubbles: true,
+        detail: { open: !!open, id: venster.id },
+      }));
+    } catch (_) { /* oudere browser zonder CustomEvent-constructor */ }
+  }
+
   function openen(venster, knop) {
     if (openVenster === venster) return;
     if (openVenster) sluiten(openVenster);
 
     openVenster = venster;
     vorigeFocus = knop || document.activeElement;
+
+    // Vóór het openen: een callout verhuist zijn stap nu naar het venster, en
+    // dat hoort gebeurd te zijn voordat de bezoeker het paneel ziet.
+    meldVenster(venster, true);
 
     // Een venster dat nog aan het sluiten was, gaat meteen weer helemaal open;
     // anders zou de uit-animatie over de in-animatie heen blijven liggen.
@@ -227,6 +253,7 @@
   function sluiten(venster) {
     if (venster.classList.contains('is-sluiten')) return;
 
+    meldVenster(venster, false);
     zetUitgeklapt(venster, false);
 
     // Het venster blijft staan tot de beweging klaar is. Pas daarna gaat
@@ -607,7 +634,18 @@
   }
 
   function laadAgenda(venster) {
-    var vlak = venster.querySelector('[data-mymmo-calendly]');
+    laadAgendaVlak(venster.querySelector('[data-mymmo-calendly]'));
+  }
+
+  /**
+   * Een agendavlak opbouwen, waar het ook staat.
+   *
+   * Meestal in een venster, maar een CALLOUT die de agenda uitlicht heeft er een
+   * in de pagina zelf. Die verhuist bewust niet mee naar het venster zoals een
+   * stap dat doet: een iframe dat je verplaatst laadt opnieuw, en dan staat de
+   * bezoeker terug op de maandweergave.
+   */
+  function laadAgendaVlak(vlak) {
     if (!vlak || vlak.getAttribute('data-mymmo-geladen') === '1') return;
 
     var url = vlak.getAttribute('data-mymmo-calendly');
@@ -649,6 +687,23 @@
   /** Heeft dit venster een agenda? Dan loont het om het script vast te halen. */
   function heeftAgenda(venster) {
     return !!venster.querySelector('[data-mymmo-calendly]');
+  }
+
+  /**
+   * De agenda's die in de PAGINA staan, niet in een venster.
+   *
+   * Dat is er hoogstens een handvol: een callout die de agenda uitlicht. Ze
+   * worden meteen opgebouwd -- ze staan zichtbaar op de pagina, dus wachten tot
+   * er iets opengaat zou betekenen dat de bezoeker naar een link staart waar een
+   * kalender hoort te staan.
+   */
+  function losseAgendas() {
+    var uit = [];
+    var alle = document.querySelectorAll('[data-mymmo-calendly]');
+    for (var i = 0; i < alle.length; i += 1) {
+      if (!alle[i].closest('[data-mymmo-modal]')) uit.push(alle[i]);
+    }
+    return uit;
   }
 
   // ── Knoppen die niet van ons zijn ─────────────────────────────────────────
@@ -707,6 +762,21 @@
   function start() {
     var vensters = document.querySelectorAll('[data-mymmo-modal]');
     if (vensters.length === 0) return;
+
+    // De agenda's die los in de pagina staan (een callout). Na het tekenen van
+    // de pagina, want Calendly MEET de breedte van het vlak bij het opbouwen en
+    // maakt bij nul een afgeknepen kalender.
+    var losse = losseAgendas();
+    if (losse.length) {
+      var bouwLosse = function () {
+        for (var l = 0; l < losse.length; l += 1) laadAgendaVlak(losse[l]);
+      };
+      if (window.requestAnimationFrame) {
+        window.requestAnimationFrame(function () { window.setTimeout(bouwLosse, 0); });
+      } else {
+        window.setTimeout(bouwLosse, 50);
+      }
+    }
 
     // Vanaf hier neemt dit script het over van de :target-regel in de CSS.
     document.documentElement.classList.add('mymmo-modal-js');

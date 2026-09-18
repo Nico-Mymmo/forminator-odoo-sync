@@ -36,6 +36,7 @@ final class Mymmo_Forms_Settings {
 
     private const GROUP = 'mymmo_forms';
     private const PAGE  = 'mymmo-forms';
+    private const TAB_INGANGEN = 'ingangen';
 
     private const TAB_SHORTCODE  = 'shortcode';
     private const TAB_STAPPEN    = 'stappen';
@@ -177,6 +178,7 @@ final class Mymmo_Forms_Settings {
                 'naam'   => $naam,
                 'html'   => Mymmo_Forms_Steps::example_html($bestand),
                 'titel'  => $meta['titel'],
+                'sub'    => $meta['sub'],
                 'velden' => $meta['velden'],
             ];
         }
@@ -505,9 +507,9 @@ final class Mymmo_Forms_Settings {
      *
      * @param array<string,array<string,mixed>> $stappen_lijst
      */
-    private static function render_stap_kiezer(string $veld_id, string $kop, string $hint, array $stappen_lijst): void {
+    private static function render_stap_kiezer(string $veld_id, string $kop, string $hint, array $stappen_lijst, string $extra_attr = ''): void {
         ?>
-        <div class="mymmo-veld">
+        <div class="mymmo-veld"<?php echo $extra_attr !== '' ? ' ' . $extra_attr : ''; ?>>
             <span class="mymmo-veld-kop"><?php echo esc_html($kop); ?></span>
             <span class="mymmo-hint"><?php echo esc_html($hint); ?></span>
 
@@ -636,25 +638,27 @@ final class Mymmo_Forms_Settings {
             }
         }
 
+        $soort = ((string) ($_POST['soort'] ?? '')) === 'knop' ? 'knop' : 'inline';
+
         if (($atts['slug'] ?? '') === '') {
             wp_send_json_error(['message' => 'Kies eerst een formulier.'], 400);
         }
 
-        $knop = isset($_POST['soort']) && $_POST['soort'] === 'knop';
-
-        $html = $knop
-            ? Mymmo_Forms_Shortcodes::render_button($atts)
-            : Mymmo_Forms_Shortcodes::render([
+        if ($soort === 'knop') {
+            $html = Mymmo_Forms_Shortcodes::render_button($atts);
+        } else {
+            $html = Mymmo_Forms_Shortcodes::render([
                 'slug'  => $atts['slug'],
                 'title' => $atts['title'] ?? 'yes',
                 'lang'  => $atts['lang'] ?? '',
             ]);
+        }
 
         if (trim($html) === '') {
             wp_send_json_error(['message' => 'Dit formulier kon niet opgehaald worden.'], 502);
         }
 
-        wp_send_json_success(['html' => $html, 'soort' => $knop ? 'knop' : 'inline']);
+        wp_send_json_success(['html' => $html, 'soort' => $soort]);
     }
 
     public static function register(): void {
@@ -725,6 +729,9 @@ final class Mymmo_Forms_Settings {
         if ($tab === self::TAB_STAPPEN) {
             return self::TAB_STAPPEN;
         }
+        if ($tab === self::TAB_INGANGEN) {
+            return self::TAB_INGANGEN;
+        }
         return self::TAB_SHORTCODE;
     }
 
@@ -772,6 +779,10 @@ final class Mymmo_Forms_Settings {
                    class="nav-tab <?php echo $tab === self::TAB_SHORTCODE ? 'nav-tab-active' : ''; ?>">
                     Shortcode maken
                 </a>
+                <a href="<?php echo esc_url(self::tab_url(self::TAB_INGANGEN)); ?>"
+                   class="nav-tab <?php echo $tab === self::TAB_INGANGEN ? 'nav-tab-active' : ''; ?>">
+                    Ingangen
+                </a>
                 <a href="<?php echo esc_url(self::tab_url(self::TAB_STAPPEN)); ?>"
                    class="nav-tab <?php echo $tab === self::TAB_STAPPEN ? 'nav-tab-active' : ''; ?>">
                     Stappen
@@ -785,6 +796,8 @@ final class Mymmo_Forms_Settings {
             <?php
             if ($tab === self::TAB_VERBINDING) {
                 self::render_verbinding();
+            } elseif ($tab === self::TAB_INGANGEN) {
+                self::render_ingangen();
             } elseif ($tab === self::TAB_STAPPEN) {
                 self::render_stappen();
             } else {
@@ -793,6 +806,532 @@ final class Mymmo_Forms_Settings {
             ?>
         </div>
         <?php
+    }
+
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Tabblad: ingangen
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * De INGANGEN van een venster beheren.
+     *
+     * Een opstelling is het venster; een ingang is een manier om het te openen.
+     * Er zijn er zoveel als je wil, van drie soorten -- een knop, een klasse op
+     * iets dat er al staat, of een callout die een onderdeel al toont.
+     *
+     * Dit staat bewust op een eigen tabblad en niet in de bouwer. Zolang "hoe
+     * toon je het" een keuze IN de opstelling was, had je per manier een kopie
+     * van het hele venster nodig, en moest je bij elke wijziging raden welke
+     * kopie waar stond.
+     */
+    private static function render_ingangen(): void {
+        $vensters = array_filter(
+            Mymmo_Forms_Presets::all(),
+            static fn ($o) => $o['soort'] === 'knop'
+        );
+        $stappen  = class_exists('Mymmo_Forms_Steps') ? Mymmo_Forms_Steps::all() : [];
+        $ingangen = Mymmo_Forms_Entrypoints::all();
+
+        // Bewerken? Dan staat het id in de URL. Anders een lege nieuwe ingang.
+        $bewerk_id = isset($_GET['mymmo_entry_edit'])
+            ? sanitize_title(wp_unslash((string) $_GET['mymmo_entry_edit']))
+            : '';
+        $huidig = $bewerk_id !== '' ? Mymmo_Forms_Entrypoints::get($bewerk_id) : null;
+        $waarde = static function (string $naam) use ($huidig): string {
+            return (string) ($huidig['atts'][$naam] ?? '');
+        };
+
+        self::ingangen_melding();
+        ?>
+        <?php if ($vensters === []) : ?>
+            <div class="notice notice-warning"><p>
+                Er is nog geen opstelling met een venster. Maak er eerst een bij
+                <a href="<?php echo esc_url(self::tab_url(self::TAB_SHORTCODE)); ?>">Shortcode maken</a>
+                (kies <strong>Knop die een venster opent</strong>) en bewaar ze. Daarna kan je hier
+                zoveel ingangen maken als je wil.
+            </p></div>
+            <?php return; ?>
+        <?php endif; ?>
+
+        <p class="description" style="max-width:46em;">
+            Een <strong>opstelling</strong> is het venster: welk formulier, welke tabbladen, welke
+            agenda. Een <strong>ingang</strong> is een manier om dat venster te openen. Je kan er
+            zoveel maken als je wil — twee knoppen met andere copy, een klasse op een knop van je
+            thema, en een callout per vraag die je wil uitlichten.
+        </p>
+
+        <h2>Bestaande ingangen</h2>
+
+        <?php if ($ingangen === []) : ?>
+            <p>Er is er nog geen. Maak er hieronder een.</p>
+        <?php else : ?>
+            <?php foreach ($vensters as $venster) : ?>
+                <?php $bij_dit_venster = Mymmo_Forms_Entrypoints::for_preset($venster['id']); ?>
+                <?php if ($bij_dit_venster === []) { continue; } ?>
+                <h3 style="margin-bottom:4px;"><?php echo esc_html($venster['name']); ?></h3>
+                <table class="widefat striped" style="margin-bottom:18px;">
+                    <thead>
+                        <tr>
+                            <th style="width:22em;">Ingang</th>
+                            <th>Op je pagina</th>
+                            <th style="width:12em;">Actie</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($bij_dit_venster as $ingang) : ?>
+                            <tr>
+                                <td>
+                                    <strong><?php echo esc_html($ingang['name']); ?></strong><br>
+                                    <span class="description"><?php
+                                        echo esc_html(self::ingang_omschrijving($ingang, $stappen));
+                                    ?></span>
+                                </td>
+                                <td>
+                                    <code><?php echo esc_html(Mymmo_Forms_Entrypoints::shortcode_tekst($ingang)); ?></code>
+                                    <?php $klasse = Mymmo_Forms_Entrypoints::klasse_van($ingang); ?>
+                                    <?php if ($klasse !== '') : ?>
+                                        <br><span class="description">
+                                            Zet deze shortcode één keer op de pagina (ze toont niets) en geef
+                                            je knop, afbeelding of icoon de klasse
+                                            <code><?php echo esc_html($klasse); ?></code>.
+                                        </span>
+                                    <?php endif; ?>
+                                </td>
+                                <td>
+                                    <a class="button button-small"
+                                       href="<?php echo esc_url(self::tab_url(self::TAB_INGANGEN, ['mymmo_entry_edit' => $ingang['id']])); ?>">Bewerken</a>
+                                    <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>"
+                                          style="display:inline;"
+                                          onsubmit="return confirm('Deze ingang verwijderen? De pagina waar de shortcode staat, toont daarna niets meer.');">
+                                        <?php wp_nonce_field('mymmo_forms_entry_delete'); ?>
+                                        <input type="hidden" name="action" value="mymmo_forms_entry_delete">
+                                        <input type="hidden" name="mymmo_entry_id" value="<?php echo esc_attr($ingang['id']); ?>">
+                                        <button type="submit" class="button button-small button-link-delete">Verwijderen</button>
+                                    </form>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            <?php endforeach; ?>
+        <?php endif; ?>
+
+        <h2><?php echo $huidig ? 'Ingang bewerken: ' . esc_html((string) $huidig['name']) : 'Nieuwe ingang'; ?></h2>
+
+        <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" id="mymmoIngangForm">
+            <?php wp_nonce_field('mymmo_forms_entry_save'); ?>
+            <input type="hidden" name="action" value="mymmo_forms_entry_save">
+            <input type="hidden" name="mymmo_entry_id" value="<?php echo esc_attr((string) ($huidig['id'] ?? '')); ?>">
+
+            <table class="form-table" role="presentation">
+                <tr>
+                    <th scope="row"><label for="mymmoIngangNaam">Naam</label></th>
+                    <td>
+                        <input type="text" class="regular-text" id="mymmoIngangNaam" name="mymmo_entry_name"
+                               value="<?php echo esc_attr((string) ($huidig['name'] ?? '')); ?>" required>
+                        <p class="description">Alleen voor jezelf, om hem terug te vinden.</p>
+                    </td>
+                </tr>
+                <tr>
+                    <th scope="row"><label for="mymmoIngangPopup">Welk venster</label></th>
+                    <td>
+                        <select id="mymmoIngangPopup" name="mymmo_entry_popup" required>
+                            <?php foreach ($vensters as $venster) : ?>
+                                <option value="<?php echo esc_attr($venster['id']); ?>"
+                                    <?php selected((string) ($huidig['popup'] ?? ''), $venster['id']); ?>>
+                                    <?php echo esc_html($venster['name']); ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                        <p class="description">
+                            Alles wat in die opstelling staat blijft gelden: de tabbladen, de agenda,
+                            de zijkolom, het dankjewelscherm. Deze ingang is enkel een manier om het
+                            te openen.
+                        </p>
+                    </td>
+                </tr>
+                <tr>
+                    <th scope="row">Soort ingang</th>
+                    <td>
+                        <fieldset id="mymmoIngangSoort">
+                            <?php
+                            $soort_nu = (string) ($huidig['soort'] ?? 'knop');
+                            $soorten  = [
+                                'knop'    => ['Knop', 'Een knop met een eigen opschrift en kleur.'],
+                                'klasse'  => ['Klasse op een bestaand element', 'Een knop van je thema, een afbeelding, een icoon.'],
+                                'callout' => ['Callout', 'Een blok dat een stap, het formulier of de agenda al toont.'],
+                            ];
+                            foreach ($soorten as $sleutel => $paar) :
+                                ?>
+                                <label style="display:block;margin-bottom:6px;">
+                                    <input type="radio" name="mymmo_entry_soort" value="<?php echo esc_attr($sleutel); ?>"
+                                        <?php checked($soort_nu, $sleutel); ?>>
+                                    <strong><?php echo esc_html($paar[0]); ?></strong>
+                                    <span class="description">— <?php echo esc_html($paar[1]); ?></span>
+                                </label>
+                            <?php endforeach; ?>
+                        </fieldset>
+                    </td>
+                </tr>
+            </table>
+
+            <div data-mymmo-ingang="knop">
+                <h3>De knop</h3>
+                <table class="form-table" role="presentation">
+                    <tr>
+                        <th scope="row"><label for="mymmoIngangLabel">Opschrift</label></th>
+                        <td><input type="text" class="regular-text" id="mymmoIngangLabel" name="mymmo_entry_label"
+                                   value="<?php echo esc_attr($waarde('label')); ?>"
+                                   placeholder="leeg = de naam van het formulier"></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="mymmoIngangVariant">Vorm</label></th>
+                        <td>
+                            <select id="mymmoIngangVariant" name="mymmo_entry_variant">
+                                <option value="primary" <?php selected($waarde('variant'), 'primary'); ?>>Gevuld</option>
+                                <option value="outline" <?php selected($waarde('variant'), 'outline'); ?>>Omlijnd</option>
+                            </select>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="mymmoIngangAccent">Kleur</label></th>
+                        <td>
+                            <input type="text" class="regular-text code" id="mymmoIngangAccent" name="mymmo_entry_accent"
+                                   value="<?php echo esc_attr($waarde('accent')); ?>" placeholder="#0369a1 — leeg = de kleur van het venster">
+                            <br>
+                            <input type="text" class="regular-text code" name="mymmo_entry_accent_text"
+                                   value="<?php echo esc_attr($waarde('accent_text')); ?>" placeholder="tekstkleur op die knop">
+                        </td>
+                    </tr>
+                </table>
+            </div>
+
+            <?php // Geldt voor een knop EN een klasse: allebei openen ze het venster. ?>
+            <div data-mymmo-ingang="knop klasse">
+                <table class="form-table" role="presentation">
+                    <tr>
+                        <th scope="row"><label for="mymmoIngangTab">Welk tabblad opent</label></th>
+                        <td>
+                            <select id="mymmoIngangTab" name="mymmo_entry_tab">
+                                <option value="" <?php selected($waarde('tab'), ''); ?>>Het bovenste tabblad</option>
+                                <option value="form" <?php selected($waarde('tab'), 'form'); ?>>Het formulier</option>
+                                <option value="extra" <?php selected($waarde('tab'), 'extra'); ?>>Het derde tabblad</option>
+                                <option value="calendly" <?php selected($waarde('tab'), 'calendly'); ?>>De agenda</option>
+                            </select>
+                            <p class="description">
+                                Een knop "Plan een gesprek" hoort op de agenda uit te komen, niet op het
+                                formulier. Geldt ook voor een klasse-ingang; bij een callout volgt het
+                                tabblad uit wat ze uitlicht.
+                            </p>
+                        </td>
+                    </tr>
+                </table>
+            </div>
+
+            <div data-mymmo-ingang="klasse">
+                <h3>De klasse</h3>
+                <table class="form-table" role="presentation">
+                    <tr>
+                        <th scope="row"><label for="mymmoIngangTrigger">Klassenaam</label></th>
+                        <td>
+                            <input type="text" class="regular-text code" id="mymmoIngangTrigger" name="mymmo_entry_trigger"
+                                   value="<?php echo esc_attr($waarde('trigger')); ?>" placeholder="open-offerte">
+                            <p class="description">
+                                Zet deze klasse op een knop, een afbeelding of een icoon dat al op je pagina
+                                staat; klikken opent dan het venster. De shortcode van deze ingang zet je
+                                één keer op diezelfde pagina — ze toont zelf niets, maar zonder haar staat
+                                het venster er niet.
+                            </p>
+                        </td>
+                    </tr>
+                </table>
+            </div>
+
+            <div data-mymmo-ingang="callout">
+                <h3>De callout</h3>
+                <table class="form-table" role="presentation">
+                    <tr>
+                        <th scope="row"><label for="mymmoIngangHighlight">Wat licht je uit</label></th>
+                        <td>
+                            <select id="mymmoIngangHighlight" name="mymmo_entry_highlight">
+                                <option value="form" <?php selected($waarde('highlight'), 'form'); ?>>Het formulier</option>
+                                <option value="calendly" <?php selected($waarde('highlight'), 'calendly'); ?>>De agenda</option>
+                                <?php foreach ($stappen as $stap) : ?>
+                                    <option value="<?php echo esc_attr((string) $stap['id']); ?>"
+                                        <?php selected($waarde('highlight'), (string) $stap['id']); ?>>
+                                        Stap: <?php echo esc_html((string) $stap['name']); ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                            <p class="description">
+                                Dit onderdeel staat in de callout én komt vooraan in het venster te staan.
+                                Wat de bezoeker hier invult, staat daar al ingevuld.
+                            </p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="mymmoIngangLayout">Indeling</label></th>
+                        <td>
+                            <select id="mymmoIngangLayout" name="mymmo_entry_layout">
+                                <option value="kolommen" <?php selected($waarde('layout'), 'kolommen'); ?>>
+                                    Twee kolommen — tekst en afbeelding naast het onderdeel
+                                </option>
+                                <option value="breed" <?php selected($waarde('layout'), 'breed'); ?>>
+                                    Volle breedte — titel en tekst erboven, onderdeel eronder
+                                </option>
+                            </select>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="mymmoIngangRatio">Verdeling</label></th>
+                        <td>
+                            <select id="mymmoIngangRatio" name="mymmo_entry_ratio">
+                                <?php foreach (Mymmo_Forms_Entrypoints::VERDELINGEN as $sleutel => $paar) : ?>
+                                    <option value="<?php echo esc_attr((string) $sleutel); ?>"
+                                        <?php selected($waarde('ratio') !== '' ? $waarde('ratio') : '1:2', (string) $sleutel); ?>>
+                                        <?php echo esc_html($paar[0]); ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                            <p class="description">
+                                De linkerkolom (titel en tekst) tegenover de rechter (het uitgelichte
+                                onderdeel). Alleen bij twee kolommen.
+                            </p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="mymmoIngangMaxWidth">Breedte</label></th>
+                        <td>
+                            <input type="text" class="small-text code" id="mymmoIngangMaxWidth"
+                                   name="mymmo_entry_max_width"
+                                   value="<?php echo esc_attr($waarde('max_width')); ?>" placeholder="1200px">
+                            <p class="description">
+                                Het blok breekt uit de inhoudskolom van je pagina en gaat tot deze maat,
+                                gecentreerd. Leeg = 1200px.
+                            </p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="mymmoIngangRadius">Hoeken</label></th>
+                        <td>
+                            <input type="text" class="small-text code" id="mymmoIngangRadius"
+                                   name="mymmo_entry_radius"
+                                   value="<?php echo esc_attr($waarde('radius')); ?>" placeholder="18px">
+                            <p class="description">Leeg = volgt het thema. Zet er <code>0</code> voor rechte hoeken.</p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="mymmoIngangPad">Opvulling</label></th>
+                        <td>
+                            <input type="text" class="regular-text code" id="mymmoIngangPad"
+                                   name="mymmo_entry_pad"
+                                   value="<?php echo esc_attr($waarde('pad')); ?>" placeholder="20px 62px">
+                            <p class="description">
+                                De ruimte binnen het blok, tot vier maten zoals in CSS
+                                (<code>24px</code> of <code>20px 62px</code>). Leeg = groeit mee met de
+                                breedte. Zet dit gelijk aan de opvulling van de kaarten ernaast als de
+                                callout daartussen staat.
+                            </p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="mymmoIngangPadMobile">Opvulling op een telefoon</label></th>
+                        <td>
+                            <input type="text" class="regular-text code" id="mymmoIngangPadMobile"
+                                   name="mymmo_entry_pad_mobile"
+                                   value="<?php echo esc_attr($waarde('pad_mobile')); ?>" placeholder="20px 16px">
+                            <p class="description">
+                                Apart, want een zijmarge die op een pagina klopt is op 375px te veel.
+                                Leeg = 20px 16px, ongeacht wat er hierboven staat.
+                            </p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="mymmoIngangTextPad">Inspringing van de tekst</label></th>
+                        <td>
+                            <input type="text" class="regular-text code" id="mymmoIngangTextPad"
+                                   name="mymmo_entry_text_pad"
+                                   value="<?php echo esc_attr($waarde('text_pad')); ?>" placeholder="28px 0 0">
+                            <p class="description">
+                                Extra ruimte rond de titel en de tekst, b&oacute;venop de opvulling
+                                hierboven &mdash; het uitgelichte onderdeel schuift dus niet mee. Zo laat
+                                je de titel op dezelfde lijn beginnen als de tekst in de kaarten ernaast.
+                                Leeg = de standaarduitlijning met het witte vlak.
+                            </p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="mymmoIngangTextPadMobile">Inspringing van de tekst op een telefoon</label></th>
+                        <td>
+                            <input type="text" class="regular-text code" id="mymmoIngangTextPadMobile"
+                                   name="mymmo_entry_text_pad_mobile"
+                                   value="<?php echo esc_attr($waarde('text_pad_mobile')); ?>" placeholder="24px 36px 0">
+                            <p class="description">
+                                Leeg = dezelfde waarde als hierboven. Onder 600px staat alles onder
+                                elkaar, dus hier bepaalt dit hoe ver de tekst inspringt terwijl het
+                                formulier de volle breedte houdt.
+                            </p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="mymmoIngangSpace">Ruimte boven en onder</label></th>
+                        <td>
+                            <input type="text" class="small-text code" id="mymmoIngangSpace"
+                                   name="mymmo_entry_space"
+                                   value="<?php echo esc_attr($waarde('space')); ?>" placeholder="48px">
+                            <p class="description">Leeg = 48px. Zet er <code>0</code> als je het tegen het blok erboven wil.</p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="mymmoIngangTitle">Titel</label></th>
+                        <td><input type="text" class="large-text" id="mymmoIngangTitle" name="mymmo_entry_title"
+                                   value="<?php echo esc_attr($waarde('title')); ?>"></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="mymmoIngangTitleMobile">Korte titel</label></th>
+                        <td>
+                            <input type="text" class="large-text" id="mymmoIngangTitleMobile"
+                                   name="mymmo_entry_title_mobile"
+                                   value="<?php echo esc_attr($waarde('title_mobile')); ?>"
+                                   placeholder="leeg = altijd de titel hierboven">
+                            <p class="description">
+                                Wordt getoond zodra het blok smaller is dan 620px &mdash; dus op een
+                                telefoon, en ook in een smalle kolom op een groot scherm. Een kop van
+                                vier regels op 375px leest als een fout.
+                            </p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="mymmoIngangText">Tekst</label></th>
+                        <td><input type="text" class="large-text" id="mymmoIngangText" name="mymmo_entry_text"
+                                   value="<?php echo esc_attr($waarde('text')); ?>"></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="mymmoIngangTitleGap">Ruimte tussen titel en tekst</label></th>
+                        <td>
+                            <input type="text" class="small-text code" id="mymmoIngangTitleGap"
+                                   name="mymmo_entry_title_gap"
+                                   value="<?php echo esc_attr($waarde('title_gap')); ?>" placeholder="10px">
+                            <p class="description">Leeg = 10px. Op elke breedte dezelfde.</p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="mymmoIngangCta">Knoptekst</label></th>
+                        <td><input type="text" class="regular-text" id="mymmoIngangCta" name="mymmo_entry_cta"
+                                   value="<?php echo esc_attr($waarde('cta')); ?>"
+                                   placeholder="leeg = het opschrift van het venster"></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="mymmoIngangImage">Afbeelding</label></th>
+                        <td>
+                            <input type="url" class="large-text code" id="mymmoIngangImage" name="mymmo_entry_image"
+                                   value="<?php echo esc_attr($waarde('image')); ?>" placeholder="https://...">
+                            <br>
+                            <input type="text" class="regular-text" name="mymmo_entry_image_alt"
+                                   value="<?php echo esc_attr($waarde('image_alt')); ?>"
+                                   placeholder="beschrijving (leeg bij sfeerbeeld)">
+                            <br>
+                            <input type="text" class="small-text code" name="mymmo_entry_image_scale"
+                                   value="<?php echo esc_attr($waarde('image_scale')); ?>" placeholder="120%">
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="mymmoIngangBg">Achtergrondkleur</label></th>
+                        <td><input type="text" class="regular-text code" id="mymmoIngangBg" name="mymmo_entry_bg"
+                                   value="<?php echo esc_attr($waarde('bg')); ?>"
+                                   placeholder="#a7f3e4 — leeg = een lichte tint van de accentkleur"></td>
+                    </tr>
+                </table>
+            </div>
+
+            <table class="form-table" role="presentation">
+                <tr>
+                    <th scope="row"><label for="mymmoIngangClass">Eigen klasse(n)</label></th>
+                    <td>
+                        <input type="text" class="regular-text code" id="mymmoIngangClass" name="mymmo_entry_class"
+                               value="<?php echo esc_attr($waarde('class')); ?>">
+                        <p class="description">Om de knop of het blok in je eigen stylesheet te kunnen aanwijzen.</p>
+                    </td>
+                </tr>
+            </table>
+
+            <p class="submit">
+                <button type="submit" class="button button-primary">
+                    <?php echo $huidig ? 'Ingang bijwerken' : 'Ingang bewaren'; ?>
+                </button>
+                <?php if ($huidig) : ?>
+                    <a class="button" href="<?php echo esc_url(self::tab_url(self::TAB_INGANGEN)); ?>">Nieuwe ingang</a>
+                <?php endif; ?>
+            </p>
+        </form>
+
+        <?php
+        // Alleen de velden van de gekozen soort tonen. Een handvol regels, dus
+        // hier en niet in een apart bestand; zonder JavaScript staat gewoon
+        // alles open en werkt het formulier evengoed.
+        echo wp_get_inline_script_tag(
+            '(function(){var f=document.getElementById("mymmoIngangForm");if(!f)return;'
+            . 'function toon(){var s=f.querySelector(\'input[name="mymmo_entry_soort"]:checked\');'
+            . 'var nu=s?s.value:"knop";'
+            . 'Array.prototype.forEach.call(f.querySelectorAll("[data-mymmo-ingang]"),function(b){'
+            . 'b.hidden=b.getAttribute("data-mymmo-ingang").split(" ").indexOf(nu)===-1;});}'
+            . 'f.addEventListener("change",function(e){if(e.target.name==="mymmo_entry_soort")toon();});'
+            . 'toon();}());'
+        );
+    }
+
+    /** Een regel die zegt wat deze ingang is, voor in de lijst. */
+    private static function ingang_omschrijving(array $ingang, array $stappen): string {
+        $soort = (string) $ingang['soort'];
+
+        if ($soort === 'knop') {
+            $label = (string) ($ingang['atts']['label'] ?? '');
+            return 'Knop' . ($label !== '' ? ': "' . $label . '"' : '');
+        }
+
+        if ($soort === 'klasse') {
+            return 'Klasse op een bestaand element';
+        }
+
+        $uitgelicht = (string) ($ingang['atts']['highlight'] ?? 'form');
+        if ($uitgelicht === 'calendly') {
+            $wat = 'de agenda';
+        } elseif ($uitgelicht === '' || $uitgelicht === 'form') {
+            $wat = 'het formulier';
+        } else {
+            $wat = 'stap "' . (string) ($stappen[$uitgelicht]['name'] ?? $uitgelicht) . '"';
+        }
+
+        $indeling = ((string) ($ingang['atts']['layout'] ?? '')) === 'breed'
+            ? 'volle breedte'
+            : 'twee kolommen';
+
+        return 'Callout met ' . $wat . ', ' . $indeling;
+    }
+
+    private static function ingangen_melding(): void {
+        $stand = isset($_GET['mymmo_entry']) ? sanitize_key(wp_unslash((string) $_GET['mymmo_entry'])) : '';
+        if ($stand === '') {
+            return;
+        }
+
+        $teksten = [
+            'opgeslagen'  => ['notice-success', 'De ingang is bewaard.'],
+            'verwijderd'  => ['notice-success', 'De ingang is verwijderd.'],
+            'geen-venster' => ['notice-error', 'Kies eerst het venster dat deze ingang opent.'],
+            'vol'         => ['notice-error', 'Er passen niet meer ingangen bij. Ruim er eerst een op.'],
+        ];
+
+        if (!isset($teksten[$stand])) {
+            return;
+        }
+
+        printf(
+            '<div class="notice %s is-dismissible"><p>%s</p></div>',
+            esc_attr($teksten[$stand][0]),
+            esc_html($teksten[$stand][1])
+        );
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -1137,6 +1676,7 @@ final class Mymmo_Forms_Settings {
                     </div>
                 </details>
 
+
                 <details class="mymmo-groep" data-mymmo-alleen="knop" hidden>
                     <summary>Knop</summary>
                     <div class="mymmo-groep-lijf">
@@ -1324,6 +1864,17 @@ final class Mymmo_Forms_Settings {
                             </label>
                             <input type="color" id="mymmoFormsIcon" value="#2563eb" hidden>
                             <span class="mymmo-hint">De vinkjes en de iconen in de tabbladen.</span>
+                        </div>
+
+                        <div class="mymmo-veld">
+                            <label class="mymmo-keuze" for="mymmoFormsPanelBreed">
+                                <input type="checkbox" id="mymmoFormsPanelBreed">
+                                Ruimer venster
+                            </label>
+                            <span class="mymmo-hint">Voor een stap die in de gewone breedte niet past --
+                                een rij keien bijvoorbeeld. Zonder dit worden dat drie rijen en krijgt
+                                het venster een schuifbalk. Staat er een agenda in, dan is het venster
+                                sowieso al breed.</span>
                         </div>
 
                         <div class="mymmo-veld">

@@ -146,6 +146,33 @@ function mymmo_forms_length(string $ruw): string {
 }
 
 /**
+ * Een OPVULLING: een tot vier lengtes, zoals `20px` of `20px 62px`.
+ *
+ * Elk deel gaat door mymmo_forms_length(), dus dezelfde vormcontrole als overal
+ * -- deze waarde belandt in een style-attribuut op de pagina van een bezoeker.
+ * Eén onbruikbaar deel maakt de hele waarde leeg en niet half: `20px banaan`
+ * zou anders `20px` opleveren, en dan staat er iets anders dan wat iemand typte
+ * zonder dat hij het merkt.
+ */
+function mymmo_forms_spacing(string $ruw): string {
+    $delen = preg_split('/\s+/', trim($ruw)) ?: [];
+    if ($delen === [] || count($delen) > 4) {
+        return '';
+    }
+
+    $uit = [];
+    foreach ($delen as $deel) {
+        $lengte = mymmo_forms_length((string) $deel);
+        if ($lengte === '') {
+            return '';
+        }
+        $uit[] = $lengte;
+    }
+
+    return implode(' ', $uit);
+}
+
+/**
  * Een VERSCHUIVING: dezelfde vorm als een lengte, maar mét minteken.
  *
  * Apart van mymmo_forms_length(), want die wordt ook voor opvulling gebruikt en
@@ -527,6 +554,199 @@ function mymmo_forms_wrap_style(array $theme, string $extra = ''): string {
 }
 
 /**
+ * De brug naar de stappenreeks, een keer per pagina.
+ *
+ * Het script van een stap draait tijdens het PARSEN van de pagina, en
+ * mymmo-forms-steps.js staat in de voettekst. `window.MymmoStappen` moet dus al
+ * bestaan voordat de eerste stap geparsed wordt; dit stukje bewaart de
+ * aanmeldingen in een rij die het echte script daarna afwerkt.
+ *
+ * Het hangt aan de stap-SECTIE en niet aan de reeks, omdat een callout zijn
+ * eerste stap eerder uitschrijft dan het venster eromheen. Stond de brug in
+ * templates/steps.php, dan kwam hij bij een callout te laat en deed het script
+ * van die stap niets -- zonder dat er iets zichtbaar stukging, want de
+ * schuifbalk zelf leest de reeks rechtstreeks uit.
+ */
+function mymmo_forms_stappen_brug(): string {
+    if (defined('MYMMO_FORMS_STAPPEN_BRUG')) {
+        return '';
+    }
+    define('MYMMO_FORMS_STAPPEN_BRUG', true);
+
+    $js = 'window.MymmoStappen=window.MymmoStappen||{_rij:[],stap:function(s,f){this._rij.push([s,f]);}};';
+
+    // wp_get_inline_script_tag() bestaat pas vanaf WordPress 5.7 (deze plugin
+    // vraagt 6.2, dus in de praktijk altijd) en ontbreekt in de proefopstellingen
+    // zonder WordPress. Een ontbrekende brug is hier geen detail: dan draait het
+    // script van een stap op niets.
+    return function_exists('wp_get_inline_script_tag')
+        ? wp_get_inline_script_tag($js)
+        : '<script>' . $js . '</script>';
+}
+
+/**
+ * EEN stap als sectie: titel, regel eronder, de HTML van de stap, de knoppen.
+ *
+ * Staat hier en niet in templates/steps.php omdat er twee plekken zijn die deze
+ * markup maken. De reeks in het venster maakt ze voor elke stap; een CALLOUT
+ * maakt ze voor de eerste stap apart, want die staat bij een callout in de
+ * PAGINA, in een kaartje met flavortekst eromheen.
+ *
+ * Het is nadrukkelijk hetzelfde element in beide gevallen: bij het openen van
+ * het venster VERHUIST het (zie mymmo-forms-steps.js), het wordt niet
+ * nagemaakt. De knoppenrij gaat dus gewoon mee -- in het kaartje staat ze uit
+ * de weg met CSS, want daar is de callout-knop de knop.
+ *
+ * @param array<string,mixed> $stap       een rij uit Mymmo_Forms_Steps::resolve()
+ * @param int                 $index      het nummer in de reeks (0 = de eerste)
+ * @param bool                $verbergen  begint deze stap verborgen?
+ */
+function mymmo_forms_stap_sectie(array $stap, int $index, bool $verbergen, string $terug_label, string $next_label): string {
+    $zelf = ($stap['nav'] ?? '') === Mymmo_Forms_Steps::NAV_ZELF;
+    $sub  = (string) ($stap['sub'] ?? '');
+
+    // De brug eerst, en alleen de eerste keer: het script van deze stap draait
+    // zodra de browser deze markup parseert.
+    $html = mymmo_forms_stappen_brug()
+        . '<section class="mymmo-stap mymmo-stap--html"'
+        . ' data-mymmo-stap="' . esc_attr((string) $index) . '"'
+        . ' data-mymmo-stap-naam="' . esc_attr((string) $stap['id']) . '"'
+        . ' data-mymmo-stap-velden="' . esc_attr(implode(',', (array) $stap['fields'])) . '"'
+        . ' data-mymmo-stap-nav="' . esc_attr($zelf ? 'zelf' : 'plugin') . '"'
+        . ($verbergen ? ' hidden' : '') . '>';
+
+    if ((string) ($stap['title'] ?? '') !== '') {
+        $html .= '<h3 class="mymmo-stap-titel' . ($sub !== '' ? ' mymmo-stap-titel--met-tekst' : '')
+            . '" data-mymmo-kop="titel">' . esc_html((string) $stap['title']) . '</h3>';
+    }
+    if ($sub !== '') {
+        $html .= '<p class="mymmo-stap-tekst" data-mymmo-kop="sub">' . esc_html($sub) . '</p>';
+    }
+
+    // Bewust ongefilterd. Dit is de hele reden dat de stappenpagina achter
+    // `unfiltered_html` zit: wat hier staat is door een beheerder geschreven,
+    // net als een Custom HTML-blok in een pagina.
+    //
+    // render_html() en niet $stap['html']: dat past de tekstaanpassingen toe die
+    // iemand in het voorbeeld van de bouwer maakte. Ze staan apart van de HTML
+    // bewaard, zodat het opnieuw inladen van het bestand ze niet wist.
+    $html .= '<div class="mymmo-stap-inhoud" data-mymmo-stap-inhoud>'
+        . Mymmo_Forms_Steps::render_html($stap)
+        . '</div>';
+
+    if (!$zelf) {
+        $html .= '<div class="mymmo-stap-nav">';
+        // De eerste stap heeft geen "Vorige" -- er is niets ervoor. Hij blijft
+        // wel in de rij staan (zichtbaar uitgeschakeld zou beloven dat er iets
+        // terug is), dus de knop wordt weggelaten en de "Volgende" staat rechts
+        // door justify-content.
+        if ($index > 0) {
+            $html .= '<button type="button" class="mymmo-stap-knop mymmo-stap-knop--terug" data-mymmo-vorige>'
+                . esc_html(($stap['back'] ?? '') !== '' ? (string) $stap['back'] : $terug_label)
+                . '</button>';
+        }
+        $html .= '<button type="button" class="mymmo-stap-knop mymmo-stap-knop--verder" data-mymmo-volgende>'
+            . esc_html(($stap['next'] ?? '') !== '' ? (string) $stap['next'] : $next_label)
+            . '</button></div>';
+    }
+
+    return $html . '</section>';
+}
+
+/**
+ * De sectie die in het kaartje van een callout staat.
+ *
+ * Precies dezelfde argumenten als de reeks in het venster, want het IS hetzelfde
+ * element: bij het openen verhuist het ernaartoe en bij het sluiten komt het
+ * terug (zie mymmo-forms-steps.js). Een tweede exemplaar zou de WAARDE nog
+ * kunnen overnemen maar niet de STAND van de bediening -- een schuifbalk wel,
+ * een vinkje dat een stap in zijn eigen script bijhoudt niet.
+ *
+ * `dok_index` telt in dezelfde reeks als templates/steps.php: 0..n-1 zijn de
+ * HTML-stappen, n is het formulier.
+ *
+ * @param array<string,mixed> $form
+ * @param array<string,mixed> $form_args  de args waarmee ook het venster rendert
+ */
+function mymmo_forms_gedokte_sectie(array $form, array $form_args): string {
+    $dok = isset($form_args['dok_index']) ? (int) $form_args['dok_index'] : -1;
+    if ($dok < 0 || !class_exists('Mymmo_Forms_Steps')) {
+        return '';
+    }
+
+    $lang    = (string) ($form_args['lang'] ?? 'nl');
+    $teksten = Mymmo_Forms_I18n::step_messages($form, $lang);
+
+    $ontbrekend = [];
+    $stappen    = Mymmo_Forms_Steps::resolve((string) ($form_args['steps'] ?? ''), $ontbrekend);
+
+    // Zelfde criterium als in templates/steps.php: terug van een mislukte
+    // inzending begint de reeks bij het formulier.
+    $start = is_array($form_args['flash'] ?? null) ? count($stappen) : 0;
+
+    if ($dok >= count($stappen)) {
+        return mymmo_forms_formulier_sectie(
+            $form,
+            $form_args,
+            $lang,
+            count($stappen),
+            count($stappen) !== $start,
+            (string) $teksten['back'],
+            count($stappen) > 0
+        );
+    }
+
+    return mymmo_forms_stap_sectie(
+        $stappen[$dok],
+        $dok,
+        $dok !== $start,
+        (string) $teksten['back'],
+        (string) $teksten['next']
+    );
+}
+
+/**
+ * De LAATSTE stap als sectie: het formulier zelf.
+ *
+ * Tegenhanger van mymmo_forms_stap_sectie(), en om dezelfde reden apart: een
+ * callout kan het formulier uitlichten in plaats van een stap. Dan staat deze
+ * sectie in de PAGINA en verhuist ze bij het openen naar het venster -- het is
+ * hetzelfde element, niet een tweede formulier. Twee formulieren zouden twee
+ * keer dezelfde veld-id's opleveren en elk <label> naar het verkeerde
+ * invoerveld laten wijzen.
+ *
+ * @param array<string,mixed> $form
+ * @param array<string,mixed> $form_args  alles wat templates/form.php nodig heeft
+ * @param bool                $met_terug  staat er een stap vóór dit formulier?
+ */
+function mymmo_forms_formulier_sectie(array $form, array $form_args, string $lang, int $index, bool $verbergen, string $terug_label, bool $met_terug): string {
+    // De laatste stap IS het formulier en heeft dus geen stap-record met een
+    // titel erin. Zonder kop begint stap 2 abrupt met een invoerveld terwijl
+    // stap 1 een titel en een regel uitleg had. Zie mymmo_forms_form_kop().
+    $kop_html = mymmo_forms_form_kop($form, array_merge($form_args, ['lang' => $lang]));
+
+    // De "Vorige" gaat MEE in het formulier, naast de verzendknop. Een eigen
+    // knoppenrij eronder zou twee rijen knoppen geven waarvan de onderste de
+    // belangrijkste niet is.
+    $formulier = mymmo_forms_render('form', array_merge($form_args, [
+        'step_back'  => $met_terug ? $terug_label : '',
+        // De kop staat hierboven al als stap-titel en regel uitleg; het
+        // formulier mag ze niet nog eens tonen.
+        'show_title' => $kop_html === '' ? ($form_args['show_title'] ?? true) : false,
+        'show_intro' => $kop_html === '' ? ($form_args['show_intro'] ?? null) : false,
+        'kop_html'   => '',
+    ]));
+
+    return '<section class="mymmo-stap mymmo-stap--formulier"'
+        . ' data-mymmo-stap="' . esc_attr((string) $index) . '"'
+        . ' data-mymmo-stap-naam="formulier"'
+        . ($verbergen ? ' hidden' : '') . '>'
+        . $kop_html
+        . $formulier
+        . '</section>';
+}
+
+/**
  * Het formulier, of een stappenreeks met het formulier als laatste stap.
  *
  * EEN plek waar die keuze valt, en beide aanroepers gaan erlangs: de shortcode
@@ -676,14 +896,19 @@ function mymmo_forms_render_form_zonder_stappen(array $form, array $form_args): 
 }
 
 function mymmo_forms_render_body(string $steps, array $form, string $slug, array $form_args): string {
-    if (trim($steps) === '' || !class_exists('Mymmo_Forms_Steps')) {
+    // Een DOK betekent dat een callout iets uit deze reeks in de pagina zet. Dan
+    // is er ook een reeks nodig als er geen enkele HTML-stap is: een callout die
+    // het FORMULIER uitlicht, licht de laatste stap van een reeks van één uit.
+    $dok = isset($form_args['dok_index']) ? (int) $form_args['dok_index'] : -1;
+
+    if ((trim($steps) === '' && $dok < 0) || !class_exists('Mymmo_Forms_Steps')) {
         return mymmo_forms_render_form_zonder_stappen($form, $form_args);
     }
 
     $ontbrekend = [];
     $stappen    = Mymmo_Forms_Steps::resolve($steps, $ontbrekend);
 
-    if ($stappen === []) {
+    if ($stappen === [] && $dok < 0) {
         // Geen enkele stap gevonden. Het formulier gewoon tonen is de juiste
         // terugval -- een bezoeker kan dan nog versturen -- maar een beheerder
         // moet weten dat de reeks weggevallen is, anders zoekt hij in de
@@ -702,10 +927,21 @@ function mymmo_forms_render_body(string $steps, array $form, string $slug, array
         'form_args'   => $form_args,
         'form'        => $form,
         'slug'        => $slug,
-        'wrap_id'     => mymmo_forms_wrap_id($slug, (string) ($form_args['instance_id'] ?? '')),
+        // Bij een callout draagt de wikkel van de callout de reeks, en die
+        // heeft haar id al. Zie mymmo_forms_wrap_id().
+        'wrap_id'     => (string) ($form_args['wrap_id'] ?? '') !== ''
+            ? (string) $form_args['wrap_id']
+            : mymmo_forms_wrap_id($slug, (string) ($form_args['instance_id'] ?? '')),
         'ontbrekend'  => $ontbrekend,
         'lang'        => (string) ($form_args['lang'] ?? 'nl'),
         'extra_style' => (string) ($form_args['extra_style'] ?? ''),
+        // NAAKT: de reeks krijgt hier geen eigen `data-mymmo-stappen`-wikkel.
+        // Die staat dan om het venster EN de callout heen -- zie
+        // templates/callout.php. Zonder dat zou de stap in de pagina buiten
+        // zijn eigen reeks vallen en nergens een waarde kwijt kunnen.
+        'naakt'       => !empty($form_args['naakt']),
+        // Welke stap er in de pagina staat in plaats van hier. -1 = geen.
+        'dok_index'   => isset($form_args['dok_index']) ? (int) $form_args['dok_index'] : -1,
     ]);
 }
 

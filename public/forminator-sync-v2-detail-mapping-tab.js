@@ -109,6 +109,11 @@
         opTypeLbl = _mlLbl ? ('Mail naar ' + _mlLbl) : 'Mail versturen';
         if (!target.label) stepName = 'Mail';
       }
+      if (target.operation_type === 'generate_pdf') {
+        var _pdfLbl = target.odoo_model ? window.FSV2.modelLabel(target.odoo_model) : '';
+        opTypeLbl = _pdfLbl ? ('PDF bij ' + _pdfLbl) : 'PDF genereren';
+        if (!target.label) stepName = 'PDF';
+      }
       if (target.operation_type === 'create_activity') {
         opTypeLbl = 'Activiteit aanmaken';
         if (!target.label) stepName = 'Activiteit';
@@ -135,17 +140,26 @@
         // mail_res_id_source — geen van beide als mapping.
         var _actResIdSrc  = target.operation_type === 'create_activity' ? (target.activity_res_id_source || '') : '';
         var _mailResIdSrc = target.operation_type === 'send_mail'       ? (target.mail_res_id_source     || '') : '';
+        var _pdfResIdSrc     = target.operation_type === 'generate_pdf' ? (target.pdf_res_id_source        || '') : '';
+        var _pdfContactSrc   = target.operation_type === 'generate_pdf' ? (target.pdf_contact_source_value || '') : '';
         var chainSourceRows = (S().detail._extraRowsByTarget && S().detail._extraRowsByTarget[tid])
           ? S().detail._extraRowsByTarget[tid].map(function (r) { return normalizeSv(r.staticValue); })
           : ((S().detail.mappingsByTarget && S().detail.mappingsByTarget[target.id]) || [])
               .filter(function (m) { return m.source_type === 'previous_step_output'; })
               .map(function (m) { return normalizeSv(m.source_value); });
-        // Voeg activity_res_id_source/mail_res_id_source toe als die niet al via mappings is opgenomen
+        // Voeg activity_res_id_source/mail_res_id_source/pdf_*_source toe als
+        // die niet al via mappings is opgenomen
         if (_actResIdSrc && !chainSourceRows.includes(_actResIdSrc)) {
           chainSourceRows = chainSourceRows.concat([_actResIdSrc]);
         }
         if (_mailResIdSrc && !chainSourceRows.includes(_mailResIdSrc)) {
           chainSourceRows = chainSourceRows.concat([_mailResIdSrc]);
+        }
+        if (_pdfResIdSrc && !chainSourceRows.includes(_pdfResIdSrc)) {
+          chainSourceRows = chainSourceRows.concat([_pdfResIdSrc]);
+        }
+        if (_pdfContactSrc && !chainSourceRows.includes(_pdfContactSrc)) {
+          chainSourceRows = chainSourceRows.concat([_pdfContactSrc]);
         }
         chainSourceRows.forEach(function (sourceVal) {
           // Ook step.N.<veld>, niet enkel step.N.record_id: een koppeling die
@@ -174,6 +188,7 @@
         create_activity:  'calendar',
         mailing_list:     'mail',
         search:           'search',
+        generate_pdf:     'file-text',
       };
       var _opIcon = _opIcons[target.operation_type] || 'refresh-cw';
 
@@ -199,6 +214,7 @@
       var _cardIcon  = target.operation_type === 'chatter_message' ? 'pencil-line'
                      : target.operation_type === 'create_activity'  ? 'user'
                      : target.operation_type === 'send_mail'        ? 'send'
+                     : target.operation_type === 'generate_pdf'     ? 'file-text'
                      : target.operation_type === 'search'           ? 'search'
                      : (actionCfg.icon || null);
       html +=           '<div class="min-w-0">';
@@ -206,7 +222,7 @@
                            (_cardIcon ? '<i data-lucide="' + esc(_cardIcon) + '" class="w-4 h-4 shrink-0 opacity-60"></i>' : '') +
                            esc(stepName) + '</div>';
       html +=             '<div class="flex flex-wrap items-center gap-x-2.5 gap-y-0 mt-0.5 text-xs text-base-content/50">';
-      if (target.operation_type !== 'chatter_message' && target.operation_type !== 'send_mail') {
+      if (target.operation_type !== 'chatter_message' && target.operation_type !== 'send_mail' && target.operation_type !== 'generate_pdf') {
         html +=               '<span class="font-mono">' + esc(target.odoo_model) + '</span>';
         html +=               '<span>·</span>';
       }
@@ -464,7 +480,7 @@
       // Callout 3: Koppeling vorige stap (niet voor mail: een mail wordt niet
       // aan een andere stap gekoppeld, hij wordt gewoon klaargezet en
       // verstuurd — dit koppelkader zou hier enkel leeg opengaan).
-      if (!isFirst && target.operation_type !== 'send_mail') {
+      if (!isFirst && target.operation_type !== 'send_mail' && target.operation_type !== 'generate_pdf') {
         html += '<div class="border border-base-200 rounded-xl overflow-hidden">';
         html +=   '<div class="flex items-center gap-3 px-3.5 py-2.5 cursor-pointer hover:bg-base-200/60 transition-colors select-none"' +
                     ' data-action="toggle-step-chain" data-target-id="' + esc(tid) + '">' +
@@ -698,6 +714,14 @@
       // antwoord, zonder een tweede mechanisme.
       if (target.operation_type === 'send_mail') {
         window.FSV2.renderMailComposer(target, tid, sortedTargets);
+        renderStepConditionSection(target, tid, flatFields);
+        return;
+      }
+      // generate_pdf: de pdf-composer i.p.v. een MappingTable -- deze stap
+      // schrijft geen velden naar Odoo, hij genereert een document. De
+      // conditie-sectie komt er wél bij, zelfde reden als bij send_mail.
+      if (target.operation_type === 'generate_pdf') {
+        window.FSV2.renderPdfComposer(target, tid, sortedTargets);
         renderStepConditionSection(target, tid, flatFields);
         return;
       }
@@ -1446,7 +1470,7 @@
   // hieronder een eigen inhoud-per-fase-editor (renderStepFaseContentSection),
   // want "uitvoeren/niets doen" is voor een mail of notitie overkill — je wil
   // net zo goed meteen een eigen tekst per fase kunnen intypen.
-  var ACTIE_STAPPEN = ['create_activity', 'mailing_list'];
+  var ACTIE_STAPPEN = ['create_activity', 'mailing_list', 'generate_pdf'];
 
   function faseGedragOpties(target) {
     return ACTIE_STAPPEN.indexOf(target.operation_type) !== -1 ? FASE_GEDRAG_ACTIE : FASE_GEDRAG_RECORD;
@@ -1911,6 +1935,9 @@
     if (target.operation_type === 'send_mail') {
       return window.FSV2.handleSaveMailComposer(tid);
     }
+    if (target.operation_type === 'generate_pdf') {
+      return window.FSV2.handleSavePdfComposer(tid);
+    }
 
     var mcEl = document.getElementById('det-mc-' + tid);
     if (!mcEl) { window.FSV2.showAlert('Editor niet gevonden.', 'error'); return; }
@@ -2113,6 +2140,23 @@
         var _m = t.activity_res_id_source.match(/^step\.([^.]+)\.record_id$/);
         if (_m) ords.push(Number(_m[1]));
       }
+      // generate_pdf: pdf_res_id_source (welk record) en pdf_contact_source_value
+      // (dynamische contactpersoon) wijzen allebei naar een vorige stap, zelfde
+      // vorm als activity_res_id_source hierboven.
+      [t.pdf_res_id_source, t.pdf_contact_source_value].forEach(function (bron) {
+        if (!bron) return;
+        var _pm = String(bron).match(/^step\.([^.]+)\.record_id$/);
+        if (_pm) ords.push(Number(_pm[1]));
+      });
+      // send_mail met een pdf_step-bijlage: de pdf-stap moet VOOR de mailstap
+      // staan, anders bestaat het attachment nog niet op het moment van sturen.
+      if (Array.isArray(t.mail_attachments)) {
+        t.mail_attachments.forEach(function (att) {
+          if (!att || att.type !== 'pdf_step') return;
+          var pdfTarget = sorted.find(function (s) { return String(s.id) === String(att.targetId); });
+          if (pdfTarget) ords.push(window.FSV2.getTargetOrder(pdfTarget, 0));
+        });
+      }
       // Alle mappings met source_type === 'previous_step_output'
       // (chatter _chatter_record_id én gewone chain-links zoals Contact → Lead)
       var _maps = (S().detail.mappingsByTarget && S().detail.mappingsByTarget[t.id]) || [];
@@ -2232,6 +2276,8 @@
       'activity_type_id', 'activity_deadline_offset', 'activity_summary_template',
       'activity_user_id', 'activity_res_id_source', 'activity_user_mode', 'activity_user_pool',
       'search_on_not_found',
+      'pdf_template_id', 'pdf_res_id_source', 'pdf_contact_source',
+      'pdf_contact_employee_id', 'pdf_contact_source_value', 'pdf_filename_template',
     ];
     extraFields.forEach(function (k) {
       if (source[k] !== undefined && source[k] !== null) newTargetPayload[k] = source[k];

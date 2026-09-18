@@ -1004,6 +1004,154 @@ Afspraken die bewust zo zijn:
 
 ---
 
+## Koppelingen — ingangen naar een venster (2026-09)
+
+**Regel: een OPSTELLING is het venster. Hoe het opengaat is een INGANG, en die
+staan in een eigen lijst. Er zijn er zoveel als je wil, van drie soorten: een
+knop, een klasse op een bestaand element, en een callout.**
+
+Waarom dit apart staat: zolang "hoe toon je het" een keuze IN de opstelling was,
+had je per manier een kopie van het hele venster nodig -- en dan moet je bij elke
+wijziging raden welke kopie waar staat. Nu is er één venster en een lijst
+ingangen ernaast; een callout voor een nieuwe stap is één rij erbij.
+
+| Wat | Waar |
+|---|---|
+| Opslag, soorten, CRUD, `[mymmo_form_entry]` | `wp-plugin/mymmo-forms/includes/class-entrypoints.php` (option `mymmo_forms_entrypoints`) |
+| Een ingang renderen | `Mymmo_Forms_Shortcodes::render_ingang()` |
+| Het kaartje tekenen | `templates/callout.php` + `assets/css/mymmo-forms-callout.css` |
+| De gedokte sectie (stap of formulier) | `mymmo_forms_gedokte_sectie()` / `mymmo_forms_stap_sectie()` / `mymmo_forms_formulier_sectie()` in `includes/helpers.php` |
+| De brug naar de reeks | `mymmo_forms_stappen_brug()`, idem |
+| Verhuizen bij openen/sluiten | `Reeks.plaats()` in `assets/js/mymmo-forms-steps.js` |
+| Het sein daarvoor | `meldVenster()` in `assets/js/mymmo-forms-modal.js` (`mymmo:venster`) |
+| Een agenda buiten een venster | `laadAgendaVlak()` / `losseAgendas()` in modal.js |
+| Beheerscherm | tabblad "Ingangen" in `includes/class-settings.php` (`render_ingangen()`) |
+| Zonder WordPress bekijken | `php wp-plugin/mymmo-forms-callout-preview.php <stap\|form\|calendly> <kolommen\|breed>` |
+
+Afspraken die bewust zo zijn:
+
+- **Een callout licht EEN onderdeel uit: een stap, het formulier of de agenda.**
+  Bij een stap wordt die ook de EERSTE van het venster (`steps_met_eerst()`) --
+  de bezoeker heeft hem in de pagina al beantwoord, dus hij hoort daar vooraan.
+  Staat de genoemde stap niet in `steps`, dan komt hij er alsnog voor: hem
+  noemen betekent dat hij erbij hoort.
+- **TWEE INDELINGEN, en er is geen derde.** `kolommen` (onderdeel naast titel,
+  tekst en afbeelding) en `breed` (titel en tekst boven, onderdeel op volle
+  breedte, knop rechtsonder). Voer geen derde in.
+- **Er wordt NIETS weggelaten uit een stap.** De tekening van het gebouw bij de
+  schuifbalk is precies de ervaring waarvoor een callout bestaat. Er was even een
+  `callout_hide` om iets uit het kaartje te knippen; die is er bewust weer uit.
+- **Een stap of het formulier VERHUIST.** Een kopie kan de WAARDE overdragen maar
+  niet de STAND van de bediening: een schuifbalk nog wel, een vinkje dat een stap
+  in zijn eigen script bijhoudt (`commerciele_kavels`) niet. Dan staat er in het
+  venster iets anders dan wat de bezoeker aanklikte -- zelfde faalmodus als de
+  `is_company`-bug. Daarom ligt de `data-mymmo-stappen`-wikkel bij een callout OM
+  het kaartje EN het venster heen (`.mymmo-modal-launch`, `display:contents`), en
+  rendert de reeks in het venster NAAKT: zonder eigen wikkel, met een anker
+  (`data-mymmo-thuis`) op de plek waar het onderdeel hoort.
+- **`this.stappen` sorteert op `data-mymmo-stap`, niet op DOM-volgorde.** Het
+  kaartje staat vóór het venster; licht je het FORMULIER uit (de laatste stap),
+  dan staat dat als eerste in de DOM. Zonder die sortering schuift elke index een
+  plaats op en dokt de reeks de verkeerde sectie -- je ziet dan het formulier met
+  de laatste vraag eronder, en dat leest als een fout in het formulier zelf.
+- **Een callout hangt aan het tabblad waar haar stap staat, niet altijd aan
+  `form`.** Een venster kan TWEE reeksen hebben: `steps` op het formulier-tabblad
+  en `extra_steps` op het derde. `tabblad_van_stap()` zoekt op in welke lijst de
+  uitgelichte stap staat. Stond dit vast op `form`, dan werd de reeks bij het
+  verkeerde formulier gerenderd -- dat de verborgen velden van die stappen niet
+  heeft. Zichtbaar als: het tabblad "Stuur een bericht" toont de stappenreeks, plus
+  een beheerdersmelding dat `aantal_kavels` nergens heen kan.
+- **`this.formulier` zoekt binnen `[data-mymmo-stappen-inhoud]`.** Bij een callout
+  ligt de wikkel om het HELE venster heen, en dat kan meerdere formulieren
+  bevatten. Het eerste pakken betekende dat een stap zijn waarde in het formulier
+  van een ander tabblad schreef, waar die verborgen velden niet bestaan: geen
+  foutmelding, gewoon niets in Odoo. De naakte reeks zet dat merkteken zelf.
+- **De callout breekt uit de inhoudskolom** (`margin-left:50%` +
+  `translateX(-50%)`, breedte `min(--mf-callout-max, calc(100vw - 40px))`). Geen
+  `100vw`: die telt de schuifbalk mee en geeft dan een horizontale schuifbalk over
+  de hele pagina. De transform raakt het venster niet -- dat is een SIBLING van de
+  callout, geen kind.
+- **Breedte, verdeling en ruimte staan bij de INGANG, niet in de code.** De
+  verdeling gaat door `Mymmo_Forms_Entrypoints::VERDELINGEN`, een gesloten lijst:
+  die waarde belandt in een style-attribuut op de pagina van een bezoeker.
+- **De AGENDA verhuist niet.** Een iframe dat je verplaatst laadt opnieuw, en dan
+  staat de bezoeker terug op de maandweergave. Er is ook niets over te dragen
+  zolang er geen uur gekozen is. Het kaartje krijgt dus een eigen kalender;
+  `losseAgendas()` in modal.js bouwt elke agenda die niet in een venster staat.
+- **Het kaartje wordt in `templates/modal.php` gemaakt, niet in de shortcode.**
+  Het uitgelichte onderdeel is hetzelfde element als in het venster -- zelfde
+  `instance_id`, zelfde anker, zelfde verborgen velden -- en die argumenten
+  worden per tabblad daar samengesteld. Het venster gaat daarom in een
+  `ob_start()`-buffer: het kaartje wordt onderweg opgebouwd maar hoort op het
+  scherm ervóór.
+- **`window.MymmoStappen` hangt aan de stap-SECTIE, niet aan de reeks.** Een
+  callout schrijft zijn onderdeel eerder uit dan het venster eromheen. Stond de
+  brug nog in `templates/steps.php`, dan draaide het script van die stap op een
+  moment dat `MymmoStappen` nog niet bestond -- en dan doet dat script niets,
+  zonder dat er zichtbaar iets stukgaat: de schuifbalk werkt nog, want die leest
+  de reeks rechtstreeks uit (`data-mymmo-waarde`). Dit is echt misgegaan.
+- **`eigenLijst()` filtert op `closest('[data-mymmo-stappen]') === wikkel`.** Bij
+  een callout ligt de wikkel om het hele venster heen; zonder die filter zou een
+  derde tabblad met eigen stappen zijn stappen aan de verkeerde reeks geven. Het
+  FORMULIER wordt binnen `[data-mymmo-stappen-inhoud]` gezocht, want een tabblad
+  zonder stappen zit niet in een geneste reeks en zou anders eerst gevonden worden.
+- **De kolommen reageren op de breedte van het BLOK (container query), niet op
+  die van het scherm.** Een callout staat in de inhoudskolom van een pagina, en
+  die is vaak smaller dan het venster; met een media query op 860px kreeg je één
+  kolom op een plek waar er twee pasten -- en dat zie je pas op de site. Daarvoor
+  staat het grid op een eigen `.mymmo-callout-raster`: een element kan niet
+  reageren op zijn eigen container. Verhouding 1:2.
+- **`mymmo-forms-steps.js` staat in de KOP, zonder afhankelijkheid.** Het script
+  van een stap draait tijdens het parsen en verwacht `window.MymmoStappen`. Dat
+  kwam uit een inline stukje -- en dat is precies wat een cache- of
+  optimalisatieplugin naar de voettekst verplaatst. Dan gooit het script van de
+  stap en hangt er geen enkele luisteraar: de schuifbalk schuift wel (die leest
+  de reeks rechtstreeks uit via `data-mymmo-waarde`), maar het getal en de
+  tekening bewegen niet mee. Dat is precies hoe het zich op de site voordeed.
+  De inline brug blijft als vangnet, en modal.php zet hem bij een callout als
+  eerste in de wikkel -- anders kan een ander tabblad hem in het venster
+  uitschrijven, en dat staat door de buffer NA het kaartje.
+- **GEEN SCHUIFBALKEN.** In `mymmo-forms-callout.css` staat geen enkele
+  `overflow` en geen enkele vaste hoogte. Past een stap niet in twee kolommen,
+  dan is dat een reden voor `breed`; past hij in het VENSTER niet, dan voor
+  `panel="breed"` (`.mymmo-modal-panel--ruim`, 940px). Dat laatste staat bewust
+  los van `--breed` (de agenda): die legt ook een vaste hoogte op, en dat zou van
+  een korte stap een half leeg vlak maken.
+- **Op MOBIEL toont het venster alleen het tabblad dat de ingang koos.** Kop,
+  inleiding en de rij tabbladen vallen weg -- die stonden alle drie bovenaan en
+  duwden samen het eigenlijke scherm een halve telefoonhoogte naar beneden,
+  terwijl de bezoeker net geklikt had en dus al gezegd had wat hij wou. De
+  tabbladen die hij NIET koos staan onderaan op de tint van het venster (`order`
+  op `.mymmo-modal-main`/`-aside`), zodat ze lezen als extra acties. Het actieve
+  tabblad staat er niet bij.
+  Die regels staan ACHTERAAN `mymmo-forms-modal.css`, in een tweede
+  `@media (max-width: 640px)`: de bestaande mobiele regels zetten o.a.
+  `.mymmo-modal-lead { display: -webkit-box }`, en bij gelijke specificiteit wint
+  de laatste. Ervoor zetten werkte dus niet -- de inleiding bleef staan.
+- **`bg`, `radius` en `tab` mogen op de SHORTCODE staan**
+  (`Mymmo_Forms_Entrypoints::SHORTCODE_ATTS`), en winnen dan van wat er bij de
+  ingang staat. Bewust een korte lijst: alles overschrijfbaar maken haalt de
+  reden weg waarom ingangen bestaan. `bg="transparent"` is een geldige keuze en
+  geen kleur -- `mymmo_forms_color()` laat dat sleutelwoord terecht niet door
+  (die functie voedt ook het thema van het formulier), dus het staat apart in
+  `callout_stijl()`.
+- **`tab` geldt alleen voor een KNOP of een KLASSE.** Bij een callout volgt het
+  tabblad uit wat ze uitlicht; een ander tabblad zou het uitgelichte onderdeel
+  nergens heen laten gaan.
+- **Een KLASSE-ingang heeft evengoed een shortcode.** Het venster moet ergens op
+  de pagina staan voor er iets te openen valt; die shortcode toont zelf niets
+  (`button="no"`) en zet enkel `trigger=".jouw-klasse"`. Het beheerscherm zegt dat
+  er expliciet bij -- anders zet iemand de klasse op zijn knop en gebeurt er niets.
+- **Elke ingang rendert het venster van haar opstelling.** Twee ingangen op één
+  pagina betekent dus twee exemplaren van dat venster in de DOM. Dat werkt (er
+  staat er altijd maar één open) en de CONFIGURATIE staat nog steeds op één plek,
+  wat het punt is. Delen kan niet zomaar: een callout herordent de stappen, dus
+  haar venster is niet hetzelfde als dat van een knop ernaast.
+- **Nog niet gebouwd, bewust:** een voorbeeld van een ingang in het beheerscherm.
+  Je ziet hem pas op een (concept)pagina. De bouwer toont wel het venster zelf.
+
+---
+
 ## Koppelingen — Calendly als vierde bron (2026-09)
 
 **Regel: een Calendly-koppeling heeft een VASTE eerste stap die de afspraak naar
@@ -1405,6 +1553,109 @@ Afspraken die bewust zo zijn:
 - **Het voorbeeld ("Verversen") meldt terug of elk bestand er nog staat**
   (`describeMailAttachments` → `data.attachments[].missing`). Zo zie je het in de
   editor, niet pas bij een mislukte indiening.
+
+## Koppelingen — pdf-stap (2026-09)
+
+**Regel: een koppeling kan een `generate_pdf`-stap toevoegen die een
+module-breed sjabloon (`fs_v2_pdf_templates`, dezelfde vorm als
+`window.OFFERTE_DATA`/`window.OFFERTE_VELDEN` uit `public/offerte-data.js`)
+vult, rendert en als `ir.attachment` uploadt.** De renderer is `public/
+offerte-render.js` zelf, gedraaid in een echte headless browser (Cloudflare
+Browser Rendering) -- er bestaat GEEN tweede, server-side kopie van de
+offerte-layout. Zie `docs/plan-offerte-pdf-stap.md` voor de volledige
+onderbouwing en de afwegingen die hieronder terugkomen.
+
+| Wat | Waar |
+|---|---|
+| Sjabloon (module-breed, seed = `offerte-data.js`) | tabel `fs_v2_pdf_templates`, migratie `20260918120000_fsv2_pdf_templates.sql` |
+| Zes nieuwe kolommen op de stap | `fs_v2_targets`, migratie `20260918120100_fsv2_pdf_step.sql` |
+| Gegevens vullen, contactpersoon, renderen, uploaden, idempotentie | `src/modules/forminator-sync-v2/pdf-step.js` |
+| Aansluiting in de pipeline | `worker-handler.js`, blok `opType === 'generate_pdf'` (voor het `send_mail`-blok) |
+| Sjabloon-CRUD + testgeneratie | `GET/POST/PUT/DELETE /api/pdf-templates(/:id)`, `POST /api/targets/:id/pdf-test` in `routes.js` |
+| Bijlage bij een `send_mail`-stap | `mail-attachments.js` (`splitMailAttachments`), `mail-step.js` |
+| Composer in het detailscherm | `public/forminator-sync-v2-detail-pdf-composer.js` |
+| Instellingen -> PDF-ontwerpen (lijst, niet de editor zelf) | `public/forminator-sync-v2-settings.js` |
+| De editor zelf | `public/offerte.html?template=<id>` (laadt/bewaart via de sjabloon-CRUD-routes, i.p.v. enkel `localStorage`) |
+
+Afspraken die bewust zo zijn:
+
+- **Een renderer.** `renderPdf()` in `pdf-step.js` navigeert Browser Rendering
+  naar `/offerte.html?server=1` en roept `window.OFFERTE.zet({gegevens, copy})`
+  aan -- die functie bestond al in `offerte-render.js`. Er is bewust GEEN
+  tweede, lichte previewmotor gebouwd (ook niet voor de testroute): dat zou
+  het twee-renderers-probleem zijn dat elders in deze module telkens vermeden
+  wordt (zie `form-preview-parity-test.mjs`).
+- **De invulvelden zijn gewone `fs_v2_mappings`-rijen.** `odoo_field` is hier
+  geen echt Odoo-veld maar het PAD in de `gegevens` van het sjabloon (bv.
+  `gebouw.adres`). Zo hergebruikt de stap dezelfde bronnen (formulierveld /
+  vorige stap / vaste tekst) als de rest van de pipeline, in plaats van een
+  vierde mapping-mechanisme te verzinnen. Een ongemapt veld houdt gewoon de
+  standaardwaarde van het sjabloon -- `buildPdfGegevens()` schrijft alleen
+  paden die in `template.data.velden` voorkomen; een verdwenen of hernoemd pad
+  wordt genegeerd (met een waarschuwing), niet fataal.
+- **De contactpersoon is GEEN gegevens-veld.** `pdf_contact_source` (`fixed` |
+  `dynamic` | leeg) bepaalt of naam/e-mail/foto uit een vast gekozen
+  `hr.employee`-id komen, uit het record-id dat een vorige stap opleverde, of
+  gewoon uit het sjabloon blijven staan. De foto gaat als `data:image/...;
+  base64,...` het `<img>`-element in -- `image_512` (niet `image_1920`, die
+  kan te groot zijn voor `page.evaluate`).
+- **Idempotentie zit op een marker in het attachment, niet op `action_result`.**
+  `pdf_generated`/`pdf_reused` staan niet in de lijst die `shouldSkipOnRetry()`
+  in `worker-handler.js` overslaat, dus de stap draait bij elke retry gewoon
+  opnieuw. Om dan geen tweede pdf te maken, zoekt `runGeneratePdfStep()` eerst
+  op de omschrijving `"OM pdf-stap target:<id> submission:<id>"` op
+  `ir.attachment` en hergebruikt die als ze bestaat. Een REPLAY (nieuw
+  `submissionId`) maakt bewust wel een nieuwe pdf -- dat is de bedoeling, met
+  de nieuwste gegevens.
+- **`pdf_failed` is net als `mail_failed` NIET automatisch replaybaar.**
+  `classifyFinalSubmissionStatus()` telt enkel `failed`/`pipeline_abort` mee;
+  een indiening met een mislukte pdf-stap maar verder geslaagde stappen komt
+  op `success` te staan. Bewust niet aangepast: dat zou alle koppelingen
+  raken. Zie `docs/plan-offerte-pdf-stap.md` open punt O2 als dat ooit anders
+  moet.
+- **De mailbijlage kent twee vormen.** `fs_v2_targets.mail_attachments` blijft
+  `[{key, name}]` voor een statisch Asset Manager-bestand; `{type: 'pdf_step',
+  targetId, name}` verwijst naar het `ir.attachment` dat een `generate_pdf`-stap
+  MET DIE TARGET-ID zonet in dezelfde inzending maakte -- bewust het target-id
+  en geen stapnummer, want `execution_order` verandert bij het verplaatsen van
+  stappen. `splitMailAttachments()` in `mail-attachments.js` scheidt de twee
+  vormen voor de bestaande R2-code, die verder ongewijzigd blijft.
+  `resolveMailAttachments()` leest voor een `pdf_step`-item rechtstreeks
+  `contextObject['pdf.<targetId>.attachment_id']` -- geen R2, geen cache nodig,
+  het bestaat al. Ontbreekt die sleutel (pdf-stap mislukt, overgeslagen, of
+  staat NA de mailstap), dan gooit dat dezelfde `MailAttachmentError` als een
+  verdwenen R2-bestand: de mail wordt dan niet klaargezet in plaats van zonder
+  offerte te vertrekken.
+- **De volgordebewaking (`_linkedOrders()` in `-detail-mapping-tab.js`) kent
+  drie nieuwe afhankelijkheden**: `pdf_res_id_source`, `pdf_contact_source_value`
+  (beide zelfde vorm als `activity_res_id_source`) en, voor een mailstap, elke
+  `pdf_step`-bijlage die naar een vroegere stap wijst. Een stap verplaatsen die
+  dit zou breken wordt geweigerd, in beide richtingen.
+- **De pipeline draait synchroon binnen het verzoek; de WP-plugin wacht
+  maximaal 15 s.** `renderPdf()` heeft daarom een tijdsbudget van 9 s
+  (`RENDER_TIMEOUT_MS`) -- bij overschrijding faalt de stap netjes
+  (`pdf_failed`, met dezelfde beperking op replay als hierboven) in plaats van
+  de hele indiening te laten vastlopen. Of dit op termijn naar een asynchroon
+  pad moet (Queue/Workflow), staat als open punt O1 in het plan-document --
+  eerst meten bij een echte inzending.
+- **Browser Rendering vereist een aparte Cloudflare-binding** (`"browser": {
+  "binding": "BROWSER" }` in `wrangler.jsonc`) **en de `@cloudflare/puppeteer`
+  -dependency**, plus dat Browser Rendering effectief aanstaat op het account
+  (Workers Paid, eigen quotum) -- controleren voor de eerste deploy na deze
+  wijziging.
+- **De editor (`offerte.html`) is bewust NIET verplaatst.** Ze blijft een
+  volwaardige, zelfstandige pagina met eigen toolbar/dialogen; Instellingen ->
+  PDF-ontwerpen beheert enkel de LIJST (naam, gebruikt-in-hoeveel-stappen,
+  aanmaken/hernoemen/verwijderen) en "Bewerken" opent de editor in een nieuw
+  tabblad -- geen iframe-inbedding, geen tweede bewerklaag naast het echte
+  voorbeeld, zelfde afweging als bij de mailstudio.
+- **`offerte.html` staat, zoals elk bestand in `public/`, zonder auth-gate
+  rechtstreeks bloot** (Cloudflare's `assets`-binding serveert het voor
+  `index.js`, geen `run_worker_first` in `wrangler.jsonc`) -- bestaand gedrag,
+  niet iets dat deze wijziging introduceert. Onschadelijk hier: het sjabloon
+  bevat enkel standaardwaarden (bedrijfsnaam, demo-klant), nooit klantdata van
+  een echte inzending; de `/api/pdf-templates*`-routes die het sjabloon
+  LEZEN/BEWAREN zitten wel achter de normale auth-gate.
 
 ## mini-apps — geplande vs. criteria-taken (2 aparte "onbemand versturen"-bouwblokken)
 

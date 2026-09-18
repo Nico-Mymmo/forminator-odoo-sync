@@ -1,0 +1,695 @@
+/* ==========================================================================
+   Offerte gebouwbeheer — stylesheet
+
+   Eén A4-sjabloon dat op het scherm hetzelfde toont als op papier. Alles wat
+   je zou willen bijstellen staat als variabele bovenaan; de rest van dit
+   bestand gebruikt uitsluitend die variabelen.
+
+   MATEN ZIJN IN MILLIMETER, NIET IN PIXELS. Een A4 is 210 x 297 mm, en de
+   browser rekent mm bij het afdrukken exact om. Zet je een marge in px, dan
+   klopt ze op het scherm en niet op papier (of omgekeerd, afhankelijk van de
+   zoom). Lettergroottes staan wel in px: die zijn afgemeten op het origineel
+   (2522 px breed = 210 mm, dus 1 px origineel = 0,3147 CSS-px).
+
+   DE DRIE INZETTEN (horizontaal), afgemeten op het origineel:
+     6,5 mm   de lijn onder de kop en boven de voet
+    11,5 mm   de gekleurde panelen (hero, oproep onderaan)
+    18,5 mm   alle gewone tekst
+   De paginapadding is de kleinste van de drie; .ov-body zet daar de rest
+   bovenop en de panelen trekken zich met een negatieve marge weer terug naar
+   buiten. Zo staat elke waarde één keer.
+   ========================================================================== */
+
+:root{
+  /* --- kleuren -------------------------------------------------------- */
+  --ov-blauw:          #0369a1;  /* titels, accenten, opsommingen          */
+  --ov-blauw-diep:     #075985;  /* de grote titel op pagina 1             */
+  --ov-blauw-licht:    #e0f2fe;  /* vlak achter de stapnummers             */
+  --ov-blauw-vlak:     #f0f9ff;  /* vlak van de tabellen en de prijskaart  */
+  --ov-mint:           #99f6e4;  /* merkkleur uit het logo                 */
+  --ov-mint-band:      #ccfbf1;  /* kopregel van de vergelijkingstabel     */
+  --ov-mint-vlak:      #f0fdfa;  /* hero en oproep onderaan                */
+  --ov-roze-vlak:      #fdf2f8;  /* kaart van de opstartkost               */
+  --ov-inkt:           #3f4a56;  /* lopende tekst                          */
+  --ov-inkt-diep:      #1e293b;  /* kop rechtsboven, stapnummers           */
+  --ov-inkt-zacht:     #64748b;  /* voetnoten, voettekst                   */
+  --ov-lijn:           #e2e8f0;  /* scheidingslijnen in tabellen           */
+  --ov-lijn-kop:       #bae6fd;  /* lijn onder de kop en boven de voet     */
+  --ov-papier:         #ffffff;
+
+  /* --- letter ---------------------------------------------------------- */
+  --ov-font-kop:   'Plus Jakarta Sans', 'Segoe UI', system-ui, sans-serif;
+  --ov-font-tekst: 'Inter', 'Segoe UI', system-ui, sans-serif;
+
+  /* --- lettergroottes (afgemeten op het origineel) ---------------------- */
+  --ov-fs-hero:   29px;   --ov-lh-hero: 1.16;
+  --ov-fs-h2:     18.5px;
+  --ov-fs-h3:     14.5px;
+  --ov-fs-prijs:  30px;
+  --ov-fs-tekst:  11.5px; --ov-lh-tekst: 1.3;   /* op het origineel gemeten: ~1,15 */
+  --ov-fs-klein:  10.75px;
+  --ov-fs-mini:   8.75px;
+  --ov-fs-voet:   7.5px;
+
+  /* --- maatvoering ------------------------------------------------------ */
+  --ov-pagina-breed: 210mm;
+  --ov-pagina-hoog:  297mm;
+  --ov-pad-zij:      6.5mm;   /* tot aan de lijnen van kop en voet         */
+  --ov-pad-boven:    8mm;
+  --ov-pad-onder:    2.5mm;
+  --ov-inzet:        12mm;    /* bovenop --ov-pad-zij  => tekst op 18,5 mm */
+  --ov-panel-uit:    -7mm;    /* panelen terug naar 11,5 mm                */
+  --ov-kop-inzet:    3.5mm;   /* kop- en voettekst op 10 mm                */
+  --ov-radius:       4mm;
+  --ov-radius-klein: 2.5mm;
+}
+
+/* ==========================================================================
+   Scherm: de pagina's als vellen op een grijze achtergrond
+   ========================================================================== */
+
+*{ box-sizing: border-box; }
+
+html, body{
+  margin: 0;
+  padding: 0;
+  background: #eef1f5;
+  font-family: var(--ov-font-tekst);
+  color: var(--ov-inkt);
+  -webkit-font-smoothing: antialiased;
+}
+
+.ov-doc{
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8mm;
+  padding: 26mm 6mm 14mm;   /* bovenaan ruimte voor de werkbalk */
+}
+
+.ov-pagina{
+  position: relative;
+  width: var(--ov-pagina-breed);
+  height: var(--ov-pagina-hoog);
+  padding: var(--ov-pad-boven) var(--ov-pad-zij) var(--ov-pad-onder);
+  background: var(--ov-papier);
+  box-shadow: 0 2mm 8mm rgba(15, 23, 42, .14);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  font-size: var(--ov-fs-tekst);
+  line-height: var(--ov-lh-tekst);
+  /* achtergrondkleuren moeten mee in de pdf */
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+/* ==========================================================================
+   Kop en voet — op elke pagina gelijk
+   ========================================================================== */
+
+.ov-kop{
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 6mm;
+  padding: 0 var(--ov-kop-inzet) 6.5mm;
+  border-bottom: 0.3mm solid var(--ov-lijn-kop);
+  flex: none;
+}
+
+.ov-kop-logo{ height: 10.4mm; width: auto; display: block; }
+
+.ov-kop-rechts{
+  text-align: right;
+  font-size: 10.5px;
+  line-height: 1.34;
+  color: var(--ov-inkt-diep);
+}
+.ov-kop-rechts strong{ font-weight: 700; }
+.ov-kop-titel{ font-weight: 700; }
+
+.ov-voet{
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6mm;
+  padding: 1.8mm var(--ov-kop-inzet) 0;
+  border-top: 0.3mm solid var(--ov-lijn-kop);
+  font-size: var(--ov-fs-voet);
+  color: var(--ov-inkt-zacht);
+  flex: none;
+}
+
+/* De inhoud tussen kop en voet. Alle gewone tekst staat hierdoor op 18,5 mm. */
+.ov-body{
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 0 var(--ov-inzet);
+}
+
+/* ==========================================================================
+   Gedeelde bouwstenen
+   ========================================================================== */
+
+.ov-h2{
+  font-family: var(--ov-font-kop);
+  font-size: var(--ov-fs-h2);
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--ov-blauw);
+  margin: 0 0 3.5mm;
+}
+
+.ov-h3{
+  font-family: var(--ov-font-kop);
+  font-size: var(--ov-fs-h3);
+  font-weight: 700;
+  line-height: 1.25;
+  color: var(--ov-blauw);
+  margin: 0 0 3mm;
+}
+
+.ov-tekst p{ margin: 0 0 2.6mm; }
+.ov-tekst p:last-child{ margin-bottom: 0; }
+
+.ov-klein{ font-size: var(--ov-fs-klein); }
+.ov-mini{  font-size: var(--ov-fs-mini); color: var(--ov-inkt-zacht); line-height: 1.5; }
+.ov-cursief{ font-style: italic; }
+
+/* ==middenin== in de copy: de lichtblauwe klemtoon uit het origineel */
+.ov-klem{ color: var(--ov-blauw); }
+
+/* De panelen die breder staan dan de tekst. */
+.ov-panel{
+  margin-inline: var(--ov-panel-uit);
+  border-radius: var(--ov-radius);
+  padding: 6.5mm 7mm;
+}
+
+/* Alles wat tot tegen de rechterrand van het blad mag lopen. */
+.ov-bleed-rechts{ margin-right: calc(-1 * (var(--ov-pad-zij) + var(--ov-inzet))); }
+
+/* ==========================================================================
+   Pagina 1
+   ========================================================================== */
+
+.ov-hero{
+  background: var(--ov-mint-vlak);
+  margin-top: 9mm;
+  padding: 4mm 7mm;   /* krapper dan de andere panelen, zoals in het origineel */
+}
+.ov-hero-titel{
+  font-family: var(--ov-font-kop);
+  font-size: var(--ov-fs-hero);
+  line-height: var(--ov-lh-hero);
+  font-weight: 700;
+  color: var(--ov-blauw-diep);
+  margin: 0 0 2.5mm;
+  letter-spacing: -0.01em;
+}
+.ov-hero-tekst{ font-size: var(--ov-fs-tekst); }
+
+/* --- contactpersoon + gegevens van de offerte --------------------------- */
+
+.ov-kolommen{
+  display: grid;
+  grid-template-columns: 55mm 1fr;
+  gap: 3mm;
+  margin-top: 9mm;
+}
+
+.ov-contact{ text-align: center; }
+.ov-contact .ov-h2{ text-align: left; }
+.ov-contact-foto{
+  width: 25mm;
+  height: 25mm;
+  border-radius: 50%;
+  object-fit: cover;
+  display: block;
+  margin: 1mm auto 2.5mm;
+}
+.ov-contact-naam{ font-size: var(--ov-fs-tekst); line-height: 1.35; }
+.ov-contact-mail{ font-size: var(--ov-fs-tekst); line-height: 1.35; }
+
+.ov-gegevens{
+  background: var(--ov-blauw-vlak);
+  border-radius: var(--ov-radius-klein);
+  padding: 1.5mm 4mm 2mm;
+  /* loopt rechts door tot 198,5 mm, net als de panelen */
+  margin-right: var(--ov-panel-uit);
+}
+.ov-gegevens-rij{
+  display: grid;
+  grid-template-columns: 30.5mm 1fr;
+  gap: 2mm;
+  padding: 0.6mm 0;
+  border-bottom: 0.3mm solid var(--ov-papier);
+}
+.ov-gegevens-rij:last-child{ border-bottom: 0; }
+.ov-gegevens-label{ font-weight: 700; color: var(--ov-blauw); }
+.ov-gegevens-waarde{ color: var(--ov-inkt); }
+
+/* --- inleiding ---------------------------------------------------------- */
+
+.ov-inleiding{ margin-top: 10mm; }
+.ov-inleiding-titel{ font-weight: 700; color: var(--ov-inkt-diep); }
+
+/* --- vergelijkingstabel ------------------------------------------------- */
+
+.ov-vergelijking{ margin-top: 11mm; }
+.ov-vgl-tabel{
+  border-radius: var(--ov-radius-klein);
+  overflow: hidden;
+  margin-right: var(--ov-panel-uit);
+}
+.ov-vgl-rij{
+  display: grid;
+  grid-template-columns: 1.15fr 1fr 0.95fr;
+  gap: 3mm;
+  padding: 1.2mm 6mm;
+  align-items: center;
+}
+.ov-vgl-kop{
+  background: var(--ov-mint-band);
+  padding-block: 1.5mm;
+}
+.ov-vgl-kop .ov-vgl-cel{ color: var(--ov-inkt-diep); }
+.ov-vgl-kop .ov-vgl-cel:last-child{ color: var(--ov-blauw); font-weight: 700; }
+.ov-vgl-body{ background: var(--ov-blauw-vlak); }
+.ov-vgl-body .ov-vgl-rij:last-child{ padding-bottom: 1.8mm; }
+.ov-vgl-cel:last-child{ color: var(--ov-blauw); }
+
+/* --- het platform ------------------------------------------------------- */
+
+.ov-platform{ margin-top: 11mm; }
+.ov-platform-raster{
+  display: grid;
+  grid-template-columns: 78mm 1fr;
+  gap: 4mm;
+  align-items: start;
+}
+.ov-platform-beeld{
+  width: 100%;
+  height: auto;
+  display: block;
+  margin-top: 2mm;
+  /* De schermafdruk loopt onderaan van het blad af, net als in het origineel.
+     Zonder deze grens duwt ze de voet van pagina 1 eruit. */
+  max-height: 38mm;
+  object-fit: cover;
+  object-position: left top;
+}
+
+/* ==========================================================================
+   Pagina 2 — de prijzen
+   ========================================================================== */
+
+.ov-prijzen{ margin-top: 6mm; }
+
+.ov-kaart{
+  display: grid;
+  grid-template-columns: 69mm 1fr;
+  width: 155mm;
+  border-radius: var(--ov-radius);
+  overflow: hidden;
+  margin-bottom: 8.5mm;
+}
+.ov-kaart--blauw{ background: var(--ov-blauw-vlak); }
+.ov-kaart--roze{  background: var(--ov-roze-vlak); }
+
+.ov-kaart-links{
+  padding: 4.5mm 5mm 4.5mm 6.5mm;
+  display: flex;
+  flex-direction: column;
+  min-height: 40mm;
+}
+.ov-kaart-bedrag{
+  font-family: var(--ov-font-kop);
+  font-size: var(--ov-fs-prijs);
+  font-weight: 700;
+  color: var(--ov-blauw);
+  line-height: 1.1;
+  margin: auto 0;          /* midden tussen label en voetnoot */
+}
+.ov-kaart-voetnoot{
+  font-size: var(--ov-fs-klein);
+  font-style: italic;
+  color: var(--ov-blauw);
+  line-height: 1.4;
+}
+
+.ov-kaart-rechts{
+  padding: 4.5mm 6mm 4.5mm 5.5mm;
+  background: rgba(255, 255, 255, .5);
+}
+
+.ov-punten{
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  color: var(--ov-blauw);
+}
+.ov-punten li{
+  position: relative;
+  padding-left: 4mm;
+  margin-bottom: 0.6mm;
+  line-height: 1.22;
+}
+.ov-punten li::before{
+  content: "";
+  position: absolute;
+  left: 1.1mm;
+  top: 1.3mm;
+  width: 0.9mm;
+  height: 0.9mm;
+  border-radius: 50%;
+  background: currentColor;
+}
+.ov-punten li:last-child{ margin-bottom: 0; }
+
+/* de smalle mint-strook met de licentieprijs */
+.ov-strook{
+  display: flex;
+  align-items: center;
+  gap: 5mm;
+  width: 87mm;
+  background: var(--ov-mint-vlak);
+  border-radius: var(--ov-radius);
+  padding: 4mm 6mm;
+}
+.ov-strook-bedrag{
+  font-family: var(--ov-font-kop);
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--ov-blauw);
+  line-height: 1;
+}
+.ov-strook-titel{
+  font-family: var(--ov-font-kop);
+  font-size: var(--ov-fs-h3);
+  font-weight: 700;
+  color: var(--ov-blauw);
+  line-height: 1.25;
+}
+.ov-strook-voetnoot{
+  font-size: var(--ov-fs-klein);
+  font-style: italic;
+  color: var(--ov-blauw);
+}
+
+/* --- bijkomende kosten -------------------------------------------------- */
+
+.ov-extra{ margin-top: 12mm; }
+.ov-extra-tabel{ margin-top: 4.5mm; width: 171mm; }
+.ov-extra-rij{
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6mm;
+  padding: 2.2mm 0;
+  border-bottom: 0.3mm solid var(--ov-lijn);
+}
+.ov-extra-rij:first-child{ border-top: 0.3mm solid var(--ov-lijn); }
+.ov-extra-waarde{
+  font-weight: 700;
+  color: var(--ov-inkt-diep);
+  white-space: nowrap;
+  min-width: 34mm;
+}
+.ov-voetnoten{ margin-top: 4mm; }
+.ov-voetnoten p{ margin: 0 0 1mm; }
+
+/* ==========================================================================
+   Pagina 3 — stappen, vragen, oproep
+   ========================================================================== */
+
+.ov-stappen{ margin-top: 6mm; }
+.ov-stap{
+  display: grid;
+  grid-template-columns: 12.5mm 1fr;
+  gap: 5mm;
+  margin-bottom: 5mm;
+  align-items: start;
+}
+.ov-stap-nummer{
+  width: 12.5mm;
+  height: 12.5mm;
+  border-radius: var(--ov-radius-klein);
+  background: var(--ov-blauw-licht);
+  color: var(--ov-inkt-diep);
+  font-family: var(--ov-font-kop);
+  font-size: 17px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ov-stap-titel{ font-weight: 700; color: var(--ov-inkt-diep); }
+.ov-stap-slot{
+  margin-top: 1mm;
+  font-size: var(--ov-fs-klein);
+  font-style: italic;
+  color: var(--ov-inkt-zacht);
+}
+
+.ov-vragen{ margin-top: 10mm; }
+.ov-vraag{ margin-bottom: 3mm; }
+.ov-vraag:last-child{ margin-bottom: 0; }
+.ov-vraag-titel{ font-weight: 700; color: var(--ov-blauw); margin-bottom: 0.4mm; }
+.ov-vraag-antwoord{ line-height: 1.28; }
+
+.ov-oproep{
+  background: var(--ov-mint-vlak);
+  margin-top: 8mm;
+  display: grid;
+  grid-template-columns: 1fr 40mm;
+  gap: 4mm;
+  align-items: center;
+  position: relative;
+}
+.ov-oproep-tekst p{ margin: 0 0 3mm; }
+.ov-oproep-tekst p:last-child{ margin-bottom: 0; }
+.ov-oproep-beeld{ position: relative; justify-self: end; }
+.ov-oproep-qr{
+  width: 28mm;
+  height: auto;
+  display: block;
+  border-radius: var(--ov-radius-klein);
+}
+.ov-oproep-pijl{
+  position: absolute;
+  left: -14mm;
+  top: 5mm;
+  width: 13mm;
+  height: auto;
+  /* De uitsnede draagt dezelfde mint achtergrond als het paneel, dus er is
+     geen overvloeimodus nodig — die zou het vlak eronder juist donkerder maken. */
+}
+
+/* ==========================================================================
+   Bewerkstand — je typt IN het ontwerp, niet in een lijst ernaast
+   ========================================================================== */
+
+.ov-bind{ white-space: pre-wrap; }
+
+/* Een leeg element heeft geen afmetingen en is dus niet aan te klikken; een
+   pas toegevoegde rij zou daardoor onbereikbaar zijn. */
+.ov-bewerk:empty{
+  display: inline-block;
+  min-width: 10mm;
+  min-height: 1em;
+}
+
+.ov-bewerk{
+  outline: 0.3mm dashed rgba(3, 105, 161, .35);
+  outline-offset: 0.6mm;
+  border-radius: 1mm;
+  cursor: text;
+}
+.ov-bewerk:hover{ background: rgba(153, 246, 228, .25); }
+.ov-bewerk:focus{
+  outline: 0.4mm solid var(--ov-blauw);
+  background: rgba(153, 246, 228, .3);
+}
+
+/* knopjes om een rij toe te voegen of weg te halen; enkel in bewerkstand */
+.ov-rijknop{
+  display: none;
+  border: 0.3mm solid var(--ov-lijn);
+  background: #fff;
+  color: var(--ov-inkt-zacht);
+  border-radius: 1mm;
+  font: 600 9px var(--ov-font-tekst);
+  line-height: 1;
+  padding: 1mm 1.6mm;
+  cursor: pointer;
+}
+.ov-bewerkstand .ov-rijknop{ display: inline-block; }
+.ov-rijknop:hover{ border-color: var(--ov-blauw); color: var(--ov-blauw); }
+.ov-rijknop--weg{
+  margin-left: 2mm;
+  vertical-align: baseline;
+  padding: 0.6mm 1.4mm;
+}
+
+/* De balk met "+ rij" bestaat alleen in de bewerkstand: anders zou hij ook in
+   de rustige weergave ruimte innemen en het blad anders laten uitlopen dan de
+   pdf. */
+.ov-rijknoppen{ display: none; }
+.ov-bewerkstand .ov-rijknoppen{
+  display: flex;
+  gap: 1mm;
+  margin-top: 1.5mm;
+}
+
+/* ==========================================================================
+   Werkbalk (nooit op papier)
+   ========================================================================== */
+
+.ov-werkbalk{
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  background: rgba(255, 255, 255, .94);
+  backdrop-filter: blur(6px);
+  border-bottom: 1px solid #dbe2ea;
+  font-size: 13px;
+}
+.ov-werkbalk-titel{
+  font-family: var(--ov-font-kop);
+  font-weight: 700;
+  color: var(--ov-blauw);
+  margin-right: 4px;
+}
+.ov-knop{
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  color: #1e293b;
+  border-radius: 7px;
+  padding: 6px 11px;
+  font: 500 13px var(--ov-font-tekst);
+  cursor: pointer;
+}
+.ov-knop:hover{ border-color: var(--ov-blauw); color: var(--ov-blauw); }
+.ov-knop--actief{
+  background: var(--ov-blauw);
+  border-color: var(--ov-blauw);
+  color: #fff;
+}
+.ov-knop--hoofd{
+  background: var(--ov-blauw);
+  border-color: var(--ov-blauw);
+  color: #fff;
+}
+.ov-werkbalk-hint{ color: #64748b; margin-left: auto; font-size: 12px; }
+
+/* melding wanneer een pagina overloopt */
+.ov-vol-melding{
+  display: none;
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 2mm 6mm;
+  background: #fee2e2;
+  border-top: 0.5mm solid #ef4444;
+  color: #991b1b;
+  font-size: 10px;
+  font-weight: 600;
+}
+.ov-pagina--vol .ov-vol-melding{ display: block; }
+
+/* dialogen */
+.ov-dialoog{
+  border: 0;
+  border-radius: 12px;
+  padding: 0;
+  width: min(680px, 92vw);
+  box-shadow: 0 24px 60px rgba(15, 23, 42, .28);
+}
+.ov-dialoog::backdrop{ background: rgba(15, 23, 42, .45); }
+.ov-dialoog-kop{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 18px;
+  border-bottom: 1px solid #e2e8f0;
+  font-family: var(--ov-font-kop);
+  font-weight: 700;
+  color: var(--ov-blauw);
+}
+.ov-dialoog-body{ padding: 16px 18px; max-height: 64vh; overflow: auto; }
+.ov-dialoog-voet{
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 18px;
+  border-top: 1px solid #e2e8f0;
+}
+.ov-veld{ display: block; margin-bottom: 12px; }
+.ov-veld span{
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
+  margin-bottom: 4px;
+}
+.ov-veld input,
+.ov-dialoog textarea{
+  width: 100%;
+  border: 1px solid #cbd5e1;
+  border-radius: 7px;
+  padding: 7px 9px;
+  font: 400 13px var(--ov-font-tekst);
+  color: #1e293b;
+}
+.ov-dialoog textarea{ min-height: 300px; font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+.ov-veld input:focus,
+.ov-dialoog textarea:focus{ outline: 2px solid var(--ov-blauw); outline-offset: -1px; border-color: transparent; }
+.ov-groepkop{
+  font-family: var(--ov-font-kop);
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--ov-blauw);
+  margin: 18px 0 8px;
+}
+.ov-groepkop:first-child{ margin-top: 0; }
+
+/* ==========================================================================
+   Afdrukken / pdf
+   ========================================================================== */
+
+@page{
+  size: A4;
+  margin: 0;
+}
+
+@media print{
+  html, body{ background: #fff; }
+  .ov-werkbalk,
+  .ov-dialoog,
+  .ov-vol-melding,
+  .ov-rijknop{ display: none !important; }
+
+  .ov-doc{ gap: 0; padding: 0; display: block; }
+
+  .ov-pagina{
+    /* 296,9 en niet 297: bij exact 297 mm schuift Chrome er soms een lege
+       pagina achter door afrondingsverschil. */
+    height: 296.9mm;
+    box-shadow: none;
+    margin: 0;
+    break-after: page;
+    page-break-after: always;
+  }
+  .ov-pagina:last-child{ break-after: auto; page-break-after: auto; }
+
+  .ov-bewerk{ outline: 0; background: none; }
+}

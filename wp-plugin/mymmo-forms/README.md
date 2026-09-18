@@ -284,6 +284,72 @@ Wie vanuit het venster verstuurt, komt terug op dezelfde pagina **met het venste
 weer open** en de bevestiging erin. De pagina waar de bezoeker stond gaat mee in
 de inzending (`page_url`, `page_title`), net als bij een formulier in de tekst.
 
+### Ingangen: de manieren waarop een venster opengaat
+
+Een **opstelling** is het venster: welk formulier, welke tabbladen, welke agenda,
+welke dankjewelschermen. Die maak je één keer.
+
+Een **ingang** is een manier om dat venster te openen. Je kan er zoveel maken als
+je wil, van drie soorten. Je beheert ze bij **Instellingen → Mymmo Forms →
+Ingangen**; elke ingang krijgt daar zijn eigen shortcode:
+
+```
+[mymmo_form_entry id="hero-knop"]
+```
+
+| Soort | Wat het doet |
+|---|---|
+| **Knop** | Een knop met een eigen opschrift, vorm en kleur. Twee knoppen met andere copy die hetzelfde venster openen is doodgewoon. |
+| **Klasse** | Een CSS-klasse die je op iets zet dat er al staat: een knop van je thema, een afbeelding, een icoon. Zet de shortcode één keer op diezelfde pagina — ze toont niets, maar zonder haar staat het venster er niet. |
+| **Callout** | Een blok in de pagina dat één onderdeel van het venster al toont. |
+
+Ze kunnen allemaal tegelijk op één pagina staan, en allemaal naar hetzelfde
+venster wijzen. Wijzig je dat venster, dan verandert het overal mee.
+
+#### De callout
+
+Een callout toont een **stap**, het **formulier** of de **agenda** uit het
+venster al in de pagina. De bezoeker beantwoordt het daar; klikt hij op de knop,
+dan gaat het venster open op precies dat onderdeel, met wat hij invulde.
+
+Licht je een STAP uit, dan komt die ook vooraan in het venster te staan — de
+andere stappen schuiven erachter aan, in hun eigen volgorde. Zo kan je op twee
+pagina's twee callouts zetten die elk met een andere vraag beginnen en toch
+hetzelfde venster openen. Komt er later een stap bij, dan maak je er een callout
+voor bij; aan het venster verandert niets.
+
+**Er wordt niets weggelaten.** Wat een stap meebrengt — de tekening van het gebouw
+bij de schuifbalk — staat er volledig. Dat is de ervaring waarvoor een callout
+bestaat.
+
+**Twee indelingen, en er is geen derde:**
+
+- **Twee kolommen.** De ene kolom draagt het uitgelichte onderdeel met de knop
+  eronder, de andere de titel, de tekst en een afbeelding — het deel dat een
+  marketeer opmaakt.
+- **Volle breedte.** Titel en tekst bovenaan, het uitgelichte onderdeel eronder
+  over de hele breedte, met de knop rechtsonder. Voor iets dat plaats vraagt:
+  dertien keien passen niet in een halve callout. Staat er een afbeelding, dan
+  komt die naast de titel.
+
+**Een stap of het formulier VERHUIST, het wordt niet gekopieerd.** Het kaartje in
+de pagina en het onderdeel in het venster zijn hetzelfde element: bij het openen
+schuift het erin, bij het sluiten komt het terug. Een kopie zou de waarde kunnen
+overdragen maar niet de stand van de bediening — een schuifbalk nog wel, een
+vinkje dat een stap in zijn eigen script bijhoudt niet.
+
+**De agenda verhuist niet.** Een iframe dat je verplaatst laadt opnieuw; het
+kaartje krijgt dus zijn eigen kalender. Er is ook niets over te dragen zolang er
+geen uur gekozen is.
+
+**Geen schuifbalken.** Het kaartje heeft nergens een vaste hoogte en nergens een
+`overflow`; het groeit mee met wat erin staat. Past een stap niet in twee
+kolommen, kies dan de volle breedte. Past hij in het VENSTER niet, zet dan
+**Ruimer venster** aan bij de opstelling.
+
+**Zonder JavaScript** verhuist er niets: de stappen vallen weg en de knop is een
+gewone link naar het venster, zoals overal.
+
 ## Stappen: een formulier in meerdere schermen
 
 Een formulier kan voorafgegaan worden door **stappen**: eigen stukken HTML met
@@ -489,6 +555,156 @@ die eruitzien als een kleur of een lengte — vrije CSS vanuit de OM zou een
 injectiepad zijn naar elke site die het formulier toont.
 
 ## Versies
+
+**1.17.6** — de tekst van een callout kan inspringen zonder het formulier mee te
+nemen.
+
+- **`text_pad` en `text_pad_mobile`**: extra ruimte rond de titel en de tekst,
+  bóvenop de opvulling van het blok. Nodig zodra een callout tussen andere
+  kaarten staat: op syndicoach.be begint de tekst in die kaarten op 58px van de
+  rand, en dat halen met de opvulling van het BLOK zou ook het witte vlak met het
+  formulier 58px naar binnen duwen — op een telefoon blijft daar dan 219px van
+  over. Twee waarden die optellen, maar geen twee antwoorden op dezelfde vraag:
+  de ene is de rand van het blok, de andere de inspringing van een kolom
+  daarbinnen.
+- Een ingestelde waarde **vervangt** de standaarduitlijning van de tekstkolom met
+  het witte vlak ernaast (`padding-top: clamp(18px, 2.4vw, 28px)`). Neem die
+  ruimte bovenaan dus mee in je eigen waarde, anders begint de titel hoger dan
+  het vlak ernaast.
+
+**1.17.5** — een callout die zichzelf juist rendert naast andere kaarten, en
+een kortere kop voor een smal blok.
+
+- **De opvulling is instelbaar** (`pad`), en apart voor een telefoon
+  (`pad_mobile`). Staat een callout tussen kaarten van een pagina, dan moet ze
+  dezelfde opvulling kunnen krijgen als die kaarten. Dat kon alleen met CSS op
+  de pagina, en zulke CSS breekt stil zodra de plugin haar eigen waarden
+  bijstelt. Leeg = zoals voorheen, dus deze versie verandert op zichzelf niets.
+- **De ingestelde `radius` gold niet op een telefoon.** De mobiele regel zette
+  `border-radius` er hard overheen, waardoor het blok onder 600px als enige
+  andere hoeken had dan de rest van de pagina — en dat zag je niet in een
+  voorbeeld, alleen op een echt toestel. Nu leest ook die regel
+  `--mf-callout-radius`.
+- **De ruimte tussen de titel en de tekst staat op één plek** (`title_gap`,
+  standaard 10px). Het was een marge op de titel naast de gap van de kolom: twee
+  bronnen voor dezelfde afstand, en dus onvermijdelijk ooit twee antwoorden.
+- **Een INGANG mag een korte titel meegeven** (`title_mobile`). "Eindelijk
+  gebouwbeheer gemaakt voor jou" is op 375px vier regels. De korte kop verschijnt
+  zodra het BLOK smaller is dan 620px — dezelfde maat waarop de kolommen
+  omslaan, dus ook in een smalle kolom op een groot scherm. Beide koppen staan in
+  de markup en de CSS kiest: server-side kiezen kan niet, want de pagina wordt
+  gecachet en weet niet op welk scherm ze belandt.
+
+**1.17.4** — kleur en hoeken per plaatsing, en een venster dat op een telefoon
+meteen toont waar je voor kwam.
+
+- **`bg` en `radius` mogen op de shortcode staan**, naast bij de ingang zelf:
+  `[mymmo_form_entry id="hero" bg="transparent" radius="0"]`. Zo staat dezelfde
+  callout op de ene pagina in een gekleurd vlak en op de andere los op de
+  achtergrond. `transparent` is daarbij een geldige keuze en geen kleur.
+- **Op MOBIEL vallen de kop, de inleiding en de rij tabbladen weg.** Ze stonden
+  alle drie bovenaan en duwden samen het eigenlijke scherm een halve
+  telefoonhoogte naar beneden — terwijl de bezoeker net geklikt had en dus al
+  gezegd had wat hij wou. Nu krijgt hij dat tabblad over de volle hoogte.
+- **De tabbladen die hij NIET koos staan onderaan**, op de tint van het venster,
+  zodat ze lezen als "er kan hier ook nog dit" in plaats van als een keuze die
+  hij eerst moet maken. Het actieve tabblad staat er niet bij — dat is waar hij
+  al is.
+- **Welk tabblad opengaat, kies je bij de ingang** (`tab`, ook op de shortcode).
+  Een knop "Plan een gesprek" hoort op de agenda uit te komen, niet op het
+  formulier dat toevallig bovenaan staat. Bij een callout volgt het tabblad al
+  uit wat ze uitlicht.
+
+**1.17.3** — een callout op de volle paginabreedte, en drie fouten in een venster
+met drie tabbladen.
+
+- **De callout breekt uit de inhoudskolom** en gaat tot 1200px, gecentreerd op de
+  pagina. Een shortcode staat in een kolom van 650 à 800px; daar past een callout
+  met twee kolommen niet in. `calc(100vw - 40px)` en niet `100vw`, want die laatste
+  telt de schuifbalk mee en geeft dan een horizontale schuifbalk over de hele pagina.
+- **Breedte, verdeling en ruimte zijn instelbaar** bij de ingang: tot hoever het
+  blok gaat (1200px), de kolomverhouding (1:1, 2:3 of 1:2) en de ruimte boven en
+  onder (48px). De verhouding gaat door een gesloten lijst — die waarde belandt in
+  een style-attribuut op de pagina van een bezoeker.
+- **Ruimte boven en onder.** Het blok plakte tegen het component erboven: een
+  callout is iets op zichzelf, en de marges die een thema aan een alinea geeft
+  gelden hier niet.
+- **De linkerkolom lijnt bovenaan uit**, met dezelfde opvulling als het witte vlak
+  ernaast, zodat de eerste regel links en rechts op één lijn staan.
+- **FOUT: de callout hing altijd aan het formulier-tabblad.** Een venster kan twee
+  reeksen hebben — `steps` op het formulier-tabblad en `extra_steps` op het derde.
+  Lichtte je een stap van dat derde tabblad uit, dan werd de reeks bij het
+  VERKEERDE formulier gerenderd: "Stuur een bericht" toonde de stappenreeks, en er
+  stond een melding dat `aantal_kavels` nergens heen kon. De callout kijkt nu in
+  welke van de twee lijsten de stap staat en hangt zich aan dat tabblad.
+- **FOUT: de reeks pakte het verkeerde formulier.** `this.formulier` nam het eerste
+  `.mymmo-form` in de wikkel, en die ligt bij een callout om het HELE venster heen —
+  dus het formulier van een ander tabblad, waar die verborgen velden niet bestaan.
+  Daardoor kwam wat je in de callout invulde nergens aan. De naakte reeks merkt nu
+  haar eigen inhoud.
+
+**1.17.2** — de linkerkolom van een callout lijnt bovenaan uit.
+
+- De titel en de tekst stonden verticaal gecentreerd naast het witte vlak, dat
+  meestal hoger is — dan lijkt de titel te zweven. Ze beginnen nu bovenaan, met
+  dezelfde opvulling als dat vlak, zodat de eerste regel links en de eerste regel
+  rechts op één lijn staan. Alleen in de indeling met twee kolommen; in de brede
+  indeling staat de tekst er toch al boven.
+
+**1.17.1** — ingangen: meerdere manieren om hetzelfde venster te openen.
+
+(1.17.0 is nooit uitgerold; het nummer is opgehoogd zodat er geen twijfel kan
+bestaan over welke build er draait.)
+
+- **Een opstelling is het VENSTER, een ingang is een manier om het te openen.**
+  Die twee stonden door elkaar: "hoe toon je het" was een keuze IN de opstelling,
+  en dus had je per manier een kopie van het hele venster nodig — met bij elke
+  wijziging de vraag welke kopie waar stond. Ingangen hebben nu een eigen lijst,
+  een eigen tabblad en een eigen shortcode: `[mymmo_form_entry id="..."]`.
+- **Drie soorten, zoveel als je wil.** Een **knop** met eigen opschrift en kleur
+  (twee knoppen met andere copy naar hetzelfde venster mag), een **klasse** die je
+  op een bestaande knop, afbeelding of icoon zet, en een **callout**.
+- **Een callout licht één onderdeel uit:** een stap, het formulier of de agenda.
+  Licht je een stap uit, dan komt die ook vooraan in het venster te staan en
+  schuift de rest erachter aan. Eén callout per stap, en een nieuwe stap krijgt
+  er later gewoon een bij.
+- **Twee indelingen, en er is geen derde.** Twee kolommen (onderdeel naast titel,
+  tekst en afbeelding) of volle breedte (titel en tekst boven, onderdeel eronder,
+  knop rechtsonder).
+- **Er wordt niets weggelaten uit een stap.** De tekening van het gebouw bij de
+  schuifbalk hoort erbij — dat is de ervaring waarvoor een callout bestaat.
+- **Het uitgelichte onderdeel VERHUIST** bij het openen naar het venster en komt
+  bij het sluiten terug. Het is hetzelfde element, geen kopie: anders draag je de
+  waarde wel over maar de stand van de bediening niet.
+- **Geen schuifbalken**: het kaartje groeit mee met zijn inhoud. Nieuw op het
+  VENSTER is **Ruimer venster** (`panel="breed"`), voor een stap die in de gewone
+  breedte niet past en daar anders een schuifbalk van maakt.
+- **De brug naar de stappenreeks** (`window.MymmoStappen`) hangt nu aan de
+  stap-sectie in plaats van aan de reeks. Een callout schrijft zijn onderdeel
+  eerder uit dan het venster eromheen; stond de brug nog in `templates/steps.php`,
+  dan kwam ze te laat en deed het script van die stap niets — zonder dat er
+  zichtbaar iets stukging, want de schuifbalk leest de reeks rechtstreeks uit.
+- **De kolommen slaan om op de breedte van het BLOK, niet van het scherm**
+  (container query). Een callout staat in de inhoudskolom van een pagina, en die
+  is vaak smaller: met een gewone media query kreeg je één kolom op een plek waar
+  er twee pasten. De verhouding is 1:2 — de tekst is een titel en twee regels,
+  het uitgelichte onderdeel is waar de bezoeker iets doet.
+- **`mymmo-forms-steps.js` staat nu in de KOP van de pagina.** Het script van een
+  stap draait tijdens het parsen en verwacht dat `window.MymmoStappen` al
+  bestaat; dat kwam uit een klein inline stukje, en dat is precies wat een cache-
+  of optimalisatieplugin naar de voettekst verplaatst. Dan gooit het script van de
+  stap en hangt er geen enkele luisteraar: de schuifbalk schuift wel, maar het
+  getal en de tekening bewegen niet mee. In de kop kan die volgorde niet meer
+  misgaan.
+- **De reeks sorteert op stapnummer, niet op volgorde in het document.** Het
+  kaartje staat vóór het venster, dus het formulier (de laatste stap) stond als
+  eerste in de DOM; daardoor schoof elke index een plaats op en kwam de verkeerde
+  sectie in het kaartje terecht.
+- **De hardcoded regel onder de titel is uit de vier voorbeeldstappen gehaald.**
+  Vulde je bij de stap ook "Regel eronder" in, dan stonden er twee zinnen onder
+  elkaar. De zin is niet verloren: "Voorbeeld invoegen" vult er nu het veld mee.
+  **Een stap die al bewaard staat is een kopie** en verandert hier niet van — haal
+  die ene regel daar met de hand weg.
 
 **1.16.2** — niets in de pop-up is nog selecteerbaar.
 

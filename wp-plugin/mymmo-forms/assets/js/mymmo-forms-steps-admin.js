@@ -100,6 +100,8 @@
       // iemand al getypt had, blijft staan.
       var titel = el('mymmoStapTitel');
       if (titel && titel.value.trim() === '' && gevonden.titel) titel.value = gevonden.titel;
+      var sub = el('mymmoStapSub');
+      if (sub && sub.value.trim() === '' && gevonden.sub) sub.value = gevonden.sub;
       var velden = el('mymmoStapVelden');
       if (velden && velden.value.trim() === '' && gevonden.velden) velden.value = gevonden.velden;
     });

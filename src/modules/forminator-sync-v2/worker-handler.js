@@ -26,6 +26,7 @@ import { findRecordByIdentifier, upsertRecordStrict, createRecordOnly, updateOnl
 import { executeKw } from '../../lib/odoo.js';
 import { buildHtmlFormSummary } from './html-utils.js';
 import { runSendMailStep } from './mail-step.js';
+import { runGeneratePdfStep } from './pdf-step.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Slug -> technisch Odoo-model
@@ -1577,6 +1578,58 @@ async function runSubmissionAttempt(env, {
       // acties hier heten anders. Dubbele mails kan dat niet geven -- de
       // bewaking zit op de message_id in mail-step.js, die vindt het bestaande
       // mail.mail-record en geeft 'mail_already_queued' terug.
+      // ── generate_pdf: een pdf-sjabloon vullen, renderen en als ir.attachment
+      // uploaden (bv. een offerte). Idempotent op een marker in het attachment
+      // zelf -- zie het doc-blok bovenaan pdf-step.js. recordId: null in
+      // registerTargetOutput is bewust: step.N.record_id van deze stap mag
+      // nooit een attachment-id worden, want target.odoo_model is het model
+      // van het BOVENLIGGENDE record (waar de pdf aan hangt), niet ir.attachment.
+      if (opType === 'generate_pdf') {
+        try {
+          const pdfResult = await runGeneratePdfStep(env, {
+            target,
+            submissionId: submission.id,
+            form:         normalizedForm,
+            contextObject,
+            mappings,
+            resolveMapping: resolveMappingValue
+          });
+
+          contextObject[`pdf.${target.id}.attachment_id`] = pdfResult.attachmentId;
+          registerTargetOutput(contextObject, target, { action: pdfResult.action, recordId: null }, mappings,
+                               { attachment_id: pdfResult.attachmentId });
+
+          const targetResult = {
+            submission_id:   submission.id,
+            target_id:       target.id,
+            execution_order: executionOrder,
+            action_result:   pdfResult.action,
+            skipped_reason:  null,
+            odoo_record_id:  pdfResult.attachmentId,
+            error_detail:    pdfResult.detail || null,
+            processed_at:    new Date().toISOString()
+          };
+          await createSubmissionTargetResult(env, targetResult);
+          targetResults.push(targetResult);
+          console.log(attemptTag, 'generate_pdf', pdfResult.action, '| attachment_id:', pdfResult.attachmentId);
+        } catch (pdfError) {
+          const targetResult = {
+            submission_id:   submission.id,
+            target_id:       target.id,
+            execution_order: executionOrder,
+            action_result:   'pdf_failed',
+            skipped_reason:  null,
+            odoo_record_id:  null,
+            error_detail:    pdfError.message,
+            processed_at:    new Date().toISOString()
+          };
+          await createSubmissionTargetResult(env, targetResult);
+          targetResults.push(targetResult);
+          console.warn(attemptTag, 'generate_pdf failed (non-fatal):', pdfError.message);
+        }
+        continue;
+      }
+
       if (opType === 'send_mail') {
         try {
           // Fase-override (zie hierboven): een eigen onderwerp/tekst voor

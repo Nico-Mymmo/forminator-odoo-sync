@@ -36,6 +36,15 @@ if (!defined('ABSPATH')) {
 /** @var array<int,string> $ontbrekend */
 /** @var string $lang */
 /** @var string|null $extra_style  stijl van DEZE plaatsing */
+/** @var bool|null $naakt      geen eigen data-mymmo-stappen-wikkel (callout) */
+/** @var int|null  $dok_index  welke stap in de pagina staat in plaats van hier */
+
+// Bij een callout ligt de wikkel met data-mymmo-stappen om het venster EN om
+// het kaartje in de pagina heen; die wordt daar gezet, niet hier. Wat hier
+// blijft staan is de .mymmo-stappen-DIV zelf: die draagt de opmaak en is de
+// schakel in de flexketen van het paneel (paneel -> stappen -> stap -> inhoud).
+$naakt     = !empty($naakt);
+$dok_index = isset($dok_index) ? (int) $dok_index : -1;
 
 // step_messages() en niet messages(): 'back'/'next'/'step_of' kunnen in een
 // oudere payload nog ontbreken, en een naamloze knop is geen knop.
@@ -83,26 +92,25 @@ $teller_tekst = static function (int $nu, int $van) use ($teksten): string {
 };
 ?>
 <?php
-// De brug moet bestaan VOORDAT de eerste stap geparsed wordt: het script van
-// een stap draait tijdens het parsen van de pagina, en mymmo-forms-steps.js
-// staat in de voettekst. Dit stukje is dus geen dubbel werk maar de enige
-// volgorde die kan. Het bewaart alleen wat er binnenkomt; het echte script
-// werkt de rij daarna af.
-//
-// Een keer per pagina, ook als er twee reeksen op staan.
-if (!defined('MYMMO_FORMS_STAPPEN_BRUG')) {
-    define('MYMMO_FORMS_STAPPEN_BRUG', true);
-    echo wp_get_inline_script_tag(
-        'window.MymmoStappen=window.MymmoStappen||{_rij:[],stap:function(s,f){this._rij.push([s,f]);}};'
-    );
-}
+// De brug moet bestaan VOORDAT de eerste stap geparsed wordt. Een keer per
+// pagina, ook als er twee reeksen op staan -- en ook als een callout zijn stap
+// al eerder uitschreef. Zie mymmo_forms_stappen_brug().
+echo mymmo_forms_stappen_brug(); // phpcs:ignore WordPress.Security.EscapeOutput
 ?>
-<div class="mymmo-stappen"
+<?php
+// data-mymmo-stappen-inhoud enkel in de NAAKTE vorm, want daar is het nodig: de
+// wikkel met de reeks ligt bij een callout om het hele venster heen, en dat
+// venster kan meerdere formulieren bevatten (een tabblad "Stuur een bericht"
+// naast een tabblad met stappen). Zonder dit merkteken pakt de reeks het eerste
+// formulier dat ze tegenkomt, en dat is het verkeerde -- de waarden uit de
+// callout komen dan nergens aan. Zie mymmo-forms-steps.js.
+?>
+<div class="mymmo-stappen"<?php echo $naakt ? ' data-mymmo-stappen-inhoud' : ''; ?><?php if (!$naakt) : ?>
      id="<?php echo esc_attr($wrap_id); ?>"
      data-mymmo-stappen
      data-mymmo-start="<?php echo esc_attr((string) $start); ?>"
      data-mymmo-slug="<?php echo esc_attr($slug); ?>"
-     data-mymmo-teksten="<?php echo esc_attr((string) wp_json_encode($teksten)); ?>"<?php echo $reeks_stijl !== '' ? ' style="' . esc_attr($reeks_stijl) . '"' : ''; ?>>
+     data-mymmo-teksten="<?php echo esc_attr((string) wp_json_encode($teksten)); ?>"<?php endif; ?><?php echo $reeks_stijl !== '' ? ' style="' . esc_attr($reeks_stijl) . '"' : ''; ?>>
 
     <noscript>
         <style>
@@ -129,93 +137,52 @@ if (!defined('MYMMO_FORMS_STAPPEN_BRUG')) {
         </div>
     <?php endif; ?>
 
-    <p class="mymmo-stappen-teller" data-mymmo-teller aria-live="polite">
-        <?php echo esc_html($teller_tekst($start + 1, $totaal)); ?>
-    </p>
+    <?php if ($totaal > 1) : ?>
+        <?php // "Stap 1 van 1" is geen voortgang maar ruis. ?>
+        <p class="mymmo-stappen-teller" data-mymmo-teller aria-live="polite">
+            <?php echo esc_html($teller_tekst($start + 1, $totaal)); ?>
+        </p>
+    <?php endif; ?>
 
     <?php foreach ($stappen as $index => $stap) : ?>
-        <?php
-        $zelf = ($stap['nav'] ?? '') === Mymmo_Forms_Steps::NAV_ZELF;
-        ?>
-        <section class="mymmo-stap mymmo-stap--html"
-                 data-mymmo-stap="<?php echo esc_attr((string) $index); ?>"
-                 data-mymmo-stap-naam="<?php echo esc_attr((string) $stap['id']); ?>"
-                 data-mymmo-stap-velden="<?php echo esc_attr(implode(',', (array) $stap['fields'])); ?>"
-                 data-mymmo-stap-nav="<?php echo esc_attr($zelf ? 'zelf' : 'plugin'); ?>"
-                 <?php echo $index === $start ? '' : 'hidden'; ?>>
-
-            <?php $stap_sub = (string) ($stap['sub'] ?? ''); ?>
-            <?php if (($stap['title'] ?? '') !== '') : ?>
-                <h3 class="mymmo-stap-titel<?php echo $stap_sub !== '' ? ' mymmo-stap-titel--met-tekst' : ''; ?>"
-                    data-mymmo-kop="titel"><?php echo esc_html((string) $stap['title']); ?></h3>
-            <?php endif; ?>
-
-            <?php if ($stap_sub !== '') : ?>
-                <p class="mymmo-stap-tekst" data-mymmo-kop="sub"><?php echo esc_html($stap_sub); ?></p>
-            <?php endif; ?>
-
-            <div class="mymmo-stap-inhoud" data-mymmo-stap-inhoud>
-                <?php
-                // Bewust ongefilterd. Dit is de hele reden dat deze pagina achter
-                // `unfiltered_html` zit: wat hier staat is door een beheerder
-                // geschreven, net als een Custom HTML-blok in een pagina.
-                //
-                // render_html() en niet $stap['html']: dat past de tekst-
-                // aanpassingen toe die iemand in het voorbeeld van de bouwer
-                // maakte. Ze staan apart van de HTML bewaard, zodat het opnieuw
-                // inladen van het bestand ze niet wist.
-                echo Mymmo_Forms_Steps::render_html($stap); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
-                ?>
-            </div>
-
-            <?php if (!$zelf) : ?>
-                <div class="mymmo-stap-nav">
-                    <?php
-                    // De eerste stap heeft geen "Vorige" -- er is niets ervoor.
-                    // Hij blijft wel in de rij staan (zichtbaar uitgeschakeld zou
-                    // beloven dat er iets terug is), dus de knop wordt weggelaten
-                    // en de "Volgende" staat rechts door justify-content.
-                    ?>
-                    <?php if ($index > 0) : ?>
-                        <button type="button" class="mymmo-stap-knop mymmo-stap-knop--terug" data-mymmo-vorige>
-                            <?php echo esc_html(($stap['back'] ?? '') !== '' ? (string) $stap['back'] : $terug_label); ?>
-                        </button>
-                    <?php endif; ?>
-                    <button type="button" class="mymmo-stap-knop mymmo-stap-knop--verder" data-mymmo-volgende>
-                        <?php echo esc_html(($stap['next'] ?? '') !== '' ? (string) $stap['next'] : $next_label); ?>
-                    </button>
-                </div>
-            <?php endif; ?>
-        </section>
+        <?php if ($index === $dok_index) : ?>
+            <?php
+            // Deze stap staat in de PAGINA, in het kaartje van de callout. Hier
+            // blijft alleen zijn plaats open: zodra het venster opengaat schuift
+            // mymmo-forms-steps.js hem hiervoor.
+            //
+            // Een teken erin, geen leeg element: een leeg element kan onderweg
+            // weggefilterd worden (zie CLAUDE.md, de stappen op syndicoach.be) en
+            // dan komt de stap in het venster op de verkeerde plek terecht.
+            ?>
+            <span class="mymmo-stap-anker" data-mymmo-thuis hidden aria-hidden="true">&#160;</span>
+        <?php else : ?>
+            <?php
+            echo mymmo_forms_stap_sectie( // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+                $stap,
+                (int) $index,
+                $index !== $start,
+                $terug_label,
+                $next_label
+            );
+            ?>
+        <?php endif; ?>
     <?php endforeach; ?>
 
-    <section class="mymmo-stap mymmo-stap--formulier"
-             data-mymmo-stap="<?php echo esc_attr((string) count($stappen)); ?>"
-             data-mymmo-stap-naam="formulier"
-             <?php echo count($stappen) === $start ? '' : 'hidden'; ?>>
-
+    <?php if (count($stappen) === $dok_index) : ?>
+        <?php // Het formulier staat in de PAGINA, in het kaartje van een callout. ?>
+        <span class="mymmo-stap-anker" data-mymmo-thuis hidden aria-hidden="true">&#160;</span>
+    <?php else : ?>
         <?php
-        // De laatste stap IS het formulier en heeft dus geen stap-record met
-        // een titel erin. Zonder kop begint stap 2 abrupt met een invoerveld
-        // terwijl stap 1 een titel en een regel uitleg had. Dezelfde kop als op
-        // een tabblad zonder stappen: zie mymmo_forms_form_kop() -- de shortcode
-        // wint, anders de naam en de inleiding uit de OM.
-        $kop_html = is_array($form) ? mymmo_forms_form_kop($form, array_merge($form_args, ['lang' => $lang])) : '';
-        echo $kop_html; // phpcs:ignore WordPress.Security.EscapeOutput -- opgebouwd met esc_html()
+        echo mymmo_forms_formulier_sectie( // phpcs:ignore WordPress.Security.EscapeOutput
+            is_array($form) ? $form : [],
+            $form_args,
+            $lang,
+            count($stappen),
+            count($stappen) !== $start,
+            $terug_label,
+            count($stappen) > 0
+        );
         ?>
-
-        <?php
-        // De "Vorige" van de laatste stap gaat MEE in het formulier, naast de
-        // verzendknop. Een eigen knoppenrij eronder zou twee rijen knoppen
-        // geven waarvan de onderste de belangrijkste niet is.
-        echo mymmo_forms_render('form', array_merge($form_args, [
-            'step_back' => count($stappen) > 0 ? $terug_label : '',
-            // De kop staat hierboven al als stap-titel en regel uitleg; het
-            // formulier mag ze niet nog eens tonen.
-            'show_title' => $kop_html === '' ? ($form_args['show_title'] ?? true) : false,
-            'show_intro' => $kop_html === '' ? ($form_args['show_intro'] ?? null) : false,
-            'kop_html'   => '',
-        ]));
-        ?>
-    </section>
+    <?php endif; ?>
 </div>

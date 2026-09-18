@@ -126,5 +126,7 @@ final class Mymmo_Forms_Block {
         }
         wp_enqueue_style('mymmo-forms');
         wp_enqueue_style('mymmo-forms-modal');
+        wp_enqueue_style('mymmo-forms-steps');
+        wp_enqueue_style('mymmo-forms-callout');
     }
 }

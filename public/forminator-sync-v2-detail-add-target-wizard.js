@@ -31,6 +31,7 @@
       { id: 'create_activity', icon: 'calendar-check', label: 'Activiteit',        desc: 'Taak inplannen op een record' },
       { id: 'mailing_list',    icon: 'mail',           label: 'Mailinglijst',     desc: 'Toevoegen/verwijderen uit mailinglijst' },
       { id: 'send_mail',       icon: 'send',           label: 'Mail versturen',   desc: 'Gewone mail, eventueel later versturen' },
+      { id: 'generate_pdf',    icon: 'file-text',      label: 'PDF genereren',    desc: 'Offerte of document als pdf, bv. voor een mailbijlage' },
     ];
 
     var modelCards = models.map(function (m, i) {
@@ -333,6 +334,59 @@
       if (mailTargetId) {
         var poMail = window.FSV2.getPipelineOpen(integrationId);
         poMail[String(mailTargetId)] = true;
+        window.FSV2.renderDetailMappings();
+        if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
+      }
+      return;
+    }
+
+    if (objectId === 'generate_pdf') {
+      // Een pdf hangt aan een record uit een eerdere stap (voor de attachment-
+      // koppeling en, indien dynamisch, de contactpersoon) -- zelfde eis als
+      // bij een chatter- of mailstap.
+      var pdfCompat = targets.filter(function (t) {
+        return t.operation_type !== 'chatter_message' && t.operation_type !== 'send_mail' &&
+               t.operation_type !== 'generate_pdf' && t.odoo_model;
+      }).sort(function (a, b) { return window.FSV2.getTargetOrder(a, 0) - window.FSV2.getTargetOrder(b, 0); });
+
+      if (!pdfCompat.length) {
+        window.FSV2.showAlert('Voeg eerst een schrijfdoel (upsert/aanmaken/bijwerken) toe voordat je een pdf-stap kunt koppelen.', 'error');
+        return;
+      }
+      var pdfTemplates = Array.isArray(S().pdfTemplatesCache) ? S().pdfTemplatesCache : [];
+      if (!pdfTemplates.length) {
+        window.FSV2.showAlert('Er bestaat nog geen pdf-sjabloon. Maak er eerst één aan bij Instellingen → PDF-ontwerpen.', 'error');
+        return;
+      }
+
+      var pdfParent      = pdfCompat[0];
+      var pdfParentOrder = window.FSV2.getTargetOrder(pdfParent, 0);
+      var pdfNewOrder    = maxOrder + 1;
+
+      var pdfRes = await window.FSV2.api('/integrations/' + integrationId + '/targets', {
+        method: 'POST',
+        body: JSON.stringify({
+          odoo_model:      pdfParent.odoo_model,
+          identifier_type: 'mapped_fields',
+          update_policy:   'always_overwrite',
+          operation_type:  'generate_pdf',
+          // Zonder naam zou de kaart het MODEL tonen -- zelfde reden als bij send_mail.
+          label:           'PDF genereren',
+          execution_order: pdfNewOrder,
+          order_index:     pdfNewOrder,
+
+          pdf_template_id:       pdfTemplates[0].id,
+          pdf_res_id_source:     'step.' + pdfParentOrder + '.record_id',
+          pdf_filename_template: 'Offerte-{{offerte.nummer}}.pdf',
+        }),
+      });
+      var pdfTargetId = pdfRes && pdfRes.data && pdfRes.data.id;
+
+      window.FSV2.showAlert('PDF-stap toegevoegd. Stel het sjabloon en de velden in.', 'success');
+      await window.FSV2.openDetail(S().activeId);
+      if (pdfTargetId) {
+        var poPdf = window.FSV2.getPipelineOpen(integrationId);
+        poPdf[String(pdfTargetId)] = true;
         window.FSV2.renderDetailMappings();
         if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
       }

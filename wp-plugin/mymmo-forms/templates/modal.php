@@ -82,8 +82,84 @@ if (!defined('ABSPATH')) {
 /** @var string $watermark */
 /** @var string $image_calendly */
 /** @var string $image_calendly_alt */
+/** @var array<string,mixed>|null $callout  de instellingen van het kaartje, of null */
+/** @var array<string,string>|null $wikkel_attr  extra attributen op de wikkel */
+/** @var string|null $wikkel_class  extra klasse op de wikkel */
+/** @var string|null $panel_extra   extra klasse op het paneel */
+/** @var bool|null $naakt           de reeks krijgt geen eigen wikkel (callout) */
+/** @var int|null  $dok_index       welke stap in de pagina staat (callout) */
+
+/*
+ * WAT EEN CALLOUT HIER VERANDERT
+ * ------------------------------
+ * Een callout zet de eerste stap van de reeks IN DE PAGINA, in een kaartje met
+ * flavortekst. Dat kaartje moet binnen dezelfde `data-mymmo-stappen`-wikkel
+ * staan als het venster, anders kan de stap zijn waarde nergens kwijt -- het
+ * verborgen veld waar hij in schrijft zit in het formulier, en dat staat in het
+ * venster.
+ *
+ * Vandaar dat de wikkel van dit bestand (.mymmo-modal-launch) die attributen
+ * kan dragen en de callout ervóór gezet kan worden. De reeks binnen het venster
+ * rendert dan "naakt": zonder eigen wikkel, met een anker op de plek waar de
+ * gedokte stap hoort zodra het venster opengaat.
+ *
+ * Zonder callout is dit alles leeg en verandert er niets.
+ */
+$callout      = is_array($callout ?? null) ? $callout : null;
+$callout_html = '';
+$wikkel_class = (string) ($wikkel_class ?? '');
+$panel_extra  = (string) ($panel_extra ?? '');
+$naakt        = !empty($naakt);
+$dok_index    = isset($dok_index) ? (int) $dok_index : -1;
+
+// Bij welk tabblad hoort het kaartje? Een stap of het formulier staat op het
+// FORMULIER-tabblad; de agenda op dat van de agenda. Een derde tabblad met eigen
+// stappen houdt gewoon zijn eigen wikkel -- mymmo-forms-steps.js kijkt per stap
+// welke reeks de dichtstbijzijnde is, dus die twee zitten elkaar niet in de weg.
+$callout_tab = (string) ($callout['tab'] ?? 'form');
+if (!in_array($callout_tab, ['form', 'extra', 'calendly'], true)) {
+    $callout_tab = 'form';
+}
+
+$wikkel_attr_html = '';
+foreach ((array) ($wikkel_attr ?? []) as $attribuut => $waarde) {
+    // Alleen wat een attribuutnaam mag zijn. Deze sleutels komen uit onze eigen
+    // code, maar dit is de wikkel op de pagina van een bezoeker en een naam met
+    // een aanhalingsteken erin zou het element openbreken.
+    $attribuut = (string) preg_replace('/[^a-z0-9-]/', '', strtolower((string) $attribuut));
+    if ($attribuut === '') {
+        continue;
+    }
+    $wikkel_attr_html .= ' ' . $attribuut
+        . ((string) $waarde === '' ? '' : '="' . esc_attr((string) $waarde) . '"');
+}
 
 $heeft_agenda = $calendly !== '';
+
+// Een callout die de AGENDA uitlicht, krijgt haar eigen kalender in het kaartje.
+// Ze verhuist NIET mee naar het venster zoals een stap dat doet: een iframe dat
+// je verplaatst laadt opnieuw, en dan staat de bezoeker terug op de
+// maandweergave. Er is ook niets over te dragen -- zolang hij geen uur gekozen
+// heeft is er geen invoer, en zodra hij er een kiest loopt Calendly's eigen
+// stroom gewoon door in het kaartje zelf.
+if ($callout !== null && ($callout['uitgelicht'] ?? '') === 'calendly') {
+    $callout_html = $heeft_agenda
+        ? mymmo_forms_render('callout', array_merge($callout, [
+            'modal_id' => $modal_id,
+            'sectie'   => '',
+            'agenda'   => [
+                'url'   => $calendly,
+                'kleur' => $calendly_kleur,
+                'dank'  => $thanks_calendly,
+                'doel'  => $goal_calendly,
+                'label' => $tab_calendly_label,
+            ],
+        ]))
+        : (current_user_can('manage_options')
+            ? '<div class="mymmo-form-notice mymmo-form-notice--admin">Deze callout licht de agenda uit, '
+              . 'maar bij deze opstelling staat geen Calendly-link.</div>'
+            : '');
+}
 $heeft_extra  = is_array($extra_form ?? null);
 
 /*
@@ -206,6 +282,9 @@ if (!$show_button) {
 if ($extra_class !== '') {
     $launch_class .= ' ' . $extra_class;
 }
+if ($wikkel_class !== '') {
+    $launch_class .= ' ' . $wikkel_class;
+}
 
 $panel_class = 'mymmo-modal-panel';
 $panel_class .= $heeft_zijkolom ? ' mymmo-modal-panel--zijkolom' : ' mymmo-modal-panel--kaal';
@@ -213,10 +292,33 @@ $panel_class .= $heeft_zijkolom ? ' mymmo-modal-panel--zijkolom' : ' mymmo-modal
 // Calendly IN de rechterkolom. Onder ~640px schakelt Calendly zelf naar zijn
 // smalle weergave, en dan staat de maand onder de uren in plaats van ernaast.
 $panel_class .= $heeft_agenda ? ' mymmo-modal-panel--breed' : '';
+if ($panel_extra !== '') {
+    $panel_class .= ' ' . $panel_extra;
+}
 ?>
 <div class="<?php echo esc_attr($launch_class); ?>"
      id="<?php echo esc_attr($launch_id); ?>"
-     lang="<?php echo esc_attr($lang); ?>"<?php echo $stijl !== '' ? ' style="' . esc_attr($stijl) . '"' : ''; ?>>
+     lang="<?php echo esc_attr($lang); ?>"<?php echo $wikkel_attr_html; // phpcs:ignore WordPress.Security.EscapeOutput -- per attribuut geschoond hierboven ?><?php echo $stijl !== '' ? ' style="' . esc_attr($stijl) . '"' : ''; ?>>
+
+    <?php
+    // De brug naar de stappenreeks als ALLEREERSTE in deze wikkel. Ze staat ook
+    // in mymmo_forms_stap_sectie(), maar die kan pas verderop komen: rendert een
+    // ander tabblad zijn reeks eerder, dan belandt ze in het venster -- en dat
+    // staat door de buffer hieronder NA het kaartje. Het script van de stap in
+    // het kaartje zou dan gooien. Een keer per pagina; zie
+    // mymmo_forms_stappen_brug().
+    if ($callout !== null) {
+        echo mymmo_forms_stappen_brug(); // phpcs:ignore WordPress.Security.EscapeOutput
+    }
+    ?>
+
+    <?php
+    // Het VENSTER gaat in een buffer. Het kaartje van een callout wordt pas
+    // onderweg opgebouwd -- het gebruikt de argumenten van het formulier-tabblad
+    // -- maar hoort op het scherm vóór het venster te staan. Bufferen is hier
+    // eerlijker dan die argumenten twee keer samenstellen.
+    ob_start();
+    ?>
 
     <?php if ($show_button) : ?>
         <a class="mymmo-modal-button mymmo-modal-button--<?php echo esc_attr($variant); ?>"
@@ -530,7 +632,7 @@ $panel_class .= $heeft_agenda ? ' mymmo-modal-panel--breed' : '';
                                     'extra_style' => $accent_style,
                                 ], $dank_tab);
                             else :
-                            echo mymmo_forms_render_body($tb['steps'], $tb['form'], $tb['slug'], [
+                            $body_args = [
                                 'form' => $tb['form'],
                                 'slug' => $tb['slug'],
                                 // De kop staat al in de zijkolom; twee keer dezelfde
@@ -569,10 +671,37 @@ $panel_class .= $heeft_agenda ? ' mymmo-modal-panel--breed' : '';
                                 // terwijl stap 1 een titel had.
                                 'form_title'  => $form_title,
                                 'form_sub'    => $form_sub,
+                                // Bij een callout draagt de wikkel hierboven de
+                                // reeks, staat de eerste stap in de pagina, en
+                                // hoort het id van de noscript-terugval bij die
+                                // wikkel.
+                                'naakt'       => $naakt && $tb['id'] === $callout_tab,
+                                'dok_index'   => $tb['id'] === $callout_tab ? $dok_index : -1,
+                                'wrap_id'     => $naakt && $tb['id'] === $callout_tab ? $launch_id : '',
                                 // En dezelfde kop boven een formulier ZONDER
                                 // stappen ("Stuur een bericht"), tenzij uitgezet.
                                 'form_heading' => !isset($form_heading) || $form_heading,
-                            ]);
+                                // mymmo_forms_gedokte_sectie() lost hiermee
+                                // dezelfde stappen op als de reeks hieronder.
+                                'steps'        => $tb['steps'],
+                            ];
+
+                            // Het kaartje van de callout wordt HIER gemaakt, met
+                            // exact deze argumenten: het is hetzelfde element dat
+                            // straks in het venster staat. Op het scherm hoort het
+                            // vóór het venster -- dat staat daarom in een buffer.
+                            if ($callout !== null && $tb['id'] === $callout_tab && $dok_index >= 0) {
+                                $callout_html = mymmo_forms_render('callout', array_merge($callout, [
+                                    'modal_id' => $modal_id,
+                                    'agenda'   => null,
+                                    'sectie'   => mymmo_forms_gedokte_sectie(
+                                        is_array($tb['form']) ? $tb['form'] : [],
+                                        $body_args
+                                    ),
+                                ]));
+                            }
+
+                            echo mymmo_forms_render_body($tb['steps'], $tb['form'], $tb['slug'], $body_args);
                                 // Het sjabloon voor de bouwer (bewerken in het voorbeeld).
                                 echo mymmo_forms_render_dank($tb['id'], $dank_tab, false); // phpcs:ignore WordPress.Security.EscapeOutput
                             endif;
@@ -587,4 +716,10 @@ $panel_class .= $heeft_agenda ? ' mymmo-modal-panel--breed' : '';
             </div><?php // .mymmo-modal-lijf ?>
         </div>
     </div>
+
+    <?php
+    $venster_html = ob_get_clean();
+    echo $callout_html;  // phpcs:ignore WordPress.Security.EscapeOutput -- templates/callout.php
+    echo $venster_html;  // phpcs:ignore WordPress.Security.EscapeOutput -- dit bestand zelf
+    ?>
 </div>

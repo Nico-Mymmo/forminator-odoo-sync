@@ -64,10 +64,19 @@
     if (rij) rij.hidden = talen.length < 2;
   }
 
-  /** "inline" (formulier op de pagina) of "knop" (venster met tabbladen). */
+  /**
+   * Welke soort plaatsing: "inline" (formulier op de pagina) of "knop" (venster
+   * met tabbladen).
+   *
+   * Hoe een venster OPENGAAT staat hier niet bij: dat zijn de ingangen, met hun
+   * eigen beheerscherm (tabblad Ingangen). Een opstelling is het venster.
+   */
+  var SOORTEN = ['inline', 'knop'];
+
   function soort() {
     var gekozen = document.querySelector('input[name="mymmoFormsSoort"]:checked');
-    return gekozen && gekozen.value === 'knop' ? 'knop' : 'inline';
+    var waarde = gekozen ? gekozen.value : '';
+    return SOORTEN.indexOf(waarde) === -1 ? 'inline' : waarde;
   }
 
   /**
@@ -381,12 +390,25 @@
     return slug ? '#mymmo-modal-' + slug : '#mymmo-modal-...';
   }
 
-  /** De velden die alleen bij een knop horen tonen of verbergen. */
+  /** Staat deze soort in een lijst als "inline knop"? */
+  function inLijst(ruw, nu) {
+    return String(ruw || '').split(/[\s,]+/).indexOf(nu) !== -1;
+  }
+
+  /** De velden tonen of verbergen die bij deze soort plaatsing horen. */
   function toonRijen() {
-    var knop = soort() === 'knop';
-    var rijen = document.querySelectorAll('[data-mymmo-alleen="knop"]');
-    for (var i = 0; i < rijen.length; i += 1) {
-      rijen[i].hidden = !knop;
+    var nu = soort();
+    var knop = nu === 'knop';
+
+    var alleen = document.querySelectorAll('[data-mymmo-alleen]');
+    for (var i = 0; i < alleen.length; i += 1) {
+      alleen[i].hidden = !inLijst(alleen[i].getAttribute('data-mymmo-alleen'), nu);
+    }
+
+    // En het omgekeerde: wat bij deze soort juist NIET hoort.
+    var niet = document.querySelectorAll('[data-mymmo-niet]');
+    for (var n = 0; n < niet.length; n += 1) {
+      niet[n].hidden = inLijst(niet[n].getAttribute('data-mymmo-niet'), nu);
     }
 
     // De kleurkiezer heeft pas zin als je een eigen kleur wil; anders volgt de
@@ -448,6 +470,9 @@
 
       if (label) atts.label = label;
       if (agenda) atts.calendly = agenda;
+      // Een ruimer venster, voor een stap die in de gewone breedte niet past en
+      // daar anders een schuifbalk van maakt.
+      if (aangevinkt('mymmoFormsPanelBreed')) atts.panel = 'breed';
 
       // De zijkolom.
       var intro = waardeVan('mymmoFormsIntro');
@@ -697,10 +722,13 @@
   function vulIn(atts, soort) {
     atts = atts || {};
 
-    var knopKeuze = document.querySelector(
-      'input[name="mymmoFormsSoort"][value="' + (soort === 'inline' ? 'inline' : 'knop') + '"]'
+    var soortKeuze = document.querySelector(
+      'input[name="mymmoFormsSoort"][value="' + (SOORTEN.indexOf(soort) === -1 ? 'knop' : soort) + '"]'
     );
-    if (knopKeuze) knopKeuze.checked = true;
+    if (soortKeuze) soortKeuze.checked = true;
+
+    var panelBreed = document.getElementById('mymmoFormsPanelBreed');
+    if (panelBreed) panelBreed.checked = atts.panel === 'breed';
 
     var keuze = document.getElementById('mymmoFormsPick');
     if (keuze && atts.slug) {
@@ -935,7 +963,8 @@
       + ' #mymmoFormsThanksFormImage, #mymmoFormsThanksFormTitle, #mymmoFormsThanksFormText,'
       + ' #mymmoFormsThanksExtraImage, #mymmoFormsThanksExtraTitle, #mymmoFormsThanksExtraText,'
       + ' #mymmoFormsThanksCalendlyImage, #mymmoFormsThanksCalendlyTitle,'
-      + ' #mymmoFormsGoalForm, #mymmoFormsGoalCalendly, #mymmoFormsGoalExtra'
+      + ' #mymmoFormsGoalForm, #mymmoFormsGoalCalendly, #mymmoFormsGoalExtra,'
+      + ' #mymmoFormsPanelBreed'
     );
     for (var i = 0; i < velden.length; i += 1) {
       velden[i].addEventListener('input', function () {

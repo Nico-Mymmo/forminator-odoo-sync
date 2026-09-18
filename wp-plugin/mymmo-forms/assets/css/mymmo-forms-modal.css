@@ -234,6 +234,28 @@ html.mymmo-modal-actief body {
   height: min(780px, 88dvh);
 }
 
+/*
+ * panel="breed" op de shortcode: een RUIMER venster.
+ *
+ * Voor een stap die in de gewone breedte niet past. "Wat speelt er in jullie
+ * gebouw" heeft dertien keien; in 660px worden dat drie rijen en loopt het
+ * paneel over zijn hoogte heen -- en dan verschijnt de schuifbalk waar deze
+ * plugin het nergens op laat aankomen. Met deze maat passen ze in twee rijen.
+ *
+ * Los van --breed (de agenda): die legt ook een VASTE hoogte op, omdat de twee
+ * panelen daar over elkaar liggen en absolute kinderen hun ouder geen hoogte
+ * geven. Dat hoort hier niet bij -- een venster met een stap groeit gewoon met
+ * zijn inhoud mee, en een opgelegde hoogte zou van een korte stap een half leeg
+ * vlak maken.
+ *
+ * Staat er ook een agenda, dan geldt de maat van --breed: die komt hieronder en
+ * wint dus. Dat is de juiste kant op -- de kalender heeft die breedte echt
+ * nodig.
+ */
+.mymmo-modal-panel--ruim {
+  max-width: 940px;
+}
+
 /* ── De zijkolom ─────────────────────────────────────────────────────────── */
 
 /* De zijkolom heeft GEEN eigen achtergrond en geen scheidingslijn: ze staat op
@@ -1158,5 +1180,82 @@ html.mymmo-modal-js .mymmo-modal-body--tabs .mymmo-modal-paneel.is-actief {
   .mymmo-modal-tab-icoon,
   .mymmo-modal-close {
     transition: none;
+  }
+}
+
+@media (max-width: 640px) {
+  /*
+   * OP EEN TELEFOON KRIJGT DE BEZOEKER WAAR HIJ VOOR KWAM, EN VERDER NIETS.
+   *
+   * De kop, de inleiding en de rij tabbladen stonden hier allemaal bovenaan, en
+   * samen duwden ze het eigenlijke scherm een halve telefoonhoogte naar beneden
+   * -- terwijl de bezoeker net op "Bereken je prijs" had geklikt en dus al
+   * gezegd had wat hij wou. Op een telefoon is dat niet "context", dat is een
+   * drempel.
+   *
+   * Wat er WEL blijft: het tabblad dat hij koos, over de volle hoogte. En
+   * onderaan, op de tint van het venster, de tabbladen die hij NIET koos -- daar
+   * lezen ze als "er kan hier ook nog dit" in plaats van als een keuze die hij
+   * eerst moet maken.
+   *
+   * Welk tabblad dat is, staat bij de INGANG (zie class-entrypoints.php): een
+   * knop "Plan een gesprek" opent de agenda, een callout opent wat ze uitlicht.
+   */
+  .mymmo-modal-kop {
+    display: none;
+  }
+
+  .mymmo-modal-lead,
+  .mymmo-modal-punten,
+  .mymmo-modal-figuur {
+    display: none;
+  }
+
+  /* De inhoud eerst, de overige tabbladen eronder. Noem de richting zelf: een
+     blokthema zet flex-direction op van alles. */
+  .mymmo-modal-lijf {
+    flex-direction: column;
+  }
+
+  .mymmo-modal-main {
+    order: 1;
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+
+  .mymmo-modal-aside {
+    order: 2;
+    flex: 0 0 auto;
+    padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+  }
+
+  /* Het tabblad waar je op staat hoort niet bij "extra acties" -- dat is waar je
+     bent. Zonder dit staat er onderaan een knop die niets doet. */
+  .mymmo-modal-tabs .mymmo-modal-tab.is-active {
+    display: none;
+  }
+
+  /* Blijft er niets over om te tonen -- een venster met maar één tabblad -- dan
+     is de strook een lege balk van 24px onderaan het scherm. Een browser zonder
+     :has() krijgt die balk; dat is de onschadelijke kant van deze regel. */
+  .mymmo-modal-aside:not(:has(.mymmo-modal-tab:not(.is-active))) {
+    display: none;
+  }
+
+  .mymmo-modal-panel--zijkolom .mymmo-modal-tabs {
+    flex-direction: row;
+    gap: 8px;
+  }
+
+  .mymmo-modal-panel--zijkolom .mymmo-modal-tab {
+    flex: 1 1 0;
+    /* Het regeltje onder het opschrift past hier niet: twee knoppen naast elkaar
+       op 375px hebben elk een kleine 170px. */
+    justify-content: center;
+    text-align: center;
+  }
+
+  .mymmo-modal-tab-sub {
+    display: none;
   }
 }

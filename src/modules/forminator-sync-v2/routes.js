@@ -2,6 +2,10 @@ import { executeKw } from '../../lib/odoo.js';
 import { fetchFsv2ActivityTypes, fetchFsv2OdooUsers } from './odoo-client.js';
 import { renderPlainMailHtml, renderPlainSubject, nietPlatteOpmaak } from '../../lib/mail/render-plain.js';
 import { describeMailAttachments, MAX_MAIL_ATTACHMENTS, MAX_MAIL_ATTACHMENT_BYTES } from './mail-attachments.js';
+import {
+  buildPdfGegevens, renderPdf, pdfBytesToBase64,
+  listPdfTemplates, getPdfTemplate, createPdfTemplate, updatePdfTemplate, deletePdfTemplate
+} from './pdf-step.js';
 import { listObjects } from '../asset-manager/lib/r2-client.js';
 import {
   ASSET_CATEGORY_PREFIXES, canReadAssetPrefix, isWithinAssetNamespace, listDynamicAssetCategories
@@ -1292,6 +1296,13 @@ export const routes = {
         // Een rauw mail.mail-record respecteert mail.blacklist niet zelf; dit
         // uitzetten betekent mailen naar wie zich heeft uitgeschreven.
         ...(payload.mail_respect_blacklist !== undefined ? { mail_respect_blacklist: payload.mail_respect_blacklist !== false } : {}),
+        // ── generate_pdf ───────────────────────────────────────────────────
+        ...(payload.pdf_template_id          !== undefined ? { pdf_template_id:          payload.pdf_template_id          || null } : {}),
+        ...(payload.pdf_res_id_source        !== undefined ? { pdf_res_id_source:        payload.pdf_res_id_source        || null } : {}),
+        ...(payload.pdf_contact_source       !== undefined ? { pdf_contact_source:       payload.pdf_contact_source       || null } : {}),
+        ...(payload.pdf_contact_employee_id  !== undefined ? { pdf_contact_employee_id:  Number(payload.pdf_contact_employee_id) || null } : {}),
+        ...(payload.pdf_contact_source_value !== undefined ? { pdf_contact_source_value: payload.pdf_contact_source_value || null } : {}),
+        ...(payload.pdf_filename_template    !== undefined ? { pdf_filename_template:    payload.pdf_filename_template    || null } : {}),
       });
 
       return jsonResponse({ success: true, data: created }, 201);
@@ -1374,6 +1385,13 @@ export const routes = {
         // Een rauw mail.mail-record respecteert mail.blacklist niet zelf; dit
         // uitzetten betekent mailen naar wie zich heeft uitgeschreven.
         ...(payload.mail_respect_blacklist !== undefined ? { mail_respect_blacklist: payload.mail_respect_blacklist !== false } : {}),
+        // ── generate_pdf ───────────────────────────────────────────────────
+        ...(payload.pdf_template_id          !== undefined ? { pdf_template_id:          payload.pdf_template_id          || null } : {}),
+        ...(payload.pdf_res_id_source        !== undefined ? { pdf_res_id_source:        payload.pdf_res_id_source        || null } : {}),
+        ...(payload.pdf_contact_source       !== undefined ? { pdf_contact_source:       payload.pdf_contact_source       || null } : {}),
+        ...(payload.pdf_contact_employee_id  !== undefined ? { pdf_contact_employee_id:  Number(payload.pdf_contact_employee_id) || null } : {}),
+        ...(payload.pdf_contact_source_value !== undefined ? { pdf_contact_source_value: payload.pdf_contact_source_value || null } : {}),
+        ...(payload.pdf_filename_template    !== undefined ? { pdf_filename_template:    payload.pdf_filename_template    || null } : {}),
       });
 
       return jsonResponse({ success: true, data: updated });
@@ -1387,6 +1405,114 @@ export const routes = {
       await assertNotSystemTarget(context.env, context.params?.targetId);
       await deleteTarget(context.env, context.params?.targetId);
       return jsonResponse({ success: true });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
+    }
+  },
+
+  // ─── generate_pdf: sjabloonbeheer + testgeneratie ──────────────────────────
+  //
+  // Sjablonen zijn MODULE-BREED, niet per koppeling (fs_v2_pdf_templates) --
+  // meerdere generate_pdf-stappen, in verschillende koppelingen, kunnen naar
+  // hetzelfde sjabloon verwijzen. "Bewerken" (Instellingen) opent
+  // public/offerte.html?template=<id>; die pagina spreekt deze routes zelf aan
+  // om te laden/bewaren (zie offerte-render.js).
+
+  'GET /api/pdf-templates': async (context) => {
+    try {
+      const data = await listPdfTemplates(context.env);
+      return jsonResponse({ success: true, data });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
+    }
+  },
+
+  'POST /api/pdf-templates': async (context) => {
+    try {
+      const payload = await readJsonBody(context.request);
+      const created = await createPdfTemplate(context.env, { name: payload.name, data: payload.data });
+      return jsonResponse({ success: true, data: created }, 201);
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
+    }
+  },
+
+  'GET /api/pdf-templates/:id': async (context) => {
+    try {
+      const data = await getPdfTemplate(context.env, context.params?.id);
+      return jsonResponse({ success: true, data });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
+    }
+  },
+
+  'PUT /api/pdf-templates/:id': async (context) => {
+    try {
+      const payload = await readJsonBody(context.request);
+      const updated = await updatePdfTemplate(context.env, context.params?.id, { name: payload.name, data: payload.data });
+      return jsonResponse({ success: true, data: updated });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
+    }
+  },
+
+  'DELETE /api/pdf-templates/:id': async (context) => {
+    try {
+      await deletePdfTemplate(context.env, context.params?.id);
+      return jsonResponse({ success: true });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
+    }
+  },
+
+  /**
+   * Eén keer echt een pdf genereren met de gekozen stap -- de "Bekijk zoals
+   * verstuurd"-tegenhanger voor generate_pdf. Loopt door PRECIES hetzelfde pad
+   * als de echte stap (buildPdfGegevens + renderPdf), maar uploadt NIETS naar
+   * Odoo. Een dynamische contactpersoon kan hier niet echt opgelost worden (er
+   * is geen lopende inzending) -- dat valt terug op het sjablooncontact, met
+   * een waarschuwing erbij.
+   *
+   * REGEL 4: Worker-routes geven altijd JSON, dus dit geeft { filename, base64 }
+   * terug; de client maakt daar een Blob-download van.
+   */
+  'POST /api/targets/:targetId/pdf-test': async (context) => {
+    try {
+      const target = await getTargetById(context.env, context.params?.targetId);
+      if (!target) return jsonResponse({ success: false, error: 'Stap niet gevonden.' }, 404);
+      if (target.operation_type !== 'generate_pdf') {
+        return jsonResponse({ success: false, error: 'Dit is geen PDF-stap.' }, 400);
+      }
+
+      const payload = await readJsonBody(context.request);
+      const sample = (payload && payload.sample && typeof payload.sample === 'object') ? payload.sample : {};
+
+      const template = await getPdfTemplate(context.env, target.pdf_template_id);
+      const mappings = await listMappingsByTarget(context.env, target.id);
+
+      // Een dynamische contactpersoon vraagt een vorige stap die hier niet
+      // bestaat -- terugvallen op het sjablooncontact i.p.v. te gooien.
+      const isDynamischContact = target.pdf_contact_source === 'dynamic';
+      const testTarget = isDynamischContact ? { ...target, pdf_contact_source: null } : target;
+
+      const resolveMapping = (mapping) => {
+        if (mapping.source_type === 'static') return mapping.source_value;
+        if (mapping.source_type === 'form') return sample[mapping.source_value] ?? null;
+        return null; // previous_step_output/context: niet beschikbaar zonder echte inzending
+      };
+
+      const { gegevens, copy, filename, waarschuwingen } = await buildPdfGegevens(context.env, {
+        target: testTarget, template, mappings, form: sample, contextObject: {}, resolveMapping
+      });
+      if (isDynamischContact) {
+        waarschuwingen.push('De dynamische contactpersoon wordt pas bij een echte indiening ingevuld — dit voorbeeld toont het sjablooncontact.');
+      }
+
+      const bytes = await renderPdf(context.env, { gegevens, copy });
+      return jsonResponse({
+        success: true,
+        data: { filename, base64: pdfBytesToBase64(bytes), waarschuwingen }
+      });
     } catch (error) {
       return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
     }

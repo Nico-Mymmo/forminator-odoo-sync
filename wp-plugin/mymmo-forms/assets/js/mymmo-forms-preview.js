@@ -518,8 +518,23 @@
     if (!doc || !doc.body) return;
 
     var venster = doc.querySelector('[data-mymmo-modal]');
+    // Bij een CALLOUT gaat het voorbeeld over wat er in de pagina staat. Het
+    // venster hoort daar dicht te zijn -- dat ontwerp je bij de opstelling van
+    // dat venster, niet hier -- en de knop van de callout opent het gewoon,
+    // zodat je in het voorbeeld kan zien dat de stap meeverhuist.
+    var callout = doc.querySelector('.mymmo-callout');
 
-    if (venster) {
+    if (venster && callout) {
+      doc.documentElement.classList.add('mymmo-modal-js');
+
+      var uitlegCallout = doc.createElement('p');
+      uitlegCallout.className = 'mf-uitleg';
+      uitlegCallout.textContent = 'Klik op de knop: het venster dat je bij die opstelling maakte '
+        + 'gaat open, met deze vraag vooraan en al ingevuld.';
+      callout.parentNode.insertBefore(uitlegCallout, callout.nextSibling);
+    }
+
+    if (venster && !callout) {
       // Openzetten en open HOUDEN. De sluitknop en de achtergrond blijven staan
       // -- ze horen bij het venster -- maar doen hier niets: sluiten zou het
       // canvas leeg achterlaten en de enige uitweg zou een herlaadknop zijn.

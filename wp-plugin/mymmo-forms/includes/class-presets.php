@@ -48,7 +48,9 @@ final class Mymmo_Forms_Presets {
      * gerenderd, of omgekeerd -- en dat merk je pas op een pagina.
      *
      * `preset` staat er bewust NIET in: een opstelling die een andere opstelling
-     * oproept is een ketting die niemand meer kan volgen.
+     * oproept is een ketting die niemand meer kan volgen. Een INGANG wijst wel
+     * naar een opstelling, maar dat is een andere lijst en precies één niveau
+     * diep -- zie class-entrypoints.php.
      */
     public const ATTS = [
         'slug', 'steps', 'label', 'calendly', 'title', 'intro', 'points', 'image', 'image_alt',
@@ -65,7 +67,21 @@ final class Mymmo_Forms_Presets {
         'thanks_form_image', 'thanks_form_title', 'thanks_form_text',
         'thanks_extra_image', 'thanks_extra_title', 'thanks_extra_text',
         'thanks_calendly_image', 'thanks_calendly_title', 'goal_extra',
+        // 1.17: een ruimer venster, voor een stap die in de gewone breedte niet
+        // past en daar anders een schuifbalk van maakt.
+        'panel',
     ];
+
+    /**
+     * De twee soorten plaatsing. Wat hier niet in staat, wordt een knop.
+     *
+     * Een CALLOUT staat hier bewust niet tussen. Een opstelling is het VENSTER;
+     * hoe je het opent is een INGANG, en die hebben een eigen lijst (zie
+     * class-entrypoints.php). Anders heb je per manier van openen een kopie van
+     * het hele venster nodig -- en moet je bij elke wijziging raden welke kopie
+     * waar staat.
+     */
+    private const SOORTEN = ['inline', 'knop'];
 
     /** Meer dan dit is geen lijst meer maar een archief. */
     private const MAX = 50;
@@ -152,7 +168,9 @@ final class Mymmo_Forms_Presets {
         return [
             'id'      => $id,
             'name'    => $naam !== '' ? $naam : $id,
-            'soort'   => ($ruw['soort'] ?? 'knop') === 'inline' ? 'inline' : 'knop',
+            'soort'   => in_array((string) ($ruw['soort'] ?? ''), self::SOORTEN, true)
+                ? (string) $ruw['soort']
+                : 'knop',
             'atts'    => $atts,
             'updated' => (int) ($ruw['updated'] ?? 0),
         ];
@@ -188,7 +206,7 @@ final class Mymmo_Forms_Presets {
         $alles[$id] = [
             'id'      => $id,
             'name'    => $naam,
-            'soort'   => $soort === 'inline' ? 'inline' : 'knop',
+            'soort'   => in_array($soort, self::SOORTEN, true) ? $soort : 'knop',
             'atts'    => $atts,
             'updated' => time(),
         ];

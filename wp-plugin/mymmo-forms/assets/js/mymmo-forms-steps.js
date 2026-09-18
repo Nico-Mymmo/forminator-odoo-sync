@@ -40,6 +40,29 @@
  * dit bestand geladen is. Daarom zet templates/steps.php een klein stukje
  * inline dat de aanmeldingen in een rij bewaart; hieronder wordt die rij
  * afgewerkt.
+ *
+ * EEN STAP DIE IN DE PAGINA STAAT (de callout)
+ * --------------------------------------------
+ * Een callout toont de EERSTE stap al in de pagina, in een kaartje met wat
+ * flavortekst eromheen. Vult de bezoeker daar iets in en klikt hij de knop, dan
+ * gaat het venster open met die vraag al ingevuld.
+ *
+ * Dat gebeurt door de stap te VERPLAATSEN, niet door zijn waarde te kopieren.
+ * Er is dus maar EEN exemplaar van die stap in de pagina: hetzelfde element
+ * verhuist van het kaartje naar het venster en terug. Een tweede exemplaar zou
+ * betekenen dat de waarde over te dragen valt, maar de STAND van de bediening
+ * niet -- een schuifbalk kan je nog kopieren, maar een vinkje dat een stap in
+ * zijn eigen script bijhoudt niet. Dan staat er in het venster "nee" terwijl de
+ * bezoeker in de pagina "ja" aanklikte, en dat is precies de stille fout waar
+ * deze plugin het nergens op laat aankomen.
+ *
+ * De wikkel met `data-mymmo-stappen` staat bij een callout dus OM het kaartje
+ * EN om het venster heen. Alles hieronder werkt daardoor ongewijzigd: het
+ * verborgen veld waar de stap in schrijft staat gewoon in dezelfde wikkel.
+ *
+ *   data-mymmo-dok       het kaartje in de pagina waar de stap woont
+ *   data-mymmo-thuis     de plek in het venster waar hij hoort als het openstaat
+ *   data-mymmo-dok-stap  welke stap dat is (altijd 0)
  */
 
 (function () {
@@ -51,6 +74,25 @@
 
   /** De reeksen die al gebouwd zijn, zodat een stap zijn eigen reeks terugvindt. */
   var reeksen = [];
+
+  /**
+   * Alleen wat bij DEZE reeks hoort.
+   *
+   * Een venster kan een tweede reeks bevatten (een derde tabblad met eigen
+   * stappen), en bij een callout ligt de wikkel OM het venster heen -- dan zou
+   * een gewone querySelectorAll de stappen van die tweede reeks meenemen en zou
+   * deze reeks stappen tonen die niet van haar zijn.
+   */
+  function eigenLijst(wikkel, selector) {
+    return [].slice.call(wikkel.querySelectorAll(selector)).filter(function (el) {
+      return !el.closest || el.closest('[data-mymmo-stappen]') === wikkel;
+    });
+  }
+
+  function eigen(wikkel, selector) {
+    var lijst = eigenLijst(wikkel, selector);
+    return lijst.length ? lijst[0] : null;
+  }
 
   function teksten(wikkel) {
     try {
@@ -93,10 +135,31 @@
   function Reeks(wikkel) {
     this.wikkel = wikkel;
     this.t = teksten(wikkel);
-    this.stappen = [].slice.call(wikkel.querySelectorAll('[data-mymmo-stap]'));
-    this.bollen = [].slice.call(wikkel.querySelectorAll('[data-mymmo-bol]'));
-    this.teller = wikkel.querySelector('[data-mymmo-teller]');
-    this.formulier = wikkel.querySelector('.mymmo-form');
+    // Op NUMMER, niet op de volgorde in het document. Bij een callout staat het
+    // uitgelichte onderdeel in het kaartje, en dat kaartje komt vóór het venster
+    // -- licht je het FORMULIER uit (de laatste stap), dan staat dat dus als
+    // eerste in de DOM. Zonder deze sortering schuift elke index een plaats op
+    // en dokt de reeks de verkeerde sectie: je ziet het formulier met de laatste
+    // vraag eronder, en dat leest als een fout in het formulier zelf.
+    this.stappen = eigenLijst(wikkel, '[data-mymmo-stap]').sort(function (a, b) {
+      return (parseInt(a.getAttribute('data-mymmo-stap'), 10) || 0)
+        - (parseInt(b.getAttribute('data-mymmo-stap'), 10) || 0);
+    });
+    this.bollen = eigenLijst(wikkel, '[data-mymmo-bol]');
+    this.teller = eigen(wikkel, '[data-mymmo-teller]');
+    // HET FORMULIER VAN DEZE REEKS, niet het eerste dat we tegenkomen.
+    //
+    // Bij een callout ligt de wikkel om het hele venster heen, en dat kan
+    // meerdere formulieren bevatten -- een tabblad "Stuur een bericht" naast
+    // het tabblad met de stappen. Het eerste pakken betekende dan dat een stap
+    // zijn waarde in het verkeerde formulier schreef, waar die verborgen velden
+    // niet bestaan: geen foutmelding, gewoon niets in Odoo.
+    //
+    // De naakte reeks merkt daarom haar eigen inhoud (templates/steps.php).
+    // Staat dat merkteken er niet, dan is dit een gewone reeks en is de wikkel
+    // zelf de grens.
+    var binnen = eigen(wikkel, '[data-mymmo-stappen-inhoud]');
+    this.formulier = binnen ? binnen.querySelector('.mymmo-form') : eigen(wikkel, '.mymmo-form');
     this.nu = parseInt(wikkel.getAttribute('data-mymmo-start'), 10) || 0;
     // Per stap-index: is de stap geldig verklaard door zijn eigen script?
     // `null` betekent "niets gezegd", en dan telt de veldencontrole.
@@ -107,10 +170,70 @@
     // POST -- dat kan ook niet -- maar ze worden wél onthouden. Zie zet().
     this.los = {};
 
+    // De stap die in de pagina staat (een callout). Zonder dok is dit alles
+    // niets: dokIndex blijft -1 en plaats() doet nooit iets.
+    this.dok = eigen(wikkel, '[data-mymmo-dok]');
+    this.anker = eigen(wikkel, '[data-mymmo-thuis]');
+    this.dokIndex = this.dok && this.anker
+      ? (parseInt(wikkel.getAttribute('data-mymmo-dok-stap'), 10) || 0)
+      : -1;
+    this.vensterOpen = false;
+
     this.koppelKnoppen();
     this.koppelVelden();
+    this.koppelVenster();
     this.toon(this.nu, true);
   }
+
+  /**
+   * Meeluisteren of het venster in deze wikkel open- of dichtgaat.
+   *
+   * De gebeurtenis komt uit mymmo-forms-modal.js en borrelt op tot hier. Een
+   * gebeurtenis en geen rechtstreekse aanroep: dat bestand hoort niets van
+   * stappen te weten, en dit bestand niets van vensters.
+   */
+  Reeks.prototype.koppelVenster = function () {
+    if (this.dokIndex < 0) return;
+    var zelf = this;
+
+    this.wikkel.addEventListener('mymmo:venster', function (e) {
+      var open = !!(e.detail && e.detail.open);
+      if (open === zelf.vensterOpen) return;
+      zelf.vensterOpen = open;
+      zelf.plaats();
+      // De stap komt (opnieuw) in beeld in het venster: dat is precies wat
+      // 'tonen' betekent. Zonder dit mist een stap die op dat moment iets meet
+      // of een beweging maakt zijn enige aanknopingspunt -- toon() draait hier
+      // niet, want het nummer van de stap verandert niet.
+      if (open && zelf.nu === zelf.dokIndex) zelf.roep(zelf.nu, 'tonen');
+    });
+  };
+
+  /**
+   * De gedokte stap op zijn plaats zetten.
+   *
+   * Hij staat IN HET VENSTER zolang het venster openstaat en hij de stap is die
+   * aan de beurt is; in alle andere gevallen staat hij in het kaartje in de
+   * pagina -- en daar is hij altijd zichtbaar, ook als de bezoeker in het
+   * venster al twee vragen verder is. Een leeg kaartje op de pagina leest als
+   * een fout, en de bezoeker ziet het toch pas als hij het venster sluit.
+   */
+  Reeks.prototype.plaats = function () {
+    if (this.dokIndex < 0) return;
+
+    var stap = this.stappen[this.dokIndex];
+    if (!stap) return;
+
+    if (this.vensterOpen && this.nu === this.dokIndex) {
+      if (stap.nextSibling !== this.anker) {
+        this.anker.parentNode.insertBefore(stap, this.anker);
+      }
+    } else if (stap.parentNode !== this.dok) {
+      this.dok.appendChild(stap);
+    }
+
+    stap.hidden = false;
+  };
 
   Reeks.prototype.stapEl = function (i) {
     return this.stappen[i] || null;
@@ -289,6 +412,9 @@
       this.stappen[n].hidden = (n !== i);
     }
     this.nu = i;
+    // Na het verbergen, want plaats() bepaalt voor de gedokte stap zelf of hij
+    // zichtbaar is -- in het kaartje is hij dat altijd.
+    this.plaats();
 
     for (var b = 0; b < this.bollen.length; b += 1) {
       this.bollen[b].classList.toggle('is-actief', b === i);
@@ -308,6 +434,11 @@
     // Naar boven van de reeks, niet naar het midden van de nieuwe stap: de
     // voortgangsbolletjes staan bovenaan en zijn precies wat je wil zien als er
     // net iets veranderde.
+    //
+    // Niet in een venster: de wikkel is daar de hele callout IN de pagina, dus
+    // dit zou de pagina onder het venster laten verspringen bij elke stap.
+    if (this.vensterOpen) return;
+
     var rect = this.wikkel.getBoundingClientRect();
     if (rect.top < 0 || rect.top > window.innerHeight * 0.5) {
       this.wikkel.scrollIntoView({ block: 'start', behavior: 'smooth' });

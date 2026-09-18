@@ -245,6 +245,43 @@ export function validateTargetPayload(payload, { allowedModels } = {}) {
     return;
   }
 
+  // generate_pdf: een pdf-sjabloon vullen en als ir.attachment uploaden. Geen
+  // model-whitelist, geen identifier_type en geen update_policy -- deze stap
+  // SCHRIJFT niets naar het doelmodel (odoo_model is enkel waar de pdf in de
+  // chatter komt te staan, via pdf_res_id_source -- zelfde idee als bij
+  // send_mail). Bewust NIET toegevoegd aan de isInhoudStap-groep hierboven: de
+  // stap gebruikt calendly_behavior enkel als string ('default'/'skip'), nooit
+  // als inhoud-override, en die vorm accepteert de bestaande controle al.
+  if (payload.operation_type === 'generate_pdf') {
+    if (!hasValue(payload.odoo_model)) {
+      throw createError('generate_pdf vereist een odoo_model (het record waaraan de pdf hangt).');
+    }
+    if (!hasValue(payload.pdf_template_id)) {
+      throw createError('generate_pdf vereist een sjabloon.');
+    }
+
+    const contactBron = payload.pdf_contact_source;
+    if (contactBron !== undefined && contactBron !== null && contactBron !== '') {
+      if (contactBron !== 'fixed' && contactBron !== 'dynamic') {
+        throw createError('pdf_contact_source moet "fixed", "dynamic" of leeg zijn (leeg = contact uit het sjabloon).');
+      }
+      if (contactBron === 'fixed') {
+        const id = Number(payload.pdf_contact_employee_id);
+        if (!Number.isInteger(id) || id <= 0) {
+          throw createError('generate_pdf met een vaste contactpersoon vereist een geldige pdf_contact_employee_id.');
+        }
+      } else if (!/^step\.[^.]+\.record_id$/.test(String(payload.pdf_contact_source_value || ''))) {
+        throw createError('generate_pdf met een dynamische contactpersoon vereist een pdf_contact_source_value in de vorm "step.<order>.record_id".');
+      }
+    }
+
+    if (hasValue(payload.pdf_res_id_source) && !/^step\.[^.]+\.record_id$/.test(String(payload.pdf_res_id_source))) {
+      throw createError('pdf_res_id_source moet de vorm "step.<order>.record_id" hebben, of leeg zijn.');
+    }
+
+    return;
+  }
+
   // search: record opzoeken op een ander model, niets schrijven. Geen model-whitelist
   // (elk model mag doorzocht worden) en geen update_policy -- deze stap schrijft niets.
   if (payload.operation_type === 'search') {

@@ -54,6 +54,8 @@ final class Mymmo_Forms_Shortcodes {
         add_action('init', [self::class, 'register_assets']);
         add_shortcode('mymmo_form', [self::class, 'render']);
         add_shortcode('mymmo_form_button', [self::class, 'render_button']);
+        // [mymmo_form_entry] hoort bij de ingangen en wordt daar geregistreerd:
+        // zie Mymmo_Forms_Entrypoints::register_shortcode().
     }
 
     public static function register_assets(): void {
@@ -98,6 +100,16 @@ final class Mymmo_Forms_Shortcodes {
             true
         );
 
+        // De callout: een blok in de pagina met de eerste stap erin. Alleen
+        // nodig waar [mymmo_form_callout] staat. Ze hangt aan de venster-stijl,
+        // want een callout zonder venster bestaat niet.
+        wp_register_style(
+            'mymmo-forms-callout',
+            MYMMO_FORMS_URL . 'assets/css/mymmo-forms-callout.css',
+            ['mymmo-forms-modal'],
+            MYMMO_FORMS_VERSION
+        );
+
         // En de stappenreeks, om dezelfde reden apart: ze is alleen nodig waar
         // er ook echt een steps="..."-attribuut staat.
         wp_register_style(
@@ -107,12 +119,30 @@ final class Mymmo_Forms_Shortcodes {
             MYMMO_FORMS_VERSION
         );
 
+        // IN DE KOP, en zonder afhankelijkheid.
+        //
+        // Het script van een STAP draait tijdens het parsen van de pagina en
+        // roept meteen `MymmoStappen.stap(...)` aan. Dat werkte met een klein
+        // inline stukje dat de aanmeldingen in een rij bewaarde -- tot een
+        // cache- of optimalisatieplugin inline scripts naar de voettekst
+        // verplaatst. Dan bestaat `MymmoStappen` nog niet, gooit het script van
+        // de stap, en hangt er geen enkele luisteraar: de schuifbalk schuift
+        // wel (die leest de reeks rechtstreeks uit), maar het getal en de
+        // tekening bewegen niet mee. Precies het soort fout dat er niet uitziet
+        // als een fout.
+        //
+        // Dit bestand in de kop zetten haalt die hele klasse fouten weg: vanaf
+        // dat moment bestaat `window.MymmoStappen` gegarandeerd vóór de eerste
+        // stap. Het inline stukje blijft als vangnet staan.
+        //
+        // Geen `['mymmo-forms']` meer: steps.js gebruikt daar niets van, en die
+        // afhankelijkheid zou het formulierscript mee naar de kop trekken.
         wp_register_script(
             'mymmo-forms-steps',
             MYMMO_FORMS_URL . 'assets/js/mymmo-forms-steps.js',
-            ['mymmo-forms'],
+            [],
             MYMMO_FORMS_VERSION,
-            true
+            false
         );
     }
 
@@ -247,7 +277,28 @@ final class Mymmo_Forms_Shortcodes {
      * @param array<string,string>|string $atts
      */
     public static function render_button($atts = []): string {
-        $atts = shortcode_atts([
+        $args = self::venster_args(
+            shortcode_atts(self::VENSTER_ATTS, self::met_opstelling($atts), 'mymmo_form_button'),
+            'mymmo_form_button'
+        );
+
+        if (array_key_exists('fout', $args)) {
+            return (string) $args['fout'] === '' ? '' : self::notice((string) $args['fout']);
+        }
+
+        return mymmo_forms_render('modal', $args);
+    }
+
+    /**
+     * De attributen van het VENSTER, als constante.
+     *
+     * Als constante en niet als literal in render_button(), omdat
+     * [mymmo_form_callout] exact dezelfde lijst nodig heeft plus een handvol
+     * eigen attributen. Twee kopieen van zeventig attributen lopen gegarandeerd
+     * uit elkaar, en dat merk je pas als een instelling op de ene shortcode wel
+     * werkt en op de andere niet.
+     */
+    private const VENSTER_ATTS = [
             'slug'             => '',
             'label'            => '',
             'steps'            => '',
@@ -315,20 +366,37 @@ final class Mymmo_Forms_Shortcodes {
             // Een eigen conversiepad voor het derde tabblad; leeg = dat van het
             // formulier.
             'goal_extra'            => '',
-        ], self::met_opstelling($atts), 'mymmo_form_button');
+            // "breed" maakt het paneel ruimer. Voor een stap die niet in de
+            // gewone breedte past -- dertien keien naast elkaar -- en daar
+            // anders een schuifbalk van maakt.
+            'panel'                 => '',
+    ];
 
+    /**
+     * Alles wat templates/modal.php nodig heeft, uit de attributen van een
+     * shortcode.
+     *
+     * Gedeeld door [mymmo_form_button] en [mymmo_form_callout]: die tonen
+     * hetzelfde venster, alleen de weg ernaartoe verschilt.
+     *
+     * @param  array<string,string> $atts       al door shortcode_atts() gehaald
+     * @param  string               $shortcode  enkel voor de foutmelding
+     * @return array<string,mixed>              de render-argumenten, of ['fout' => '...']
+     */
+    private static function venster_args(array $atts, string $shortcode = 'mymmo_form_button'): array {
         $slug = sanitize_title((string) $atts['slug']);
 
         if ($slug === '') {
-            return self::notice('Deze shortcode mist een slug: [mymmo_form_button slug="..."]');
+            return ['fout' => 'Deze shortcode mist een slug: [' . esc_html($shortcode) . ' slug="..."]'];
         }
 
         $form = Mymmo_Forms_Api_Client::get_form($slug);
 
         if (!is_array($form)) {
-            return current_user_can('manage_options')
-                ? self::notice('Formulier "' . esc_html($slug) . '" kon niet geladen worden: ' . esc_html((string) Mymmo_Forms_Api_Client::last_error()))
-                : '';
+            // Voor een beheerder de echte reden, voor een bezoeker niets.
+            return ['fout' => current_user_can('manage_options')
+                ? 'Formulier "' . esc_html($slug) . '" kon niet geladen worden: ' . esc_html((string) Mymmo_Forms_Api_Client::last_error())
+                : ''];
         }
 
         wp_enqueue_style('mymmo-forms');
@@ -550,7 +618,7 @@ final class Mymmo_Forms_Shortcodes {
             $lead = Mymmo_Forms_I18n::text($form, $lang, 'description', $lang === Mymmo_Forms_I18n::default_language($form));
         }
 
-        return mymmo_forms_render('modal', [
+        return [
             'form'               => $form,
             'slug'               => $slug,
             'steps'              => (string) $atts['steps'],
@@ -639,7 +707,344 @@ final class Mymmo_Forms_Shortcodes {
             // Kwam de bezoeker net terug van een inzending uit dit venster, dan
             // hoort het venster meteen weer open te staan met de bevestiging.
             'auto_open'          => is_array($flash),
-        ]);
+            // Een ruimer paneel, als de shortcode daarom vraagt.
+            'panel_extra'        => strtolower(trim((string) ($atts['panel'] ?? ''))) === 'breed'
+                ? 'mymmo-modal-panel--ruim'
+                : '',
+            // Wat een CALLOUT hier invult; bij een knop of een klasse blijft het
+            // leeg en verandert er niets. Zie render_ingang() en
+            // templates/modal.php.
+            'callout'            => null,
+            'wikkel_attr'        => [],
+            'wikkel_class'       => '',
+            'naakt'              => false,
+            'dok_index'          => -1,
+        ];
+    }
+
+    /**
+     * EEN INGANG renderen: een knop, een klasse-trigger of een callout.
+     *
+     * ALLE DRIE OPENEN ZE HETZELFDE VENSTER -- de opstelling die de ingang
+     * noemt. Het venster wordt dus nergens opnieuw ontworpen: wat een ingang
+     * zelf zegt is hoogstens haar eigen opschrift, kleur of kaartje.
+     *
+     * Wat elke soort mag meebrengen:
+     *   knop     label, variant, accent, accent_text, class
+     *   klasse   trigger  (de klassenaam die je op een bestaand element zet)
+     *   callout  highlight, layout, title, text, cta, image, image_alt,
+     *            image_scale, bg, class
+     *
+     * @param array<string,mixed> $ingang  een rij uit Mymmo_Forms_Entrypoints
+     */
+    public static function render_ingang(array $ingang): string {
+        $soort = (string) ($ingang['soort'] ?? 'knop');
+        $eigen = is_array($ingang['atts'] ?? null) ? $ingang['atts'] : [];
+
+        $venster = class_exists('Mymmo_Forms_Presets')
+            ? Mymmo_Forms_Presets::atts((string) ($ingang['popup'] ?? ''))
+            : [];
+
+        if ($venster === []) {
+            // De opstelling is weg of hernoemd. Voor een bezoeker niets tonen:
+            // een halve ingang die nergens heen gaat is erger dan geen ingang.
+            return current_user_can('manage_options')
+                ? self::notice('De ingang "' . esc_html((string) ($ingang['name'] ?? ''))
+                    . '" wijst naar een opstelling die niet meer bestaat.')
+                : '';
+        }
+
+        $basis = $venster;
+        // Alleen een KNOP tekent zichzelf. Een klasse hangt aan iets dat er al
+        // staat, en een callout is zelf het blok met zijn eigen knop erin.
+        $basis['button'] = $soort === 'knop' ? 'yes' : 'no';
+
+        if ($soort === 'knop') {
+            foreach (['label', 'variant', 'accent', 'accent_text', 'class'] as $sleutel) {
+                if ((string) ($eigen[$sleutel] ?? '') !== '') {
+                    $basis[$sleutel] = (string) $eigen[$sleutel];
+                }
+            }
+        } elseif ($soort === 'klasse') {
+            $klasse = Mymmo_Forms_Entrypoints::klasse_van($ingang);
+            if ($klasse === '') {
+                return current_user_can('manage_options')
+                    ? self::notice('De ingang "' . esc_html((string) ($ingang['name'] ?? ''))
+                        . '" heeft geen klasse. Zonder klasse is er niets dat het venster opent.')
+                    : '';
+            }
+            $basis['trigger'] = '.' . $klasse;
+        }
+
+        // Welk tabblad opengaat. Alleen voor een knop of een klasse: bij een
+        // callout wordt dat hieronder bepaald door wat ze uitlicht, en een
+        // ander tabblad zou het uitgelichte onderdeel nergens heen laten gaan.
+        if ($soort !== 'callout'
+            && in_array((string) ($eigen['tab'] ?? ''), ['form', 'extra', 'calendly'], true)) {
+            $basis['tab'] = (string) $eigen['tab'];
+        }
+
+        // ── Wat een callout uitlicht ────────────────────────────────────────
+        // Een stap-id, het FORMULIER, of de AGENDA. Dat bepaalt twee dingen: wat
+        // er in het kaartje staat, en waar het venster op opengaat.
+        $uitgelicht  = '';
+        $dok_index   = -1;
+        $callout_tab = 'form';
+
+        if ($soort === 'callout') {
+            $uitgelicht = trim((string) ($eigen['highlight'] ?? ''));
+
+            if ($uitgelicht === Mymmo_Forms_Entrypoints::HIGHLIGHT_CALENDLY) {
+                // De agenda staat niet in de reeks; het kaartje krijgt een eigen
+                // kalender. Zie templates/callout.php voor waarom die niet mee
+                // verhuist zoals een stap dat wel doet.
+                $callout_tab = 'calendly';
+            } elseif ($uitgelicht === '' || $uitgelicht === Mymmo_Forms_Entrypoints::HIGHLIGHT_FORM) {
+                $uitgelicht  = Mymmo_Forms_Entrypoints::HIGHLIGHT_FORM;
+                $callout_tab = 'form';
+            } else {
+                // Een STAP: die komt vooraan in het venster te staan, want de
+                // bezoeker heeft hem in de pagina al beantwoord. De rest schuift
+                // erachter aan, in zijn eigen volgorde.
+                //
+                // BIJ WELK TABBLAD hoort die stap? Een venster kan TWEE reeksen
+                // hebben: `steps` op het formulier-tabblad en `extra_steps` op
+                // het derde ("Bereken je prijs" naast "Stuur een bericht"). Dat
+                // stond hier vast op het formulier-tabblad, en dan belandde de
+                // reeks bij het verkeerde formulier -- dat de verborgen velden
+                // van die stappen niet heeft. Je zag het aan twee dingen: het
+                // tabblad "Stuur een bericht" toonde de stappenreeks, en er
+                // stond een melding dat aantal_kavels nergens heen kon.
+                $stap_id     = Mymmo_Forms_Steps::sanitize_id($uitgelicht);
+                $callout_tab = self::tabblad_van_stap($basis, $stap_id);
+                $sleutel     = $callout_tab === 'extra' ? 'extra_steps' : 'steps';
+
+                $basis[$sleutel] = self::steps_met_eerst((string) ($basis[$sleutel] ?? ''), $stap_id);
+                $dok_index       = 0;
+            }
+
+            // Het venster gaat open op het tabblad waar het uitgelichte
+            // onderdeel staat. Anders klikt de bezoeker op iets dat hij al
+            // ingevuld heeft en komt hij op een ander scherm uit.
+            $basis['tab'] = $callout_tab;
+        }
+
+        $args = self::venster_args(
+            shortcode_atts(self::VENSTER_ATTS, $basis, 'mymmo_form_entry'),
+            'mymmo_form_entry'
+        );
+
+        if (array_key_exists('fout', $args)) {
+            return (string) $args['fout'] === '' ? '' : self::notice((string) $args['fout']);
+        }
+
+        if ($soort !== 'callout') {
+            return mymmo_forms_render('modal', $args);
+        }
+
+        wp_enqueue_style('mymmo-forms-callout');
+
+        // Het FORMULIER is de laatste sectie van de reeks. Hoeveel stappen
+        // ervoor staan, bepaalt zijn nummer -- en dus welke sectie er gedokt
+        // wordt.
+        if ($uitgelicht === Mymmo_Forms_Entrypoints::HIGHLIGHT_FORM) {
+            $ontbrekend = [];
+            $dok_index  = count(Mymmo_Forms_Steps::resolve((string) ($basis['steps'] ?? ''), $ontbrekend));
+        }
+
+        $args['dok_index'] = $dok_index;
+        $args['naakt']     = $dok_index >= 0;
+
+        // De reeks gaat OM het venster en de callout heen. Zonder dat staat het
+        // uitgelichte onderdeel in de pagina buiten zijn eigen reeks en kan het
+        // zijn waarde nergens kwijt. Bij een agenda-callout is er niets te
+        // verhuizen en blijft de reeks dus gewoon in het venster.
+        if ($dok_index >= 0) {
+            $teksten = Mymmo_Forms_I18n::step_messages($args['form'], (string) $args['lang']);
+            $args['wikkel_attr'] = [
+                'data-mymmo-stappen'  => '',
+                'data-mymmo-start'    => (string) (is_array($args['flash'] ?? null) ? $dok_index : 0),
+                'data-mymmo-slug'     => (string) $args['slug'],
+                'data-mymmo-teksten'  => (string) wp_json_encode($teksten),
+                'data-mymmo-dok-stap' => (string) $dok_index,
+            ];
+        }
+
+        $args['wikkel_class'] = 'mymmo-callout-wikkel';
+        $args['callout']      = [
+            'uitgelicht' => $uitgelicht,
+            // Bij welk tabblad het kaartje hoort. templates/modal.php dokt daar
+            // de sectie uit en zet er het anker.
+            'tab'        => $callout_tab,
+            'titel'      => sanitize_text_field((string) ($eigen['title'] ?? '')),
+            'titel_kort' => sanitize_text_field((string) ($eigen['title_mobile'] ?? '')),
+            'tekst'      => sanitize_text_field((string) ($eigen['text'] ?? '')),
+            'cta'        => trim((string) ($eigen['cta'] ?? '')) !== ''
+                ? sanitize_text_field((string) $eigen['cta'])
+                : (string) $args['label'],
+            'beeld'      => self::image_url((string) ($eigen['image'] ?? '')),
+            'beeld_alt'  => trim((string) ($eigen['image_alt'] ?? '')),
+            'layout'     => strtolower(trim((string) ($eigen['layout'] ?? ''))) === Mymmo_Forms_Entrypoints::LAYOUT_BREED
+                ? Mymmo_Forms_Entrypoints::LAYOUT_BREED
+                : Mymmo_Forms_Entrypoints::LAYOUT_KOLOMMEN,
+            'klasse'     => self::classes((string) ($eigen['class'] ?? '')),
+            'stijl'      => self::callout_stijl($eigen),
+        ];
+
+        return mymmo_forms_render('modal', $args);
+    }
+
+
+    /**
+     * Bij welk TABBLAD hoort deze stap?
+     *
+     * Een venster kan twee reeksen hebben: `steps` op het formulier-tabblad en
+     * `extra_steps` op het derde. Staat de stap in geen van beide, dan valt de
+     * keuze op de reeks die er al is -- `step=` zeggen betekent dat hij erbij
+     * hoort, en hem bij een leeg formulier-tabblad zetten terwijl de echte
+     * reeks op het derde staat, is nooit wat iemand bedoelt.
+     *
+     * @param array<string,string> $basis
+     */
+    private static function tabblad_van_stap(array $basis, string $stap_id): string {
+        $stappen = (string) ($basis['steps'] ?? '');
+        $extra   = (string) ($basis['extra_steps'] ?? '');
+
+        if (self::stap_in_lijst($extra, $stap_id)) {
+            return 'extra';
+        }
+        if (self::stap_in_lijst($stappen, $stap_id)) {
+            return 'form';
+        }
+
+        return trim($stappen) === '' && trim($extra) !== '' ? 'extra' : 'form';
+    }
+
+    /** Staat deze stap in die komma-gescheiden lijst? */
+    private static function stap_in_lijst(string $lijst, string $stap_id): bool {
+        if ($stap_id === '') {
+            return false;
+        }
+
+        foreach (preg_split('/[,\|]/', $lijst) ?: [] as $naam) {
+            if (Mymmo_Forms_Steps::sanitize_id((string) $naam) === $stap_id) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * De stappen, met een bepaalde stap vooraan.
+     *
+     * Staat die stap niet in de lijst, dan komt hij er alsnog voor: `step=`
+     * zeggen betekent dat hij erbij hoort. Stil weglaten zou een callout
+     * opleveren die iets vraagt dat nergens meer terugkomt.
+     */
+    private static function steps_met_eerst(string $lijst, string $eerst): string {
+        $namen = [];
+        foreach (preg_split('/[,\|]/', $lijst) ?: [] as $naam) {
+            $id = Mymmo_Forms_Steps::sanitize_id((string) $naam);
+            if ($id !== '' && !in_array($id, $namen, true)) {
+                $namen[] = $id;
+            }
+        }
+
+        if ($eerst !== '') {
+            $namen = array_values(array_diff($namen, [$eerst]));
+            array_unshift($namen, $eerst);
+        }
+
+        return implode(',', $namen);
+    }
+
+    /**
+     * De CSS-variabelen van het callout-blok: achtergrond en de schaal van de
+     * tekening. Dezelfde vormcontrole als overal -- dit belandt in een
+     * style-attribuut op de pagina van een bezoeker.
+     *
+     * @param array<string,string> $atts
+     */
+    private static function callout_stijl(array $atts): string {
+        $stukken = [];
+
+        // De tint. `transparent` is hier een geldige keuze en geen kleur: dan
+        // staat het uitgelichte onderdeel los op de pagina, zonder vlak eromheen.
+        // mymmo_forms_color() laat enkel hex en rgb() door -- terecht, want die
+        // functie voedt ook het thema van het formulier -- dus dit ene
+        // sleutelwoord staat hier, bij de callout.
+        $ruwe_kleur = strtolower(trim((string) ($atts['bg'] ?? '')));
+        if ($ruwe_kleur === 'transparent' || $ruwe_kleur === 'geen') {
+            $stukken[] = '--mf-callout-bg:transparent';
+        } else {
+            $achtergrond = mymmo_forms_color((string) ($atts['bg'] ?? ''));
+            if ($achtergrond !== '') {
+                $stukken[] = '--mf-callout-bg:' . $achtergrond;
+            }
+        }
+
+        $schaal = mymmo_forms_scale((string) ($atts['image_scale'] ?? ''));
+        if ($schaal !== '') {
+            $stukken[] = '--mf-callout-fig-scale:' . $schaal;
+        }
+
+        // De hoeken van het blok. `0` maakt het vierkant.
+        $hoeken = mymmo_forms_length((string) ($atts['radius'] ?? ''));
+        if ($hoeken !== '') {
+            $stukken[] = '--mf-callout-radius:' . $hoeken;
+        }
+
+        // De opvulling van het blok, en apart die op een telefoon. Twee waarden
+        // en niet een: wie hier 62px zijmarge zet om gelijk te lopen met de
+        // kaarten op zijn pagina, wil dat op 375px zeker niet.
+        $opvulling = mymmo_forms_spacing((string) ($atts['pad'] ?? ''));
+        if ($opvulling !== '') {
+            $stukken[] = '--mf-callout-pad:' . $opvulling;
+        }
+
+        $opvulling_mobiel = mymmo_forms_spacing((string) ($atts['pad_mobile'] ?? ''));
+        if ($opvulling_mobiel !== '') {
+            $stukken[] = '--mf-callout-pad-mobiel:' . $opvulling_mobiel;
+        }
+
+        // De inspringing van de tekstkolom, en apart die op een telefoon.
+        $tekst_pad = mymmo_forms_spacing((string) ($atts['text_pad'] ?? ''));
+        if ($tekst_pad !== '') {
+            $stukken[] = '--mf-callout-tekst-pad:' . $tekst_pad;
+        }
+
+        $tekst_pad_mobiel = mymmo_forms_spacing((string) ($atts['text_pad_mobile'] ?? ''));
+        if ($tekst_pad_mobiel !== '') {
+            $stukken[] = '--mf-callout-tekst-pad-mobiel:' . $tekst_pad_mobiel;
+        }
+
+        // De ruimte tussen de titel en de tekst eronder.
+        $kop_ruimte = mymmo_forms_length((string) ($atts['title_gap'] ?? ''));
+        if ($kop_ruimte !== '') {
+            $stukken[] = '--mf-callout-kop-gap:' . $kop_ruimte;
+        }
+
+        // Tot hoever het blok uit de inhoudskolom breekt.
+        $breedte = mymmo_forms_length((string) ($atts['max_width'] ?? ''));
+        if ($breedte !== '') {
+            $stukken[] = '--mf-callout-max:' . $breedte;
+        }
+
+        // De ruimte boven en onder. Zonder dit plakt het blok tegen wat erboven
+        // staat -- een callout is een op zichzelf staand blok, geen alinea.
+        $ruimte = mymmo_forms_length((string) ($atts['space'] ?? ''));
+        if ($ruimte !== '') {
+            $stukken[] = '--mf-callout-ruimte:' . $ruimte;
+        }
+
+        // De kolomverhouding, uit een gesloten lijst -- nooit wat er getypt is.
+        $verdeling = (string) ($atts['ratio'] ?? '');
+        if (isset(Mymmo_Forms_Entrypoints::VERDELINGEN[$verdeling])) {
+            $stukken[] = '--mf-callout-verdeling:' . Mymmo_Forms_Entrypoints::VERDELINGEN[$verdeling][1];
+        }
+
+        return implode(';', $stukken);
     }
 
     /**

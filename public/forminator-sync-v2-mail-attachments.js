@@ -18,6 +18,7 @@
   'use strict';
 
   function esc(v) { return window.FSV2.esc(v); }
+  function S()    { return window.FSV2.S; }
 
   /** Moet gelijk lopen met MAX_MAIL_ATTACHMENTS / _BYTES in mail-attachments.js. */
   var MAX_FILES = 5;
@@ -35,9 +36,15 @@
     return store()[String(tid)] || [];
   }
 
-  /** Wat er naar de server gaat: alleen key + name, nooit bytes of status. */
+  /**
+   * Wat er naar de server gaat. Twee vormen: { key, name } voor een statisch
+   * Asset Manager-bestand (nooit bytes of status mee), { type: 'pdf_step',
+   * targetId, name } voor een verwijzing naar een generate_pdf-stap in
+   * dezelfde koppeling -- dat bestand bestaat pas na een echte indiening.
+   */
   function mailAttachmentsPayload(tid) {
     return getMailAttachments(tid).map(function (a) {
+      if (a.type === 'pdf_step') return { type: 'pdf_step', targetId: a.targetId, name: a.name };
       return { key: a.key, name: a.name };
     });
   }
@@ -54,13 +61,35 @@
   function initMailAttachments(tid, target) {
     var ruw = (target && Array.isArray(target.mail_attachments)) ? target.mail_attachments : [];
     store()[String(tid)] = ruw.map(function (a) {
+      if (a && a.type === 'pdf_step') {
+        return {
+          type: 'pdf_step',
+          targetId: String(a.targetId || ''),
+          name: String((a && a.name) || '').trim() || 'Offerte.pdf'
+        };
+      }
       return {
         key: String((a && a.key) || ''),
         name: String((a && a.name) || '').trim() || String((a && a.key) || '').split('/').pop(),
         bytes: null,
         missing: false
       };
-    }).filter(function (a) { return a.key !== ''; });
+    }).filter(function (a) { return a.type === 'pdf_step' ? a.targetId !== '' : a.key !== ''; });
+  }
+
+  /**
+   * generate_pdf-stappen in deze koppeling die VOOR deze mailstap staan (een
+   * pdf-stap na de mail kan er nog geen bijlage voor leveren -- diezelfde regel
+   * wordt bij het verplaatsen van stappen afgedwongen door _linkedOrders() in
+   * -detail-mapping-tab.js; hier is het enkel een nette keuzelijst).
+   */
+  function pdfStapOpties(tid) {
+    var targets = (S().detail && S().detail.targets) || [];
+    var huidig  = targets.find(function (t) { return String(t.id) === String(tid); });
+    var huidigeOrder = huidig ? window.FSV2.getTargetOrder(huidig, 0) : Infinity;
+    return targets.filter(function (t) {
+      return t.operation_type === 'generate_pdf' && window.FSV2.getTargetOrder(t, 0) < huidigeOrder;
+    }).sort(function (a, b) { return window.FSV2.getTargetOrder(a, 0) - window.FSV2.getTargetOrder(b, 0); });
   }
 
   /**
@@ -71,8 +100,12 @@
   function applyMailAttachmentStatus(tid, gemeld) {
     if (!Array.isArray(gemeld) || gemeld.length === 0) return;
     var perKey = {};
-    gemeld.forEach(function (g) { perKey[g.key] = g; });
+    var perTarget = {};
+    gemeld.forEach(function (g) {
+      if (g.type === 'pdf_step') perTarget[g.targetId] = g; else perKey[g.key] = g;
+    });
     setMailAttachments(tid, getMailAttachments(tid).map(function (a) {
+      if (a.type === 'pdf_step') return a;   // niets uit het voorbeeld dat hier bijgewerkt moet worden
       var g = perKey[a.key];
       if (!g) return a;
       return { key: a.key, name: a.name, bytes: g.bytes, missing: !!g.missing };
@@ -94,6 +127,19 @@
 
   /** De sectie in de composer. Wordt één keer meegerenderd; de lijst erin ververst apart. */
   function renderMailAttachmentsSection(tid) {
+    var huidigePdf = getMailAttachments(tid).filter(function (a) { return a.type === 'pdf_step'; })
+      .map(function (a) { return a.targetId; });
+    var pdfKnoppen = pdfStapOpties(tid)
+      .filter(function (t) { return huidigePdf.indexOf(String(t.id)) === -1; })
+      .map(function (t) {
+        var label = t.label || 'PDF';
+        return `<button type="button" class="btn btn-xs btn-outline gap-1"
+                  data-mailatt-action="add-pdf-step" data-tid="${esc(tid)}"
+                  data-target-id="${esc(String(t.id))}" data-name="${esc(label + '.pdf')}">
+                  + ${esc(label)}
+                </button>`;
+      }).join(' ');
+
     return `
       <div class="form-control mb-3">
         <label class="label pt-0 pb-1 flex items-center justify-between">
@@ -106,6 +152,9 @@
             </button>
           </span>
         </label>
+        ${pdfKnoppen ? `<div class="flex flex-wrap items-center gap-1.5 mb-1.5">
+          <span class="text-xs text-base-content/40">PDF-stappen in deze koppeling:</span>${pdfKnoppen}
+        </div>` : ''}
         <div id="mailAttachments-${esc(tid)}">${lijstHtml(tid)}</div>
         <label class="label pt-1 pb-0">
           <span class="label-text-alt text-base-content/50">
@@ -128,6 +177,20 @@
     }
     var teGroot = totaalBytes(tid) > MAX_TOTAL_BYTES;
     var rijen = lijst.map(function (a, i) {
+      if (a.type === 'pdf_step') {
+        return `
+          <div class="flex items-center gap-2 px-2 py-1.5 ${i > 0 ? 'border-t border-base-200' : ''}">
+            <span class="text-base-content/40">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+            </span>
+            <input type="text" class="input input-bordered input-xs flex-1 min-w-0"
+                   value="${esc(a.name)}" data-mailatt-name="${esc(tid)}" data-index="${i}"
+                   title="De bestandsnaam die de ontvanger ziet">
+            <span class="text-xs text-base-content/40 whitespace-nowrap">wordt per indiening gemaakt</span>
+            <button type="button" class="btn btn-ghost btn-xs text-error"
+                    data-mailatt-action="remove" data-tid="${esc(tid)}" data-index="${i}">Weg</button>
+          </div>`;
+      }
       return `
         <div class="flex items-center gap-2 px-2 py-1.5 ${i > 0 ? 'border-t border-base-200' : ''}">
           <span class="text-base-content/40">
@@ -310,6 +373,19 @@
     if (actie === 'close-picker') { var d = document.getElementById('mailAttachmentPicker'); if (d) d.close(); return; }
     if (actie === 'goto')         { laadMap(knop.dataset.prefix || ''); return; }
     if (actie === 'pick')         { kiesBestand(knop.dataset.key, knop.dataset.name, Number(knop.dataset.size) || 0); return; }
+    if (actie === 'add-pdf-step') {
+      var pdfTid = knop.dataset.tid;
+      var pdfTargetId = knop.dataset.targetId;
+      var pdfHuidig = getMailAttachments(pdfTid);
+      if (pdfHuidig.some(function (a) { return a.type === 'pdf_step' && a.targetId === pdfTargetId; })) return;
+      if (pdfHuidig.length >= MAX_FILES) {
+        window.FSV2.showAlert('Maximaal ' + MAX_FILES + ' bijlagen per mail.', 'error');
+        return;
+      }
+      setMailAttachments(pdfTid, pdfHuidig.concat([{ type: 'pdf_step', targetId: pdfTargetId, name: knop.dataset.name }]));
+      window.FSV2.showAlert('PDF-stap als bijlage toegevoegd.', 'success');
+      return;
+    }
     if (actie === 'remove') {
       var tid = knop.dataset.tid;
       var i = Number(knop.dataset.index);

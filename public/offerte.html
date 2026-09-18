@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Offerte gebouwbeheer</title>
+
+<!--
+  Offerte gebouwbeheer — ontwerp
+
+  Er staat met opzet GEEN tekst in dit bestand. Alles wat je op het blad ziet
+  komt uit offerte-data.js en wordt door offerte-render.js getekend. Wil je de
+  offerte later door de OM laten vullen, dan vervang je enkel dat ene
+  data-bestand (of je zet window.OFFERTE.zet({...}) na het laden).
+
+  Paden zijn RELATIEF, zodat dit bestand ook werkt als je het gewoon dubbelklikt
+  (file://) en niet enkel wanneer de Worker het serveert.
+-->
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="offerte.css">
+</head>
+<body>
+
+<!-- Werkbalk. Verdwijnt bij het afdrukken. -->
+<div class="ov-werkbalk">
+  <a href="/forminator-v2" class="ov-knop" title="Terug naar Koppelingen">← Koppelingen</a>
+  <span class="ov-werkbalk-titel">Offerte</span>
+  <button type="button" class="ov-knop" id="ovKnopBewerken" data-action="bewerken">Tekst bewerken</button>
+  <button type="button" class="ov-knop" data-action="gegevens">Gegevens invullen&hellip;</button>
+  <button type="button" class="ov-knop" data-action="json">JSON&hellip;</button>
+  <button type="button" class="ov-knop" data-action="json-kopieren">JSON kopiëren</button>
+  <button type="button" class="ov-knop" data-action="herstellen">Herstellen</button>
+  <button type="button" class="ov-knop ov-knop--hoofd" data-action="afdrukken">Pdf maken / afdrukken</button>
+  <span class="ov-werkbalk-hint" id="ovMelding"></span>
+</div>
+
+<main class="ov-doc" id="ovDocument"></main>
+
+<!-- De gegevens die per offerte verschillen. Het formulier wordt opgebouwd
+     uit window.OFFERTE_VELDEN in offerte-data.js. -->
+<dialog class="ov-dialoog" id="ovGegevensDialoog">
+  <div class="ov-dialoog-kop">
+    <span>Gegevens invullen</span>
+    <button type="button" class="ov-knop" data-action="sluiten">Sluiten</button>
+  </div>
+  <div class="ov-dialoog-body" id="ovGegevensBody"></div>
+  <div class="ov-dialoog-voet">
+    <button type="button" class="ov-knop" data-action="sluiten">Annuleren</button>
+    <button type="button" class="ov-knop ov-knop--hoofd" data-action="gegevens-bewaren">Invullen</button>
+  </div>
+</dialog>
+
+<!-- De volledige inhoud als JSON: kopiëren om ergens anders in te hangen, of
+     plakken om een bewaarde offerte terug in te laden. -->
+<dialog class="ov-dialoog" id="ovJsonDialoog">
+  <div class="ov-dialoog-kop">
+    <span>Gegevens en copy als JSON</span>
+    <button type="button" class="ov-knop" data-action="sluiten">Sluiten</button>
+  </div>
+  <div class="ov-dialoog-body">
+    <textarea id="ovJsonVeld" spellcheck="false"></textarea>
+  </div>
+  <div class="ov-dialoog-voet">
+    <button type="button" class="ov-knop" data-action="sluiten">Annuleren</button>
+    <button type="button" class="ov-knop ov-knop--hoofd" data-action="json-toepassen">Toepassen</button>
+  </div>
+</dialog>
+
+<script src="offerte-data.js"></script>
+<script src="offerte-render.js"></script>
+</body>
+</html>

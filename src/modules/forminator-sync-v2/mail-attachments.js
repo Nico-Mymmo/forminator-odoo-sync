@@ -132,6 +132,45 @@ export function normalizeMailAttachments(waarde) {
   return uit.length > 0 ? uit : null;
 }
 
+/**
+ * `mail_attachments` splitsen in de twee itemvormen VOOR ze de bestaande
+ * Asset-Manager-code bereiken: `{ key, name }` (statisch R2-bestand, gaat naar
+ * `normalizeMailAttachments`/de R2-tak hieronder, ONGEWIJZIGD) en
+ * `{ type: 'pdf_step', targetId, name }` (de pdf die een generate_pdf-stap met
+ * dat target-id in dezelfde inzending maakt — dynamisch, geen R2-sleutel).
+ *
+ * MAX_MAIL_ATTACHMENTS geldt voor beide soorten SAMEN.
+ *
+ * @param {*} waarde
+ * @returns {{assets: Array<Object>|null, pdfSteps: Array<{type: 'pdf_step', targetId: string, name: string}>}}
+ */
+export function splitMailAttachments(waarde) {
+  if (waarde === undefined || waarde === null || waarde === '') return { assets: null, pdfSteps: [] };
+  if (!Array.isArray(waarde)) {
+    throw new MailAttachmentError('mail_attachments moet een lijst zijn.');
+  }
+  if (waarde.length > MAX_MAIL_ATTACHMENTS) {
+    throw new MailAttachmentError(
+      `Maximaal ${MAX_MAIL_ATTACHMENTS} bijlagen per mail. Meer hoort een link naar een pagina te zijn.`
+    );
+  }
+
+  const assets = [];
+  const pdfSteps = [];
+  for (const rij of waarde) {
+    if (rij && rij.type === 'pdf_step') {
+      const targetId = String(rij.targetId || '').trim();
+      if (targetId === '') {
+        throw new MailAttachmentError('Een pdf-bijlage zonder stap-id. Kies de pdf-stap opnieuw.');
+      }
+      pdfSteps.push({ type: 'pdf_step', targetId, name: attachmentDisplayName(rij.name, 'Offerte.pdf') });
+      continue;
+    }
+    assets.push(rij);
+  }
+  return { assets: assets.length > 0 ? assets : null, pdfSteps };
+}
+
 // ─── Bytes → base64 ──────────────────────────────────────────────────────────
 
 /**
@@ -236,14 +275,38 @@ async function schrijfCache(env, rij) {
 /**
  * De bijlagen van een stap omzetten naar Odoo-attachment-ids.
  *
+ * Twee soorten (zie `splitMailAttachments`): een `{key}`-item gaat door het
+ * bestaande R2-pad hieronder (ONGEWIJZIGD); een `{type:'pdf_step'}`-item wijst
+ * naar een attachment dat een generate_pdf-stap ZOJUIST in deze pipeline-run
+ * aanmaakte (`contextObject['pdf.<targetId>.attachment_id']`) -- geen R2, geen
+ * cache nodig, het bestaat al.
+ *
  * @param {Object} env
- * @param {Array<{key: string, name: string}>|null} lijst
+ * @param {Array<Object>|null} lijst
+ * @param {Object} [contextObject] uitvoer van eerdere stappen in deze inzending
  * @returns {Promise<{ids: number[], files: Array<Object>}>}
  * @throws {MailAttachmentError} bij een ontbrekend of te groot bestand
  */
-export async function resolveMailAttachments(env, lijst) {
-  const genormaliseerd = normalizeMailAttachments(lijst);
-  if (!genormaliseerd) return { ids: [], files: [] };
+export async function resolveMailAttachments(env, lijst, contextObject) {
+  const { assets, pdfSteps } = splitMailAttachments(lijst);
+  const genormaliseerd = normalizeMailAttachments(assets);
+
+  // ── pdf_step-bijlagen: het id staat al in de context van DEZE indiening ──
+  const pdfIds = [];
+  const pdfFiles = [];
+  for (const item of pdfSteps) {
+    const ruw = contextObject ? contextObject[`pdf.${item.targetId}.attachment_id`] : null;
+    const id = Number.parseInt(String(ruw), 10);
+    if (!Number.isInteger(id) || id <= 0) {
+      throw new MailAttachmentError(
+        `Bijlage "${item.name}" ontbreekt: de pdf-stap leverde niets op (mislukt, overgeslagen, of staat na deze mail).`
+      );
+    }
+    pdfIds.push(id);
+    pdfFiles.push({ ...item, attachmentId: id, hergebruikt: false });
+  }
+
+  if (!genormaliseerd) return { ids: pdfIds, files: pdfFiles };
   if (!env || !env.R2_ASSETS) {
     throw new MailAttachmentError('Geen toegang tot de Asset Manager (R2_ASSETS ontbreekt).');
   }
@@ -328,23 +391,53 @@ export async function resolveMailAttachments(env, lijst) {
     files.push({ ...b, attachmentId: Number(attachmentId), hergebruikt: false });
   }
 
-  return { ids, files };
+  // Totale grootte tegen het maximum -- ook de pdf-bijlagen tellen mee.
+  if (pdfIds.length > 0) {
+    const grootte = await searchRead(env, {
+      model: 'ir.attachment',
+      domain: [['id', 'in', pdfIds]],
+      fields: ['file_size'],
+      limit: pdfIds.length
+    });
+    const pdfBytes = (Array.isArray(grootte) ? grootte : []).reduce((som, r) => som + (Number(r.file_size) || 0), 0);
+    if (pdfBytes > MAX_MAIL_ATTACHMENT_BYTES) {
+      const mb = (n) => (n / 1024 / 1024).toFixed(1);
+      throw new MailAttachmentError(
+        `De bijlagen zijn samen ${mb(pdfBytes)} MB; het maximum is ${mb(MAX_MAIL_ATTACHMENT_BYTES)} MB. ` +
+        'Verklein het bestand of zet er een link naar in de tekst.'
+      );
+    }
+  }
+
+  return { ids: [...ids, ...pdfIds], files: [...files, ...pdfFiles] };
 }
 
 /**
  * Wat de composer en het voorbeeld willen weten: staat het bestand er nog, en
  * hoe groot is het? Gooit NIET -- dit is een scherm, geen verzending.
  *
- * @returns {Promise<Array<{key, name, bytes, mimetype, missing}>>}
+ * Een `pdf_step`-item wordt teruggegeven zonder Odoo-opzoeking (`missing:
+ * false`, `dynamic: true`): er bestaat nog niets om te controleren voor er een
+ * echte inzending doorheen liep.
+ *
+ * @returns {Promise<Array<{key, name, bytes, mimetype, missing}|{type: 'pdf_step', targetId, name, missing: false, dynamic: true}>>}
  */
 export async function describeMailAttachments(env, lijst) {
-  let genormaliseerd = null;
+  let split = null;
   try {
-    genormaliseerd = normalizeMailAttachments(lijst);
+    split = splitMailAttachments(lijst);
   } catch (_err) {
     return [];
   }
-  if (!genormaliseerd || !env || !env.R2_ASSETS) return [];
+  const pdfBeschrijvingen = split.pdfSteps.map((item) => ({ ...item, missing: false, dynamic: true }));
+
+  let genormaliseerd = null;
+  try {
+    genormaliseerd = normalizeMailAttachments(split.assets);
+  } catch (_err) {
+    return pdfBeschrijvingen;
+  }
+  if (!genormaliseerd || !env || !env.R2_ASSETS) return pdfBeschrijvingen;
 
   const uit = [];
   for (const item of genormaliseerd) {
@@ -362,5 +455,5 @@ export async function describeMailAttachments(env, lijst) {
       missing: !obj
     });
   }
-  return uit;
+  return [...pdfBeschrijvingen, ...uit];
 }

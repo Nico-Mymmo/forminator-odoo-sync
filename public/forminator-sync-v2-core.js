@@ -40,6 +40,7 @@
     modelIdentifierEditors: {}, // model → {open, pendingIdentifier: [{name,label}]}
     modelLinksCache: [],      // [{model_a, model_b, link_field, link_label}]
     odooModelsCache: [],      // [{name, label, icon, default_fields, identifier_type, update_policy, resolver_type}]
+    pdfTemplatesCache: [],    // [{id, name, updated_at, in_gebruik}] -- zie forminator-sync-v2-settings.js
     editingModelIdx: null,    // index of model row currently being edited (or null)
     editingLinkIdx:  null,    // index of link row currently being edited (or null)
 
@@ -390,6 +391,15 @@
       S.odooModelsCache = Array.isArray(body.data) ? body.data : DEFAULT_ODOO_MODELS.slice();
     } catch (_) {
       if (!S.odooModelsCache.length) S.odooModelsCache = DEFAULT_ODOO_MODELS.slice();
+    }
+  }
+
+  async function loadPdfTemplates() {
+    try {
+      var body = await api('/pdf-templates');
+      S.pdfTemplatesCache = Array.isArray(body.data) ? body.data : [];
+    } catch (_) {
+      S.pdfTemplatesCache = [];
     }
   }
 
@@ -1337,6 +1347,7 @@
     loadIntegrations: loadIntegrations,
     loadModelLinks: loadModelLinks,
     loadOdooModels: loadOdooModels,
+    loadPdfTemplates: loadPdfTemplates,
     loadFolders: loadFolders,
     loadTags: loadTags,
     renderList: renderList,

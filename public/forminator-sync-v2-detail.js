@@ -484,11 +484,14 @@
             stepLabel = 'Mailinglijst';
           } else if (t.operation_type === 'send_mail') {
             stepLabel = 'Mail';
+          } else if (t.operation_type === 'generate_pdf') {
+            stepLabel = 'PDF';
           } else {
             stepLabel = modelLabel;
           }
           var badgeClass = t.operation_type === 'chatter_message' ? 'badge-ghost'
             : t.operation_type === 'create_activity' ? 'badge-ghost'
+            : t.operation_type === 'generate_pdf' ? 'badge-ghost'
             : cfg.badgeClass;
           if (i > 0) stepsHtml += '<i data-lucide="arrow-right" class="w-3 h-3 text-base-content/40 shrink-0"></i>';
           stepsHtml += '<span class="badge badge-sm ' + esc(badgeClass) + '">' + esc(stepLabel) + '</span>';

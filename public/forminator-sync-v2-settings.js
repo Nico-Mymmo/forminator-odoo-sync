@@ -387,12 +387,87 @@
     }
 
     // ───────────────────────────────────────────────────────────────────
-    // renderLinks — main entry point, renders both sections
+    // Section 3 — PDF-ontwerpen (sjablonen voor de generate_pdf-stap)
+    // ───────────────────────────────────────────────────────────────────
+    //
+    // Deze sectie beheert enkel de LIJST (naam, wie gebruikt het, aanmaken,
+    // hernoemen, verwijderen). Bewerken van de inhoud (tekst, gegevens) gebeurt
+    // in het ontwerp zelf (public/offerte.html?template=<id>, nieuw tabblad) --
+    // zelfde afspraak als bij de mailstudio: een tweede bewerkscherm naast het
+    // echte voorbeeld is precies wat dit ontwerp vermijdt.
+    function _renderPdfTemplatesSection() {
+        var templates = Array.isArray(S().pdfTemplatesCache) ? S().pdfTemplatesCache : [];
+
+        var tableHtml;
+        if (templates.length === 0) {
+            tableHtml = `<div class="rounded-xl border border-dashed border-base-300 py-8 text-center mb-4">
+                <i data-lucide="file-text" class="w-7 h-7 text-base-content/20 mx-auto mb-2"></i>
+                <p class="text-sm text-base-content/50">Nog geen pdf-sjablonen.</p>
+            </div>`;
+        } else {
+            var rows = templates.map(function (t) {
+                var bewerkt = t.updated_at ? new Date(t.updated_at).toLocaleString('nl-BE') : '—';
+                var gebruik = t.in_gebruik ? (t.in_gebruik + ' stap' + (t.in_gebruik === 1 ? '' : 'pen')) : '—';
+                return `<tr class="hover">
+                    <td><span class="font-medium text-sm">${esc(t.name)}</span></td>
+                    <td><span class="text-xs text-base-content/50">${esc(bewerkt)}</span></td>
+                    <td><span class="text-xs text-base-content/50">${esc(gebruik)}</span></td>
+                    <td class="text-right">
+                        <div class="flex items-center gap-1 justify-end">
+                            <a href="/offerte.html?template=${esc(t.id)}" target="_blank" rel="noopener"
+                               class="btn btn-ghost btn-xs text-base-content/60 hover:text-primary" title="Bewerken">
+                                <i data-lucide="pencil" class="w-3.5 h-3.5"></i> Bewerken
+                            </a>
+                            <button type="button" class="btn btn-ghost btn-xs text-base-content/50 hover:text-primary"
+                                    data-action="rename-pdf-template" data-id="${esc(t.id)}" title="Hernoemen">
+                                <i data-lucide="type" class="w-3.5 h-3.5"></i>
+                            </button>
+                            <button type="button" class="btn btn-ghost btn-xs text-error hover:bg-error/10"
+                                    data-action="delete-pdf-template" data-id="${esc(t.id)}" title="Verwijderen">
+                                <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                            </button>
+                        </div>
+                    </td>
+                </tr>`;
+            }).join('');
+
+            tableHtml = `<div class="overflow-x-auto mb-4 rounded-xl border border-base-200">
+                <table class="table table-sm w-full">
+                    <thead class="bg-base-200/60"><tr>
+                        <th class="text-xs font-medium text-base-content/60 py-2.5">Naam</th>
+                        <th class="text-xs font-medium text-base-content/60">Laatst bewerkt</th>
+                        <th class="text-xs font-medium text-base-content/60">Gebruikt in</th>
+                        <th></th>
+                    </tr></thead>
+                    <tbody>${rows}</tbody>
+                </table>
+            </div>`;
+        }
+
+        return `<section class="mb-2">
+            <div class="flex items-center gap-2 mb-3">
+                <i data-lucide="file-text" class="w-4 h-4 text-secondary"></i>
+                <h3 class="font-bold text-sm">PDF-ontwerpen</h3>
+            </div>
+            <p class="text-xs text-base-content/55 mb-4">
+                Sjablonen voor de stap "PDF genereren" in Koppelingen (bv. een offerte). Eén sjabloon kan door
+                meerdere koppelingen gebruikt worden. Verwijderen kan pas nadat geen enkele stap er meer naar wijst.
+            </p>
+            ${tableHtml}
+            <button type="button" class="btn btn-sm btn-primary" data-action="add-pdf-template">
+                <i data-lucide="plus" class="w-3.5 h-3.5"></i> Nieuw sjabloon
+            </button>
+        </section>`;
+    }
+
+    // ───────────────────────────────────────────────────────────────────
+    // renderLinks — main entry point, renders all sections
     // ───────────────────────────────────────────────────────────────────
     function renderLinks() {
         var el = document.getElementById('linksList');
         if (!el) return;
-        el.innerHTML = _renderModelsSection() + '<div class="divider my-2"></div>' + _renderLinksSection();
+        el.innerHTML = _renderModelsSection() + '<div class="divider my-2"></div>' + _renderLinksSection() +
+            '<div class="divider my-2"></div>' + _renderPdfTemplatesSection();
         if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
     }
 

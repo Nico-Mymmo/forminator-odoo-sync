@@ -687,17 +687,40 @@ final class Mymmo_Forms_Steps {
      * waarvoor niets kiezen een geldig antwoord is -- anders blijft "Volgende"
      * uit tot er iets aangeduid is.
      *
-     * @return array{titel:string,velden:string}
+     * `sub` is de regel onder de titel. Die stond tot 1.17 als een
+     * `<p class="mymmo-stap-tekst">` IN de HTML van elk voorbeeld, en dat is
+     * een tweede bron: vulde iemand bij de stap ook het veld "regel eronder"
+     * in, dan stonden er twee zinnen onder elkaar en was de bovenste enkel weg
+     * te krijgen door de HTML te bewerken. Nu levert het voorbeeld hem hier
+     * aan, zoals de titel, en rendert de plugin hem op de plek waar hij hoort.
+     *
+     * @return array{titel:string,sub:string,velden:string}
      */
     public static function example_meta(string $naam): array {
         $meta = [
-            'gebouwgrootte'   => ['titel' => 'Wat is de grootte van het gebouw?',          'velden' => 'aantal_kavels, commerciele_kavels'],
-            'gebouwkenmerken' => ['titel' => 'Wat speelt er in jullie gebouw?',            'velden' => ''],
-            'huidig-beheer'   => ['titel' => 'Hoe wordt je appartement momenteel beheerd?', 'velden' => 'huidig_beheer'],
-            'algemene-vergadering' => ['titel' => 'Wanneer is jullie volgende algemene vergadering?', 'velden' => 'volgende_av_periode'],
+            'gebouwgrootte'   => [
+                'titel'  => 'Wat is de grootte van het gebouw?',
+                'sub'    => 'Geef het aantal bewoonbare kavels in. Garages en bergingen hoef je niet mee te tellen.',
+                'velden' => 'aantal_kavels, commerciele_kavels',
+            ],
+            'gebouwkenmerken' => [
+                'titel'  => 'Wat speelt er in jullie gebouw?',
+                'sub'    => 'Duid aan wat klopt, of sla dit gewoon over.',
+                'velden' => '',
+            ],
+            'huidig-beheer'   => [
+                'titel'  => 'Hoe wordt je appartement momenteel beheerd?',
+                'sub'    => 'Er is geen fout antwoord. We willen gewoon weten waar jullie vandaag staan.',
+                'velden' => 'huidig_beheer',
+            ],
+            'algemene-vergadering' => [
+                'titel'  => 'Wanneer is jullie volgende algemene vergadering?',
+                'sub'    => 'Een schatting volstaat. Schuif de lijn tot het kader ongeveer goed staat.',
+                'velden' => 'volgende_av_periode',
+            ],
         ];
 
-        return $meta[self::sanitize_id($naam)] ?? ['titel' => '', 'velden' => ''];
+        return $meta[self::sanitize_id($naam)] ?? ['titel' => '', 'sub' => '', 'velden' => ''];
     }
 
     public static function example_html(string $naam): string {

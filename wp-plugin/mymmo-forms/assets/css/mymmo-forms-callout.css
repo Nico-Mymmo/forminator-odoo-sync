@@ -1,0 +1,441 @@
+/**
+ * Mymmo Forms — de callout.
+ *
+ * Een blok in de pagina dat één onderdeel van het venster al toont: een stap,
+ * het formulier of de agenda. Twee indelingen, en er is geen derde:
+ *
+ *   .mymmo-callout--kolommen   tekst/afbeelding naast het uitgelichte onderdeel
+ *   .mymmo-callout--breed      titel + tekst bovenaan, onderdeel op volle breedte
+ *
+ * Dit bestand staat bewust NIET in public/mymmo-forms.css. Dat bestand is de
+ * gedeelde bron van de FORMULIER-stijl en het voorbeeld in de bouwer van de
+ * Operations Manager draait erop — daar bestaat geen callout, dus daar zou dit
+ * dode CSS zijn. Zelfde afweging als bij mymmo-forms-modal.css.
+ *
+ * GEEN SCHUIFBALKEN, NERGENS. In dit bestand staat geen enkele `overflow` en
+ * geen enkele vaste hoogte. Het kaartje groeit mee met wat erin staat; past het
+ * niet in twee kolommen, dan is dat een reden voor de brede indeling.
+ *
+ * ER WORDT NIETS VERBORGEN. Wat een stap meebrengt — de tekening van het gebouw
+ * bij de schuifbalk — staat er volledig. Dat is de ervaring waarvoor een callout
+ * bestaat; een regel die er iets uit knipt hoort hier niet thuis.
+ *
+ * Geen !important, nergens: dat is precies wat het overschrijven door een
+ * sitethema kapotmaakt. Waar een blokthema anders zou winnen staat er een tweede
+ * klasse voor (zie CLAUDE.md: een blokthema drukt zijn stijlen inline in de
+ * <head> af en wint dus bij gelijk gewicht).
+ */
+
+.mymmo-callout {
+  box-sizing: border-box;
+  /* De tint van het blok. Standaard een lichte tint van de accentkleur, zodat
+     het vanzelf het thema van de site volgt; met een eigen achtergrondkleur bij
+     de ingang kies je een merkkleur voor deze plaatsing. De eerste regel is de
+     terugval voor browsers zonder color-mix. */
+  background: #eef6fb;
+  background: var(--mf-callout-bg, color-mix(in srgb, var(--mf-accent, #2563eb) 18%, #ffffff));
+  color: var(--mf-text, #1f2430);
+  /* De hoeken volgen het thema, tenzij de ingang of de shortcode er een maat
+     bij zet. `0` maakt het blok vierkant; met een doorzichtige tint valt het
+     verschil pas op aan het witte vlak erbinnen. */
+  border-radius: var(--mf-callout-radius, calc(var(--mf-radius, 10px) + 8px));
+  /* De opvulling groeit mee met de breedte, tenzij de ingang er een maat bij
+     zet. Staat een callout tussen andere kaarten op een pagina, dan hoort ze
+     dezelfde opvulling te kunnen krijgen als die kaarten -- anders is zij de
+     enige die anders oogt, en los je dat op met CSS op de pagina die bij een
+     volgende plugin-versie weer wringt. Op een telefoon geldt
+     --mf-callout-pad-mobiel; zie de media query onderaan. */
+  padding: var(--mf-callout-pad, clamp(22px, 4vw, 44px));
+
+  /*
+   * DE CALLOUT IS ZIJN EIGEN CONTAINER.
+   *
+   * De kolommen slaan om op de breedte van dit BLOK, niet op die van het
+   * scherm. Een callout staat in de inhoudskolom van een pagina, en die is vaak
+   * een stuk smaller: met een gewone media query op 860px kreeg je dus één kolom
+   * op een plek waar er twee pasten, en dat zie je pas op de site zelf.
+   *
+   * Een browser zonder container queries krijgt één kolom. Dat is de veilige
+   * kant op: alles onder elkaar werkt altijd.
+   */
+  container-type: inline-size;
+  container-name: mymmo-callout;
+
+  /*
+   * DE VOLLE BREEDTE VAN DE PAGINA, tot 1200px.
+   *
+   * Een shortcode staat in de inhoudskolom van een pagina, en die is op de
+   * meeste thema's 650 tot 800px. Daar past een callout met twee kolommen niet
+   * in: je krijgt dan een kolom tekst van 250px naast een bediening van 500px,
+   * en op een smaller thema helemaal geen twee kolommen meer.
+   *
+   * Daarom breekt het blok uit die kolom. `margin-left: 50%` zet de LINKERRAND
+   * op het midden van de kolom, `translateX(-50%)` schuift het blok een halve
+   * eigen breedte terug -- samen is dat gecentreerd op de pagina, ongeacht hoe
+   * breed de kolom eromheen is.
+   *
+   * `calc(100vw - 40px)` en niet `100vw`: die laatste telt de schuifbalk mee, en
+   * dan steekt het blok er net buiten en krijg je een horizontale schuifbalk
+   * over de hele pagina. Precies wat hier nergens mag staan.
+   *
+   * Wil je een andere maat, zet dan `--mf-callout-max` in je eigen stylesheet;
+   * de transform hoef je niet te kennen.
+   */
+  width: min(var(--mf-callout-max, 1200px), calc(100vw - 40px));
+
+  /*
+   * De ruimte boven en onder hoort BIJ het blok. Een callout is iets op
+   * zichzelf; zonder marge plakt ze tegen het component erboven, en de marges
+   * die een thema aan een alinea geeft gelden hier niet -- dit is geen alinea.
+   * De linkermarge is de helft van de kolom: samen met de translate hieronder
+   * is dat "gecentreerd op de pagina".
+   */
+  margin: var(--mf-callout-ruimte, 48px) 0 var(--mf-callout-ruimte, 48px) 50%;
+  transform: translateX(-50%);
+}
+
+.mymmo-callout-raster {
+  display: grid;
+  gap: clamp(20px, 3vw, 40px);
+  /* Onder de omslag staat alles onder elkaar. De kolommen komen uit de
+     container query onderaan — noem de richting zelf, want een blokthema zet
+     `display:grid` en `grid-template-columns` op van alles. */
+  grid-template-columns: minmax(0, 1fr);
+  /* stretch en niet center: het witte vlak hoort zijn kolom te VULLEN, zoals
+     het paneel in de pop-up. Met center werd het een kaartje dat halverwege
+     zweeft naast een kolom tekst. */
+  align-items: stretch;
+}
+
+.mymmo-callout *,
+.mymmo-callout *::before,
+.mymmo-callout *::after {
+  box-sizing: border-box;
+}
+
+/* ── De kolom van de marketeer ───────────────────────────────────────────── */
+
+.mymmo-callout-tekst {
+  display: flex;
+  flex-direction: column;
+  /* Bovenaan beginnen. De opvulling die hem op één lijn zet met het witte vlak
+     ernaast staat in de container query onderaan -- alleen daar staan ze naast
+     elkaar. */
+  justify-content: flex-start;
+  gap: clamp(16px, 2vw, 28px);
+  min-width: 0;
+  /*
+   * EEN EIGEN INSPRINGING VOOR DE TEKST, bovenop de opvulling van het blok.
+   *
+   * Staat een callout tussen kaarten van een pagina, dan hoort haar titel op
+   * dezelfde lijn te beginnen als de tekst in die kaarten. Dat kan niet met de
+   * opvulling van het BLOK: die schuift ook het witte vlak met het formulier
+   * naar binnen, en op een telefoon blijft daar dan te weinig van over.
+   *
+   * Twee waarden die optellen, maar geen twee antwoorden op dezelfde vraag: de
+   * ene is de rand van het blok, de andere de inspringing van een kolom
+   * daarbinnen. Standaard 0, dus zonder instelling verandert er niets.
+   */
+  padding: var(--mf-callout-tekst-pad, 0);
+}
+
+/*
+ * De ruimte tussen de titel en de tekst staat op EEN plek: de gap van de kop.
+ * Tot 1.17.4 was dat een marge op de titel, en dat is per definitie een tweede
+ * bron zodra iemand er ook een gap bij zet. Instelbaar, want een callout naast
+ * andere kaarten hoort dezelfde ruimte te hebben als die kaarten -- en die maat
+ * kent de plugin niet.
+ */
+.mymmo-callout-kop {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mf-callout-kop-gap, 10px);
+}
+
+.mymmo-callout-titel {
+  margin: 0;
+  font-size: clamp(1.4rem, 1.1rem + 1.2vw, 2rem);
+  line-height: 1.2;
+}
+
+/* Twee klassen tegen het thema, dat elke h2 een eigen maat en kleur geeft. */
+.mymmo-callout .mymmo-callout-titel {
+  color: var(--mf-text, #1f2430);
+  font-weight: 700;
+}
+
+/*
+ * DE KORTE TITEL.
+ *
+ * Een kop die op een pagina werkt ("Eindelijk gebouwbeheer gemaakt voor jou")
+ * vult op een telefoon vier regels. Een ingang mag daarom een tweede, kortere
+ * titel meegeven; staat die er niet, dan wordt er ook maar een kop gerenderd.
+ *
+ * Hij wisselt op de breedte van het BLOK, niet van het scherm -- dezelfde maat
+ * als waarop de kolommen omslaan. Een callout in een smalle inhoudskolom op een
+ * groot scherm heeft die korte titel even hard nodig als een telefoon, en dat is
+ * precies het verschil dat je pas op de site ziet.
+ *
+ * Standaard verborgen: een browser zonder container queries krijgt dus de lange
+ * titel, en dat is de veilige kant -- die is altijd volledig.
+ */
+.mymmo-callout-titel--kort {
+  display: none;
+}
+
+@container mymmo-callout (max-width: 619.98px) {
+  .mymmo-callout .mymmo-callout-titel--lang {
+    display: none;
+  }
+
+  .mymmo-callout .mymmo-callout-titel--kort {
+    display: block;
+  }
+}
+
+.mymmo-callout-uitleg {
+  margin: 0;
+  max-width: 46ch;
+  font-size: 1rem;
+  line-height: 1.55;
+  color: var(--mf-text, #1f2430);
+  /* Niet --mf-muted: dat is grijs op wit en verdwijnt op een gekleurd vlak. */
+  opacity: 0.78;
+}
+
+.mymmo-callout-figuur {
+  min-width: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.mymmo-callout-beeld {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-width: 100%;
+  transform: scale(var(--mf-callout-fig-scale, 100%));
+  transform-origin: center;
+}
+
+/* ── De kolom met het uitgelichte onderdeel ──────────────────────────────── */
+
+/*
+ * Het uitgelichte onderdeel staat op WIT, net als in de pop-up: daar is het
+ * venster de tint en ligt de inhoud op een wit vlak. Met een rand erbij, want op
+ * een lichte achtergrondkleur is wit-op-bijna-wit niet te onderscheiden en valt
+ * alleen de schaduw op -- en die is op een groot vlak nauwelijks te zien.
+ */
+.mymmo-callout-uitgelicht {
+  background: #ffffff;
+  border: 1px solid rgba(16, 20, 28, 0.06);
+  border-radius: calc(var(--mf-radius, 10px) + 4px);
+  padding: clamp(18px, 2.4vw, 28px);
+  box-shadow: 0 10px 30px rgba(16, 20, 28, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+}
+
+/*
+ * Het dok: hier woont de stap of het formulier zolang het venster dicht is.
+ *
+ * Geen hoogte, geen overflow — het kaartje volgt zijn inhoud. En wat hier staat
+ * wordt niet nagemaakt maar VERPLAATST (zie mymmo-forms-steps.js), dus alles wat
+ * een onderdeel van de reeks verwacht, moet hier ook gelden.
+ */
+.mymmo-callout-dok {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/*
+ * Dezelfde letter als de rest, ook hier.
+ *
+ * mymmo-forms-steps.css zet dit onder `.mymmo-stappen .mymmo-stap-inhoud > *`,
+ * en die wikkel zit bij een callout niet om het kaartje heen — de wikkel met de
+ * reeks is dan de buitenste div met het venster erin. Zonder deze regel brengt
+ * een stap in het kaartje zijn eigen systeemstack mee en wisselt de letter zodra
+ * hij naar het venster verhuist. Ook (0,2,0), dus even zwaar als daar.
+ */
+.mymmo-callout-dok .mymmo-stap-inhoud > * {
+  font-family: inherit;
+}
+
+/*
+ * De knoppenrij van de stap staat hier uit de weg: in de callout is de
+ * callout-knop de knop. Ze wordt niet weggelaten uit de markup — het is
+ * hetzelfde element dat straks in het venster staat, en daar hoort ze wel.
+ * Datzelfde geldt voor de teller en de verzendknop van het formulier: in het
+ * kaartje verstuur je niet, je begint.
+ */
+.mymmo-callout-dok .mymmo-stap-nav,
+.mymmo-callout-dok .mymmo-stappen-teller,
+.mymmo-callout-dok .mymmo-form-actions {
+  display: none;
+}
+
+/* De titel van het onderdeel is in het kaartje de vraag zelf: iets steviger dan
+   in het venster, want daar staat de kop van het venster erboven en hier niet. */
+.mymmo-callout-dok .mymmo-stap-titel {
+  margin-top: 0;
+  font-size: 1.15rem;
+}
+
+/* Het anker dat de plaats in het venster openhoudt. `hidden` zou volstaan, maar
+   een thema kan display op een span zetten en wint dan van de stylesheet van de
+   browser. */
+.mymmo-callout-wikkel [data-mymmo-thuis] {
+  display: none;
+}
+
+/* ── De knop ─────────────────────────────────────────────────────────────── */
+
+.mymmo-callout-actie {
+  display: flex;
+  flex-direction: column;
+}
+
+.mymmo-callout .mymmo-callout-knop {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 13px 22px;
+  border: 0;
+  border-radius: var(--mf-radius, 10px);
+  background: var(--mf-accent, #2563eb);
+  color: var(--mf-accent-text, #ffffff);
+  font: inherit;
+  font-weight: 600;
+  line-height: 1.2;
+  text-align: center;
+  text-decoration: none;
+  cursor: pointer;
+  transition: filter 0.15s ease, transform 0.15s ease;
+}
+
+.mymmo-callout .mymmo-callout-knop:hover,
+.mymmo-callout .mymmo-callout-knop:focus-visible {
+  filter: brightness(0.95);
+  color: var(--mf-accent-text, #ffffff);
+  text-decoration: none;
+}
+
+.mymmo-callout .mymmo-callout-knop:active {
+  transform: translateY(1px);
+}
+
+.mymmo-callout-pijl {
+  flex: 0 0 auto;
+  transition: transform 0.15s ease;
+}
+
+.mymmo-callout .mymmo-callout-knop:hover .mymmo-callout-pijl {
+  transform: translateX(3px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mymmo-callout .mymmo-callout-knop,
+  .mymmo-callout-pijl {
+    transition: none;
+  }
+}
+
+/* ── De brede indeling ───────────────────────────────────────────────────── */
+
+/*
+ * Eén kolom: titel en tekst bovenaan, het uitgelichte onderdeel eronder over de
+ * volle breedte. Voor iets dat plaats vraagt — "wat maakt het beheer uitdagend"
+ * heeft dertien keien, en die passen niet in een halve callout.
+ *
+ * De knop staat hier rechtsonder: de kaart is breed, en een knop over de volle
+ * breedte leest dan als een balk in plaats van als een actie.
+ */
+.mymmo-callout--breed .mymmo-callout-actie {
+  flex-direction: row;
+  justify-content: flex-end;
+}
+
+.mymmo-callout--breed .mymmo-callout-uitleg {
+  max-width: 62ch;
+}
+
+/* ── Twee kolommen ───────────────────────────────────────────────────────── */
+
+/*
+ * Naast elkaar zodra het BLOK breed genoeg is — 620px, gemeten aan de callout
+ * zelf en niet aan het scherm. Daaronder is een kolom te smal voor een bediening
+ * (een schuifbalk met een getal erboven, keien met een label eronder) en hoort
+ * alles onder elkaar te staan.
+ *
+ * De verhouding is 1:2. De tekst is een titel en twee regels; het uitgelichte
+ * onderdeel is waar de bezoeker iets doet, en dat verdient het dubbele.
+ */
+@container mymmo-callout (min-width: 620px) {
+  .mymmo-callout--kolommen .mymmo-callout-raster {
+    /* De verhouding komt uit een gesloten lijst bij de ingang; zie
+       Mymmo_Forms_Entrypoints::VERDELINGEN. */
+    grid-template-columns: var(--mf-callout-verdeling, minmax(0, 1fr) minmax(0, 2fr));
+  }
+
+  /*
+   * De titel begint op DEZELFDE HOOGTE als de eerste regel in het witte vlak
+   * ernaast. Dezelfde opvulling dus als dat vlak; met een andere waarde beginnen
+   * de twee kolommen net niet gelijk, en dat leest als scheef in plaats van als
+   * een keuze.
+   */
+  .mymmo-callout--kolommen .mymmo-callout-tekst {
+    /* Zet de ingang een eigen inspringing, dan VERVANGT die deze uitlijning --
+       anders tellen ze op en staat de titel lager dan het vlak ernaast. Neem de
+       ruimte bovenaan dus mee in je eigen waarde. */
+    padding: var(--mf-callout-tekst-pad, clamp(18px, 2.4vw, 28px) 0 0);
+  }
+
+  /*
+   * In de brede indeling blijft het één kolom, maar de afbeelding hoort naast de
+   * titel — niet boven het uitgelichte onderdeel, want dat is de hoofdzaak.
+   */
+  .mymmo-callout--breed .mymmo-callout-tekst {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 0.32fr);
+    align-items: center;
+    gap: clamp(20px, 3vw, 40px);
+  }
+
+  .mymmo-callout--breed.mymmo-callout--zonder-beeld .mymmo-callout-tekst {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Op een telefoon mag het blok niet onnodig smal worden door zijn eigen
+   opvulling; en de knop vult dan de breedte, zodat hij met de duim te raken is. */
+@media (max-width: 600px) {
+  .mymmo-callout {
+    /* Een eigen maat voor de telefoon, en bewust niet --mf-callout-pad: wie op
+       een pagina 62px zijmarge zet om gelijk te lopen met zijn kaarten, wil dat
+       op 375px zeker niet. Zet je hem niet, dan houdt het blok deze waarde. */
+    padding: var(--mf-callout-pad-mobiel, 20px 16px);
+    /* De hoeken van de ingang gelden OOK hier. Tot 1.17.4 stond deze waarde
+       hard, waardoor een ingestelde `radius` op een telefoon stil wegviel en het
+       blok daar als enige andere hoeken had dan de rest van de pagina. */
+    border-radius: var(--mf-callout-radius, calc(var(--mf-radius, 10px) + 4px));
+  }
+
+  /* Twee klassen, zodat deze regel wint van die in de container query hierboven
+     als een blok toch breed genoeg zou zijn op een smal scherm. */
+  .mymmo-callout .mymmo-callout-tekst {
+    padding: var(--mf-callout-tekst-pad-mobiel, var(--mf-callout-tekst-pad, 0));
+  }
+
+  .mymmo-callout-uitgelicht {
+    padding: 16px;
+  }
+
+  .mymmo-callout--breed .mymmo-callout-actie {
+    flex-direction: column;
+  }
+}

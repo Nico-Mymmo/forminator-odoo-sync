@@ -271,6 +271,62 @@
         window.FSV2.renderLinks();
         return;
       }
+      // ── PDF-sjablonen CRUD (Instellingen → PDF-ontwerpen) ─────────────────
+      //
+      // Bewerken van de INHOUD gebeurt niet hier: dat is public/offerte.html
+      // (een nieuw tabblad, zelfde reden als bij de mailstudio). Deze drie
+      // acties gaan enkel over de lijst zelf.
+      if (action === 'add-pdf-template') {
+        var pdfDefault = (window.OFFERTE_DATA && window.OFFERTE_VELDEN)
+          ? { gegevens: window.OFFERTE_DATA.gegevens, copy: window.OFFERTE_DATA.copy, velden: window.OFFERTE_VELDEN }
+          : null;
+        if (!pdfDefault) {
+          window.FSV2.showAlert('offerte-data.js is niet geladen — kan geen nieuw sjabloon maken.', 'error');
+          return;
+        }
+        var pdfNaam = window.prompt('Naam van het nieuwe sjabloon:', 'Nieuw sjabloon');
+        if (pdfNaam === null) return;
+        var pdfCreated = await window.FSV2.api('/pdf-templates', {
+          method: 'POST',
+          body: JSON.stringify({ name: pdfNaam || 'Nieuw sjabloon', data: pdfDefault })
+        });
+        S.pdfTemplatesCache = (S.pdfTemplatesCache || []).concat([{
+          id: pdfCreated.data.id, name: pdfCreated.data.name, updated_at: pdfCreated.data.updated_at, in_gebruik: 0
+        }]);
+        window.FSV2.showAlert('Sjabloon aangemaakt.', 'success');
+        window.FSV2.renderLinks();
+        window.open('/offerte.html?template=' + encodeURIComponent(pdfCreated.data.id), '_blank');
+        return;
+      }
+      if (action === 'rename-pdf-template') {
+        var renTplId = btn.dataset.id;
+        var huidigTpl = (S.pdfTemplatesCache || []).find(function (t) { return t.id === renTplId; });
+        var nieuweNaam = window.prompt('Nieuwe naam:', huidigTpl ? huidigTpl.name : '');
+        if (!nieuweNaam) return;
+        var pdfRenamed = await window.FSV2.api('/pdf-templates/' + encodeURIComponent(renTplId), {
+          method: 'PUT', body: JSON.stringify({ name: nieuweNaam })
+        });
+        S.pdfTemplatesCache = (S.pdfTemplatesCache || []).map(function (t) {
+          return t.id === renTplId ? Object.assign({}, t, { name: pdfRenamed.data.name, updated_at: pdfRenamed.data.updated_at }) : t;
+        });
+        window.FSV2.showAlert('Sjabloon hernoemd.', 'success');
+        window.FSV2.renderLinks();
+        return;
+      }
+      if (action === 'delete-pdf-template') {
+        var delTplId = btn.dataset.id;
+        if (!window.confirm('Dit sjabloon verwijderen?')) return;
+        try {
+          await window.FSV2.api('/pdf-templates/' + encodeURIComponent(delTplId), { method: 'DELETE' });
+        } catch (delErr) {
+          window.FSV2.showAlert(delErr.message, 'error');
+          return;
+        }
+        S.pdfTemplatesCache = (S.pdfTemplatesCache || []).filter(function (t) { return t.id !== delTplId; });
+        window.FSV2.showAlert('Sjabloon verwijderd.', 'success');
+        window.FSV2.renderLinks();
+        return;
+      }
       // ── Odoo model inline edit ────────────────────────────────────────────
       if (action === 'edit-odoo-model') {
         var editModelIdx = parseInt(btn.dataset.idx, 10);
@@ -2254,6 +2310,7 @@
         window.FSV2.loadIntegrations(),
         window.FSV2.loadModelLinks(),
         window.FSV2.loadOdooModels(),
+        window.FSV2.loadPdfTemplates(),
         window.FSV2.loadFolders(),
         window.FSV2.loadTags(),
       ]);
