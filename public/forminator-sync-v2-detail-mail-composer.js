@@ -148,6 +148,7 @@
     var vertraging = splitsVertraging(target.mail_delay_minutes);
     var layout     = String(target.mail_layout || 'plain');
     var fromSource = String(target.mail_from_source || 'record_user');
+    var sigSource   = String(target.mail_signature_source || '');
     var tokens     = alleTokens().concat(voorgaandeStapTokens(tid));
     var velden     = formulierTokens();
 
@@ -267,6 +268,32 @@
           </label>
         </div>
 
+        <div class="form-control mb-3">
+          <label class="label pt-0 pb-1"><span class="label-text text-sm font-medium">Handtekening</span></label>
+          <select id="mailSigSource-${esc(tid)}" class="select select-bordered select-sm w-full mb-1.5">
+            <option value=""${sigSource === '' ? ' selected' : ''}>Geen handtekening</option>
+            <option value="fixed"${sigSource === 'fixed' ? ' selected' : ''}>Vaste medewerker</option>
+            <option value="dynamic"${sigSource === 'dynamic' ? ' selected' : ''}>Uit een vorige stap</option>
+          </select>
+          <input type="number" min="1" id="mailSigEmployeeId-${esc(tid)}"
+                 class="input input-bordered input-sm w-full mb-1.5"
+                 placeholder="Medewerker-ID (hr.employee, uit de Odoo-URL)"
+                 value="${target.mail_signature_employee_id || ''}"
+                 ${sigSource === 'fixed' ? '' : 'style="display:none"'}>
+          <select id="mailSigStepValue-${esc(tid)}"
+                 class="select select-bordered select-sm w-full"
+                 ${sigSource === 'dynamic' ? '' : 'style="display:none"'}>
+            ${window.FSV2.buildEmployeeStepOptions(sortedTargets, tid, target.mail_signature_source_value || '')}
+          </select>
+          <label class="label pt-1 pb-0">
+            <span class="label-text-alt text-base-content/50">
+              Odoo levert de HTML zelf (“res.users.signature”) -- dezelfde handtekening die de
+              medewerker al via de signature-designer naar Gmail pusht. Nog niet gepusht? Dan vertrekt
+              de mail gewoon zonder handtekening, geen fout.
+            </span>
+          </label>
+        </div>
+
         <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
           <div class="form-control">
             <label class="label pt-0 pb-1"><span class="label-text text-sm font-medium">Antwoorden naar</span></label>
@@ -356,6 +383,17 @@
       var doelTid = knop.dataset.tid;
       if (actie === 'insert-token') voegTokenIn(doelTid);
       if (actie === 'preview')      vernieuwVoorbeeld(doelTid);
+    });
+
+    // Handtekening: vast/dynamisch/geen -- zelfde toggle-patroon als de
+    // Contactpersoon-bron in de pdf-composer.
+    el.addEventListener('change', function (e) {
+      if (e.target.id !== 'mailSigSource-' + tid) return;
+      var v = e.target.value;
+      var empEl  = document.getElementById('mailSigEmployeeId-' + tid);
+      var stepEl = document.getElementById('mailSigStepValue-' + tid);
+      if (empEl)  empEl.style.display  = v === 'fixed'   ? '' : 'none';
+      if (stepEl) stepEl.style.display = v === 'dynamic' ? '' : 'none';
     });
   }
 
@@ -565,6 +603,8 @@
     var min  = Number((document.getElementById('mailDelayM-' + tid) || {}).value || 0);
     var fromEl = document.querySelector('input[name="mailFrom-' + tid + '"]:checked');
     var serverRaw = (document.getElementById('mailServerId-' + tid) || {}).value;
+    var sigSourceEl = document.getElementById('mailSigSource-' + tid);
+    var sigSourceVal = sigSourceEl ? sigSourceEl.value : '';
     return {
       mail_layout:            'plain',
       mail_subject_template:  (document.getElementById('mailSubject-' + tid) || {}).value || '',
@@ -580,7 +620,12 @@
       mail_server_id:         serverRaw ? Number(serverRaw) : null,
       mail_track_opens:       !!(document.getElementById('mailTrackOpens-' + tid) || {}).checked,
       mail_respect_blacklist: !!(document.getElementById('mailBlacklist-' + tid) || {}).checked,
-      mail_attachments:       window.FSV2.mailAttachmentsPayload(tid)
+      mail_attachments:       window.FSV2.mailAttachmentsPayload(tid),
+      mail_signature_source:       sigSourceVal || null,
+      mail_signature_employee_id:  sigSourceVal === 'fixed'
+        ? Number((document.getElementById('mailSigEmployeeId-' + tid) || {}).value) || null : null,
+      mail_signature_source_value: sigSourceVal === 'dynamic'
+        ? ((document.getElementById('mailSigStepValue-' + tid) || {}).value || null) : null
     };
   }
 
@@ -619,6 +664,14 @@
     }
     if (velden.mail_from_source === 'fixed' && !velden.mail_from_email.trim()) {
       window.FSV2.showAlert('Kies een vast afzenderadres, of zet de afzender op de eigenaar van het record.', 'error');
+      return;
+    }
+    if (velden.mail_signature_source === 'fixed' && !(velden.mail_signature_employee_id > 0)) {
+      window.FSV2.showAlert('Vul een geldig medewerker-ID in bij Handtekening, of kies een andere bron.', 'error');
+      return;
+    }
+    if (velden.mail_signature_source === 'dynamic' && !velden.mail_signature_source_value) {
+      window.FSV2.showAlert('Kies een stap voor de handtekening.', 'error');
       return;
     }
 

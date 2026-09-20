@@ -104,6 +104,20 @@ html, body{
   print-color-adjust: exact;
 }
 
+/* In de bewerkstand mag een pagina UITZETTEN i.p.v. afsnijden. De vaste
+   A4-hoogte + overflow:hidden hierboven is correct voor de PDF-opmaak (elke
+   pagina moet exact 297mm zijn), maar in de editor duwden brede
+   plaatshoudervelden (bv. een lange {{gebouw.adres}}-chip) de rest van de
+   tekst stil voorbij de onderrand -- onbereikbaar, want de pagina zelf sneed
+   het gewoon af. controleerOverloop() in offerte-render.js waarschuwt al met
+   .ov-pagina--vol, maar dat is een melding, geen toegang tot de inhoud
+   zelf. */
+.ov-bewerkstand .ov-pagina{
+  height: auto;
+  min-height: var(--ov-pagina-hoog);
+  overflow: visible;
+}
+
 /* ==========================================================================
    Kop en voet — op elke pagina gelijk
    ========================================================================== */
@@ -248,7 +262,15 @@ html, body{
 }
 .ov-gegevens-rij:last-child{ border-bottom: 0; }
 .ov-gegevens-label{ font-weight: 700; color: var(--ov-blauw); }
-.ov-gegevens-waarde{ color: var(--ov-inkt); }
+.ov-gegevens-waarde{
+  color: var(--ov-inkt);
+  /* Bijzonderheden e.d. kunnen een lange, spatieloze opsomming zijn (losse
+     checkbox-waarden aan elkaar geplakt) -- zonder dit valt de tekst over de
+     rand van de offerte i.p.v. netjes af te breken. */
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
 
 /* --- inleiding ---------------------------------------------------------- */
 
@@ -661,6 +683,40 @@ html, body{
   margin: 18px 0 8px;
 }
 .ov-groepkop:first-child{ margin-top: 0; }
+
+/* Toelichting onder een instellingenveld (Nummering & geldigheid). */
+.ov-veld-hint{
+  margin: -6px 0 14px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #64748b;
+}
+.ov-veld-hint code{
+  background: #f1f5f9;
+  border-radius: 4px;
+  padding: 1px 4px;
+  font-size: 11px;
+}
+
+/* Bedrijvenlijst (dialoog "Bedrijven"): overzicht + het bewerkformulier delen
+   dezelfde dialoog, geschakeld via .ov-bedrijf-lijst / .ov-bedrijf-form. */
+.ov-bedrijf-rij{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 4px;
+  border-bottom: 1px solid #e2e8f0;
+}
+.ov-bedrijf-rij:last-child{ border-bottom: none; }
+.ov-bedrijf-naam{ font-weight: 600; font-size: 13px; color: #1e293b; }
+.ov-bedrijf-acties{ display: flex; gap: 6px; }
+.ov-bedrijf-form-grid{
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 16px;
+}
+.ov-bedrijf-form-grid .ov-veld{ margin-bottom: 10px; }
 
 /* ==========================================================================
    Afdrukken / pdf

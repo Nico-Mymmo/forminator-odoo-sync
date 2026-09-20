@@ -270,16 +270,22 @@ async function schrijfCache(env, rij) {
   }
 }
 
-// ─── De hoofdfunctie ─────────────────────────────────────────────────────────
+// ─── De hoofdfunctie ─────────────────────────────────────────
 
 /**
  * De bijlagen van een stap omzetten naar Odoo-attachment-ids.
  *
- * Twee soorten (zie `splitMailAttachments`): een `{key}`-item gaat door het
- * bestaande R2-pad hieronder (ONGEWIJZIGD); een `{type:'pdf_step'}`-item wijst
- * naar een attachment dat een generate_pdf-stap ZOJUIST in deze pipeline-run
- * aanmaakte (`contextObject['pdf.<targetId>.attachment_id']`) -- geen R2, geen
- * cache nodig, het bestaat al.
+ * Twee soorten (zie `splitMailAttachments`), die vanaf hier door HETZELFDE
+ * R2-cachepad lopen: een `{key}`-item (een Asset Manager-bestand, gevalideerd
+ * tegen de Asset Manager-namespace) en een `{type:'pdf_step'}`-item (de R2-
+ * sleutel die een generate_pdf-stap ZOJUIST zette, uit
+ * `contextObject['pdf.<targetId>.r2_key']` -- systeem-gegenereerd, dus zonder
+ * de namespace-controle die geldt voor een door de gebruiker gekozen bestand).
+ * Odoo wil de inhoud zelf hebben (een mail.mail kan niet naar een R2-link
+ * wijzen), dus of het nu een vast Asset Manager-bestand is of een pas
+ * gegenereerde offerte: bij het versturen wordt éénmalig een ir.attachment
+ * aangemaakt en gecachet op (r2_key, etag) -- zelfde reden als altijd: bij
+ * honderden inzendingen geen honderden kopieën van dezelfde bytes in Odoo.
  *
  * @param {Object} env
  * @param {Array<Object>|null} lijst
@@ -289,36 +295,38 @@ async function schrijfCache(env, rij) {
  */
 export async function resolveMailAttachments(env, lijst, contextObject) {
   const { assets, pdfSteps } = splitMailAttachments(lijst);
-  const genormaliseerd = normalizeMailAttachments(assets);
+  const genormaliseerd = normalizeMailAttachments(assets) || [];
 
-  // ── pdf_step-bijlagen: het id staat al in de context van DEZE indiening ──
-  const pdfIds = [];
-  const pdfFiles = [];
+  // pdf_step-items: de R2-sleutel staat al klaar in de context van DEZE
+  // indiening (de generate_pdf-stap liep hiervóór al, zie worker-handler.js).
+  // GEEN isWithinAssetNamespace()-controle hier: die geldt voor een door de
+  // gebruiker GETYPTE/GEKOZEN sleutel, en fsv2-generated-pdfs/ ligt bewust
+  // BUITEN de Asset Manager-namespace (zie FOREIGN_MODULE_PREFIXES).
+  const pdfAlsBestand = [];
   for (const item of pdfSteps) {
-    const ruw = contextObject ? contextObject[`pdf.${item.targetId}.attachment_id`] : null;
-    const id = Number.parseInt(String(ruw), 10);
-    if (!Number.isInteger(id) || id <= 0) {
+    const r2Key = contextObject ? contextObject[`pdf.${item.targetId}.r2_key`] : null;
+    if (!r2Key) {
       throw new MailAttachmentError(
         `Bijlage "${item.name}" ontbreekt: de pdf-stap leverde niets op (mislukt, overgeslagen, of staat na deze mail).`
       );
     }
-    pdfIds.push(id);
-    pdfFiles.push({ ...item, attachmentId: id, hergebruikt: false });
+    pdfAlsBestand.push({ key: r2Key, name: item.name });
   }
 
-  if (!genormaliseerd) return { ids: pdfIds, files: pdfFiles };
+  const alleItems = [...genormaliseerd, ...pdfAlsBestand];
+  if (!alleItems.length) return { ids: [], files: [] };
   if (!env || !env.R2_ASSETS) {
-    throw new MailAttachmentError('Geen toegang tot de Asset Manager (R2_ASSETS ontbreekt).');
+    throw new MailAttachmentError('Geen toegang tot de opslag (R2_ASSETS ontbreekt).');
   }
 
-  // ── 1. Bestaat het nog, en hoe groot is het NU? ───────────────────────────
+  // ── 1. Bestaat het nog, en hoe groot is het NU? ─────────────────────
   const beschrijvingen = [];
   let totaal = 0;
-  for (const item of genormaliseerd) {
+  for (const item of alleItems) {
     const obj = await env.R2_ASSETS.head(item.key);
     if (!obj) {
       throw new MailAttachmentError(
-        `Bijlage "${item.name}" staat niet meer in de Asset Manager (${item.key}). ` +
+        `Bijlage "${item.name}" bestaat niet (meer) in de opslag (${item.key}). ` +
         'Zet het bestand terug of kies een ander, en replay deze indiening.'
       );
     }
@@ -340,7 +348,7 @@ export async function resolveMailAttachments(env, lijst, contextObject) {
     );
   }
 
-  // ── 2. Wat hebben we al in Odoo staan? ────────────────────────────────────
+  // ── 2. Wat hebben we al in Odoo staan? ──────────────────────────
   const cache = await leesCache(env, beschrijvingen);
   const kandidaten = beschrijvingen
     .map(b => cache.get(`${b.key}\n${b.etag}`))
@@ -348,7 +356,7 @@ export async function resolveMailAttachments(env, lijst, contextObject) {
     .map(c => c.odoo_attachment_id);
   const nogGeldig = await bestaandeInOdoo(env, [...new Set(kandidaten)]);
 
-  // ── 3. Aanvullen wat ontbreekt ────────────────────────────────────────────
+  // ── 3. Aanvullen wat ontbreekt ─────────────────────────────
   const ids = [];
   const files = [];
   for (const b of beschrijvingen) {
@@ -376,7 +384,11 @@ export async function resolveMailAttachments(env, lijst, contextObject) {
         // Bewust GEEN res_model/res_id: dit attachment wordt door alle mails
         // gedeeld die hetzelfde bestand meesturen. Zou het aan het eerste
         // lead hangen, dan verdwijnt het bij het opruimen van dat lead.
-        description: `Operations Manager — Asset Manager: ${b.key} (${b.etag})`
+        description: `Operations Manager — mailbijlage: ${b.key} (${b.etag})`
+        // GEEN public: true -- dat maakt een attachment wereldwijd leesbaar
+        // zonder inloggen (zie het doc-blok bij ir.attachment in pdf-step.js
+        // voor de onderbouwing), en deze bijlagen kunnen intern gedeelde
+        // materialen zijn die niet voor het hele internet bedoeld zijn.
       }
     });
     await schrijfCache(env, {
@@ -391,25 +403,7 @@ export async function resolveMailAttachments(env, lijst, contextObject) {
     files.push({ ...b, attachmentId: Number(attachmentId), hergebruikt: false });
   }
 
-  // Totale grootte tegen het maximum -- ook de pdf-bijlagen tellen mee.
-  if (pdfIds.length > 0) {
-    const grootte = await searchRead(env, {
-      model: 'ir.attachment',
-      domain: [['id', 'in', pdfIds]],
-      fields: ['file_size'],
-      limit: pdfIds.length
-    });
-    const pdfBytes = (Array.isArray(grootte) ? grootte : []).reduce((som, r) => som + (Number(r.file_size) || 0), 0);
-    if (pdfBytes > MAX_MAIL_ATTACHMENT_BYTES) {
-      const mb = (n) => (n / 1024 / 1024).toFixed(1);
-      throw new MailAttachmentError(
-        `De bijlagen zijn samen ${mb(pdfBytes)} MB; het maximum is ${mb(MAX_MAIL_ATTACHMENT_BYTES)} MB. ` +
-        'Verklein het bestand of zet er een link naar in de tekst.'
-      );
-    }
-  }
-
-  return { ids: [...ids, ...pdfIds], files: [...files, ...pdfFiles] };
+  return { ids, files };
 }
 
 /**

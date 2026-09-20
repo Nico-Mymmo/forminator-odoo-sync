@@ -376,6 +376,12 @@ export async function handlePublicRoutes(request, env, ctx) {
     pathname.startsWith('/assets/') &&
     !pathname.startsWith('/assets/api/') &&
     !pathname.startsWith('/assets/mini-apps/') &&
+    // fsv2-generated-pdfs/ = gegenereerde offertes (generate_pdf-stap) --
+    // in tegenstelling tot fsv2-tracker-logos/ zijn dit persoonsgebonden
+    // documenten (naam, adres, geoffreerde prijs), geen publiek beeldmateriaal.
+    // Enkel bereikbaar via de auth-gated download-route in forminator-sync-v2,
+    // zelfde uitzondering als /assets/mini-apps/ hierboven.
+    !pathname.startsWith('/assets/fsv2-generated-pdfs/') &&
     request.method === 'GET'
   ) {
     const key = pathname.slice('/assets/'.length);

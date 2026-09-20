@@ -1,10 +1,12 @@
 import { executeKw } from '../../lib/odoo.js';
-import { fetchFsv2ActivityTypes, fetchFsv2OdooUsers } from './odoo-client.js';
+import { fetchFsv2ActivityTypes, fetchFsv2OdooUsers, fetchFsv2OdooEmployees } from './odoo-client.js';
 import { renderPlainMailHtml, renderPlainSubject, nietPlatteOpmaak } from '../../lib/mail/render-plain.js';
 import { describeMailAttachments, MAX_MAIL_ATTACHMENTS, MAX_MAIL_ATTACHMENT_BYTES } from './mail-attachments.js';
 import {
   buildPdfGegevens, renderPdf, pdfBytesToBase64,
-  listPdfTemplates, getPdfTemplate, createPdfTemplate, updatePdfTemplate, deletePdfTemplate
+  listPdfTemplates, getPdfTemplate, createPdfTemplate, updatePdfTemplate, deletePdfTemplate,
+  listBedrijfProfielen, getBedrijfProfiel, createBedrijfProfiel, updateBedrijfProfiel, deleteBedrijfProfiel,
+  listGeneratedDocuments, getGeneratedDocument, deleteGeneratedDocument, cleanupGeneratedDocuments
 } from './pdf-step.js';
 import { listObjects } from '../asset-manager/lib/r2-client.js';
 import {
@@ -1296,12 +1298,17 @@ export const routes = {
         // Een rauw mail.mail-record respecteert mail.blacklist niet zelf; dit
         // uitzetten betekent mailen naar wie zich heeft uitgeschreven.
         ...(payload.mail_respect_blacklist !== undefined ? { mail_respect_blacklist: payload.mail_respect_blacklist !== false } : {}),
+        // Handtekening: zelfde vorm als pdf_contact_* hieronder bij generate_pdf.
+        ...(payload.mail_signature_source       !== undefined ? { mail_signature_source:       payload.mail_signature_source       || null } : {}),
+        ...(payload.mail_signature_employee_id  !== undefined ? { mail_signature_employee_id:  Number(payload.mail_signature_employee_id) || null } : {}),
+        ...(payload.mail_signature_source_value !== undefined ? { mail_signature_source_value: payload.mail_signature_source_value || null } : {}),
         // ── generate_pdf ───────────────────────────────────────────────────
         ...(payload.pdf_template_id          !== undefined ? { pdf_template_id:          payload.pdf_template_id          || null } : {}),
         ...(payload.pdf_res_id_source        !== undefined ? { pdf_res_id_source:        payload.pdf_res_id_source        || null } : {}),
         ...(payload.pdf_contact_source       !== undefined ? { pdf_contact_source:       payload.pdf_contact_source       || null } : {}),
         ...(payload.pdf_contact_employee_id  !== undefined ? { pdf_contact_employee_id:  Number(payload.pdf_contact_employee_id) || null } : {}),
         ...(payload.pdf_contact_source_value !== undefined ? { pdf_contact_source_value: payload.pdf_contact_source_value || null } : {}),
+        ...(payload.pdf_bedrijf_profiel_id     !== undefined ? { pdf_bedrijf_profiel_id:     payload.pdf_bedrijf_profiel_id     || null } : {}),
         ...(payload.pdf_filename_template    !== undefined ? { pdf_filename_template:    payload.pdf_filename_template    || null } : {}),
       });
 
@@ -1385,12 +1392,17 @@ export const routes = {
         // Een rauw mail.mail-record respecteert mail.blacklist niet zelf; dit
         // uitzetten betekent mailen naar wie zich heeft uitgeschreven.
         ...(payload.mail_respect_blacklist !== undefined ? { mail_respect_blacklist: payload.mail_respect_blacklist !== false } : {}),
+        // Handtekening: zelfde vorm als pdf_contact_* hieronder bij generate_pdf.
+        ...(payload.mail_signature_source       !== undefined ? { mail_signature_source:       payload.mail_signature_source       || null } : {}),
+        ...(payload.mail_signature_employee_id  !== undefined ? { mail_signature_employee_id:  Number(payload.mail_signature_employee_id) || null } : {}),
+        ...(payload.mail_signature_source_value !== undefined ? { mail_signature_source_value: payload.mail_signature_source_value || null } : {}),
         // ── generate_pdf ───────────────────────────────────────────────────
         ...(payload.pdf_template_id          !== undefined ? { pdf_template_id:          payload.pdf_template_id          || null } : {}),
         ...(payload.pdf_res_id_source        !== undefined ? { pdf_res_id_source:        payload.pdf_res_id_source        || null } : {}),
         ...(payload.pdf_contact_source       !== undefined ? { pdf_contact_source:       payload.pdf_contact_source       || null } : {}),
         ...(payload.pdf_contact_employee_id  !== undefined ? { pdf_contact_employee_id:  Number(payload.pdf_contact_employee_id) || null } : {}),
         ...(payload.pdf_contact_source_value !== undefined ? { pdf_contact_source_value: payload.pdf_contact_source_value || null } : {}),
+        ...(payload.pdf_bedrijf_profiel_id     !== undefined ? { pdf_bedrijf_profiel_id:     payload.pdf_bedrijf_profiel_id     || null } : {}),
         ...(payload.pdf_filename_template    !== undefined ? { pdf_filename_template:    payload.pdf_filename_template    || null } : {}),
       });
 
@@ -1449,8 +1461,63 @@ export const routes = {
   'PUT /api/pdf-templates/:id': async (context) => {
     try {
       const payload = await readJsonBody(context.request);
-      const updated = await updatePdfTemplate(context.env, context.params?.id, { name: payload.name, data: payload.data });
+      const updated = await updatePdfTemplate(context.env, context.params?.id, {
+        name: payload.name,
+        data: payload.data,
+        sequence_pattern: payload.sequence_pattern,
+        geldigheid_dagen: payload.geldigheid_dagen
+      });
       return jsonResponse({ success: true, data: updated });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
+    }
+  },
+
+  // ─── Bedrijfsprofielen (fs_v2_bedrijf_profielen) ─── zelfde CRUD-vorm als de
+  // pdf-sjablonen hierboven; beheerscherm: tabblad "Bedrijf" in offerte.html.
+
+  'GET /api/bedrijf-profielen': async (context) => {
+    try {
+      const data = await listBedrijfProfielen(context.env);
+      return jsonResponse({ success: true, data });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
+    }
+  },
+
+  'POST /api/bedrijf-profielen': async (context) => {
+    try {
+      const payload = await readJsonBody(context.request);
+      const created = await createBedrijfProfiel(context.env, { name: payload.name, data: payload.data });
+      return jsonResponse({ success: true, data: created }, 201);
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
+    }
+  },
+
+  'GET /api/bedrijf-profielen/:id': async (context) => {
+    try {
+      const data = await getBedrijfProfiel(context.env, context.params?.id);
+      return jsonResponse({ success: true, data });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
+    }
+  },
+
+  'PUT /api/bedrijf-profielen/:id': async (context) => {
+    try {
+      const payload = await readJsonBody(context.request);
+      const updated = await updateBedrijfProfiel(context.env, context.params?.id, { name: payload.name, data: payload.data });
+      return jsonResponse({ success: true, data: updated });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
+    }
+  },
+
+  'DELETE /api/bedrijf-profielen/:id': async (context) => {
+    try {
+      await deleteBedrijfProfiel(context.env, context.params?.id);
+      return jsonResponse({ success: true });
     } catch (error) {
       return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
     }
@@ -1460,6 +1527,57 @@ export const routes = {
     try {
       await deletePdfTemplate(context.env, context.params?.id);
       return jsonResponse({ success: true });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
+    }
+  },
+
+  // ─── Gegenereerde documenten (tabblad "Documenten" op de koppeling) ───
+  // De pdf zelf staat in R2 (fsv2-generated-pdfs/), niet in Odoo -- zie het
+  // doc-blok bij fs_v2_generated_documents in pdf-step.js. Download loopt
+  // hier doorheen (achter de gewone sessie-auth van deze module) i.p.v. via
+  // de publieke /assets/*-route, die dit prefix expliciet uitsluit.
+
+  'GET /api/integrations/:id/generated-documents': async (context) => {
+    try {
+      const data = await listGeneratedDocuments(context.env, context.params?.id);
+      return jsonResponse({ success: true, data });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
+    }
+  },
+
+  'POST /api/integrations/:id/generated-documents/cleanup': async (context) => {
+    try {
+      const payload = await readJsonBody(context.request);
+      const verwijderd = await cleanupGeneratedDocuments(context.env, context.params?.id, payload.older_than_days);
+      return jsonResponse({ success: true, data: { verwijderd } });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
+    }
+  },
+
+  'DELETE /api/generated-documents/:id': async (context) => {
+    try {
+      await deleteGeneratedDocument(context.env, context.params?.id);
+      return jsonResponse({ success: true });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
+    }
+  },
+
+  'GET /api/generated-documents/:id/download': async (context) => {
+    try {
+      const document = await getGeneratedDocument(context.env, context.params?.id);
+      const object = await context.env.R2_ASSETS.get(document.r2_key);
+      if (!object) {
+        return jsonResponse({ success: false, error: 'Bestand niet meer beschikbaar in de opslag.' }, 404);
+      }
+      const headers = new Headers();
+      object.writeHttpMetadata(headers);
+      headers.set('Content-Type', headers.get('Content-Type') || 'application/pdf');
+      headers.set('Content-Disposition', `inline; filename="${String(document.filename || 'document.pdf').replace(/"/g, '')}"`);
+      return new Response(object.body, { headers });
     } catch (error) {
       return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
     }
@@ -1742,6 +1860,8 @@ export const routes = {
         value_map: (payload.value_map && typeof payload.value_map === 'object' && !Array.isArray(payload.value_map))
           ? payload.value_map
           : null,
+        round_robin_pool: Array.isArray(payload.round_robin_pool) ? payload.round_robin_pool : null,
+        round_robin_mode: payload.round_robin_mode || null,
       });
 
       return jsonResponse({ success: true, data: created }, 201);
@@ -1775,6 +1895,8 @@ export const routes = {
         value_map: (payload.value_map && typeof payload.value_map === 'object' && !Array.isArray(payload.value_map))
           ? payload.value_map
           : null,
+        round_robin_pool: Array.isArray(payload.round_robin_pool) ? payload.round_robin_pool : null,
+        round_robin_mode: payload.round_robin_mode || null,
       });
 
       return jsonResponse({ success: true, data: updated });
@@ -2518,6 +2640,18 @@ export const routes = {
     try {
       const users = await fetchFsv2OdooUsers(context.env);
       return jsonResponse({ success: true, data: users });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, 500);
+    }
+  },
+
+  // Actieve hr.employee-lijst voor de round-robin-poule-kiezer op een mapping
+  // (source_type 'round_robin_pool') -- los van /api/odoo-users hierboven
+  // (res.users, voor activity-toewijzing).
+  'GET /api/odoo/employees': async (context) => {
+    try {
+      const employees = await fetchFsv2OdooEmployees(context.env);
+      return jsonResponse({ success: true, data: employees });
     } catch (error) {
       return jsonResponse({ success: false, error: error.message }, 500);
     }

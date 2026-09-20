@@ -13,6 +13,7 @@ import {
   listMappingsByTarget,
   listSubmissionTargetResults,
   rrNextUser,
+  rrNextPoolMember,
   transitionSubmissionStatus,
   updateSubmission
 } from './database.js';
@@ -23,7 +24,7 @@ import {
 } from './idempotency.js';
 import { classifyFailureType, computeNextRetryAt, getMaxAttemptsTotal } from './retry.js';
 import { findRecordByIdentifier, upsertRecordStrict, createRecordOnly, updateOnlyRecord, postChatterMessage, createActivity, readRecordField } from './odoo-client.js';
-import { executeKw } from '../../lib/odoo.js';
+import { executeKw, searchRead } from '../../lib/odoo.js';
 import { buildHtmlFormSummary } from './html-utils.js';
 import { runSendMailStep } from './mail-step.js';
 import { runGeneratePdfStep } from './pdf-step.js';
@@ -460,7 +461,7 @@ function getWebinarExternalField(env) {
 // step.<stap>.<veld> -- de drie namen hieronder zijn GEEN Odoo-velden maar
 // uitkomsten van de stap zelf; al de rest is een echt veld op het record dat
 // de stap opleverde en moet dus bij Odoo opgehaald worden.
-const STEP_OUTPUT_BUILTINS = new Set(['record_id', 'action', 'generated_id']);
+const STEP_OUTPUT_BUILTINS = new Set(['record_id', 'action', 'record_model', 'generated_id', 'round_robin_employee_id', 'round_robin_employee_model']);
 
 /**
  * Verzamelt per stap welke RECORDVELDEN een latere stap van haar wil lezen.
@@ -593,10 +594,19 @@ function registerTargetOutput(contextObject, target, result, mappings, extraFiel
   const order = target.execution_order ?? target.order_index ?? 0;
   contextObject[`step.${order}.record_id`] = result.recordId || null;
   contextObject[`step.${order}.action`]    = result.action;
+  // Welk MODEL hoort bij dit record-id -- zonder dit moest een consument
+  // (pdf-step.js voor "Hangt aan", mail-step.js voor mail_res_id_source) het
+  // model apart en zelf configureren via target.odoo_model, dat voor een
+  // generate_pdf/send_mail-stap niets met "welke vorige stap" te maken heeft
+  // en dus stil uit sync kon lopen met de gekozen bron -- de bijlage/notitie
+  // ging dan naar het verkeerde model, of naar niets. Nu is het model
+  // ONLOSMAKELIJK gekoppeld aan hetzelfde record_id.
+  contextObject[`step.${order}.record_model`] = target.odoo_model || null;
   const label = normalizeString(target.label);
   if (label) {
     contextObject[`step.${label}.record_id`] = result.recordId || null;
     contextObject[`step.${label}.action`]    = result.action;
+    contextObject[`step.${label}.record_model`] = target.odoo_model || null;
   }
 
   for (const [field, raw] of Object.entries(extraFields || {})) {
@@ -612,6 +622,36 @@ function registerTargetOutput(contextObject, target, result, mappings, extraFiel
     const value = contextObject[key];
     contextObject[`step.${order}.generated_id`] = value;
     if (label) contextObject[`step.${label}.generated_id`] = value;
+  });
+
+  // Zelfde alias-truc als generated_id hierboven, voor een round-robin-gekozen
+  // hr.employee-id (mapping.source_type 'round_robin_pool'). Zonder dit is de
+  // enige manier om die medewerker in een LATERE stap te gebruiken de rauwe
+  // sleutel 'round_robin.<mapping.id>' -- een UUID die niemand kan onthouden of
+  // in een dropdown herkennen. Met deze alias verschijnt de stap gewoon als
+  // "Stap N -- Round robin (<label>)" in de medewerker-kiezer (zie
+  // buildEmployeeStepOptions() in forminator-sync-v2-detail.js), en gebruikt
+  // zowel de pdf-stap (Contactpersoon) als de mail-stap (Handtekening) dezelfde
+  // vindbare vorm als step.N.record_id.
+  (mappings || []).forEach((m) => {
+    if (m.source_type !== 'round_robin_pool') return;
+    const key = 'round_robin.' + m.id;
+    if (!Object.prototype.hasOwnProperty.call(contextObject, key)) return;
+    const value = contextObject[key];
+    // Welk MODEL droeg deze id (hr.employee/res.users/res.partner) -- de poule
+    // zelf bestaat uit hr.employee-ids, maar resolveRoundRobinPoolValue vertaalt
+    // die al naar wat het doelveld verwacht (bv. res.users voor een
+    // Salesperson-veld). Zonder deze companion-sleutel zou een consument
+    // (pdf-step.js, mail-step.js) moeten RADEN welk model bij de id hoort.
+    const modelKey = 'round_robin_model.' + m.id;
+    const model = Object.prototype.hasOwnProperty.call(contextObject, modelKey)
+      ? contextObject[modelKey] : 'hr.employee';
+    contextObject[`step.${order}.round_robin_employee_id`] = value;
+    contextObject[`step.${order}.round_robin_employee_model`] = model;
+    if (label) {
+      contextObject[`step.${label}.round_robin_employee_id`] = value;
+      contextObject[`step.${label}.round_robin_employee_model`] = model;
+    }
   });
 }
 
@@ -832,7 +872,9 @@ const MAX_REPLAY_CHAIN_HOPS = 25;
 // ANDERE waarde krijgen, terwijl de link die al met de eerste waarde verstuurd is
 // (bv. in een e-mail) dan naar een niet-bestaand record zou wijzen. We wandelen
 // daarom de keten omhoog en nemen elke generated_id.*-sleutel over die een
-// voorouder al vastlegde.
+// voorouder al vastlegde. Zelfde reden voor round_robin.*: is het veld al
+// weggeschreven in een eerdere poging, dan mag een replay niet een ANDERE
+// medewerker kiezen voor hetzelfde record.
 async function inheritGeneratedIdsFromReplayChain(env, replayOfSubmissionId, contextObject) {
   let currentId = replayOfSubmissionId;
   let hops = 0;
@@ -846,12 +888,166 @@ async function inheritGeneratedIdsFromReplayChain(env, replayOfSubmissionId, con
     }
     if (saved && typeof saved === 'object') {
       for (const [key, value] of Object.entries(saved)) {
-        if (key.startsWith('generated_id.') && !Object.prototype.hasOwnProperty.call(contextObject, key)) {
+        if ((key.startsWith('generated_id.') || key.startsWith('round_robin.')) && !Object.prototype.hasOwnProperty.call(contextObject, key)) {
           contextObject[key] = value;
         }
       }
     }
     currentId = ancestor.replay_of_submission_id || null;
+  }
+}
+
+// Odoo-veldrelatie opzoeken (bv. crm.lead.user_id -> res.users) om een
+// hr.employee-poule (round_robin_pool) te vertalen naar wat het doelveld
+// verwacht. Isolate-brede cache: de relatie van een veld verandert niet binnen
+// de levensduur van een Worker-isolate, en dit spaart een fields_get-call per
+// inzending.
+const ODOO_FIELD_RELATION_CACHE = new Map();
+
+async function getOdooFieldRelation(env, model, field) {
+  const key = model + ':' + field;
+  if (ODOO_FIELD_RELATION_CACHE.has(key)) return ODOO_FIELD_RELATION_CACHE.get(key);
+  const meta = await executeKw(env, {
+    model,
+    method: 'fields_get',
+    args: [[field]],
+    kwargs: { attributes: ['relation', 'type'] }
+  });
+  const info = meta && meta[field] ? { relation: meta[field].relation || null, type: meta[field].type } : null;
+  ODOO_FIELD_RELATION_CACHE.set(key, info);
+  return info;
+}
+
+// Modellen waar "actief" voor de workload-telling van round_robin_pool's
+// 'least_active'-modus ook Won uitsluit. Lost archiveert zichzelf al
+// (active=false, Odoo's standaard CRM-gedrag), Won niet -- die stage moet dus
+// expliciet weg, anders blijft een gewonnen lead meetellen als "actief" bij een
+// medewerker. Uitbreidbaar per model; vandaag enkel crm.lead, de bevestigde
+// use case (Salesperson-poule).
+const ROUND_ROBIN_STAGE_EXCLUSIONS = {
+  'crm.lead': { stageField: 'stage_id', stageModel: 'crm.stage', wonFlagField: 'is_won' },
+};
+
+// Vertaalt een opgehaald hr.employee-record naar wat het doelveld nodig heeft.
+// Gooit bij een niet-ondersteunde relatie i.p.v. stil de kale hr.employee-id
+// te schrijven naar een veld dat iets anders verwacht.
+function pickRoundRobinResolvedId(employeeRow, relation, employeeId) {
+  if (relation === 'hr.employee') return employeeId;
+  if (relation === 'res.users') {
+    const v = employeeRow && employeeRow.user_id;
+    return Array.isArray(v) ? (v[0] || null) : null;
+  }
+  if (relation === 'res.partner') {
+    const v = employeeRow && employeeRow.user_partner_id;
+    return Array.isArray(v) ? (v[0] || null) : null;
+  }
+  throw createPermanentError('round_robin_pool: veldtype "' + (relation || 'onbekend') + '" wordt niet ondersteund (enkel hr.employee, res.users of res.partner).');
+}
+
+// Kiest de volgende medewerker uit de poule van een round_robin_pool-mapping.
+// 'rotation' schuift door de GECONFIGUREERDE poule (fs_v2_rr_next_pool_member),
+// 'least_active' telt open (niet-gearchiveerd, niet-Won) records op het
+// doelmodel per kandidaat en kiest de laagste telling.
+async function resolveRoundRobinPoolValue(env, mapping, target) {
+  const pool = Array.isArray(mapping.round_robin_pool) ? mapping.round_robin_pool : [];
+  if (!pool.length) {
+    throw createPermanentError('round_robin_pool: geen medewerkers ingesteld voor veld "' + mapping.odoo_field + '".');
+  }
+
+  const relationInfo = await getOdooFieldRelation(env, target.odoo_model, mapping.odoo_field);
+  const relation = relationInfo ? relationInfo.relation : null;
+
+  const employees = await searchRead(env, {
+    model: 'hr.employee',
+    domain: [['id', 'in', pool]],
+    fields: ['id', 'user_id', 'user_partner_id'],
+  });
+  const employeesById = {};
+  employees.forEach(function (e) { employeesById[e.id] = e; });
+
+  if (mapping.round_robin_mode === 'least_active') {
+    const candidates = [];
+    for (const empId of pool) {
+      const row = employeesById[empId];
+      if (!row) continue;
+      const resolvedId = pickRoundRobinResolvedId(row, relation, empId);
+      if (resolvedId) candidates.push({ empId, resolvedId });
+    }
+    if (!candidates.length) {
+      throw createPermanentError('round_robin_pool: geen enkele medewerker in de poule heeft een geschikte koppeling voor veld "' + mapping.odoo_field + '" (relatie: ' + (relation || 'onbekend') + ').');
+    }
+
+    const resolvedIds = candidates.map(function (c) { return c.resolvedId; });
+    const domain = [[mapping.odoo_field, 'in', resolvedIds], ['active', '=', true]];
+    const exclusion = ROUND_ROBIN_STAGE_EXCLUSIONS[target.odoo_model];
+    if (exclusion) {
+      const wonStages = await searchRead(env, {
+        model: exclusion.stageModel,
+        domain: [[exclusion.wonFlagField, '=', true]],
+        fields: ['id'],
+      });
+      const wonIds = wonStages.map(function (s) { return s.id; });
+      if (wonIds.length) domain.push([exclusion.stageField, 'not in', wonIds]);
+    }
+
+    const grouped = await executeKw(env, {
+      model: target.odoo_model,
+      method: 'read_group',
+      args: [domain, [mapping.odoo_field], [mapping.odoo_field]],
+      kwargs: { lazy: false }
+    });
+    const counts = {};
+    (grouped || []).forEach(function (g) {
+      const raw = g[mapping.odoo_field];
+      const id = Array.isArray(raw) ? raw[0] : raw;
+      if (id != null) counts[id] = g[mapping.odoo_field + '_count'] || 0;
+    });
+
+    let winner = candidates[0];
+    let winnerCount = counts[winner.resolvedId] || 0;
+    for (const c of candidates.slice(1)) {
+      const n = counts[c.resolvedId] || 0;
+      if (n < winnerCount) { winner = c; winnerCount = n; }
+    }
+    return winner.resolvedId;
+  }
+
+  // 'rotation' (default): schuift door de GECONFIGUREERDE poule, niet door een
+  // eligibele subset -- zo blijft de rotatie-index voorspelbaar t.o.v. wat er
+  // in de poule staat. Een medewerker zonder link is dan een configuratiefout
+  // die zichtbaar moet worden, niet stil overgeslagen.
+  const empId = await rrNextPoolMember(env, mapping.id);
+  if (!empId) {
+    throw createPermanentError('round_robin_pool: kon geen volgende medewerker bepalen voor veld "' + mapping.odoo_field + '" (lege poule?).');
+  }
+  const row = employeesById[empId];
+  const resolvedId = row ? pickRoundRobinResolvedId(row, relation, empId) : null;
+  if (!resolvedId) {
+    throw createPermanentError('round_robin_pool: medewerker ' + empId + ' in de poule van veld "' + mapping.odoo_field + '" heeft geen geschikte koppeling (relatie: ' + (relation || 'onbekend') + ') -- pas de poule aan.');
+  }
+  return resolvedId;
+}
+
+// Lost ALLE round_robin_pool-mappings van een stap vooraf op, ÉÉN keer per
+// target-verwerking (zie de aanroep in de hoofdlus, NA retry/dependency/
+// conditie/Calendly-fase-skips) -- zo verhoogt een overgeslagen stap nooit de
+// rotatie-index, en telt 'least_active' nooit mee voor een stap die toch niet
+// gaat schrijven. resolveMappingValue leest de uitkomst nadien synchroon terug
+// uit contextObject (zelfde patroon als generated_unique_id), en blijft zelf
+// dus onveranderd synchroon -- geen async-ripple naar buildIdentifierDomainForTarget,
+// pdf-step.js of de bestaande call sites.
+async function resolvePendingRoundRobinMappings(env, target, mappings, contextObject) {
+  for (const mapping of (mappings || [])) {
+    if (mapping.source_type !== 'round_robin_pool') continue;
+    const key = 'round_robin.' + mapping.id;
+    if (Object.prototype.hasOwnProperty.call(contextObject, key)) continue;
+    contextObject[key] = await resolveRoundRobinPoolValue(env, mapping, target);
+    // Voor de companion-sleutel in registerTargetOutput (step.N.round_robin_employee_model):
+    // getOdooFieldRelation is per isolate gecached (ODOO_FIELD_RELATION_CACHE),
+    // dus dit is geen extra Odoo-call bovenop wat resolveRoundRobinPoolValue
+    // hierboven al deed.
+    const relationInfo = await getOdooFieldRelation(env, target.odoo_model, mapping.odoo_field);
+    contextObject['round_robin_model.' + mapping.id] = (relationInfo && relationInfo.relation) || 'hr.employee';
   }
 }
 
@@ -944,6 +1140,15 @@ function resolveMappingValue(mapping, normalizedForm, contextObject, fieldTransf
       }
     }
     return buildHtmlFormSummary(fieldIds, normalizedForm);
+  }
+
+  // Round robin (poule medewerkers): al vooraf opgelost door
+  // resolvePendingRoundRobinMappings vóór opType-verwerking begint -- hier enkel
+  // een synchrone terugleesactie uit contextObject, zodat resolveMappingValue
+  // zelf synchroon blijft (zie de doc-comment bij resolvePendingRoundRobinMappings).
+  if (mapping.source_type === 'round_robin_pool') {
+    const key = 'round_robin.' + mapping.id;
+    return Object.prototype.hasOwnProperty.call(contextObject, key) ? contextObject[key] : null;
   }
 
   return null;
@@ -1480,6 +1685,13 @@ async function runSubmissionAttempt(env, {
         }
       }
 
+      // ── Round robin (poule medewerkers) vooraf oplossen ────────────────────
+      // Ná alle skip-paden hierboven (retry/dependency/conditie/Calendly-fase),
+      // zodat een overgeslagen stap nooit de rotatie-index verhoogt en
+      // 'least_active' nooit meetelt voor een stap die toch niet schrijft. Zie
+      // resolvePendingRoundRobinMappings.
+      await resolvePendingRoundRobinMappings(env, target, mappings, contextObject);
+
       // ── create_activity: schedule an Odoo activity on a record from a prior step ─
       if (opType === 'create_activity') {
         try {
@@ -1595,9 +1807,15 @@ async function runSubmissionAttempt(env, {
             resolveMapping: resolveMappingValue
           });
 
-          contextObject[`pdf.${target.id}.attachment_id`] = pdfResult.attachmentId;
+          // Geen odoo_record_id meer: de pdf staat in R2 (fs_v2_generated_documents),
+          // niet als ir.attachment in Odoo. r2_key is wat mail-attachments.js nodig
+          // heeft om de pdf als mailbijlage te resolven (zelfde R2-cachepad als een
+          // Asset Manager-bestand); document_id is wat het downloadscherm/de
+          // opruimknop op het tabblad "Documenten" gebruikt.
+          contextObject[`pdf.${target.id}.r2_key`] = pdfResult.r2Key;
+          contextObject[`pdf.${target.id}.document_id`] = pdfResult.documentId;
           registerTargetOutput(contextObject, target, { action: pdfResult.action, recordId: null }, mappings,
-                               { attachment_id: pdfResult.attachmentId });
+                               { r2_key: pdfResult.r2Key });
 
           const targetResult = {
             submission_id:   submission.id,
@@ -1605,13 +1823,13 @@ async function runSubmissionAttempt(env, {
             execution_order: executionOrder,
             action_result:   pdfResult.action,
             skipped_reason:  null,
-            odoo_record_id:  pdfResult.attachmentId,
+            odoo_record_id:  null,
             error_detail:    pdfResult.detail || null,
             processed_at:    new Date().toISOString()
           };
           await createSubmissionTargetResult(env, targetResult);
           targetResults.push(targetResult);
-          console.log(attemptTag, 'generate_pdf', pdfResult.action, '| attachment_id:', pdfResult.attachmentId);
+          console.log(attemptTag, 'generate_pdf', pdfResult.action, '| document:', pdfResult.documentId);
         } catch (pdfError) {
           const targetResult = {
             submission_id:   submission.id,

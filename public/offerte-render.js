@@ -46,6 +46,15 @@
   var staat = laadStaat();
   var bewerken = false;
 
+  /* Sjabloon-instellingen (Nummering & geldigheid) -- horen niet in
+     staat.gegevens (dat zijn DEMOWAARDEN), dit bepaalt hoe het ECHTE
+     offertenummer/de termijn bij een indiening berekend wordt. */
+  var instellingen = { sequence_pattern: '', geldigheid_dagen: '' };
+
+  /* Bedrijfsprofielen (fs_v2_bedrijf_profielen) -- module-breed, niet aan dit
+     sjabloon gebonden. `lijst` is null tot de eerste keer geladen. */
+  var bedrijven = { lijst: null, bewerkId: null };
+
   /* contenteditable="plaintext-only" houdt geplakte opmaak buiten de tekst.
      Firefox kent dit pas sinds 136; valt dat weg, dan gewoon "true". */
   var CE = (function () {
@@ -476,6 +485,8 @@
         var data = json.data.data || {};
         window.OFFERTE_VELDEN = data.velden || window.OFFERTE_VELDEN;
         staat = { gegevens: data.gegevens, copy: data.copy };
+        instellingen.sequence_pattern = json.data.sequence_pattern || '';
+        instellingen.geldigheid_dagen = json.data.geldigheid_dagen || '';
         serverKlaar = true;
         var titel = document.querySelector('.ov-werkbalk-titel');
         if (titel && json.data.name) titel.textContent = 'Offerte — ' + json.data.name;
@@ -592,6 +603,156 @@
     setTimeout(function () { window.print(); }, 60);
   }
 
+  /* ======================================================================
+     Nummering & geldigheid (sequence_pattern / geldigheid_dagen)
+     ====================================================================== */
+
+  function toonInstellingen() {
+    document.getElementById('ovSequencePattern').value = instellingen.sequence_pattern || '';
+    document.getElementById('ovGeldigheidDagen').value = instellingen.geldigheid_dagen || '';
+    document.getElementById('ovInstellingenDialoog').showModal();
+  }
+
+  function bewaarInstellingen() {
+    if (!TEMPLATE_ID) { window.alert('Enkel beschikbaar voor een opgeslagen sjabloon.'); return; }
+    var patroon = document.getElementById('ovSequencePattern').value.trim();
+    var dagenRuw = document.getElementById('ovGeldigheidDagen').value.trim();
+    var dagen = dagenRuw ? Number(dagenRuw) : null;
+    fetch('/forminator-v2/api/pdf-templates/' + TEMPLATE_ID, {
+      method: 'PUT',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sequence_pattern: patroon || null, geldigheid_dagen: dagen })
+    }).then(function (res) { return res.json(); }).then(function (json) {
+      if (!json || !json.success) throw new Error((json && json.error) || 'onbekende fout');
+      instellingen.sequence_pattern = patroon;
+      instellingen.geldigheid_dagen = dagen;
+      document.getElementById('ovInstellingenDialoog').close();
+      melding('Bewaard.');
+    }).catch(function (err) {
+      window.alert('Bewaren mislukt: ' + err.message);
+    });
+  }
+
+  /* ======================================================================
+     Bedrijfsprofielen (fs_v2_bedrijf_profielen)
+     ====================================================================== */
+
+  var BEDRIJF_VELDEN = [
+    ['naam', 'Naam'], ['product', 'Product'], ['platform', 'Platform'],
+    ['kbo', 'KBO-nummer'], ['biv', 'BIV-nummer'], ['adres', 'Adres'],
+    ['email', 'E-mailadres'], ['telefoon', 'Telefoon'], ['website', 'Website']
+  ];
+
+  function tekenBedrijvenBody(html) {
+    document.getElementById('ovBedrijvenBody').innerHTML = html;
+  }
+
+  function tekenBedrijvenOverzicht() {
+    var rijen = (bedrijven.lijst || []).map(function (b) {
+      return '<div class="ov-bedrijf-rij">' +
+          '<span class="ov-bedrijf-naam">' + esc(b.name) + '</span>' +
+          '<span class="ov-bedrijf-acties">' +
+            '<button type="button" class="ov-knop" data-action="bedrijf-bewerken" data-id="' + esc(b.id) + '">Bewerken</button>' +
+            '<button type="button" class="ov-knop" data-action="bedrijf-verwijderen" data-id="' + esc(b.id) + '">Verwijderen</button>' +
+          '</span>' +
+        '</div>';
+    }).join('') || '<p class="ov-veld-hint">Nog geen bedrijven.</p>';
+    tekenBedrijvenBody(rijen +
+      '<div style="margin-top:12px;"><button type="button" class="ov-knop ov-knop--hoofd" data-action="bedrijf-nieuw">+ Nieuw bedrijf</button></div>');
+  }
+
+  function laadBedrijvenLijst() {
+    tekenBedrijvenBody('<p class="ov-veld-hint">Laden…</p>');
+    fetch('/forminator-v2/api/bedrijf-profielen', { credentials: 'include' })
+      .then(function (res) { return res.json(); })
+      .then(function (json) {
+        bedrijven.lijst = (json && json.data) || [];
+        tekenBedrijvenOverzicht();
+      })
+      .catch(function () {
+        tekenBedrijvenBody('<p class="ov-veld-hint">Laden mislukt.</p>');
+      });
+  }
+
+  function toonBedrijven() {
+    bedrijven.bewerkId = null;
+    document.getElementById('ovBedrijvenDialoog').showModal();
+    laadBedrijvenLijst();
+  }
+
+  function tekenBedrijfForm(bedrijf) {
+    var data = (bedrijf && bedrijf.data) || {};
+    var velden = BEDRIJF_VELDEN.map(function (v) {
+      return '<label class="ov-veld"><span>' + esc(v[1]) + '</span>' +
+        '<input type="text" data-bedrijf-veld="' + esc(v[0]) + '" value="' + esc(data[v[0]] || '') + '"></label>';
+    }).join('');
+    tekenBedrijvenBody(
+      '<label class="ov-veld"><span>Naam van dit profiel</span>' +
+        '<input type="text" id="ovBedrijfProfielNaam" value="' + esc((bedrijf && bedrijf.name) || '') + '"></label>' +
+      '<div class="ov-bedrijf-form-grid">' + velden + '</div>' +
+      '<div style="margin-top:12px; display:flex; gap:8px;">' +
+        '<button type="button" class="ov-knop ov-knop--hoofd" data-action="bedrijf-bewaren">Bewaren</button>' +
+        '<button type="button" class="ov-knop" data-action="bedrijf-terug">Terug</button>' +
+      '</div>'
+    );
+  }
+
+  function toonBedrijfNieuw() {
+    bedrijven.bewerkId = 'nieuw';
+    tekenBedrijfForm(null);
+  }
+
+  /* De lijst geeft enkel id/name/updated_at terug (zelfde afweging als
+     listPdfTemplates -- data kan groot zijn), dus voor het bewerkformulier
+     wordt het volledige profiel apart opgehaald. */
+  function toonBedrijfBewerken(id) {
+    bedrijven.bewerkId = id;
+    tekenBedrijvenBody('<p class="ov-veld-hint">Laden…</p>');
+    fetch('/forminator-v2/api/bedrijf-profielen/' + id, { credentials: 'include' })
+      .then(function (res) { return res.json(); })
+      .then(function (json) { tekenBedrijfForm(json && json.data); })
+      .catch(function () {
+        window.alert('Bedrijf kon niet geladen worden.');
+        tekenBedrijvenOverzicht();
+      });
+  }
+
+  function bewaarBedrijf() {
+    var naam = (document.getElementById('ovBedrijfProfielNaam') || {}).value || '';
+    var data = {};
+    document.querySelectorAll('#ovBedrijvenBody [data-bedrijf-veld]').forEach(function (input) {
+      data[input.dataset.bedrijfVeld] = input.value;
+    });
+    var isNieuw = bedrijven.bewerkId === 'nieuw';
+    var url = '/forminator-v2/api/bedrijf-profielen' + (isNieuw ? '' : '/' + bedrijven.bewerkId);
+    fetch(url, {
+      method: isNieuw ? 'POST' : 'PUT',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: naam, data: data })
+    }).then(function (res) { return res.json(); }).then(function (json) {
+      if (!json || !json.success) throw new Error((json && json.error) || 'onbekende fout');
+      melding('Bewaard.');
+      bedrijven.bewerkId = null;
+      laadBedrijvenLijst();
+    }).catch(function (err) {
+      window.alert('Bewaren mislukt: ' + err.message);
+    });
+  }
+
+  function verwijderBedrijf(id) {
+    if (!window.confirm('Dit bedrijfsprofiel verwijderen?')) return;
+    fetch('/forminator-v2/api/bedrijf-profielen/' + id, { method: 'DELETE', credentials: 'include' })
+      .then(function (res) { return res.json(); })
+      .then(function (json) {
+        if (!json || !json.success) throw new Error((json && json.error) || 'onbekende fout');
+        laadBedrijvenLijst();
+      }).catch(function (err) {
+        window.alert('Verwijderen mislukt: ' + err.message);
+      });
+  }
+
   /* Eén centrale klikluisteraar, geen handlers in de opmaak. */
   document.addEventListener('click', function (e) {
     var el = e.target.closest && e.target.closest('[data-action]');
@@ -607,6 +768,23 @@
       toonGegevens();
     } else if (actie === 'gegevens-bewaren') {
       bewaarGegevens();
+    } else if (actie === 'instellingen') {
+      toonInstellingen();
+    } else if (actie === 'instellingen-bewaren') {
+      bewaarInstellingen();
+    } else if (actie === 'bedrijven') {
+      toonBedrijven();
+    } else if (actie === 'bedrijf-nieuw') {
+      toonBedrijfNieuw();
+    } else if (actie === 'bedrijf-bewerken') {
+      toonBedrijfBewerken(el.dataset.id);
+    } else if (actie === 'bedrijf-bewaren') {
+      bewaarBedrijf();
+    } else if (actie === 'bedrijf-verwijderen') {
+      verwijderBedrijf(el.dataset.id);
+    } else if (actie === 'bedrijf-terug') {
+      bedrijven.bewerkId = null;
+      tekenBedrijvenOverzicht();
     } else if (actie === 'json') {
       toonJson();
     } else if (actie === 'json-toepassen') {

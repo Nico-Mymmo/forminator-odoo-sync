@@ -86,21 +86,38 @@
       gegevensHtml = '<div class="text-xs text-base-content/40 py-3"><span class="loading loading-spinner loading-xs"></span> Sjabloon laden…</div>';
     } else {
       var velden = formulierVelden();
-      var formOpties = '<option value="">— kies een formulierveld —</option>' + velden.map(function (f) {
-        var id = f.field_id || f.fieldId || f.id || f.name || '';
-        return '<option value="' + esc(id) + '">' + esc(f.label || id) + '</option>';
-      }).join('');
+      // Per rij een EIGEN lijst bouwen (i.p.v. één gedeelde formOpties-string) --
+      // zonder dit kreeg de "Formulierveld"-select bij het heropenen nooit een
+      // "selected"-optie mee, dus een al opgeslagen koppeling toonde altijd
+      // opnieuw "— kies een formulierveld —". Sla je de stap dan zonder eerst
+      // opnieuw te kiezen op, dan leest leesGegevensMappings() een lege waarde en
+      // verdwijnt de koppeling stil -- dat is precies wat "het wordt niet
+      // opgeslagen, weg bij page reload" veroorzaakte.
+      function buildFormOpties(selectedId) {
+        return '<option value="">— kies een formulierveld —</option>' + velden.map(function (f) {
+          var id = f.field_id || f.fieldId || f.id || f.name || '';
+          return '<option value="' + esc(id) + '"' + (id !== '' && id === selectedId ? ' selected' : '') + '>' + esc(f.label || id) + '</option>';
+        }).join('');
+      }
 
+      // Contactpersoon: eigen sectie hieronder (hr.employee/res.users, geen
+      // sjabloon-gegevens-pad). Beeldmateriaal: bewust NOOIT per koppeling
+      // instelbaar -- logo/schermafdruk/QR/pijltje horen bij de opmaak van het
+      // SJABLOON zelf (één keer ingesteld in de sjabloonbouwer), niet bij een
+      // individuele koppeling. Bedrijf: komt uit één gekozen bedrijfsprofiel
+      // hieronder, geen per-veld mapping meer. Zie ook toegestaneGegevenspaden()
+      // in pdf-step.js, die dezelfde drie groepen negeert.
       gegevensHtml = (tplData.velden || []).filter(function (groep) {
-        return groep && groep.groep !== 'Contactpersoon';
+        return groep && groep.groep !== 'Contactpersoon' && groep.groep !== 'Beeldmateriaal' && groep.groep !== 'Bedrijf';
       }).map(function (groep) {
         var rijen = (groep.velden || []).map(function (paar) {
           var pad = paar[0], label = paar[1];
           var m = mappingByPath[pad];
           var bron = m ? m.source_type : '';
-          // Alleen de drie bronnen die deze stap kent -- een andere source_type
+          // Alleen de zes bronnen die deze stap kent -- een andere source_type
           // (bv. html_form_summary) hoort hier niet en wordt als "vaste tekst" getoond.
-          if (bron && bron !== 'form' && bron !== 'previous_step_output' && bron !== 'static') bron = 'static';
+          if (bron && bron !== 'form' && bron !== 'previous_step_output' && bron !== 'static'
+              && bron !== 'generated_unique_id' && bron !== 'offer_sequence' && bron !== 'offer_validity') bron = 'static';
 
           return '<div class="flex items-center gap-2 py-1" data-pdf-row data-path="' + esc(pad) + '">' +
             '<label class="text-xs text-base-content/70 w-40 shrink-0" title="' + esc(pad) + '">' + esc(label) + '</label>' +
@@ -109,9 +126,12 @@
               '<option value="form"' + (bron === 'form' ? ' selected' : '') + '>Formulierveld</option>' +
               '<option value="previous_step_output"' + (bron === 'previous_step_output' ? ' selected' : '') + '>Vorige stap</option>' +
               '<option value="static"' + (bron === 'static' ? ' selected' : '') + '>Vaste tekst</option>' +
+              '<option value="generated_unique_id"' + (bron === 'generated_unique_id' ? ' selected' : '') + '>Generator (uniek nummer)</option>' +
+              '<option value="offer_sequence"' + (bron === 'offer_sequence' ? ' selected' : '') + '>Generator (offertenummer)</option>' +
+              '<option value="offer_validity"' + (bron === 'offer_validity' ? ' selected' : '') + '>Automatisch (sjabloon-termijn)</option>' +
             '</select>' +
             '<select class="select select-bordered select-xs flex-1 min-w-0" data-pdf-formfield data-path="' + esc(pad) + '" data-tid="' + esc(tid) + '"' +
-              (bron === 'form' ? '' : ' style="display:none"') + '>' + formOpties + '</select>' +
+              (bron === 'form' ? '' : ' style="display:none"') + '>' + buildFormOpties(bron === 'form' ? (m.source_value || '') : '') + '</select>' +
             '<input type="text" class="input input-bordered input-xs flex-1 min-w-0" data-pdf-stepvalue data-path="' + esc(pad) + '" data-tid="' + esc(tid) + '"' +
               ' list="pdfStepSuggest-' + esc(tid) + '" placeholder="step.2.record_id"' +
               ' value="' + esc(bron === 'previous_step_output' ? (m.source_value || '') : '') + '"' +
@@ -119,6 +139,12 @@
             '<input type="text" class="input input-bordered input-xs flex-1 min-w-0" data-pdf-staticvalue data-path="' + esc(pad) + '" data-tid="' + esc(tid) + '"' +
               ' value="' + esc(bron === 'static' ? (m.source_value || '') : '') + '"' +
               (bron === 'static' ? '' : ' style="display:none"') + '>' +
+            '<span class="text-xs text-base-content/40 flex-1 min-w-0" data-pdf-generatorhint data-path="' + esc(pad) + '" data-tid="' + esc(tid) + '"' +
+              (bron === 'generated_unique_id' ? '' : ' style="display:none"') + '>Bij elke indiening een nieuw uniek nummer.</span>' +
+            '<span class="text-xs text-base-content/40 flex-1 min-w-0" data-pdf-sequencehint data-path="' + esc(pad) + '" data-tid="' + esc(tid) + '"' +
+              (bron === 'offer_sequence' ? '' : ' style="display:none"') + '>Volgt het patroon + de teller van het sjabloon.</span>' +
+            '<span class="text-xs text-base-content/40 flex-1 min-w-0" data-pdf-validityhint data-path="' + esc(pad) + '" data-tid="' + esc(tid) + '"' +
+              (bron === 'offer_validity' ? '' : ' style="display:none"') + '>Vandaag + de geldigheidstermijn van het sjabloon.</span>' +
           '</div>';
         }).join('');
         return '<div class="mb-2"><div class="text-xs font-semibold text-base-content/50 uppercase tracking-wide mb-1">' +
@@ -139,6 +165,10 @@
         esc(t.label || window.FSV2.modelLabel(t.odoo_model)) + '</option>';
     }).join('');
 
+    var bedrijfProfielen = Array.isArray(S().bedrijfProfielenCache) ? S().bedrijfProfielenCache : [];
+    var bedrijfProfielOpties = bedrijfProfielen.map(function (p) {
+      return '<option value="' + esc(p.id) + '"' + (p.id === (target.pdf_bedrijf_profiel_id || '') ? ' selected' : '') + '>' + esc(p.name) + '</option>';
+    }).join('');
     var contactSrc = target.pdf_contact_source || '';
 
     el.innerHTML = `
@@ -157,6 +187,19 @@
         <label class="label pt-1 pb-0">
           <span class="label-text-alt text-base-content/50">
             Wijzig je het sjabloon, sla dan eerst op om de bijhorende invulvelden te zien.
+          </span>
+        </label>
+      </div>
+
+      <div class="form-control mb-3">
+        <label class="label pt-0 pb-1"><span class="label-text text-sm font-medium">Bedrijf</span></label>
+        <select id="pdfBedrijfProfiel-${esc(tid)}" class="select select-bordered select-sm w-full">
+          <option value="">— sjabloonwaarden gebruiken —</option>
+          ${bedrijfProfielOpties}
+        </select>
+        <label class="label pt-1 pb-0">
+          <span class="label-text-alt text-base-content/50">
+            Beheer bedrijven (naam, KBO, adres, ...) in de sjabloonbouwer, tabblad "Bedrijf".
           </span>
         </label>
       </div>
@@ -183,11 +226,11 @@
                placeholder="Medewerker-ID (hr.employee, uit de Odoo-URL)"
                value="${target.pdf_contact_employee_id || ''}"
                ${contactSrc === 'fixed' ? '' : 'style="display:none"'}>
-        <input type="text" id="pdfContactStepValue-${esc(tid)}"
-               class="input input-bordered input-sm w-full" list="pdfStepSuggest-${esc(tid)}"
-               placeholder="step.2.record_id (moet een hr.employee-id opleveren)"
-               value="${esc(target.pdf_contact_source_value || '')}"
+        <select id="pdfContactStepValue-${esc(tid)}"
+               class="select select-bordered select-sm w-full"
                ${contactSrc === 'dynamic' ? '' : 'style="display:none"'}>
+          ${window.FSV2.buildEmployeeStepOptions(sortedTargets, tid, target.pdf_contact_source_value || '')}
+        </select>
         <label class="label pt-1 pb-0">
           <span class="label-text-alt text-base-content/50">
             Naam, e-mailadres en foto komen dan uit die medewerker in Odoo — niet uit getypte tekst.
@@ -233,12 +276,15 @@
       if (bronSel) {
         var rij = bronSel.closest('[data-pdf-row]');
         if (!rij) return;
-        rij.querySelectorAll('[data-pdf-formfield],[data-pdf-stepvalue],[data-pdf-staticvalue]').forEach(function (ctl) {
+        rij.querySelectorAll('[data-pdf-formfield],[data-pdf-stepvalue],[data-pdf-staticvalue],[data-pdf-generatorhint],[data-pdf-sequencehint],[data-pdf-validityhint]').forEach(function (ctl) {
           ctl.style.display = 'none';
         });
         var veldNaam = bronSel.value === 'form' ? 'pdf-formfield'
           : bronSel.value === 'previous_step_output' ? 'pdf-stepvalue'
-          : bronSel.value === 'static' ? 'pdf-staticvalue' : null;
+          : bronSel.value === 'static' ? 'pdf-staticvalue'
+          : bronSel.value === 'generated_unique_id' ? 'pdf-generatorhint'
+          : bronSel.value === 'offer_sequence' ? 'pdf-sequencehint'
+          : bronSel.value === 'offer_validity' ? 'pdf-validityhint' : null;
         if (veldNaam) {
           var target2 = rij.querySelector('[data-' + veldNaam + ']');
           if (target2) target2.style.display = '';
@@ -330,6 +376,20 @@
         var tVal = tEl ? tEl.value : '';
         if (!tVal) return;
         rows.push({ odoo_field: pad, source_type: 'static', source_value: tVal, is_required: false, order_index: orderIdx++ });
+      } else if (bron === 'generated_unique_id') {
+        // Zelfde sentinel-afspraak als de gewone mapping-tabel (zie
+        // GENERATED_ID_SENTINEL in forminator-sync-v2-detail-mapping-tab.js):
+        // 'uuid_v4' is puur documentatie in de DB. resolveMappingValue() in
+        // worker-handler.js negeert deze source_value en genereert zelf een
+        // crypto.randomUUID() per indiening -- geen extra server-code nodig,
+        // buildPdfGegevens() roept resolveMapping() al generiek aan.
+        rows.push({ odoo_field: pad, source_type: 'generated_unique_id', source_value: 'uuid_v4', is_required: false, order_index: orderIdx++ });
+      } else if (bron === 'offer_sequence' || bron === 'offer_validity') {
+        // Zelfde sentinel-truc: source_value is hier puur documentatie, de
+        // echte instellingen (patroon/teller, aantal dagen) staan op het
+        // SJABLOON en worden door buildPdfGegevens() in pdf-step.js apart
+        // opgelost -- vóór resolveMapping() ooit aangeroepen wordt.
+        rows.push({ odoo_field: pad, source_type: bron, source_value: bron, is_required: false, order_index: orderIdx++ });
       }
     });
     return rows;
@@ -355,8 +415,8 @@
       window.FSV2.showAlert('Vul een geldig medewerker-ID in bij Contactpersoon, of kies een andere bron.', 'error');
       return;
     }
-    if (contactSrc === 'dynamic' && !/^step\.[^.]+\.record_id$/.test(contactStep.trim())) {
-      window.FSV2.showAlert('De dynamische contactpersoon moet de vorm "step.<nummer>.record_id" hebben.', 'error');
+    if (contactSrc === 'dynamic' && !contactStep.trim()) {
+      window.FSV2.showAlert('Kies een stap voor de contactpersoon.', 'error');
       return;
     }
 
@@ -377,6 +437,7 @@
           pdf_contact_source_value: contactSrc === 'dynamic' ? contactStep.trim()   : null,
           pdf_res_id_source:        (document.getElementById('pdfResIdSource-' + tid) || {}).value || null,
           pdf_filename_template:    (document.getElementById('pdfFilename-' + tid)    || {}).value || null,
+          pdf_bedrijf_profiel_id:   (document.getElementById('pdfBedrijfProfiel-' + tid) || {}).value || null,
         }),
       });
 

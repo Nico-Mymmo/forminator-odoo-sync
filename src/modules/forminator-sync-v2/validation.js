@@ -1,5 +1,5 @@
 import { nietPlatteOpmaak } from '../../lib/mail/render-plain.js';
-import { normalizeMailAttachments } from './mail-attachments.js';
+import { normalizeMailAttachments, splitMailAttachments } from './mail-attachments.js';
 
 /** De twee standen van een send_mail-stap. `plain` is de standaard. */
 const MAIL_LAYOUTS = ['plain', 'blocks'];
@@ -8,10 +8,29 @@ const RESOLVER_TYPES = ['partner_by_email', 'webinar_by_external_id'];
 const TARGET_MODELS = ['crm.lead', 'res.partner', 'x_webinarregistrations'];
 const UPDATE_POLICIES = ['always_overwrite', 'only_if_incoming_non_empty', 'upsert'];
 const IDENTIFIER_TYPES = ['single_email', 'partner_context', 'registration_composite', 'mapped_fields', 'odoo_id'];
-const SOURCE_TYPES = ['form', 'context', 'static', 'template', 'previous_step_output', 'html_form_summary', 'generated_unique_id'];
+const SOURCE_TYPES = ['form', 'context', 'static', 'template', 'previous_step_output', 'html_form_summary', 'generated_unique_id', 'round_robin_pool', 'offer_sequence', 'offer_validity'];
+// 'offer_sequence'/'offer_validity': enkel bruikbaar op een generate_pdf-stap
+// (offerte.nummer resp. offerte.geldig_tot) -- de pdf-stap kent het sjabloon
+// (sequence_pattern/geldigheid_dagen), resolveMappingValue() in worker-handler.js
+// niet, dus buildPdfGegevens() in pdf-step.js vangt deze twee bronnen apart op,
+// vóór de generieke resolver. source_value staat vast op de eigen naam, zelfde
+// documentatie-truc als 'uuid_v4' bij generated_unique_id.
 // 'generated_unique_id': geen door de gebruiker getypte waarde -- de pipeline genereert er zelf een
 // bij het versturen (zie resolveMappingValue in worker-handler.js). source_value is dan altijd de
 // vaste tekst 'uuid_v4' (voor documentatiedoeleinden in de DB, niet de echte waarde).
+// 'round_robin_pool': een poule hr.employee-id's (round_robin_pool) + kiesmodus
+// (round_robin_mode: 'rotation'|'least_active') i.p.v. een getypte waarde -- zie
+// resolveRoundRobinPoolValue in worker-handler.js. source_value staat hier altijd
+// vast op 'round_robin_pool' (zelfde documentatie-truc als 'uuid_v4' hierboven).
+
+/**
+ * Vorm van een "medewerker uit een vorige stap"-verwijzing (Contactpersoon bij
+ * generate_pdf, Handtekening bij send_mail): het record dat die stap zelf
+ * aanmaakte (record_id), of een round-robin-gekozen medewerker/gebruiker in
+ * die stap (round_robin_employee_id). Zie employee-reference.js voor waarom
+ * dat tweede geen hr.employee-id hoeft te zijn.
+ */
+const EMPLOYEE_STEP_REF_RE = /^step\.[^.]+\.(record_id|round_robin_employee_id)$/;
 
 function hasValue(value) {
   return value !== undefined && value !== null && String(value).trim() !== '';
@@ -218,7 +237,16 @@ export function validateTargetPayload(payload, { allowedModels } = {}) {
     // moet de melding bij de indiening staan, niet bij het opslaan).
     if (payload.mail_attachments !== undefined) {
       try {
-        normalizeMailAttachments(payload.mail_attachments);
+        // Eerst splitsen: een { type: 'pdf_step', targetId, name }-item heeft
+        // geen bestandssleutel en hoort dat ook nooit te hebben -- die bijlage
+        // bestaat pas na een echte indiening (zie mail-attachments.js).
+        // normalizeMailAttachments() rechtstreeks op de ruwe lijst aanroepen
+        // liet zo'n item stuklopen op "Een bijlage zonder bestandssleutel",
+        // ook wanneer de gekozen pdf-stap prima in orde was.
+        // Wat splitMailAttachments() aan pdfSteps teruggeeft, heeft daar al
+        // zijn eigen validatie gehad (ontbrekend targetId gooit al binnenin).
+        const { assets } = splitMailAttachments(payload.mail_attachments);
+        normalizeMailAttachments(assets);
       } catch (err) {
         // Doorgeven als VALIDATION_ERROR, anders wordt het een 500 in
         // parseErrorStatus en ziet de gebruiker "er ging iets mis" in plaats
@@ -240,6 +268,23 @@ export function validateTargetPayload(payload, { allowedModels } = {}) {
       }
     } else if (!Array.isArray(payload.mail_blocks) || payload.mail_blocks.length === 0) {
       throw createError('send_mail met layout "blocks" vereist mail_blocks.');
+    }
+
+    // Handtekening: zelfde vorm als pdf_contact_source hierboven bij
+    // generate_pdf -- geen HTML, enkel een verwijzing naar een medewerker.
+    const sigBron = payload.mail_signature_source;
+    if (sigBron !== undefined && sigBron !== null && sigBron !== '') {
+      if (sigBron !== 'fixed' && sigBron !== 'dynamic') {
+        throw createError('mail_signature_source moet "fixed", "dynamic" of leeg zijn (leeg = geen handtekening).');
+      }
+      if (sigBron === 'fixed') {
+        const id = Number(payload.mail_signature_employee_id);
+        if (!Number.isInteger(id) || id <= 0) {
+          throw createError('send_mail met een vaste handtekening vereist een geldige mail_signature_employee_id.');
+        }
+      } else if (!EMPLOYEE_STEP_REF_RE.test(String(payload.mail_signature_source_value || ''))) {
+        throw createError('send_mail met een dynamische handtekening vereist een mail_signature_source_value in de vorm "step.<order>.record_id" of "step.<order>.round_robin_employee_id".');
+      }
     }
 
     return;
@@ -270,13 +315,22 @@ export function validateTargetPayload(payload, { allowedModels } = {}) {
         if (!Number.isInteger(id) || id <= 0) {
           throw createError('generate_pdf met een vaste contactpersoon vereist een geldige pdf_contact_employee_id.');
         }
-      } else if (!/^step\.[^.]+\.record_id$/.test(String(payload.pdf_contact_source_value || ''))) {
-        throw createError('generate_pdf met een dynamische contactpersoon vereist een pdf_contact_source_value in de vorm "step.<order>.record_id".');
+      } else if (!EMPLOYEE_STEP_REF_RE.test(String(payload.pdf_contact_source_value || ''))) {
+        throw createError('generate_pdf met een dynamische contactpersoon vereist een pdf_contact_source_value in de vorm "step.<order>.record_id" of "step.<order>.round_robin_employee_id".');
       }
     }
 
     if (hasValue(payload.pdf_res_id_source) && !/^step\.[^.]+\.record_id$/.test(String(payload.pdf_res_id_source))) {
       throw createError('pdf_res_id_source moet de vorm "step.<order>.record_id" hebben, of leeg zijn.');
+    }
+
+    // Bedrijfsprofiel: geen vorm-controle nodig buiten "moet een tekst zijn
+    // als het aanwezig is" -- het echte bestaan wordt gecontroleerd op het
+    // moment van genereren (buildPdfGegevens negeert een verwijderd profiel
+    // met een waarschuwing, geen fatale fout).
+    if (payload.pdf_bedrijf_profiel_id !== undefined && payload.pdf_bedrijf_profiel_id !== null
+        && typeof payload.pdf_bedrijf_profiel_id !== 'string') {
+      throw createError('pdf_bedrijf_profiel_id moet een tekst (uuid) zijn, of leeg.');
     }
 
     return;
@@ -347,6 +401,16 @@ export function validateMappingPayload(payload) {
 
   if (!hasValue(payload.source_value)) {
     throw createError('Mapping source value is required');
+  }
+
+  if (payload.source_type === 'round_robin_pool') {
+    const pool = payload.round_robin_pool;
+    if (!Array.isArray(pool) || pool.length === 0 || !pool.every((id) => Number.isInteger(id) && id > 0)) {
+      throw createError('Round robin pool must be a non-empty array of employee ids');
+    }
+    if (!['rotation', 'least_active'].includes(payload.round_robin_mode)) {
+      throw createError('Round robin mode must be "rotation" or "least_active"');
+    }
   }
 }
 

@@ -435,13 +435,18 @@
     // voortgangsbolletjes staan bovenaan en zijn precies wat je wil zien als er
     // net iets veranderde.
     //
-    // Niet in een venster: de wikkel is daar de hele callout IN de pagina, dus
-    // dit zou de pagina onder het venster laten verspringen bij elke stap.
-    if (this.vensterOpen) return;
-
-    var rect = this.wikkel.getBoundingClientRect();
-    if (rect.top < 0 || rect.top > window.innerHeight * 0.5) {
-      this.wikkel.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    // In een venster ligt het scrollgebied niet in de pagina maar in het
+    // paneel zelf. scrollIntoView() op de wikkel zou daar de PAGINA ONDER het
+    // venster laten verspringen (de wikkel is bij een callout de hele
+    // pagina-plaatsing EN het venster) -- vandaar scrollVensterNaarBoven(), die
+    // het echte scrollgebied zoekt en dat teruglegt op 0.
+    if (this.vensterOpen) {
+      this.scrollVensterNaarBoven();
+    } else {
+      var rect = this.wikkel.getBoundingClientRect();
+      if (rect.top < 0 || rect.top > window.innerHeight * 0.5) {
+        this.wikkel.scrollIntoView({ block: 'start', behavior: 'smooth' });
+      }
     }
 
     // De focus mee, anders staat een toetsenbordgebruiker nog op de knop van
@@ -450,6 +455,30 @@
     if (doel) {
       if (!doel.hasAttribute('tabindex')) doel.setAttribute('tabindex', '-1');
       doel.focus({ preventScroll: true });
+    }
+  };
+
+  /**
+   * Het scrollgebied van het VENSTER terug naar boven, niet dat van de pagina.
+   *
+   * Met tabbladen scrolt `.mymmo-modal-paneel` zelf (het ligt dan
+   * position:absolute met overflow-y:auto); zonder tabbladen scrolt
+   * `.mymmo-modal-body` erboven. In plaats van een van die twee klassen hard
+   * te noemen, wordt hier gewoon de eerste ECHTE scrollende voorouder gezocht
+   * -- zo blijft dit werken als die indeling ooit verandert.
+   */
+  Reeks.prototype.scrollVensterNaarBoven = function () {
+    var el = this.wikkel.parentElement;
+    while (el) {
+      if (el.scrollHeight > el.clientHeight + 1) {
+        var overflowY = window.getComputedStyle(el).overflowY;
+        if (overflowY === 'auto' || overflowY === 'scroll') {
+          el.scrollTop = 0;
+          return;
+        }
+      }
+      if (el.classList && el.classList.contains('mymmo-modal')) return;
+      el = el.parentElement;
     }
   };
 

@@ -67,17 +67,18 @@
       document.querySelectorAll('[data-detail-tab]').forEach(function (t) {
         t.classList.toggle('tab-active', t.dataset.detailTab === tabName);
       });
-      ['fields', 'form', 'mapping', 'history', 'stats'].forEach(function (name) {
+      ['fields', 'form', 'mapping', 'history', 'documents', 'stats'].forEach(function (name) {
         var panel = document.getElementById('detailTab' + name.charAt(0).toUpperCase() + name.slice(1));
         if (panel) panel.style.display = name === tabName ? '' : 'none';
       });
-      // Het formulier pas ophalen als je het tabblad opent: bij elke
-      // detailweergave laden zou een extra API-aanroep zijn voor een tabblad
-      // dat de meeste koppelingen niet gebruiken. (Er is geen apart
-      // Calendly-tabblad meer -- de vaste-stap-kaart zit in de Koppeling-tab
-      // en laadt daarom niet-lazy vanuit openDetail(), zie
+      // Het formulier/de documentenlijst pas ophalen als je het tabblad
+      // opent: bij elke detailweergave laden zou een extra API-aanroep zijn
+      // voor een tabblad dat de meeste koppelingen niet (meteen) gebruiken.
+      // (Er is geen apart Calendly-tabblad meer -- de vaste-stap-kaart zit in
+      // de Koppeling-tab en laadt daarom niet-lazy vanuit openDetail(), zie
       // forminator-sync-v2-detail-lifecycle.js.)
       if (tabName === 'form' && window.FSV2.renderDetailForm) window.FSV2.renderDetailForm();
+      if (tabName === 'documents' && window.FSV2.renderDetailDocuments) window.FSV2.renderDetailDocuments();
       return;
     }
 
@@ -952,6 +953,7 @@
         var chainStepSel  = document.getElementById('detChainStepSelect-' + chainTid);
         var chainIsReqEl  = document.getElementById('detChainIsRequired-' + chainTid);
         var chainIsIdEl   = document.getElementById('detChainIsIdentifier-' + chainTid);
+        var chainNotUpdEl = document.getElementById('detChainNotUpdate-' + chainTid);
         var chainField    = chainFspVal ? chainFspVal.value.trim() : '';
         // Bevat al de volledige bron: step.<stap>.record_id of step.<stap>.<veld>.
         var chainStepVal  = chainStepSel ? chainStepSel.value.trim() : '';
@@ -962,6 +964,9 @@
         // ook gewoon een waarde wegschrijven (contact.parent_id = de VME uit
         // een vorige stap). Ontbreekt het vinkje, dan blijft het oude gedrag.
         var chainIsIdentifier = chainIsIdEl ? chainIsIdEl.checked : true;
+        // "Niet bijwerken" -- stond hiervoor nergens instelbaar, dit veld werd
+        // altijd hard als is_update_field=true opgeslagen.
+        var chainIsUpdateField = chainNotUpdEl ? !chainNotUpdEl.checked : true;
         var chainTarget   = S.detail && S.detail.targets && S.detail.targets.find(function (t) { return String(t.id) === chainTid; });
         var detChainModel = chainTarget ? chainTarget.odoo_model : '';
         var detChainCache = S.odooFieldsCache[detChainModel] || [];
@@ -975,7 +980,7 @@
           sourceType:    'previous_step_output',
           isRequired:    chainIsRequired,
           isIdentifier:  chainIsIdentifier,
-          isUpdateField: true,
+          isUpdateField: chainIsUpdateField,
         });
         window.FSV2.renderDetailMappings();
         return;
@@ -2311,6 +2316,7 @@
         window.FSV2.loadModelLinks(),
         window.FSV2.loadOdooModels(),
         window.FSV2.loadPdfTemplates(),
+        window.FSV2.loadBedrijfProfielen(),
         window.FSV2.loadFolders(),
         window.FSV2.loadTags(),
       ]);

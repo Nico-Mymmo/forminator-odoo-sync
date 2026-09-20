@@ -477,6 +477,7 @@
           <button role="tab" class="tab" data-detail-tab="form" id="detailTabFormBtn">Formulier</button>
           <button role="tab" class="tab" data-detail-tab="mapping">Koppeling</button>
           <button role="tab" class="tab" data-detail-tab="history">Indieningen</button>
+          <button role="tab" class="tab" data-detail-tab="documents" id="detailTabDocumentsBtn">Documenten</button>
           <button role="tab" class="tab" data-detail-tab="stats" id="detailTabStatsBtn" style="display:none;">Statistieken</button>
         </div>
 
@@ -501,6 +502,13 @@
 
         <div id="detailTabHistory" style="display:none;" class="bg-base-100 border border-base-200 rounded-box p-6">
           <div id="detailHistory"></div>
+        </div>
+
+        <!-- Gegenereerde documenten (generate_pdf) -- pdf's staan in R2, niet
+             in Odoo. Zie het doc-blok bij fs_v2_generated_documents in
+             pdf-step.js. -->
+        <div id="detailTabDocuments" style="display:none;" class="bg-base-100 border border-base-200 rounded-box p-6">
+          <div id="detailDocuments"></div>
         </div>
 
         <div id="detailTabStats" style="display:none;" class="bg-base-100 border border-base-200 rounded-box p-6">
@@ -689,11 +697,13 @@
   <script src="/forminator-sync-v2-core.js"></script>
   <script src="/offerte-data.js"></script>
   <script src="/forminator-sync-v2-flow-builder.js"></script>
+  <script src="/forminator-sync-v2-round-robin-picker.js"></script>
   <script src="/forminator-sync-v2-mapping-table.js"></script>
   <script src="/forminator-sync-v2-wizard.js"></script>
   <script src="/forminator-sync-v2-detail.js"></script>
   <script src="/forminator-sync-v2-detail-mapping-tab.js"></script>
   <script src="/forminator-sync-v2-detail-submissions-tab.js"></script>
+  <script src="/forminator-sync-v2-detail-documents-tab.js"></script>
   <script src="/forminator-sync-v2-detail-lifecycle.js"></script>
   <script src="/forminator-sync-v2-detail-add-target-wizard.js"></script>
   <script src="/forminator-sync-v2-detail-form-fields-tab.js"></script>

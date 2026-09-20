@@ -41,6 +41,7 @@
     modelLinksCache: [],      // [{model_a, model_b, link_field, link_label}]
     odooModelsCache: [],      // [{name, label, icon, default_fields, identifier_type, update_policy, resolver_type}]
     pdfTemplatesCache: [],    // [{id, name, updated_at, in_gebruik}] -- zie forminator-sync-v2-settings.js
+    bedrijfProfielenCache: [], // [{id, name, updated_at}] -- gekozen in de pdf-composer, beheerd in offerte.html (tabblad "Bedrijf")
     editingModelIdx: null,    // index of model row currently being edited (or null)
     editingLinkIdx:  null,    // index of link row currently being edited (or null)
 
@@ -400,6 +401,15 @@
       S.pdfTemplatesCache = Array.isArray(body.data) ? body.data : [];
     } catch (_) {
       S.pdfTemplatesCache = [];
+    }
+  }
+
+  async function loadBedrijfProfielen() {
+    try {
+      var body = await api('/bedrijf-profielen');
+      S.bedrijfProfielenCache = Array.isArray(body.data) ? body.data : [];
+    } catch (_) {
+      S.bedrijfProfielenCache = [];
     }
   }
 
@@ -931,34 +941,45 @@
       var resultBox = document.getElementById('fixed-m2o-results-' + mKey);
       var m2oTimer  = null;
 
+      // /odoo/search geeft records terug als {id, label}, niet {id, name} --
+      // die mismatch liet elk resultaat hier leeg zien (esc(undefined) is '').
+      function runFixedM2oSearch(q) {
+        resultBox.innerHTML = '<div class="px-3 py-2 text-base-content/40 text-xs">Zoeken…</div>';
+        resultBox.classList.remove('hidden');
+        api('/odoo/search?model=' + encodeURIComponent(fd.relation) + '&q=' + encodeURIComponent(q) + '&limit=20')
+          .then(function (body) {
+            if (!body.data || body.data.length === 0) {
+              resultBox.innerHTML = '<div class="px-3 py-2 text-base-content/40 text-xs">Geen resultaten.</div>';
+              return;
+            }
+            resultBox.innerHTML = body.data.map(function (r) {
+              var lbl = r.label || r.name || String(r.id);
+              return '<div class="px-3 py-2 cursor-pointer hover:bg-base-200 rounded" data-id="' + esc(String(r.id)) + '" data-name="' + esc(lbl) + '">' + esc(lbl) + '</div>';
+            }).join('');
+            resultBox.querySelectorAll('[data-id]').forEach(function (row) {
+              row.addEventListener('click', function () {
+                hiddenEl.value  = row.dataset.id;
+                searchEl.value  = row.dataset.name;
+                resultBox.classList.add('hidden');
+              });
+            });
+          })
+          .catch(function () {
+            resultBox.innerHTML = '<div class="px-3 py-2 text-error text-xs">Fout bij zoeken.</div>';
+          });
+      }
+
       searchEl.addEventListener('input', function () {
         clearTimeout(m2oTimer);
         var q = searchEl.value.trim();
-        if (q.length < 1) { resultBox.classList.add('hidden'); return; }
-        m2oTimer = setTimeout(function () {
-          resultBox.innerHTML = '<div class="px-3 py-2 text-base-content/40 text-xs">Zoeken…</div>';
-          resultBox.classList.remove('hidden');
-          api('/odoo/search?model=' + encodeURIComponent(fd.relation) + '&q=' + encodeURIComponent(q) + '&limit=20')
-            .then(function (body) {
-              if (!body.data || body.data.length === 0) {
-                resultBox.innerHTML = '<div class="px-3 py-2 text-base-content/40 text-xs">Geen resultaten.</div>';
-                return;
-              }
-              resultBox.innerHTML = body.data.map(function (r) {
-                return '<div class="px-3 py-2 cursor-pointer hover:bg-base-200 rounded" data-id="' + esc(String(r.id)) + '" data-name="' + esc(r.name) + '">' + esc(r.name) + '</div>';
-              }).join('');
-              resultBox.querySelectorAll('[data-id]').forEach(function (row) {
-                row.addEventListener('click', function () {
-                  hiddenEl.value  = row.dataset.id;
-                  searchEl.value  = row.dataset.name;
-                  resultBox.classList.add('hidden');
-                });
-              });
-            })
-            .catch(function () {
-              resultBox.innerHTML = '<div class="px-3 py-2 text-error text-xs">Fout bij zoeken.</div>';
-            });
-        }, 300);
+        m2oTimer = setTimeout(function () { runFixedM2oSearch(q); }, 300);
+      });
+
+      // Klikken op de lege zoekbox toont meteen een lijst i.p.v. te wachten tot
+      // er getypt wordt -- zonder dit zag dit veld eruit als een kapotte
+      // tekstbox in plaats van een dropdown.
+      searchEl.addEventListener('focus', function () {
+        if (!searchEl.value.trim()) runFixedM2oSearch('');
       });
 
       document.addEventListener('click', function closeM2o(e) {
@@ -1348,6 +1369,7 @@
     loadModelLinks: loadModelLinks,
     loadOdooModels: loadOdooModels,
     loadPdfTemplates: loadPdfTemplates,
+    loadBedrijfProfielen: loadBedrijfProfielen,
     loadFolders: loadFolders,
     loadTags: loadTags,
     renderList: renderList,

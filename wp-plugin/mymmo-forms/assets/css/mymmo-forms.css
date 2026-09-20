@@ -53,6 +53,8 @@
   color: var(--mf-text);
   font-size: 16px;
   line-height: 1.5;
+  /* Draagvlak voor .mymmo-form-bezig (position: absolute) hieronder. */
+  position: relative;
 }
 
 .mymmo-form-title {
@@ -91,6 +93,40 @@
   border-color: var(--mf-success);
   background: var(--mf-success-bg);
   color: var(--mf-success);
+}
+
+/* ── "Bezig met versturen" ──────────────────────────────────────────────────
+   Overlay tijdens verstuurInVenster() in mymmo-forms.js. Een indiening kan
+   enkele seconden duren (bv. een koppeling met een pdf-stap die een offerte
+   rendert) -- de knoptekst alleen is dan te onopvallend. Dynamisch aangemaakt
+   door JS, dus geen data-attribuut/markup hier nodig, enkel de stijl. */
+.mymmo-form-bezig {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: color-mix(in srgb, var(--mf-bg, #fff) 85%, transparent);
+  border-radius: var(--mf-radius);
+  z-index: 5;
+  font-size: 0.95rem;
+  color: var(--mf-text);
+}
+
+.mymmo-form-bezig[hidden] { display: none; }
+
+.mymmo-form-bezig-spinner {
+  width: 18px;
+  height: 18px;
+  border: 2.5px solid var(--mf-border);
+  border-top-color: var(--mf-accent);
+  border-radius: 50%;
+  animation: mymmo-form-bezig-draai 0.7s linear infinite;
+}
+
+@keyframes mymmo-form-bezig-draai {
+  to { transform: rotate(360deg); }
 }
 
 /* Alleen zichtbaar voor beheerders — bewust opvallend en lelijk, want het

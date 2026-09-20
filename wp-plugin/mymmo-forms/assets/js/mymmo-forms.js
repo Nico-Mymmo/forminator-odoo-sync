@@ -257,6 +257,15 @@
     var data = new FormData(form);
     data.append('mymmo_ajax', '1');
 
+    // Een indiening kan enkele seconden duren (bv. de pdf-stap van een
+    // koppeling rendert een offerte via een echte headless browser). De
+    // knoptekst alleen ("Bezig met versturen...") is dan te onopvallend --
+    // een bezoeker ziet geen duidelijk teken dat er iets gebeurt en probeert
+    // soms opnieuw te klikken. Dit overlay-scherm is puur JS/CSS (dezelfde
+    // aanpak als de dynamisch aangemaakte foutmelding hieronder), dus geen
+    // nieuwe PHP-template nodig.
+    toonBezigInVenster(form, t);
+
     fetch(form.getAttribute('action') || form.action, {
       method: 'POST',
       body: data,
@@ -283,15 +292,55 @@
         return;
       }
       if (uitkomst && uitkomst.ok) {
+        // Expliciet verbergen i.p.v. erop vertrouwen dat toonDankInVenster()
+        // dezelfde wikkel verbergt: "inhoud" daar kan .mymmo-stappen zijn, een
+        // KIND van .mymmo-form-wrap, en dan blijft dit overlay-element (dat op
+        // .mymmo-form-wrap zelf hangt) zichtbaar boven het dankjewelscherm.
+        verbergBezigInVenster(form);
         toonDankInVenster(form);
         return;
       }
+      verbergBezigInVenster(form);
       toonFoutInVenster(form, (uitkomst && uitkomst.message) || t.unavailable || 'Er ging iets mis. Probeer het opnieuw.');
       herstel();
     }).catch(function () {
+      verbergBezigInVenster(form);
       toonFoutInVenster(form, t.unavailable || 'Er ging iets mis. Probeer het opnieuw.');
       herstel();
     });
+  }
+
+  /**
+   * Het "bezig"-overlay tonen/verbergen tijdens verstuurInVenster().
+   *
+   * Wordt dynamisch aangemaakt (zelfde patroon als de foutmelding in
+   * toonFoutInVenster hieronder) i.p.v. een vast element in modal.php: dat
+   * zou een nieuwe PHP-template + vertaalsleutel vragen voor iets dat puur
+   * een voorbijgaande visuele status is, geen door een beheerder getypte
+   * tekst. De tekst hergebruikt bewust t.submitting -- dezelfde boodschap die
+   * al op de knop stond, dus geen tweede vertaalsleutel voor hetzelfde
+   * bericht (MESSAGES blijft de ENIGE bron per veldnaam).
+   */
+  function toonBezigInVenster(form, t) {
+    var wikkel = form.closest('.mymmo-form-wrap') || form.parentNode;
+    if (!wikkel) return;
+    var overlay = wikkel.querySelector('.mymmo-form-bezig');
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.className = 'mymmo-form-bezig';
+      overlay.setAttribute('role', 'status');
+      overlay.innerHTML = '<span class="mymmo-form-bezig-spinner" aria-hidden="true"></span>' +
+        '<span class="mymmo-form-bezig-tekst"></span>';
+      wikkel.appendChild(overlay);
+    }
+    overlay.querySelector('.mymmo-form-bezig-tekst').textContent = t.submitting || 'Bezig met versturen…';
+    overlay.hidden = false;
+  }
+
+  function verbergBezigInVenster(form) {
+    var wikkel = form.closest('.mymmo-form-wrap') || form.parentNode;
+    var overlay = wikkel && wikkel.querySelector('.mymmo-form-bezig');
+    if (overlay) overlay.hidden = true;
   }
 
   function toonDankInVenster(form) {

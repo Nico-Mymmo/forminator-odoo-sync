@@ -1311,6 +1311,17 @@ export async function rrNextUser(env, targetId) {
   if (error) throw new Error(`Failed to get round-robin user: ${error.message}`);
   return data != null ? Number(data) : null;
 }
+// Round robin op MAPPING-niveau (source_type 'round_robin_pool') -- los van
+// rrNextUser hierboven (die is voor fs_v2_targets.activity_user_pool). Zie
+// fs_v2_rr_next_pool_member() in de migratie: FOR UPDATE-vergrendeling per
+// mapping_id, dus veilig bij gelijktijdige inzendingen.
+export async function rrNextPoolMember(env, mappingId) {
+  const supabase = getSupabase(env);
+  const { data, error } = await supabase
+    .rpc('fs_v2_rr_next_pool_member', { p_mapping_id: mappingId });
+  if (error) throw new Error(`Failed to get round-robin pool member: ${error.message}`);
+  return data != null ? Number(data) : null;
+}
 export async function updateModelFixedFields(env, model, fields) {
   const supabase = getSupabase(env);
   const { error } = await supabase
@@ -1377,7 +1388,15 @@ export async function getIntegrationWarnings(env) {
     t.operation_type !== 'create_activity' &&
     t.operation_type !== 'send_mail' &&
     t.operation_type !== 'mailing_list' &&
-    t.operation_type !== 'search'
+    t.operation_type !== 'search' &&
+    // generate_pdf: odoo_model wijst hier enkel aan welk record het
+    // ir.attachment krijgt (pdf_res_id_source); de mappings van deze stap
+    // schrijven geen res.partner/crm.lead-velden, ze vullen een PAD in het
+    // pdf-sjabloon (zie pdf-step.js). Zonder deze uitsluiting kreeg elke
+    // pdf-stap de verplichte velden van dat model (bv. is_company, active)
+    // als "ontbrekend" te zien, ook al zijn ze voor deze stap niet van
+    // toepassing.
+    t.operation_type !== 'generate_pdf'
   );
   if (!relevantTargets.length) return {};
 

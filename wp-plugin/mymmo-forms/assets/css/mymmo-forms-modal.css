@@ -1059,6 +1059,33 @@ html.mymmo-modal-js .mymmo-modal-body--tabs .mymmo-modal-paneel.is-actief {
     padding: 16px;
   }
 
+  /*
+   * Vorige/Volgende (en de verzendknop van de laatste stap) blijven ALTIJD in
+   * beeld -- STICKY, niet FIXED. Sticky reserveert gewoon zijn eigen plek
+   * onderaan de flexketen (zie mymmo-forms-steps.css): past een stap in het
+   * scherm, dan staat de rij daar waar ze al stond; past ze niet, dan klikt
+   * ze vast aan de onderrand van het scrollgebied terwijl de rest van de stap
+   * er nog voorbij scrolt. Fixed zou daarvoor een handmatige padding-bottom
+   * op elke stap nodig gehad hebben om te voorkomen dat de laatste regels
+   * erachter verdwijnen -- sticky niet.
+   *
+   * Enkel BINNEN een stappenreeks: een los formulier in de pop-up (zonder
+   * `.mymmo-stappen`) verandert hier niet mee.
+   *
+   * Een eigen achtergrond is nodig: zonder stappen zou een stap die niet past
+   * gewoon ONDER de knoppenrij door blijven scrollen -- zichtbaar door de rij
+   * heen als ze geen eigen vlak heeft.
+   */
+  .mymmo-modal-paneel > .mymmo-stappen .mymmo-stap-nav,
+  .mymmo-modal-paneel > .mymmo-stappen .mymmo-form-actions {
+    position: sticky;
+    bottom: 0;
+    z-index: 1;
+    background: var(--mf-field-bg, #ffffff);
+    border-top: 1px solid var(--mf-border, #d7dbe2);
+    padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  }
+
   .mymmo-modal-close {
     top: 8px;
     right: 8px;

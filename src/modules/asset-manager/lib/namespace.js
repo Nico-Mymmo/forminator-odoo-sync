@@ -32,7 +32,7 @@ export const ASSET_CATEGORY_PREFIXES = ['public/', 'banners/', 'events/', 'logos
  * asset-manager mag hier nooit in lezen of schrijven, ook een admin niet.
  * Nieuwe modules die deze bucket later ook gebruiken: hier toevoegen.
  */
-export const FOREIGN_MODULE_PREFIXES = ['mini-apps/', 'mini-apps-storage/', 'fsv2-tracker-logos/'];
+export const FOREIGN_MODULE_PREFIXES = ['mini-apps/', 'mini-apps-storage/', 'fsv2-tracker-logos/', 'fsv2-generated-pdfs/'];
 
 /**
  * Hoort deze sleutel/prefix bij een ANDERE module?

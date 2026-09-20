@@ -142,6 +142,16 @@ function mymmo_forms_length(string $ruw): string {
     if ($waarde === '0') {
         return '0px';
     }
+
+    // Een KAAL GETAL betekent pixels. In CSS is dat ongeldig (behalve 0), dus
+    // het kan niets anders bedoeld hebben -- en tot 1.17.7 viel `35` stil weg
+    // terwijl `35px` wel werkte. Dat is de ergste soort fout in een
+    // beheerscherm: het veld blijft na het opslaan ingevuld staan, en je zoekt
+    // de oorzaak vervolgens in de stylesheet.
+    if (preg_match('/^\d+(\.\d+)?$/', $waarde)) {
+        return $waarde . 'px';
+    }
+
     return preg_match('/^\d+(\.\d+)?(px|rem|em|%|ch)$/i', $waarde) ? $waarde : '';
 }
 

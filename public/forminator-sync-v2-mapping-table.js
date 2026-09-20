@@ -338,7 +338,36 @@
       '</div>';
     }
 
+    // Round robin (poule medewerkers, source_type 'round_robin_pool'): net als
+    // GENERATED_ID_SENTINEL hierboven een sentinelwaarde in col2 zodat de
+    // bestaande col1<->col2-uitsluitingslogica ongewijzigd blijft werken -- na de
+    // prefix volgt JSON.stringify({pool: [...employeeIds], mode: 'rotation'|'least_active'}).
+    // De echte poule-kiezer (checkboxes + modus) zit in window.FSV2.RoundRobinPicker
+    // (forminator-sync-v2-round-robin-picker.js) -- hier enkel de badge + het openen ervan.
+    var ROUND_ROBIN_SENTINEL_PREFIX = '__om_round_robin__:';
+
+    function roundRobinBadge(val) {
+      var cfg = { pool: [], mode: 'rotation' };
+      try { cfg = JSON.parse(val.slice(ROUND_ROBIN_SENTINEL_PREFIX.length)); } catch (_) {}
+      var n = Array.isArray(cfg.pool) ? cfg.pool.length : 0;
+      var modeLabel = cfg.mode === 'least_active' ? 'minste actieve objecten' : 'rotatie';
+      return '<div class="flex items-center gap-1.5 px-2 rounded-lg bg-accent/10 border border-accent/20 h-7">' +
+        '<input type="hidden" data-map-col="2" value="' + esc(val) + '">' +
+        '<i data-lucide="shuffle" class="w-3 h-3 text-accent shrink-0"></i>' +
+        '<span class="text-xs text-accent font-medium flex-1 truncate">Round robin &mdash; ' + n + ' medewerker' + (n === 1 ? '' : 's') + ', ' + esc(modeLabel) + '</span>' +
+        '<button type="button" class="btn btn-ghost btn-xs p-0 w-5 h-5 min-h-0 text-accent/50 hover:text-accent shrink-0"' +
+          ' data-action="edit-round-robin" title="Poule bewerken" tabindex="-1">' +
+          '<i data-lucide="pencil" class="w-3 h-3"></i>' +
+        '</button>' +
+        '<button type="button" class="btn btn-ghost btn-xs p-0 w-5 h-5 min-h-0 text-accent/50 hover:text-accent shrink-0"' +
+          ' data-action="unset-round-robin" title="Terug naar een gewone waarde" tabindex="-1">' +
+          '<i data-lucide="x" class="w-3 h-3"></i>' +
+        '</button>' +
+      '</div>';
+    }
+
     function col2Input(odooField, val) {
+      if (val && val.indexOf(ROUND_ROBIN_SENTINEL_PREFIX) === 0) return roundRobinBadge(val);
       if (val === GENERATED_ID_SENTINEL) return generatedIdBadge();
       var meta  = odooCache.find(function(f) { return f.name === odooField; });
       var ftype = meta ? meta.type      : null;
@@ -391,12 +420,16 @@
         '<button type="button" class="btn btn-ghost btn-xs px-1 set-generated-id-toggle" title="Unieke identifier genereren bij versturen" tabindex="-1">' +
           '<i data-lucide="fingerprint" class="w-3.5 h-3.5 text-base-content/40"></i>' +
         '</button>' +
+        '<button type="button" class="btn btn-ghost btn-xs px-1 round-robin-toggle" title="Round robin: kies uit een poule medewerkers" tabindex="-1">' +
+          '<i data-lucide="shuffle" class="w-3.5 h-3.5 text-base-content/40"></i>' +
+        '</button>' +
         _phHtml + '</div>';
     }
 
-    function notUpdateChk(isUpdateField) {
+    function notUpdateChk(isUpdateField, name) {
+      var nameAttr = name ? ` name="${esc(name)}"` : '';
       return `<label class="flex items-center gap-1 cursor-pointer select-none whitespace-nowrap" title="Niet bewerken bij updates">
-        <input type="checkbox" class="checkbox checkbox-xs" data-map-not-update${!isUpdateField ? ' checked' : ''}>
+        <input type="checkbox" class="checkbox checkbox-xs" data-map-not-update${nameAttr}${!isUpdateField ? ' checked' : ''}>
         <span class="text-xs text-base-content/40">Niet bijwerken</span>
       </label>`;
     }
@@ -486,6 +519,10 @@
       .filter(function(c) { return c !== chainIdentRow; })
       .map(function(c) {
         var r = c.row;
+        // "Niet bijwerken" was hier tot nu toe nergens instelbaar -- een chain-
+        // koppeling werd bij opslaan altijd hard op is_update_field=true gezet
+        // (zie handleSaveStepMappings). De naam hier moet exact overeenkomen
+        // met de lookup daar (det-extra-<tid>-chain-upd-<stateIdx>).
         return `<tr data-row-type="chain" class="bg-info/5">
           <td colspan="2" class="py-2 pr-2">
             <div class="flex items-center gap-1.5 text-xs text-info/70 italic pl-1">
@@ -495,11 +532,14 @@
           </td>
           <td class="py-2 pr-2">${fixedOdooTag(r.odooField, 'bg-info/10 border border-info/20', 'link-2', ' text-info')}</td>
           <td class="py-2 pl-1">
-            <button type="button" class="btn btn-ghost btn-xs p-0 w-6 h-6 min-h-0 text-error/30 hover:text-error ml-0.5 shrink-0"
-              data-action="remove-chain-link" data-target-id="${esc(tid)}" data-odoo-field="${esc(r.odooField)}"
-              title="Koppeling verwijderen">
-              <i data-lucide="x" class="w-3.5 h-3.5"></i>
-            </button>
+            <div class="flex items-center justify-end gap-1">
+              ${notUpdateChk(r.isUpdateField !== false, 'det-extra-' + tid + '-chain-upd-' + c.stateIdx)}
+              <button type="button" class="btn btn-ghost btn-xs p-0 w-6 h-6 min-h-0 text-error/30 hover:text-error ml-0.5 shrink-0"
+                data-action="remove-chain-link" data-target-id="${esc(tid)}" data-odoo-field="${esc(r.odooField)}"
+                title="Koppeling verwijderen">
+                <i data-lucide="x" class="w-3.5 h-3.5"></i>
+              </button>
+            </div>
           </td>
         </tr>`;
       }).join('');
@@ -688,7 +728,15 @@
       } else if (e.target.dataset.mapCol === '3') {
         var td2 = c2El.closest('td');
         if (td2) {
-          td2.innerHTML = col2Input(e.target.value, '');
+          // Een getypte waarde hoort bij het OUDE veld (kan een ander type zijn),
+          // dus die wissen we terecht. Een sentinel (unieke identifier / round
+          // robin) is type-onafhankelijk -- niets in de badge hangt af van welk
+          // Odoo-veld er gekozen is, dus die blijft staan. Zonder deze uitzondering
+          // verdween een net ingestelde round-robin-poule zodra je daarna pas het
+          // Odoo-veld (bv. Salesperson) koos op een vrije rij.
+          var oldC2Val  = c2.value || '';
+          var preserved = (oldC2Val === GENERATED_ID_SENTINEL || oldC2Val.indexOf(ROUND_ROBIN_SENTINEL_PREFIX) === 0) ? oldC2Val : '';
+          td2.innerHTML = col2Input(e.target.value, preserved);
           if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons({ context: td2 });
           var newC2 = row.querySelector('[data-map-col="2"]');
           if (newC2) {
@@ -820,37 +868,102 @@
       }
     });
 
+    inner.addEventListener('click', function(e) {
+      var rrToggle = e.target.closest('.round-robin-toggle');
+      var rrEdit   = e.target.closest('[data-action="edit-round-robin"]');
+      var rrUnset  = e.target.closest('[data-action="unset-round-robin"]');
+      if (!rrToggle && !rrEdit && !rrUnset) return;
+
+      e.stopPropagation();
+      var trigger = rrToggle || rrEdit || rrUnset;
+      var row = trigger.closest('[data-map-row]');
+      var td  = trigger.closest('td');
+      if (!row || !td) return;
+
+      var col3Sel   = row.querySelector('[data-map-col="3"]');
+      var odooField = row.dataset.odooField || (col3Sel ? col3Sel.value : '');
+
+      if (rrUnset) {
+        refreshCol2(td, odooField, '');
+        return;
+      }
+
+      if (rrToggle) {
+        var c1 = row.querySelector('[data-map-col="1"]');
+        if (c1 && c1.value) return; // col1 (formulierveld) al ingevuld -- niet overschrijven
+      }
+
+      var col2El     = row.querySelector('[data-map-col="2"]');
+      var currentVal = col2El ? col2El.value : '';
+      var current    = null;
+      if (currentVal && currentVal.indexOf(ROUND_ROBIN_SENTINEL_PREFIX) === 0) {
+        try { current = JSON.parse(currentVal.slice(ROUND_ROBIN_SENTINEL_PREFIX.length)); } catch (_) {}
+      }
+
+      window.FSV2.RoundRobinPicker.open({
+        odooField: odooField,
+        current:   current,
+        onSave:    function (cfg) {
+          refreshCol2(td, odooField, ROUND_ROBIN_SENTINEL_PREFIX + JSON.stringify(cfg));
+        }
+      });
+    });
+
     // ── Many2one search inputs ───────────────────────────────────────────────
+    // /odoo/search geeft records terug als {id, label} -- deze code las tot nu
+    // toe r.display_name / r.name (die niet bestaan), waardoor elk resultaat
+    // leeg bleef of terugviel op het kale numerieke ID. Dat maakte de "dropdown"
+    // in de praktijk onbruikbaar: je zag nooit een leesbare naam om op te
+    // klikken. En zonder eerst te typen toonde het veld helemaal niets, wat het
+    // liet aanvoelen als een kapotte tekstbox i.p.v. een echte dropdown --
+    // m2oRenderResults('') op focus lost dat op door meteen te browsen.
     var m2oDebounce = null;
+    function m2oRenderResults(wrap, q) {
+      var results  = wrap ? wrap.querySelector('.m2o-results') : null;
+      var relation = wrap ? (wrap.dataset.m2oRelation || '') : '';
+      if (!results || !relation) return;
+      results.innerHTML = '<div class="px-3 py-2 text-base-content/40">Zoeken…</div>';
+      results.classList.remove('hidden');
+      window.FSV2.api('/odoo/search?model=' + encodeURIComponent(relation) + '&q=' + encodeURIComponent(q) + '&limit=' + (q ? 10 : 20))
+        .then(function(body) {
+          var items = body.data || [];
+          if (!items.length) {
+            results.innerHTML = '<div class="px-3 py-2 text-base-content/40">Geen resultaten</div>';
+          } else {
+            results.innerHTML = items.map(function(r) {
+              var lbl = r.label || r.display_name || r.name || String(r.id);
+              return `<div class="px-3 py-2 hover:bg-base-200 cursor-pointer" data-m2o-pick data-m2o-id="${esc(String(r.id))}" data-m2o-name="${esc(lbl)}">${esc(lbl)}</div>`;
+            }).join('');
+          }
+          results.classList.remove('hidden');
+        })
+        .catch(function() { results.innerHTML = ''; results.classList.add('hidden'); });
+    }
+
     inner.addEventListener('input', function(e) {
       var inp = e.target;
       if (!inp.hasAttribute('data-m2o-search')) return;
       var wrap     = inp.closest('[data-m2o-wrap]');
       var hiddenEl = wrap ? wrap.querySelector('[data-m2o-id]') : null;
-      var results  = wrap ? wrap.querySelector('.m2o-results')  : null;
-      if (!wrap || !hiddenEl || !results) return;
-      var q        = inp.value.trim();
-      var relation = wrap.dataset.m2oRelation || '';
+      if (!wrap || !hiddenEl) return;
+      var q = inp.value.trim();
       // Clear hidden value when user edits text
       hiddenEl.value = '';
       hiddenEl.dispatchEvent(new Event('change', { bubbles: true }));
       clearTimeout(m2oDebounce);
-      if (!q) { results.innerHTML = ''; results.classList.add('hidden'); return; }
-      m2oDebounce = setTimeout(function() {
-        window.FSV2.api('/odoo/search?model=' + encodeURIComponent(relation) + '&q=' + encodeURIComponent(q) + '&limit=10')
-          .then(function(body) {
-            var items = body.data || [];
-            if (!items.length) {
-              results.innerHTML = '<div class="px-3 py-2 text-base-content/40">Geen resultaten</div>';
-            } else {
-              results.innerHTML = items.map(function(r) {
-                return `<div class="px-3 py-2 hover:bg-base-200 cursor-pointer" data-m2o-pick data-m2o-id="${esc(String(r.id))}" data-m2o-name="${esc(r.display_name || r.name || String(r.id))}">${esc(r.display_name || r.name || String(r.id))}</div>`;
-              }).join('');
-            }
-            results.classList.remove('hidden');
-          })
-          .catch(function() { results.innerHTML = ''; results.classList.add('hidden'); });
-      }, 250);
+      m2oDebounce = setTimeout(function() { m2oRenderResults(wrap, q); }, 250);
+    });
+
+    // Focussen op een lege zoekbox toont meteen een lijst (Odoo's eigen
+    // standaardvolgorde), zodat het veld zich als een echte dropdown gedraagt
+    // i.p.v. te wachten tot je iets typt. focusin (niet focus) omdat dit via
+    // event delegation op `inner` loopt.
+    inner.addEventListener('focusin', function(e) {
+      var inp = e.target;
+      if (!inp || !inp.hasAttribute || !inp.hasAttribute('data-m2o-search')) return;
+      if (inp.value.trim()) return;
+      var wrap = inp.closest('[data-m2o-wrap]');
+      if (wrap) m2oRenderResults(wrap, '');
     });
 
     inner.addEventListener('click', function(e) {

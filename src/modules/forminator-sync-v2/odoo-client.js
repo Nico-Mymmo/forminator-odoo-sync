@@ -219,6 +219,22 @@ export async function fetchFsv2OdooUsers(env) {
 }
 
 /**
+ * Haalt actieve medewerkers (hr.employee) op voor een round-robin-poule in een
+ * mapping (source_type 'round_robin_pool'). Los van fetchFsv2OdooUsers hierboven
+ * (res.users, voor de activity-toewijzing) -- de poule kiest uit hr.employee,
+ * en wordt pas bij het schrijven naar res.users/res.partner/hr.employee vertaald
+ * (zie resolveRoundRobinPoolValue in worker-handler.js).
+ */
+export async function fetchFsv2OdooEmployees(env) {
+  return searchRead(env, {
+    model:  'hr.employee',
+    domain: [['active', '=', true]],
+    fields: ['id', 'name'],
+    order:  'name asc',
+  });
+}
+
+/**
  * Leest één veld van een Odoo-record (bijv. user_id van crm.lead).
  * Geeft null terug als het record niet bestaat of het veld leeg is.
  */

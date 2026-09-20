@@ -64,6 +64,13 @@ window.OFFERTE_DATA = {
       maandelijks:  '133',
       opstart:      '960',
       licentie:     '4',
+      /* Afgeleid (kavels x licentie, geplafonneerd op 60) door
+         berekenLicentiePrijs() in pdf-step.js -- deze twee staan hier enkel
+         als DEMOWAARDE voor de losse editor/preview (26 kavels x 4). Bij een
+         echte inzending overschrijft de server ze altijd, en ze staan bewust
+         niet in OFFERTE_VELDEN: het zijn geen invoervelden. */
+      licentie_totaal:       '104',
+      licentie_totaal_label: '',
       uurtarief:    '80',
       verplaatsing: '0,42'
     },
@@ -189,9 +196,9 @@ window.OFFERTE_DATA = {
       ],
 
       strook: {
-        bedrag:   '€{{prijs.licentie}}',
+        bedrag:   '{{prijs.licentie_totaal_label}}€{{prijs.licentie_totaal}}',
         titel:    'Licentie {{bedrijf.platform}} platform',
-        voetnoot: 'Per hoofdkavel, per maand'
+        voetnoot: 'Per maand, voor het hele gebouw (€{{prijs.licentie}} per hoofdkavel)'
       }
     },
 

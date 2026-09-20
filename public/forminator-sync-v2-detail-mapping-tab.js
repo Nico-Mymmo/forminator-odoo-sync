@@ -16,6 +16,11 @@
   // hier zetten we 'm om naar/van source_type 'generated_unique_id' bij laden/opslaan.
   var GENERATED_ID_SENTINEL = '__om_generated_unique_id__';
 
+  // Zelfde afspraak, voor ROUND_ROBIN_SENTINEL_PREFIX in forminator-sync-v2-
+  // mapping-table.js: de badge daar staat voor source_type 'round_robin_pool'
+  // + de kolommen round_robin_pool/round_robin_mode van de mapping.
+  var ROUND_ROBIN_SENTINEL_PREFIX = '__om_round_robin__:';
+
   function S()    { return window.FSV2.S; }
   function esc(v) { return window.FSV2.esc(v); }
 
@@ -127,7 +132,12 @@
       }
       var policyLbl  = POLICY_LABELS[target.update_policy] || esc(target.update_policy || '');
       var preceding  = sortedTargets.slice(0, idx);
-      var suggestions = (isSingle || target.operation_type === 'chatter_message' || target.operation_type === 'create_activity') ? [] : window.FSV2.computeChainSuggestions(target, preceding);
+      // send_mail schrijft nooit een Odoo-veld via mappings (de ontvanger komt uit
+      // mail_recipient_source, niet uit een gekoppeld record) en generate_pdf
+      // interpreteert odoo_field als een PAD in het pdf-sjabloon, niet als een
+      // echt Odoo-veld (zie pdf-step.js) -- een "vul parent_id in"-suggestie zou
+      // op geen van beide iets doen, dus die hoort hier niet aangeboden te worden.
+      var suggestions = (isSingle || target.operation_type === 'chatter_message' || target.operation_type === 'create_activity' || target.operation_type === 'send_mail' || target.operation_type === 'generate_pdf') ? [] : window.FSV2.computeChainSuggestions(target, preceding);
 
       // Chain dependency badges from saved state (prefer in-memory edits, fall back to DB state)
       var chainDeps = [];
@@ -495,9 +505,14 @@
 
       html += '</div>'; // /Gedragsbalk
 
-      // Automatisch ingevuld — niet voor een search-stap: die schrijft niets,
-      // dus een lijst "vaste waarden" zou hier niets betekenen.
-      if (target.operation_type !== 'search') {
+      // Automatisch ingevuld — niet voor een stap die geen echte velden op
+      // odoo_model schrijft via mappings: search schrijft nooit, chatter/
+      // activity/mail/mailinglijst hebben hun eigen kolommen, en generate_pdf
+      // interpreteert odoo_field als een pad in het pdf-sjabloon (zie
+      // pdf-step.js) -- geen van die stappen heeft iets aan "vaste waarden
+      // voor dit model".
+      var _GEEN_MODELVELDEN = ['search', 'chatter_message', 'create_activity', 'send_mail', 'mailing_list', 'generate_pdf'];
+      if (_GEEN_MODELVELDEN.indexOf(target.operation_type) === -1) {
         html += '<div class="border-t border-base-200 px-5 py-3">';
         html +=   '<div class="flex items-center gap-2 mb-2">' +
                     '<i data-lucide="lock" class="w-3.5 h-3.5 opacity-40"></i>' +
@@ -608,6 +623,14 @@
             // De echte waarde ('uuid_v4') is puur documentatie in de DB — in de
             // tabel tonen we in plaats daarvan de badge, via de sentinelwaarde.
             sv = GENERATED_ID_SENTINEL;
+          } else if (m.source_type === 'round_robin_pool') {
+            // De poule + kiesmodus staan in eigen kolommen (round_robin_pool/
+            // round_robin_mode), niet in source_value — dezelfde reden als
+            // generated_unique_id hierboven: de tabel toont de badge.
+            sv = ROUND_ROBIN_SENTINEL_PREFIX + JSON.stringify({
+              pool: m.round_robin_pool || [],
+              mode: m.round_robin_mode || 'rotation',
+            });
           }
           return {
             odooField:     m.odoo_field,
@@ -652,11 +675,19 @@
           // Otherwise push (includes form-mapped fields — MappingTable pre-populates col1 from existingForm)
           // Pre-populate staticValue from existing DB mapping (static or template) so col2 shows the saved value
           var _dbm = targetMappings.find(function (m) {
-            return m.odoo_field === df.name && (m.source_type === 'static' || m.source_type === 'template' || m.source_type === 'generated_unique_id');
+            return m.odoo_field === df.name && (m.source_type === 'static' || m.source_type === 'template' || m.source_type === 'generated_unique_id' || m.source_type === 'round_robin_pool');
           });
-          var _dbmStatic = _dbm
-            ? (_dbm.source_type === 'generated_unique_id' ? GENERATED_ID_SENTINEL : (_dbm.source_value || ''))
-            : '';
+          var _dbmStatic = '';
+          if (_dbm && _dbm.source_type === 'generated_unique_id') {
+            _dbmStatic = GENERATED_ID_SENTINEL;
+          } else if (_dbm && _dbm.source_type === 'round_robin_pool') {
+            _dbmStatic = ROUND_ROBIN_SENTINEL_PREFIX + JSON.stringify({
+              pool: _dbm.round_robin_pool || [],
+              mode: _dbm.round_robin_mode || 'rotation',
+            });
+          } else if (_dbm) {
+            _dbmStatic = _dbm.source_value || '';
+          }
           S().detail._extraRowsByTarget[tid].push({
             odooField:     df.name,
             odooLabel:     (meta && meta.label) || df.label || df.name,
@@ -1015,8 +1046,10 @@
     var el = document.getElementById('det-callouts-' + tid);
     if (!el) return;
     if (myIdx <= 0) return;
-    // Chatter, activity and mailing_list steps manage their own callout UI
-    if (target.operation_type === 'chatter_message' || target.operation_type === 'create_activity' || target.operation_type === 'mailing_list') return;
+    // Chatter, activity and mailing_list steps manage their own callout UI.
+    // send_mail/generate_pdf: zelfde reden als hierboven bij de blauwe wegwijzer --
+    // geen van beide schrijft een echt Odoo-veld via een fs_v2_mappings-koppeling.
+    if (target.operation_type === 'chatter_message' || target.operation_type === 'create_activity' || target.operation_type === 'mailing_list' || target.operation_type === 'send_mail' || target.operation_type === 'generate_pdf') return;
 
     var preceding   = sortedTargets.slice(0, myIdx);
     var suggestions = window.FSV2.computeChainSuggestions(target, preceding);
@@ -1139,6 +1172,10 @@
           '<input type="checkbox" id="detChainIsRequired-' + esc(tid) + '" class="checkbox checkbox-xs" checked>' +
           '<span class="opacity-70">Verplicht</span>' +
         '</label>' +
+        '<label class="flex items-center gap-1.5 text-xs cursor-pointer select-none pb-1">' +
+          '<input type="checkbox" id="detChainNotUpdate-' + esc(tid) + '" class="checkbox checkbox-xs">' +
+          '<span class="opacity-70">Niet bijwerken</span>' +
+        '</label>' +
         '<button type="button" class="btn btn-xs btn-primary gap-1 mb-0.5" data-action="detail-add-chain-row">' +
           '<i data-lucide="plus" class="w-3 h-3"></i> Koppelen</button>' +
       '</div>' +
@@ -1147,6 +1184,8 @@
         'Bij een zoekcriterium betekent leeg dan: niets om bij te werken \u2014 ' +
         '\u201cZoeken + bijwerken of aanmaken\u201d maakt een nieuw record aan, ' +
         '\u201cAlleen bijwerken\u201d slaat de stap over.' +
+        'Zet <span class="font-medium">Niet bijwerken</span> aan om dit veld enkel bij het ' +
+        'AANMAKEN te zetten \u2014 een latere wijziging aan de bron overschrijft het dan niet meer.' +
       '</p>' +
     '</div>';
   }
@@ -2004,6 +2043,20 @@
           is_required: tr.dataset.rowIsRequired === 'true', order_index: orderIdx++,
           value_map: valueMap,
         });
+      } else if (staticVal && staticVal.indexOf(ROUND_ROBIN_SENTINEL_PREFIX) === 0) {
+        // Poule + kiesmodus staan als JSON na de sentinel-prefix (zie
+        // forminator-sync-v2-round-robin-picker.js); ze gaan naar de eigen
+        // round_robin_pool/round_robin_mode-kolommen, source_value blijft de
+        // vaste documentatietekst (zelfde truc als 'uuid_v4' hierboven).
+        var rrCfg = {};
+        try { rrCfg = JSON.parse(staticVal.slice(ROUND_ROBIN_SENTINEL_PREFIX.length)); } catch (_) {}
+        newMappings.push({
+          odoo_field: odooField, source_type: 'round_robin_pool', source_value: 'round_robin_pool',
+          round_robin_pool: Array.isArray(rrCfg.pool) ? rrCfg.pool : [],
+          round_robin_mode: rrCfg.mode === 'least_active' ? 'least_active' : 'rotation',
+          is_identifier: isIdentifier, is_update_field: isUpdateField,
+          is_required: false, order_index: orderIdx++,
+        });
       } else if (staticVal) {
         var srcType, srcVal;
         if (staticVal === GENERATED_ID_SENTINEL) {
@@ -2030,6 +2083,8 @@
       var sourceValue = em.staticValue || '';
       if (!sourceValue) return;
       var chainReqChk = mcEl.querySelector('input[name="det-extra-' + tid + '-chain-req-' + i + '"]');
+      var chainUpdChk = mcEl.querySelector('input[name="det-extra-' + tid + '-chain-upd-' + i + '"]');
+      var chainIsUpdateField = chainUpdChk ? chainUpdChk.checked : (em.isUpdateField !== false);
 
       // Een context-rij (contactpersoon uit een vaste resolver, bv.
       // 'context.partner_id') volgt geen "step.N.veld"-vorm en heeft dus zijn
@@ -2042,7 +2097,7 @@
         newMappings.push({
           odoo_field: em.odooField, source_type: 'context', source_value: sourceValue,
           is_identifier: em.isIdentifier !== false,
-          is_update_field: true,
+          is_update_field: chainIsUpdateField,
           is_required: chainReqChk ? chainReqChk.checked : (em.isRequired || false),
           order_index: orderIdx++,
         });
@@ -2063,7 +2118,7 @@
       newMappings.push({
         odoo_field: em.odooField, source_type: 'previous_step_output', source_value: sourceValue,
         is_identifier: em.isIdentifier !== false,
-        is_update_field: true,
+        is_update_field: chainIsUpdateField,
         is_required: chainReqChk ? chainReqChk.checked : (em.isRequired || false),
         order_index: orderIdx++,
       });

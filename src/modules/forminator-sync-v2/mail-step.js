@@ -32,6 +32,7 @@ import { searchRead, create } from '../../lib/odoo.js';
 import { renderPlainMailHtml, renderPlainSubject, nietPlatteOpmaak } from '../../lib/mail/render-plain.js';
 import { renderMailHtml, renderSubject } from '../../lib/mail/render-blocks.js';
 import { resolveMailAttachments } from './mail-attachments.js';
+import { resolveMailSignatureHtml } from './mail-signature.js';
 
 /** Puur een identifier, geen adres. Zelfde domein als events gebruikt. */
 const MESSAGE_ID_DOMAIN = 'om.mymmo.com';
@@ -452,6 +453,20 @@ export async function runSendMailStep(env, {
   if (subject.trim() === '') throw new MailStepError('send_mail: het onderwerp is leeg.');
   if (bodyHtml.trim() === '') throw new MailStepError('send_mail: de mailtekst is leeg.');
 
+  // ── 5b. Handtekening ──────────────────────────────────────
+  //
+  // NA de body opgebouwd is (anders zou een lege body-check hierboven ook een
+  // mail zonder tekst maar met handtekening doorlaten). Een ontbrekende
+  // handtekening (nog niet gepusht, of geen Odoo-koppeling) is GEEN fout --
+  // zie het doc-blok in mail-signature.js -- de mail vertrekt dan gewoon met
+  // enkel de tekst, en de reden komt in `detail` terecht.
+  let signatureReden = null;
+  if (target.mail_signature_source) {
+    const signature = await resolveMailSignatureHtml(env, target, contextObject);
+    signatureReden = signature.reden;
+    if (signature.html) bodyHtml = bodyHtml + '<br><br>' + signature.html;
+  }
+
   // ── 6. Bijlagen ───────────────────────────────────────────────────────────
   //
   // Bewust HIER, nadat vaststaat dat er een ontvanger is en de mail nog niet
@@ -506,10 +521,11 @@ export async function runSendMailStep(env, {
   if (headers) values.headers = headers;
 
   const mailId = await create(env, { model: 'mail.mail', values });
+  const basisDetail = scheduled ? `Klaargezet voor ${scheduled} UTC.` : 'Klaargezet om meteen te vertrekken.';
   return {
     action: scheduled ? 'mail_scheduled' : 'mail_queued',
     recordId: mailId,
     skipped: null,
-    detail: scheduled ? `Klaargezet voor ${scheduled} UTC.` : 'Klaargezet om meteen te vertrekken.'
+    detail: signatureReden ? `${basisDetail} ${signatureReden}` : basisDetail
   };
 }

@@ -751,7 +751,7 @@
         tabBar.querySelectorAll('[data-detail-tab]').forEach(function (t) {
           t.classList.toggle('tab-active', t.dataset.detailTab === targetTab);
         });
-        ['fields', 'form', 'mapping', 'history', 'stats'].forEach(function (name) {
+        ['fields', 'form', 'mapping', 'history', 'documents', 'stats'].forEach(function (name) {
           var panel = document.getElementById('detailTab' + name.charAt(0).toUpperCase() + name.slice(1));
           if (panel) panel.style.display = name === targetTab ? '' : 'none';
         });
@@ -781,10 +781,64 @@
   }
 
 
+  /**
+   * Een MENSELIJKE keuzelijst van "medewerker uit een vorige stap"-opties, voor
+   * de Contactpersoon van een pdf-stap en de Handtekening van een mailstap.
+   *
+   * Waarom dit bestaat: de gebruiker moet nooit een technische verwijzing als
+   * "step.2.round_robin_employee_id" typen of zien -- dat is de reden dat dit
+   * een <select> met leesbare labels is, en geen tekstveld met een suggestie
+   * (zoals eerder bij de pdf-composer). Twee soorten stappen komen in
+   * aanmerking: een stap die zelf een hr.employee-record aanmaakt/vindt
+   * (odoo_model 'hr.employee' -> "step.N.record_id"), of een stap met een
+   * round-robin-mapping erop (source_type 'round_robin_pool' op een willekeurig
+   * veld -> "step.N.round_robin_employee_id", zie het doc-blok in
+   * employee-reference.js voor waarom dat geen hr.employee-id hoeft te zijn).
+   *
+   * @param {Array} sortedTargets - alle stappen van de koppeling, op volgorde
+   * @param {string} tid - id van de stap waarin deze keuzelijst getoond wordt
+   * @param {string} [huidigeWaarde] - de al opgeslagen step.N.xxx-verwijzing
+   * @returns {string} <option>-HTML, met een lege "Kies een stap"-plaatshouder vooraan
+   */
+  function buildEmployeeStepOptions(sortedTargets, tid, huidigeWaarde) {
+    var esc = window.FSV2.esc;
+    var lijst = Array.isArray(sortedTargets) ? sortedTargets : [];
+    var huidige = lijst.find(function (t) { return String(t.id) === String(tid); });
+    var huidigeOrder = huidige ? getTargetOrder(huidige, 0) : Infinity;
+    var mappingsByTarget = (window.FSV2.S && window.FSV2.S.detail && window.FSV2.S.detail.mappingsByTarget) || {};
+
+    var opties = [];
+    lijst.forEach(function (t, idx) {
+      if (getTargetOrder(t, idx) >= huidigeOrder) return;
+      var stapLabel = 'Stap ' + (idx + 1) + (t.label ? ' — ' + t.label : ' — ' + modelLabel(t.odoo_model));
+
+      if (t.odoo_model === 'hr.employee') {
+        opties.push({ value: 'step.' + getTargetOrder(t, idx) + '.record_id', label: stapLabel });
+      }
+
+      var heeftRoundRobin = (mappingsByTarget[t.id] || []).some(function (m) {
+        return m.source_type === 'round_robin_pool';
+      });
+      if (heeftRoundRobin) {
+        opties.push({
+          value: 'step.' + getTargetOrder(t, idx) + '.round_robin_employee_id',
+          label: stapLabel + ' (round robin)'
+        });
+      }
+    });
+
+    var html = '<option value=""' + (!huidigeWaarde ? ' selected' : '') + '>— kies een stap —</option>';
+    html += opties.map(function (o) {
+      return '<option value="' + esc(o.value) + '"' + (o.value === huidigeWaarde ? ' selected' : '') + '>' + esc(o.label) + '</option>';
+    }).join('');
+    return html;
+  }
+
   Object.assign(window.FSV2, {
     _loadFieldMeta: _loadFieldMeta,
     _saveFieldMeta: _saveFieldMeta,
     buildDetailFlatFields: buildDetailFlatFields,
+    buildEmployeeStepOptions: buildEmployeeStepOptions,
     computeChainSuggestions: computeChainSuggestions,
     getPipelineOpen: getPipelineOpen,
     getTargetOrder: getTargetOrder,

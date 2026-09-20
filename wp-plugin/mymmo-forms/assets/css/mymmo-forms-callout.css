@@ -28,6 +28,16 @@
 
 .mymmo-callout {
   box-sizing: border-box;
+  /*
+   * EEN GRID MET EEN KIND, en dat is met opzet.
+   *
+   * Zonder hoogte van buitenaf verandert dit niets: het raster is even hoog als
+   * zijn inhoud. Maar zodra iemand het blok strekt -- een min-height omdat de
+   * callout tussen even hoge kaarten staat -- krijgt het raster die hoogte mee
+   * in plaats van bovenaan te blijven plakken met een gat eronder. Wat er dan
+   * met de vrije ruimte gebeurt, staat bij .mymmo-callout-raster.
+   */
+  display: grid;
   /* De tint van het blok. Standaard een lichte tint van de accentkleur, zodat
      het vanzelf het thema van de site volgt; met een eigen achtergrondkleur bij
      de ingang kies je een merkkleur voor deze plaatsing. De eerste regel is de
@@ -105,6 +115,11 @@
      het paneel in de pop-up. Met center werd het een kaartje dat halverwege
      zweeft naast een kolom tekst. */
   align-items: stretch;
+  /* align-ITEMS gaat over de hoogte van een rij; align-CONTENT over waar de
+     rijen samen staan als er ruimte over is. Wordt het blok gestrekt, dan hoort
+     de inhoud in het midden -- niet bovenaan met een gat eronder. Onder de
+     omslag gaat dit op stretch; zie de container query onderaan. */
+  align-content: center;
 }
 
 .mymmo-callout *,
@@ -190,6 +205,25 @@
 
   .mymmo-callout .mymmo-callout-titel--kort {
     display: block;
+  }
+
+  /*
+   * ONDER ELKAAR: de tekst neemt wat ze nodig heeft, het witte vlak de rest.
+   *
+   * Op een telefoon staat het uitgelichte onderdeel onder de titel, en dan is
+   * het gat onderaan geen lege ruimte maar ruimte die het formulier kan
+   * gebruiken. Boven de omslag geldt align-content: center -- daar staan de
+   * twee naast elkaar en is er niets te verdelen in de hoogte.
+   */
+  .mymmo-callout .mymmo-callout-raster {
+    grid-template-rows: auto minmax(0, 1fr);
+    align-content: stretch;
+  }
+
+  /* Het dok groeit mee; de knop blijft daardoor tegen de onderrand van het
+     witte vlak staan in plaats van vlak onder de laatste vraag. */
+  .mymmo-callout .mymmo-callout-dok {
+    flex: 1 1 auto;
   }
 }
 

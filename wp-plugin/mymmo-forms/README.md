@@ -556,6 +556,71 @@ injectiepad zijn naar elke site die het formulier toont.
 
 ## Versies
 
+**1.17.10** — een zichtbaar "bezig"-scherm tijdens het versturen, i.p.v. enkel een veranderde knoptekst.
+
+- Een indiening kan enkele seconden duren zodra de gekoppelde koppeling een
+  pdf-stap heeft (een offerte wordt via een echte headless browser gerenderd,
+  aan de kant van de Operations Manager) -- de knoptekst alleen
+  ("Bezig met versturen...") gaf dan geen duidelijk signaal dat er iets
+  gebeurt, en sommige bezoekers klikten opnieuw. `verstuurInVenster()` in
+  mymmo-forms.js toont nu een overlay met een draaiende indicator boven het
+  formulier zolang de aanvraag onderweg is, en verbergt die weer zodra het
+  dankjewelscherm of een foutmelding verschijnt.
+- Puur JS/CSS, dynamisch aangemaakt (zelfde patroon als de bestaande
+  foutmelding) -- geen nieuwe PHP-template en geen nieuwe vertaalsleutel: de
+  tekst hergebruikt het bestaande `submitting`-bericht dat al op de knop stond.
+- Enkel van toepassing op de pop-up/tabblad-weg (`verstuurInVenster()`, met
+  `fetch()`); een [mymmo_form] gewoon in een pagina doet nog steeds de
+  klassieke POST met redirect en heeft dit overlay dus niet nodig -- de
+  browser toont daar zijn eigen laadindicator tijdens het navigeren.
+
+**1.17.9** — op een telefoon blijven Vorige/Volgende altijd in beeld, en een stapwissel springt terug naar boven.
+
+- **De knoppenrij is nu STICKY, niet een gewone flexrij.** Bij een lange stap (een
+  schuifbalk met een grote tekening, een reeks met veel keien) stond de rij pas
+  onderaan als je helemaal naar beneden scrolde -- op een telefoon is dat precies
+  het deel van het scherm dat je niet altijd ziet. Sticky reserveert gewoon zijn
+  eigen plek in de flexketen (zie CLAUDE.md, "De stap vult het vlak"): past de
+  stap, dan staat de rij waar ze al stond; past ze niet, dan klikt ze vast aan de
+  onderrand van het scrollgebied terwijl de rest van de stap er nog voorbij
+  scrolt. Fixed had daarvoor een handmatige `padding-bottom` per stap nodig gehad;
+  sticky niet.
+- **Een stapwissel scrolt het venster terug naar boven.** Dat gebeurde al buiten
+  een venster (de wikkel zelf scrollt in beeld), maar in de pop-up werd dat
+  bewust overgeslagen -- scrollen van de wikkel had daar de PAGINA onder het
+  venster laten verspringen. Het echte scrollgebied van het venster (het paneel
+  bij tabbladen, anders `.mymmo-modal-body`) bleef daardoor op zijn oude positie
+  staan: wie van stap 3 naar stap 4 ging, kwam op de plek uit waar stap 3
+  gescrold had gestaan, vaak halverwege stap 4. `scrollVensterNaarBoven()` in
+  mymmo-forms-steps.js zoekt nu de eerste echt scrollende voorouder en zet die
+  terug op 0.
+
+**1.17.8** — een kaal getal in een maatveld betekent pixels.
+
+- `mymmo_forms_length()` gooide alles weg wat geen eenheid had: **`35` werd ''**,
+  `35px` werd `35px`. Gevolg bij een callout: "Hoeken" op `35` invullen zag er na
+  het opslaan ingevuld uit, maar `--mf-callout-radius` werd nooit gezet en het
+  blok hield stil zijn standaard van 18px — waarna je de oorzaak in de
+  stylesheet gaat zoeken. Hetzelfde gold voor "Ruimte boven en onder", "Ruimte
+  tussen titel en tekst" en elke lengte in het thema van een formulier.
+- Een kaal getal is in CSS ongeldig (op `0` na), dus het kan niets anders
+  bedoeld hebben dan pixels. Alles wat daarvoor geweigerd werd, wordt nog steeds
+  geweigerd: enkel cijfers met een optionele decimale punt komen erdoor.
+
+**1.17.7** — een callout die gestrekt wordt, verdeelt die ruimte nu zelf.
+
+- **Het blok is een grid met één kind.** Zonder hoogte van buitenaf verandert dat
+  niets. Maar staat de callout tussen kaarten die allemaal even hoog moeten zijn
+  (een `min-height` van de pagina), dan bleef haar inhoud bovenaan plakken met een
+  gat eronder, terwijl de kaarten ernaast hun inhoud centreren.
+- **Twee kolommen: `align-content: center`** — de inhoud staat midden in de vrije
+  ruimte.
+- **Eén kolom (blok smaller dan 620px): `grid-template-rows: auto minmax(0, 1fr)`**
+  — de titel en de tekst nemen wat ze nodig hebben, het witte vlak met het
+  formulier krijgt de rest. Op een telefoon is dat gat namelijk geen lege ruimte
+  maar ruimte die het formulier kan gebruiken; de knop komt daardoor tegen de
+  onderrand te staan in plaats van vlak onder de laatste vraag.
+
 **1.17.6** — de tekst van een callout kan inspringen zonder het formulier mee te
 nemen.
 
