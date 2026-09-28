@@ -199,11 +199,50 @@ async function stageIdsForStates(env, stateCodes) {
  * @returns {Promise<Record<string, boolean>>}
  */
 async function optionalFieldMap(env) {
-  const wanted = [EVENT_FIELDS.BRAND, EVENT_FIELDS.ASK_QUESTION, EVENT_FIELDS.HIGHLIGHTED];
+  const wanted = [
+    EVENT_FIELDS.BRAND,
+    EVENT_FIELDS.ASK_QUESTION,
+    EVENT_FIELDS.HIGHLIGHTED,
+    EVENT_FIELDS.NEWS_IN_FEED,
+    EVENT_FIELDS.NEWS_FROM,
+    EVENT_FIELDS.NEWS_UNTIL,
+    EVENT_FIELDS.NEWS_CTA,
+    EVENT_FIELDS.IN_SIGNATURE,
+    EVENT_FIELDS.SIGNATURE_UNTIL_DAYS
+  ];
 
+  /*
+   * TTL van EEN MINUUT, niet CACHE_TTL.SCHEMA (een uur).
+   *
+   * Deze map beslist twee dingen: welke optionele velden er opgevraagd worden
+   * bij het lezen, en welke er BLIJVEN STAAN bij het schrijven
+   * (stripUnavailableOptionalFields). Staat er een veld ten onrechte als
+   * "bestaat niet" in, dan komt een vinkje leeg terug en wordt het bij het
+   * opslaan stil weggeknipt -- het lijkt dan alsof het scherm je wijziging
+   * weigert.
+   *
+   * En dat gebeurt precies op het slechtste moment: vlak nadat iemand het veld
+   * in Studio heeft aangemaakt en het meteen gaat uitproberen. Een uur wachten
+   * zonder dat iets uitlegt waarom, is geen aanvaardbare uitkomst. De aanroep
+   * is klein (fields_get op een handvol namen) en zit achter het geheugen van
+   * de isolate, dus dit kost hoogstens een verzoekje per minuut.
+   *
+   * En de VELDENLIJST ZELF zit in de sleutel. Dat is geen nettigheid: toen
+   * IN_SIGNATURE aan `wanted` werd toegevoegd, bleef de sleutel gelijk en
+   * werd de OUDE map geserveerd -- waarin dat veld niet voorkwam. Gevolg: het
+   * veld werd niet opgevraagd, het vinkje kwam leeg terug, de save schreef
+   * `true`, het scherm las opnieuw en toonde weer leeg, en de volgende save
+   * schreef `false` terug. Een vinkje dat zichzelf uitzet, zonder foutmelding.
+   * Met de lijst in de sleutel kan dat niet meer: een veld toevoegen is
+   * meteen een andere ingang.
+   */
   const { value } = await readThrough(
     env,
-    { namespace: CACHE_NS.STAGES, parts: ['optional-fields'], ttlSeconds: CACHE_TTL.SCHEMA },
+    {
+      namespace: CACHE_NS.STAGES,
+      parts: ['optional-fields', wanted.join(',')],
+      ttlSeconds: 60
+    },
     async () => {
       try {
         const fields = await executeKw(env, {
@@ -239,7 +278,15 @@ export async function brandFieldAvailable(env) {
 }
 
 async function stripUnavailableOptionalFields(env, payload) {
-  const map = { brand: EVENT_FIELDS.BRAND, ask_question: EVENT_FIELDS.ASK_QUESTION, highlighted: EVENT_FIELDS.HIGHLIGHTED };
+  const map = {
+    brand: EVENT_FIELDS.BRAND,
+    ask_question: EVENT_FIELDS.ASK_QUESTION,
+    highlighted: EVENT_FIELDS.HIGHLIGHTED,
+    in_signature: EVENT_FIELDS.IN_SIGNATURE,
+    // Zonder deze regel faalt ELKE save van een event zolang het Studio-veld
+    // nog niet bestaat -- het scherm stuurt het namelijk altijd mee.
+    signature_until_days: EVENT_FIELDS.SIGNATURE_UNTIL_DAYS
+  };
 
   for (const [key, field] of Object.entries(map)) {
     if (Object.prototype.hasOwnProperty.call(payload, key) && !(await optionalFieldAvailable(env, field))) {
@@ -336,6 +383,44 @@ async function buildEventDomain(env, filters = {}) {
       domain.push([EVENT_FIELDS.HIGHLIGHTED, '=', true]);
     } else {
       // Veld bestaat niet: geen resultaten in plaats van per ongeluk alles.
+      domain.push([EVENT_FIELDS.ID, '=', 0]);
+    }
+  }
+  /*
+   * `news_window: 'JJJJ-MM-DD'` -- welke events op die dag in de nieuwsfeed
+   * horen te staan. Een LEEG van/tot betekent "geen grens aan die kant", niet
+   * "nooit tonen": wie het vinkje aanzet en geen datums invult, bedoelt dat
+   * het event er vanaf nu in staat. Dat is de enige lezing waarbij het vinkje
+   * op zichzelf al iets doet.
+   *
+   * Bestaat het vinkje-veld niet in Odoo, dan geen resultaten -- zelfde keuze
+   * als bij `highlighted` hierboven, en hier extra belangrijk: de uitkomst
+   * belandt op een PUBLIEKE pagina.
+   */
+  /*
+   * `signature: true` -- de events die in de e-mailhandtekeningen mogen staan.
+   * Er kunnen er meerdere aangevinkt zijn; WELKE er getoond wordt, beslist de
+   * aanroeper met `from` + `order` (het eerstvolgende). Dat onderscheid hoort
+   * hier niet: dit filter zegt enkel wie in aanmerking komt.
+   */
+  if (filters.signature === true) {
+    if (await optionalFieldAvailable(env, EVENT_FIELDS.IN_SIGNATURE)) {
+      domain.push([EVENT_FIELDS.IN_SIGNATURE, '=', true]);
+    } else {
+      domain.push([EVENT_FIELDS.ID, '=', 0]);
+    }
+  }
+  if (filters.news_window) {
+    const dag = String(filters.news_window).slice(0, 10);
+    if (await optionalFieldAvailable(env, EVENT_FIELDS.NEWS_IN_FEED)) {
+      domain.push([EVENT_FIELDS.NEWS_IN_FEED, '=', true]);
+      if (await optionalFieldAvailable(env, EVENT_FIELDS.NEWS_FROM)) {
+        domain.push('|', [EVENT_FIELDS.NEWS_FROM, '=', false], [EVENT_FIELDS.NEWS_FROM, '<=', dag]);
+      }
+      if (await optionalFieldAvailable(env, EVENT_FIELDS.NEWS_UNTIL)) {
+        domain.push('|', [EVENT_FIELDS.NEWS_UNTIL, '=', false], [EVENT_FIELDS.NEWS_UNTIL, '>=', dag]);
+      }
+    } else {
       domain.push([EVENT_FIELDS.ID, '=', 0]);
     }
   }

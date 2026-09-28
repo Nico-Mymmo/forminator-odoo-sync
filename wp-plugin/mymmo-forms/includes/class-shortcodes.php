@@ -290,6 +290,45 @@ final class Mymmo_Forms_Shortcodes {
     }
 
     /**
+     * Het venster van een AFSPRAAKLINK: dezelfde opstelling als een knop, maar
+     * met ENKEL het tabblad van de agenda. Geen shortcode -- enkel
+     * Mymmo_Forms_Booking roept dit aan.
+     *
+     * Bewust hier en niet als attribuut op [mymmo_form_button]: een venster
+     * zonder formulier bestaat alleen voor een afspraaklink, en een attribuut
+     * erbij is een attribuut dat iemand op een gewone knop gaat zetten.
+     *
+     * De inleiding van het FORMULIER valt weg als de opstelling geen eigen
+     * `intro` heeft: "Stuur ons je vraag" naast een agenda is copy voor iets
+     * dat er niet staat. De subtekst van de link zelf zet het script erin.
+     *
+     * @param array<string,string> $atts
+     */
+    public static function render_agenda(array $atts): string {
+        $bron = self::met_opstelling($atts);
+        $args = self::venster_args(
+            shortcode_atts(self::VENSTER_ATTS, $bron, 'mymmo_form_button'),
+            'mymmo_form_button'
+        );
+
+        if (array_key_exists('fout', $args)) {
+            return (string) $args['fout'] === '' ? '' : self::notice((string) $args['fout']);
+        }
+        if ((string) ($args['calendly'] ?? '') === '') {
+            return '';
+        }
+
+        $args['tab_order']      = ['calendly'];
+        $args['active_tab']     = 'calendly';
+        $args['afspraak_modus'] = true;
+        if (trim((string) ($bron['intro'] ?? '')) === '') {
+            $args['lead'] = '';
+        }
+
+        return mymmo_forms_render('modal', $args);
+    }
+
+    /**
      * De attributen van het VENSTER, als constante.
      *
      * Als constante en niet als literal in render_button(), omdat
@@ -346,6 +385,8 @@ final class Mymmo_Forms_Shortcodes {
             'calendly_color'   => '',
             'form_title'       => '',
             'form_sub'         => '',
+            'calendly_title'   => '',
+            'calendly_sub'     => '',
             // Kop (titel + regel uitleg) ook boven een formulier ZONDER stappen,
             // zoals "Stuur een bericht". Standaard aan; "no" zet hem uit.
             'form_heading'     => '',
@@ -370,6 +411,10 @@ final class Mymmo_Forms_Shortcodes {
             // gewone breedte past -- dertien keien naast elkaar -- en daar
             // anders een schuifbalk van maakt.
             'panel'                 => '',
+            // "yes" opent het venster meteen bij het laden van de pagina. Voor
+            // de afspraaklinks (?afspraak=, zie class-booking.php); een gewone
+            // shortcode heeft dit niet nodig.
+            'open'                  => '',
     ];
 
     /**
@@ -655,6 +700,13 @@ final class Mymmo_Forms_Shortcodes {
             'form_title'         => sanitize_text_field((string) $atts['form_title']),
             'form_sub'           => sanitize_text_field((string) $atts['form_sub']),
             'form_heading'       => strtolower(trim((string) $atts['form_heading'])) !== 'no',
+            // Dezelfde gedachte, maar dan boven de agenda: een zin die zegt
+            // waarvoor je een uur kiest. Staat er niets, dan blijft het
+            // paneel zoals het was -- alleen de tabkop erboven. Bewust GEEN
+            // standaardtekst: een kop die niemand geschreven heeft, leest
+            // als opvulling en staat dan in elk venster.
+            'calendly_title'     => sanitize_text_field((string) $atts['calendly_title']),
+            'calendly_sub'       => sanitize_text_field((string) $atts['calendly_sub']),
             // Leeg = het tabblad dat BOVENAAN staat. Stond hier 'form' als
             // vaste standaard, dan zette je met tab_order de agenda vooraan en
             // ging het venster alsnog open op het formulier -- je ziet een
@@ -706,7 +758,7 @@ final class Mymmo_Forms_Shortcodes {
             'accent_style'       => implode(';', $accent_style),
             // Kwam de bezoeker net terug van een inzending uit dit venster, dan
             // hoort het venster meteen weer open te staan met de bevestiging.
-            'auto_open'          => is_array($flash),
+            'auto_open'          => is_array($flash) || strtolower(trim((string) ($atts['open'] ?? ''))) === 'yes',
             // Een ruimer paneel, als de shortcode daarom vraagt.
             'panel_extra'        => strtolower(trim((string) ($atts['panel'] ?? ''))) === 'breed'
                 ? 'mymmo-modal-panel--ruim'
@@ -873,6 +925,14 @@ final class Mymmo_Forms_Shortcodes {
         $args['wikkel_class'] = 'mymmo-callout-wikkel';
         $args['callout']      = [
             'uitgelicht' => $uitgelicht,
+            // chrome="no": geen kaartje eromheen, enkel het onderdeel en de
+            // knop in hun witte vak. Voor een ingang die in een kaart van
+            // Mymmo Cards staat -- daar is de KAART de vorm, en brengt de
+            // ingang er geen tweede mee.
+            // chrome="bare": ook zonder dat vak, voor een ingang die al op een
+            // wit vlak staat.
+            'kaal'       => in_array(strtolower(trim((string) ($eigen['chrome'] ?? ''))), ['no', 'bare'], true),
+            'kaal_vak'   => strtolower(trim((string) ($eigen['chrome'] ?? ''))) !== 'bare',
             // Bij welk tabblad het kaartje hoort. templates/modal.php dokt daar
             // de sectie uit en zet er het anker.
             'tab'        => $callout_tab,
@@ -960,6 +1020,14 @@ final class Mymmo_Forms_Shortcodes {
     }
 
     /**
+     * De DIKTES die een callout-titel mag krijgen, als GESLOTEN lijst.
+     *
+     * Deze waarde belandt in een style-attribuut op de pagina van een bezoeker;
+     * daar hoort geen vrije tekst in. Zelfde afweging als bij VERDELINGEN.
+     */
+    private const TITEL_DIKTES = ['300', '400', '500', '600', '700', '800', '900', 'normal', 'bold'];
+
+    /**
      * De CSS-variabelen van het callout-blok: achtergrond en de schaal van de
      * tekening. Dezelfde vormcontrole als overal -- dit belandt in een
      * style-attribuut op de pagina van een bezoeker.
@@ -1023,6 +1091,25 @@ final class Mymmo_Forms_Shortcodes {
         $kop_ruimte = mymmo_forms_length((string) ($atts['title_gap'] ?? ''));
         if ($kop_ruimte !== '') {
             $stukken[] = '--mf-callout-kop-gap:' . $kop_ruimte;
+        }
+
+        // De LETTER van de titel: grootte, dikte en kleur. Een callout tussen de
+        // kaarten van een pagina hoort dezelfde kop te dragen als die kaarten,
+        // en die maten komen uit het THEMA -- de plugin kent ze niet en kan ze
+        // dus niet zelf overnemen. Leeg = de standaard uit de stylesheet.
+        $titel_maat = mymmo_forms_length((string) ($atts['title_size'] ?? ''));
+        if ($titel_maat !== '') {
+            $stukken[] = '--mf-callout-titel-maat:' . $titel_maat;
+        }
+
+        $titel_dikte = strtolower(trim((string) ($atts['title_weight'] ?? '')));
+        if (in_array($titel_dikte, self::TITEL_DIKTES, true)) {
+            $stukken[] = '--mf-callout-titel-dikte:' . $titel_dikte;
+        }
+
+        $titel_kleur = mymmo_forms_color((string) ($atts['title_color'] ?? ''));
+        if ($titel_kleur !== '') {
+            $stukken[] = '--mf-callout-titel-kleur:' . $titel_kleur;
         }
 
         // Tot hoever het blok uit de inhoudskolom breekt.

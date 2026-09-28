@@ -5,7 +5,11 @@ var state = {
   scope: 'all',
   chart: null,
   sparkline: null,
-  absoluteSparkline: null
+  absoluteSparkline: null,
+  // Kanalen die de gebruiker in de legende uitzette -- blijft staan bij het
+  // wisselen van periode of merk, anders moet je na elke klik opnieuw filteren.
+  hiddenKeys: {},
+  lastData: null
 };
 
 var SCOPE_LABELS = {
@@ -80,8 +84,25 @@ var BRAND_COLORS = {
 
 var PERIOD_LABELS = {
   '30d': 'laatste 30 dagen',
-  '6m': 'laatste 6 maanden'
+  '3m': 'laatste 3 maanden',
+  '6m': 'laatste 6 maanden',
+  '12m': 'laatste 12 maanden'
 };
+
+var GRANULARITY_LABELS = { day: 'dag', week: 'week', month: 'maand' };
+
+// Drie kolommen in de legende. Een kanaal hoort bij de kolom van zijn merk;
+// alles wat geen merkvoorvoegsel heeft (Manueel/overig) staat onder "Andere".
+var LEGEND_GROUPS = [
+  { key: 'syndicoach', label: 'Syndicoach', match: function (k) { return k.indexOf('syndicoach') === 0; } },
+  { key: 'openvme', label: 'OpenVME', match: function (k) { return k.indexOf('openvme') === 0; } },
+  { key: 'andere', label: 'Andere', match: function (k) { return k.indexOf('syndicoach') !== 0 && k.indexOf('openvme') !== 0; } }
+];
+
+function esc(s) {
+  return String(s === null || s === undefined ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
 
 var MONTH_NAMES = [
   'januari', 'februari', 'maart', 'april', 'mei', 'juni',
@@ -163,78 +184,66 @@ function renderTargetProgress(data) {
   descEl.textContent = formatNumber(current) + ' van het target ' + formatNumber(target) + ' voor ' + PERIOD_LABELS[data.period] + note;
 }
 
-/**
- * Eenvoudig gecentreerd voortschrijdend gemiddelde, puur om de lijn visueel
- * te gladstrijken (het rollend-30-dagen-venster zelf zit al in de data,
- * maar kan van dag tot dag toch nog opspringen -- dit vlakt dat verder af
- * zonder de onderliggende trend te verbergen).
- */
-function smoothSeries(values, windowSize) {
-  var half = Math.floor(windowSize / 2);
-  return values.map(function (_, i) {
-    var start = Math.max(0, i - half);
-    var end = Math.min(values.length - 1, i + half);
-    var sum = 0;
-    var count = 0;
-    for (var j = start; j <= end; j += 1) {
-      if (values[j] !== null && values[j] !== undefined) {
-        sum += values[j];
-        count += 1;
-      }
-    }
-    return count > 0 ? sum / count : null;
-  });
+function renderChartCaptions(data) {
+  var unit = GRANULARITY_LABELS[data.granularity] || 'dag';
+  document.getElementById('absoluteSparklineCaption').textContent =
+    'Aanvragen per ' + unit + ', ' + PERIOD_LABELS[data.period] + ' (stippellijn = target)';
+  document.getElementById('targetSparklineCaption').textContent =
+    '% van target per ' + unit + ', ' + PERIOD_LABELS[data.period];
+  document.getElementById('dailyChartTitle').textContent = 'Aanvragen per ' + unit;
+}
+
+/** Tooltip-titel uit de bucket zelf (bv. "Week 36 (1 sep – 7 sep)"), niet uit het korte aslabel. */
+function bucketTitleCallback(buckets) {
+  return function (items) {
+    var bucket = items[0] && buckets[items[0].dataIndex];
+    return bucket ? bucket.title : '';
+  };
 }
 
 function renderTargetSparkline(data) {
   var canvas = document.getElementById('targetSparkline');
-  var points = (data.target && data.target.trend) || [];
+  var series = data.series || [];
 
   if (state.sparkline) {
     state.sparkline.destroy();
     state.sparkline = null;
   }
-  // Enkel dagen waar het rollend venster effectief een target had (anders
-  // vertekent een lange vlakke 0%-staart aan het begin, vóór er ooit een
-  // target werd ingesteld).
-  var withTarget = points.filter(function (p) { return p.pct !== null; });
+  // Enkel buckets met een target: zonder target bestaat er geen percentage.
+  var withTarget = series.filter(function (b) { return b.pct !== null; });
   if (withTarget.length === 0) {
-    return; // nog nergens een target ingesteld -- lege canvas, renderTargetProgress toont al de uitleg
+    return; // nog geen target -- renderTargetProgress toont al de uitleg
   }
-
-  var labels = withTarget.map(function (p) { return p.date; });
-  var pctSeries = smoothSeries(withTarget.map(function (p) { return p.pct; }), 7);
-  var avgTargetSeries = smoothSeries(withTarget.map(function (p) { return p.avgDailyTarget; }), 7);
 
   state.sparkline = new Chart(canvas, {
     type: 'line',
     data: {
-      labels: labels,
+      labels: withTarget.map(function (b) { return b.label; }),
       datasets: [
         {
-          label: '% van target (rollend, 30 dagen)',
-          data: pctSeries,
+          label: '% van target',
+          data: withTarget.map(function (b) { return b.pct; }),
           borderColor: '#059669',
           backgroundColor: 'rgba(5, 150, 105, 0.12)',
           fill: true,
           borderWidth: 2,
           pointRadius: 0,
-          tension: 0.4,
+          pointHoverRadius: 3,
+          tension: 0.3,
           yAxisID: 'yPct'
         },
         {
-          // De ECHTE voortschrijdende gemiddelde target zelf (niet een vlakke
-          // 100%-lijn) -- beweegt mee op en neer met de ingestelde maand-
-          // targets, op zijn eigen schaal (yTarget) zodat hij niet plat
+          // De target zelf (niet een vlakke 100%-lijn) -- beweegt mee met de
+          // ingestelde maand-targets, op een eigen schaal zodat hij niet plat
           // oogt naast het percentage.
-          label: 'Gemiddelde target/dag (rollend, 30 dagen)',
-          data: avgTargetSeries,
+          label: 'Target',
+          data: withTarget.map(function (b) { return b.target; }),
           borderColor: '#94a3b8',
           borderDash: [4, 3],
           fill: false,
           borderWidth: 1.5,
           pointRadius: 0,
-          tension: 0.4,
+          tension: 0.3,
           yAxisID: 'yTarget'
         }
       ]
@@ -245,19 +254,17 @@ function renderTargetSparkline(data) {
       interaction: { intersect: false, mode: 'index' },
       scales: {
         x: { display: false },
-        yPct: { display: false },
+        yPct: { display: false, beginAtZero: true },
         yTarget: { display: false, position: 'right', beginAtZero: true }
       },
       plugins: {
         legend: { display: false },
         tooltip: {
           callbacks: {
-            title: function (items) {
-              return items[0] ? items[0].label : '';
-            },
+            title: bucketTitleCallback(withTarget),
             label: function (item) {
               if (item.datasetIndex === 0) return 'Realisatie: ' + Math.round(item.parsed.y) + '% van target';
-              return 'Gem. target: ' + formatNumber(Math.round(item.parsed.y * 10) / 10) + '/dag';
+              return 'Target: ' + formatNumber(Math.round(item.parsed.y * 10) / 10);
             }
           }
         }
@@ -268,51 +275,46 @@ function renderTargetSparkline(data) {
 
 function renderTargetAbsoluteSparkline(data) {
   var canvas = document.getElementById('targetAbsoluteSparkline');
-  var points = (data.target && data.target.trend) || [];
+  var series = data.series || [];
 
   if (state.absoluteSparkline) {
     state.absoluteSparkline.destroy();
     state.absoluteSparkline = null;
   }
-  var withTarget = points.filter(function (p) { return p.pct !== null; });
-  if (withTarget.length === 0) {
-    return; // nog nergens een target ingesteld
-  }
+  if (series.length === 0) return;
 
-  var labels = withTarget.map(function (p) { return p.date; });
-  // Bewust dezelfde as voor beide lijnen (i.t.t. de %-sparkline rechts) --
-  // realisatie en target zijn hier allebei "aantal leads/30 dagen", dus
-  // rechtstreeks vergelijkbaar in absolute termen, geen aparte schaal nodig.
-  var actualSeries = smoothSeries(withTarget.map(function (p) { return p.actualTrailing; }), 7);
-  var targetSeries = smoothSeries(withTarget.map(function (p) { return p.targetTrailing; }), 7);
+  // Realisatie staat er ook zonder target; de targetlijn enkel als die bestaat.
+  // Zelfde as voor beide: allebei "aantal aanvragen per bucket".
+  var datasets = [
+    {
+      label: 'Realisatie',
+      data: series.map(function (b) { return b.total; }),
+      borderColor: '#1d4ed8',
+      backgroundColor: 'rgba(29, 78, 216, 0.10)',
+      fill: true,
+      borderWidth: 2,
+      pointRadius: 0,
+      pointHoverRadius: 3,
+      tension: 0.3
+    }
+  ];
+  var hasTarget = series.some(function (b) { return b.target !== null; });
+  if (hasTarget) {
+    datasets.push({
+      label: 'Target',
+      data: series.map(function (b) { return b.target; }),
+      borderColor: '#94a3b8',
+      borderDash: [4, 3],
+      fill: false,
+      borderWidth: 1.5,
+      pointRadius: 0,
+      tension: 0.3
+    });
+  }
 
   state.absoluteSparkline = new Chart(canvas, {
     type: 'line',
-    data: {
-      labels: labels,
-      datasets: [
-        {
-          label: 'Realisatie (30 dagen, absoluut)',
-          data: actualSeries,
-          borderColor: '#1d4ed8',
-          backgroundColor: 'rgba(29, 78, 216, 0.10)',
-          fill: true,
-          borderWidth: 2,
-          pointRadius: 0,
-          tension: 0.4
-        },
-        {
-          label: 'Target (30 dagen, absoluut)',
-          data: targetSeries,
-          borderColor: '#94a3b8',
-          borderDash: [4, 3],
-          fill: false,
-          borderWidth: 1.5,
-          pointRadius: 0,
-          tension: 0.4
-        }
-      ]
-    },
+    data: { labels: series.map(function (b) { return b.label; }), datasets: datasets },
     options: {
       responsive: true,
       maintainAspectRatio: false,
@@ -325,8 +327,10 @@ function renderTargetAbsoluteSparkline(data) {
         legend: { display: false },
         tooltip: {
           callbacks: {
-            title: function (items) { return items[0] ? items[0].label : ''; },
-            label: function (item) { return item.dataset.label + ': ' + formatNumber(Math.round(item.parsed.y)); }
+            title: bucketTitleCallback(series),
+            label: function (item) {
+              return item.dataset.label + ': ' + formatNumber(Math.round(item.parsed.y * 10) / 10);
+            }
           }
         }
       }
@@ -336,15 +340,17 @@ function renderTargetAbsoluteSparkline(data) {
 
 function renderDailyChart(data) {
   var canvas = document.getElementById('dailyChart');
-  var labels = data.daily.map(function (row) { return row.date.slice(5); });
+  var series = data.series || [];
   var brandKeys = Object.keys(data.brandLabels);
 
   var datasets = brandKeys.map(function (key) {
     return {
       label: data.brandLabels[key],
-      data: data.daily.map(function (row) { return row[key] || 0; }),
+      channelKey: key,
+      data: series.map(function (b) { return b.byChannel[key] || 0; }),
       backgroundColor: BRAND_COLORS[key] || '#94a3b8',
-      stack: 'instroom'
+      stack: 'instroom',
+      hidden: state.hiddenKeys[key] === true
     };
   });
 
@@ -353,7 +359,7 @@ function renderDailyChart(data) {
   }
   state.chart = new Chart(canvas, {
     type: 'bar',
-    data: { labels: labels, datasets: datasets },
+    data: { labels: series.map(function (b) { return b.label; }), datasets: datasets },
     options: {
       responsive: true,
       maintainAspectRatio: false,
@@ -362,10 +368,82 @@ function renderDailyChart(data) {
         y: { stacked: true, beginAtZero: true, ticks: { precision: 0 } }
       },
       plugins: {
-        legend: { position: 'bottom' }
+        // Eigen legende in drie kolommen (renderLegend) -- de ingebouwde van
+        // Chart.js kan niet groeperen en geen hele kolom tegelijk omzetten.
+        legend: { display: false },
+        tooltip: {
+          filter: function (item) { return item.parsed.y > 0; },
+          callbacks: { title: bucketTitleCallback(series) }
+        }
       }
     }
   });
+  renderLegend(data);
+}
+
+/** "Syndicoach: overig/onbekend" -> "Overig/onbekend" (het merk staat al boven de kolom). */
+function shortChannelLabel(label) {
+  var s = String(label).replace(/^[^:]+:\s*/, '');
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+function renderLegend(data) {
+  var el = document.getElementById('dailyChartLegend');
+  var keys = Object.keys(data.brandLabels);
+  var totals = {};
+  keys.forEach(function (k) { totals[k] = data.totals.current.byBrand[k] || 0; });
+
+  el.innerHTML = LEGEND_GROUPS.map(function (group) {
+    var groupKeys = keys.filter(group.match);
+    if (groupKeys.length === 0) return '';
+    var groupTotal = groupKeys.reduce(function (sum, k) { return sum + totals[k]; }, 0);
+    var allHidden = groupKeys.every(function (k) { return state.hiddenKeys[k]; });
+
+    var items = groupKeys.map(function (k) {
+      var hidden = state.hiddenKeys[k] === true;
+      return `<button type="button" data-action="toggleLegendKey" data-key="${esc(k)}"
+          class="flex items-center gap-2 w-full text-left text-xs py-0.5 rounded hover:bg-base-200 ${hidden ? 'opacity-40 line-through' : ''}">
+          <span class="inline-block w-3 h-3 rounded-sm shrink-0" style="background:${esc(BRAND_COLORS[k] || '#94a3b8')}"></span>
+          <span class="truncate">${esc(shortChannelLabel(data.brandLabels[k]))}</span>
+          <span class="ml-auto text-base-content/50 tabular-nums">${formatNumber(totals[k])}</span>
+        </button>`;
+    }).join('');
+
+    return `<div>
+        <button type="button" data-action="toggleLegendGroup" data-group="${esc(group.key)}"
+          title="Klik om de hele kolom aan of uit te zetten"
+          class="flex items-center gap-2 w-full text-left text-sm font-semibold border-b border-base-300 pb-1 mb-1 hover:text-primary ${allHidden ? 'opacity-40' : ''}">
+          <span>${esc(group.label)}</span>
+          <span class="ml-auto text-base-content/50 font-normal tabular-nums">${formatNumber(groupTotal)}</span>
+        </button>
+        ${items}
+      </div>`;
+  }).join('');
+}
+
+function applyLegendVisibility() {
+  if (!state.chart) return;
+  state.chart.data.datasets.forEach(function (ds, i) {
+    state.chart.setDatasetVisibility(i, !state.hiddenKeys[ds.channelKey]);
+  });
+  state.chart.update();
+  if (state.lastData) renderLegend(state.lastData);
+}
+
+function toggleLegendKey(key) {
+  state.hiddenKeys[key] = !state.hiddenKeys[key];
+  applyLegendVisibility();
+}
+
+/** Staat er in de kolom nog iets aan, dan gaat alles uit; anders gaat alles weer aan. */
+function toggleLegendGroup(groupKey) {
+  if (!state.chart) return;
+  var group = LEGEND_GROUPS.filter(function (g) { return g.key === groupKey; })[0];
+  if (!group) return;
+  var keys = state.chart.data.datasets.map(function (ds) { return ds.channelKey; }).filter(group.match);
+  var anyVisible = keys.some(function (k) { return !state.hiddenKeys[k]; });
+  keys.forEach(function (k) { state.hiddenKeys[k] = anyVisible; });
+  applyLegendVisibility();
 }
 
 function renderPeriodButtons() {
@@ -388,6 +466,8 @@ async function loadInstroom() {
   try {
     var url = '/dashboards/api/leads-instroom?period=' + encodeURIComponent(state.period) + '&scope=' + encodeURIComponent(state.scope);
     var data = await apiJson(url);
+    state.lastData = data;
+    renderChartCaptions(data);
     renderStatCards(data);
     renderTargetProgress(data);
     renderTargetSparkline(data);
@@ -510,6 +590,10 @@ document.addEventListener('click', function (e) {
     loadTargetsModal();
   } else if (action === 'saveAllTargets') {
     saveAllTargets(el);
+  } else if (action === 'toggleLegendKey') {
+    toggleLegendKey(el.dataset.key);
+  } else if (action === 'toggleLegendGroup') {
+    toggleLegendGroup(el.dataset.group);
   }
 });
 

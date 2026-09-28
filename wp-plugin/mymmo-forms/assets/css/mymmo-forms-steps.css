@@ -105,6 +105,27 @@
 }
 
 /*
+ * EEN STAP IS NOOIT BREDER DAN DE KOLOM WAARIN ZE STAAT.
+ *
+ * Een stap brengt haar eigen HTML en CSS mee, en die is geschreven met het
+ * scherm in gedachten waarop ze gemaakt is. Staat er ergens een vaste maat, een
+ * `vw`-waarde of een absoluut geplaatst element, dan steekt ze in een smallere
+ * kolom (een callout, een pop-up op een telefoon) buiten haar vak -- en dan
+ * wordt de PAGINA breder dan de viewport en kan je opzij vegen. Dat is niet te
+ * zien in het voorbeeld van de bouwer, want daar is de kolom breed.
+ *
+ * `min-width: 0` is het echte werk: een flexitem mag standaard niet kleiner
+ * worden dan zijn eigen inhoud, en dan wint die inhoud van de kolom. Verticaal
+ * blijft alles zoals het was -- dit raakt enkel de breedte.
+ */
+.mymmo-stap,
+.mymmo-stap-inhoud,
+.mymmo-stap-inhoud > * {
+  min-width: 0;
+  max-width: 100%;
+}
+
+/*
  * EEN LETTERTYPE IN HET HELE VENSTER.
  *
  * De wikkel die een stap meebrengt zet vaak zijn eigen `font-family` -- de
@@ -333,22 +354,55 @@
 }
 
 @media (max-width: 540px) {
+  /* Naast elkaar, ook op een telefoon (2026-09-20, expliciete keuze) -- dit
+     was column-reverse (elk op zijn eigen rij) om per ongeluk raken te
+     voorkomen; de gebruiker wil ze bewust naast elkaar. */
   .mymmo-stap-nav {
-    /* Onder elkaar, met de belangrijkste bovenaan: op een telefoon is de
-       onderste knop de makkelijkste om per ongeluk te raken. */
-    flex-direction: column-reverse;
+    flex-direction: row;
   }
 
   .mymmo-stap-knop {
-    width: 100%;
+    /* Geen volle breedte meer: de twee knoppen delen de rij. */
+    width: auto;
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  .mymmo-stap-knop--verder {
+    /* Op de eerste stap (geen "Vorige") duwde margin-left:auto de knop naar
+       rechts; met flex:1 1 0 op beide knoppen zou dat de vrije ruimte
+       opeisen voor deze knop alleen. justify-content:flex-end op
+       .mymmo-stap-nav houdt een ALLEENSTAANDE knop nog steeds rechts. */
+    margin-left: 0;
   }
 
   .mymmo-form-actions:has(.mymmo-form-back) {
-    flex-direction: column-reverse;
+    flex-direction: row;
     gap: 12px;
   }
 
   .mymmo-form-back {
-    width: 100%;
+    width: auto;
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  /*
+   * En de verzendknop krijgt DEZELFDE verdeling.
+   *
+   * Die staat in mymmo-forms.css op `width: 100%` (ook onder 540px), want een
+   * formulier zonder stappen heeft daar maar een knop. Naast een "Vorige" die
+   * de helft van de rij opeist gaf dat twee knoppen van een rare, ongelijke
+   * breedte: een smalle Vorige en een Versturen die al de rest neemt. Op de
+   * stap ervoor staan Vorige/Volgende wel half-om-half, dus bij de laatste
+   * stap verspringen ze -- en dat leest als een fout.
+   *
+   * Enkel binnen een stappenreeks en enkel als er echt een "Vorige" naast
+   * staat; een formulier met alleen een verzendknop houdt zijn volle breedte.
+   */
+  .mymmo-stappen .mymmo-form-actions:has(.mymmo-form-back) .mymmo-form-submit {
+    width: auto;
+    flex: 1 1 0;
+    min-width: 0;
   }
 }

@@ -12,6 +12,7 @@ import { handleCxWinDetection } from './modules/cx_powerboard/cron/win-detection
 import { runFlagCron } from './modules/cx-automations/cron.js';
 import { runAutoDoneCron } from './modules/event-operations-v2/lib/cron.js';
 import { runMailRepairCron } from './modules/event-operations-v2/lib/mail-cron.js';
+import { syncSignatureEvent } from './modules/mail-signature-designer/lib/event-rotation.js';
 import { runDueScheduledTasks } from './modules/mini-apps/lib/scheduler.js';
 import { runDueConditionTasks } from './modules/mini-apps/lib/condition-scheduler.js';
 import { runGmailChatterSync } from './modules/gmail-chatter/lib/sync.js';
@@ -90,6 +91,17 @@ export default {
       ctx.waitUntil(
         runMailRepairCron(env).catch(err =>
           console.error('[scheduled][event-operations-v2][mail-repair] CRASH:', err?.message, err?.stack)
+        )
+      );
+      // Schuift de e-mailhandtekeningen door naar het eerstvolgende event dat
+      // in Eventbeheer aangevinkt staat. Doet in verreweg de meeste rondes
+      // NIETS -- enkel wanneer het huidige event geweest is, of iemand net een
+      // ander aanvinkte. Zonder aangevinkte events, of zolang het Studio-veld
+      // niet bestaat, verandert er evenmin iets; een deploy op zich kan dus
+      // nooit uit zichzelf iedereens handtekening herschrijven.
+      ctx.waitUntil(
+        syncSignatureEvent(env, { ctx }).catch(err =>
+          console.error('[scheduled][mail-signature-designer][event-rotatie] CRASH:', err?.message, err?.stack)
         )
       );
     }

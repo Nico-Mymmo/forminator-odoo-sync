@@ -25,22 +25,61 @@ function m2oId(waarde) {
 }
 
 /**
+ * De eigenaar van het record dat stap N aanmaakte of vond, als res.users-ref.
+ * Null als die stap geen record gaf of het record geen eigenaar heeft.
+ */
+async function eigenaarRef(env, stap, contextObject) {
+  const ctx = contextObject || {};
+  const recordId = Number.parseInt(String(ctx[`step.${stap}.record_id`] ?? ''), 10);
+  const model = String(ctx[`step.${stap}.record_model`] || '');
+  if (!Number.isInteger(recordId) || recordId <= 0 || !model) return null;
+  if (model === 'res.users') return { model: 'res.users', id: recordId };
+  const rijen = await searchRead(env, {
+    model,
+    domain: [['id', '=', recordId]],
+    fields: ['user_id'],
+    limit: 1
+  });
+  const userId = m2oId(Array.isArray(rijen) && rijen.length ? rijen[0].user_id : null);
+  return userId ? { model: 'res.users', id: userId } : null;
+}
+
+/**
  * @param {Object} env
  * @param {Object} target - rij uit fs_v2_targets (mail_signature_*)
  * @param {Object} contextObject - uitvoer van eerdere stappen
- * @returns {Promise<{html: string|null, reden: string|null}>}
+ * `userId` komt ook terug als er (nog) geen handtekening is: de send_mail-stap
+ * gebruikt die medewerker als AFZENDER, en dat mag niet afhangen van of hij
+ * zijn handtekening al gepusht heeft.
+ *
+ * @returns {Promise<{html: string|null, userId: number|null, reden: string|null}>}
  * @throws {Error} enkel bij een ONGELDIGE configuratie (zie employee-reference.js) —
  *   een medewerker zonder Odoo-koppeling of zonder handtekening gooit NIET.
  */
 export async function resolveMailSignatureHtml(env, target, contextObject) {
-  const ref = resolveEmployeeRef({
-    source: target.mail_signature_source,
-    employeeId: target.mail_signature_employee_id,
-    sourceValue: target.mail_signature_source_value,
-    contextObject,
-    errorPrefix: 'send_mail (handtekening)'
-  });
-  if (!ref) return { html: null, reden: null };
+  // `step.N.owner`: de EIGENAAR (user_id) van het record uit stap N -- bv. de
+  // coach op de lead. Alleen voor de mailstap, daarom hier en niet in
+  // employee-reference.js (dat is gedeeld met de pdf-stap en heeft geen env).
+  const eigenaarStap = String(target.mail_signature_source || '') === 'dynamic'
+    ? (String(target.mail_signature_source_value || '').match(/^step\.([^.]+)\.owner$/) || [])[1]
+    : null;
+
+  let ref;
+  if (eigenaarStap) {
+    ref = await eigenaarRef(env, eigenaarStap, contextObject);
+    if (!ref) {
+      return { html: null, userId: null, reden: `Stap ${eigenaarStap} leverde geen record met een eigenaar op.` };
+    }
+  } else {
+    ref = resolveEmployeeRef({
+      source: target.mail_signature_source,
+      employeeId: target.mail_signature_employee_id,
+      sourceValue: target.mail_signature_source_value,
+      contextObject,
+      errorPrefix: 'send_mail (handtekening)'
+    });
+  }
+  if (!ref) return { html: null, userId: null, reden: null };
 
   let userId = null;
   if (ref.model === 'res.users') {
@@ -59,7 +98,7 @@ export async function resolveMailSignatureHtml(env, target, contextObject) {
   }
 
   if (!userId) {
-    return { html: null, reden: 'Geen gekoppelde Odoo-gebruiker gevonden voor de handtekening.' };
+    return { html: null, userId: null, reden: 'Geen gekoppelde Odoo-gebruiker gevonden voor de handtekening.' };
   }
 
   const gebruikers = await searchRead(env, {
@@ -70,7 +109,7 @@ export async function resolveMailSignatureHtml(env, target, contextObject) {
   });
   const html = (Array.isArray(gebruikers) && gebruikers.length ? gebruikers[0].signature : '') || '';
   if (!String(html).trim()) {
-    return { html: null, reden: 'Deze medewerker heeft nog geen handtekening gepusht via de signature-designer.' };
+    return { html: null, userId, reden: 'Deze medewerker heeft nog geen handtekening gepusht via de signature-designer.' };
   }
-  return { html: String(html), reden: null };
+  return { html: String(html), userId, reden: null };
 }

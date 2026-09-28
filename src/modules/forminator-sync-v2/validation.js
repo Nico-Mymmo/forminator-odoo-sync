@@ -32,6 +32,13 @@ const SOURCE_TYPES = ['form', 'context', 'static', 'template', 'previous_step_ou
  */
 const EMPLOYEE_STEP_REF_RE = /^step\.[^.]+\.(record_id|round_robin_employee_id)$/;
 
+/**
+ * Bij de mailstap mag de afzender ook de EIGENAAR (user_id) van het record uit
+ * een vorige stap zijn (`step.<order>.owner`, bv. de coach op de lead). Niet
+ * bij de pdf-stap: die leest een hr.employee-record uit.
+ */
+const MAIL_SENDER_STEP_REF_RE = /^step\.[^.]+\.(record_id|round_robin_employee_id|owner)$/;
+
 function hasValue(value) {
   return value !== undefined && value !== null && String(value).trim() !== '';
 }
@@ -282,8 +289,8 @@ export function validateTargetPayload(payload, { allowedModels } = {}) {
         if (!Number.isInteger(id) || id <= 0) {
           throw createError('send_mail met een vaste handtekening vereist een geldige mail_signature_employee_id.');
         }
-      } else if (!EMPLOYEE_STEP_REF_RE.test(String(payload.mail_signature_source_value || ''))) {
-        throw createError('send_mail met een dynamische handtekening vereist een mail_signature_source_value in de vorm "step.<order>.record_id" of "step.<order>.round_robin_employee_id".');
+      } else if (!MAIL_SENDER_STEP_REF_RE.test(String(payload.mail_signature_source_value || ''))) {
+        throw createError('send_mail met een afzender uit een vorige stap vereist een mail_signature_source_value in de vorm "step.<order>.record_id", "step.<order>.round_robin_employee_id" of "step.<order>.owner".');
       }
     }
 

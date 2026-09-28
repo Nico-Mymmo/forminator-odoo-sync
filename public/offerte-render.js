@@ -153,10 +153,23 @@
       (o.blok ? opmaakBlok(ruw) : opmaakInline(ruw)) + '</' + tag + '>';
   }
 
-  /* knopje om deze rij weg te halen (staat er alleen in de bewerkstand) */
+  /* Knopjes achter een rij: omhoog, omlaag, weg (staan er alleen in de
+     bewerkstand). Elke lijst met een wegknop kan zo ook herschikt worden;
+     de eerste rij heeft geen "omhoog", de laatste geen "omlaag". */
   function wegKnop(lijstPad, index) {
-    return '<button type="button" class="ov-rijknop ov-rijknop--weg" data-action="rij-weg"' +
-      ' data-lijst="' + esc(lijstPad) + '" data-index="' + index + '" title="Deze rij verwijderen">&times;</button>';
+    var lijst = lees(lijstPad);
+    var aantal = Array.isArray(lijst) ? lijst.length : 0;
+    var attrs = ' data-lijst="' + esc(lijstPad) + '" data-index="' + index + '"';
+    return (index > 0
+        ? '<button type="button" class="ov-rijknop ov-rijknop--weg ov-rijknop--pijl" data-action="rij-op"' +
+          attrs + ' title="Een plaats omhoog">&uarr;</button>'
+        : '') +
+      (index < aantal - 1
+        ? '<button type="button" class="ov-rijknop ov-rijknop--weg ov-rijknop--pijl" data-action="rij-neer"' +
+          attrs + ' title="Een plaats omlaag">&darr;</button>'
+        : '') +
+      '<button type="button" class="ov-rijknop ov-rijknop--weg" data-action="rij-weg"' +
+      attrs + ' title="Deze rij verwijderen">&times;</button>';
   }
 
   function erbijKnop(lijstPad, label) {
@@ -198,7 +211,7 @@
   }
 
   /* --- pagina 1 --------------------------------------------------------- */
-  function blad1() {
+  function blokkenPagina1() {
     var g = staat.gegevens;
     var c = staat.copy;
 
@@ -234,16 +247,16 @@
       '</div>';
     }).join('');
 
-    return blad(1,
-      '<div class="ov-panel ov-hero">' +
+    return {
+      hero: '<div class="ov-panel ov-hero">' +
         T('copy.hero.titel', { tag: 'h1', klasse: 'ov-hero-titel' }) +
         T('copy.hero.tekst', { tag: 'div', klasse: 'ov-hero-tekst ov-tekst', blok: true }) +
-      '</div>' +
+      '</div>',
 
-      '<div class="ov-kolommen">' +
+      kolommen: '<div class="ov-kolommen">' +
         '<div class="ov-contact">' +
           T('copy.contact.titel', { tag: 'h2', klasse: 'ov-h2' }) +
-          '<img class="ov-contact-foto" src="' + esc(g.contact.foto) + '" alt="' + esc(g.contact.naam) + '">' +
+          '<img class="ov-contact-foto"' + beeldAttr('foto') + ' src="' + esc(g.contact.foto) + '" alt="' + esc(g.contact.naam) + '">' +
           '<div class="ov-contact-naam">' + esc(g.contact.naam) + '</div>' +
           '<div class="ov-contact-mail">' + esc(g.contact.email) + '</div>' +
         '</div>' +
@@ -252,52 +265,82 @@
           '<div class="ov-gegevens">' + gegevensRijen + '</div>' +
           erbijKnop('copy.offerte.rijen', 'gegeven') +
         '</div>' +
-      '</div>' +
+      '</div>',
 
-      '<div class="ov-inleiding ov-tekst">' +
+      inleiding: '<div class="ov-inleiding ov-tekst">' +
         T('copy.inleiding.titel', { tag: 'div', klasse: 'ov-inleiding-titel' }) +
         T('copy.inleiding.tekst', { tag: 'div', blok: true }) +
-      '</div>' +
+      '</div>',
 
-      '<div class="ov-vergelijking">' +
+      vergelijking: '<div class="ov-vergelijking">' +
         T('copy.vergelijking.titel', { tag: 'h2', klasse: 'ov-h2' }) +
         '<div class="ov-vgl-tabel">' + vglKop + '<div class="ov-vgl-body">' + vglRijen + '</div></div>' +
         erbijKnop('copy.vergelijking.rijen') +
-      '</div>' +
+      '</div>',
 
-      '<div class="ov-platform">' +
+      platform: '<div class="ov-platform">' +
         T('copy.platform.titel', { tag: 'h2', klasse: 'ov-h2' }) +
         '<div class="ov-platform-raster">' +
           T('copy.platform.tekst', { tag: 'div', klasse: 'ov-tekst', blok: true }) +
-          '<img class="ov-platform-beeld ov-bleed-rechts" src="' + esc(g.beeld.platform) + '" alt="">' +
+          '<img class="ov-platform-beeld ov-bleed-rechts"' + beeldAttr('platform') + ' src="' + esc(g.beeld.platform) + '" alt="">' +
         '</div>' +
       '</div>'
-    );
+    };
   }
 
   /* --- pagina 2 --------------------------------------------------------- */
-  function blad2() {
+
+  /* Een prijskaart: links het bedrag, rechts "Wat houdt dit in?". EEN
+     bouwsteen voor alle drie de kaarten -- de eerste twee komen uit
+     copy.kosten.kaarten, de derde (licentie) uit copy.kosten.strook, die om
+     historische redenen een eigen sleutel houdt (zie offerte-data.js). Een
+     tweede, bijna gelijke tekenfunctie zou betekenen dat een wijziging aan de
+     opmaak op twee plekken moet, en dat de derde kaart er stil anders gaat
+     uitzien dan de twee erboven.
+
+       pad           waar de copy van deze kaart staat
+       stijl         'blauw' | 'roze' | 'mint'
+       titelSleutel  'label' (kaarten) of 'titel' (strook) */
+  function kaartHtml(pad, kaart, stijl, titelSleutel) {
+    var punten = (kaart.punten || []).map(function (_, j) {
+      return '<li>' + T(pad + '.punten.' + j) + wegKnop(pad + '.punten', j) + '</li>';
+    }).join('');
+
+    return '<div class="ov-kaart ov-kaart--' + esc(stijl) + '">' +
+      '<div class="ov-kaart-links">' +
+        T(pad + '.' + titelSleutel, { tag: 'div', klasse: 'ov-h3' }) +
+        T(pad + '.bedrag', { tag: 'div', klasse: 'ov-kaart-bedrag' }) +
+        T(pad + '.voetnoot', { tag: 'div', klasse: 'ov-kaart-voetnoot' }) +
+      '</div>' +
+      '<div class="ov-kaart-rechts">' +
+        T(pad + '.inhoudtitel', { tag: 'div', klasse: 'ov-h3' }) +
+        '<ul class="ov-punten">' + punten + '</ul>' +
+        erbijKnop(pad + '.punten', 'punt') +
+      '</div>' +
+    '</div>';
+  }
+
+  function blokkenPagina2() {
     var c = staat.copy;
 
     var kaarten = c.kosten.kaarten.map(function (kaart, i) {
-      var p = 'copy.kosten.kaarten.' + i;
-      var punten = kaart.punten.map(function (_, j) {
-        return '<li>' + T(p + '.punten.' + j) + wegKnop(p + '.punten', j) + '</li>';
-      }).join('');
-
-      return '<div class="ov-kaart ov-kaart--' + esc(kaart.stijl === 'roze' ? 'roze' : 'blauw') + '">' +
-        '<div class="ov-kaart-links">' +
-          T(p + '.label', { tag: 'div', klasse: 'ov-h3' }) +
-          T(p + '.bedrag', { tag: 'div', klasse: 'ov-kaart-bedrag' }) +
-          T(p + '.voetnoot', { tag: 'div', klasse: 'ov-kaart-voetnoot' }) +
-        '</div>' +
-        '<div class="ov-kaart-rechts">' +
-          T(p + '.inhoudtitel', { tag: 'div', klasse: 'ov-h3' }) +
-          '<ul class="ov-punten">' + punten + '</ul>' +
-          erbijKnop(p + '.punten', 'punt') +
-        '</div>' +
-      '</div>';
+      return kaartHtml('copy.kosten.kaarten.' + i, kaart,
+        kaart.stijl === 'roze' ? 'roze' : 'blauw', 'label');
     }).join('');
+
+    /* Een sjabloon dat bewaard werd toen de licentie nog een smalle strook
+       was, kent de rechterkolom niet. Aanvullen uit de standaardcopy in plaats
+       van leeglaten: zonder de lijst doet "+ punt" niets (rij-erbij slaat een
+       niet-array over) en staat er in de editor een lege kolom zonder weg
+       terug. Een LEGE lijst blijft leeg -- die heeft iemand zelf leeggemaakt.
+       De voetnoot en de titel blijven staan zoals ze bewaard zijn: dat is
+       getypte copy, en die overschrijven we nooit. */
+    var licentie = c.kosten.strook || (c.kosten.strook = {});
+    if (!Array.isArray(licentie.punten) || licentie.inhoudtitel == null) {
+      var standaard = (((window.OFFERTE_DATA || {}).copy || {}).kosten || {}).strook || {};
+      if (!Array.isArray(licentie.punten)) licentie.punten = kopie(standaard.punten || []);
+      if (licentie.inhoudtitel == null) licentie.inhoudtitel = standaard.inhoudtitel || 'Wat houdt dit in?';
+    }
 
     var extraRijen = c.extra.rijen.map(function (_, i) {
       return '<div class="ov-extra-rij">' +
@@ -312,31 +355,25 @@
       return T('copy.extra.voetnoten.' + i, { tag: 'p' });
     }).join('');
 
-    return blad(2,
-      '<div class="ov-prijzen">' +
+    return {
+      prijzen: '<div class="ov-prijzen">' +
         T('copy.kosten.titel', { tag: 'h2', klasse: 'ov-h2' }) +
         kaarten +
-        '<div class="ov-strook">' +
-          T('copy.kosten.strook.bedrag', { tag: 'div', klasse: 'ov-strook-bedrag' }) +
-          '<div>' +
-            T('copy.kosten.strook.titel', { tag: 'div', klasse: 'ov-strook-titel' }) +
-            T('copy.kosten.strook.voetnoot', { tag: 'div', klasse: 'ov-strook-voetnoot' }) +
-          '</div>' +
-        '</div>' +
-      '</div>' +
+        kaartHtml('copy.kosten.strook', licentie, 'mint', 'titel') +
+      '</div>',
 
-      '<div class="ov-extra">' +
+      extra: '<div class="ov-extra">' +
         T('copy.extra.titel', { tag: 'h2', klasse: 'ov-h2' }) +
         T('copy.extra.tekst', { tag: 'div', klasse: 'ov-tekst', blok: true }) +
         '<div class="ov-extra-tabel">' + extraRijen + '</div>' +
         erbijKnop('copy.extra.rijen') +
         '<div class="ov-voetnoten ov-mini">' + voetnoten + '</div>' +
       '</div>'
-    );
+    };
   }
 
   /* --- pagina 3 --------------------------------------------------------- */
-  function blad3() {
+  function blokkenPagina3() {
     var g = staat.gegevens;
     var c = staat.copy;
 
@@ -360,58 +397,576 @@
       '</div>';
     }).join('');
 
-    return blad(3,
-      '<div class="ov-stappen">' +
+    return {
+      stappen: '<div class="ov-stappen">' +
         T('copy.stappen.titel', { tag: 'h2', klasse: 'ov-h2' }) +
         stappen +
         erbijKnop('copy.stappen.items', 'stap') +
         T('copy.stappen.slot', { tag: 'div', klasse: 'ov-stap-slot' }) +
-      '</div>' +
+      '</div>',
 
-      '<div class="ov-vragen">' +
+      vragen: '<div class="ov-vragen">' +
         T('copy.vragen.titel', { tag: 'h2', klasse: 'ov-h2' }) +
         vragen +
         erbijKnop('copy.vragen.items', 'vraag') +
-      '</div>' +
+      '</div>',
 
-      '<div class="ov-panel ov-oproep">' +
+      oproep: '<div class="ov-panel ov-oproep">' +
         '<div class="ov-oproep-tekst">' +
           T('copy.oproep.titel', { tag: 'h2', klasse: 'ov-h2' }) +
           T('copy.oproep.tekst', { tag: 'div', klasse: 'ov-tekst', blok: true }) +
           T('copy.oproep.contact', { tag: 'p' }) +
         '</div>' +
         '<div class="ov-oproep-beeld">' +
-          '<img class="ov-oproep-pijl" src="' + esc(g.beeld.pijl) + '" alt="">' +
-          '<img class="ov-oproep-qr" src="' + esc(g.beeld.qr) + '" alt="QR-code om een afspraak te maken">' +
+          '<img class="ov-oproep-pijl"' + beeldAttr('pijl') + ' src="' + esc(g.beeld.pijl) + '" alt="">' +
+          '<img class="ov-oproep-qr"' + beeldAttr('qr') + ' src="' + esc(g.beeld.qr) + '" alt="QR-code om een afspraak te maken">' +
         '</div>' +
       '</div>'
-    );
+    };
+  }
+
+  /* ======================================================================
+     Indeling — welk blok op welke pagina, in welke volgorde, hoe groot
+
+     Staat in staat.copy.indeling, dus reist ze mee met het sjabloon en met
+     window.OFFERTE.zet() naar Browser Rendering: de pdf van een echte inzending
+     heeft exact de indeling die je hier zet. Geen tweede opmaakbron.
+
+     De MARGE BOVEN elk blok staat hier (basis) en niet meer in offerte.css:
+     een blok kan naar een andere pagina of een andere plaats verhuizen, en
+     dan moet de ruimte erboven met hem meereizen. Wie ze bijstelt, zet een
+     verschil op die basis (ruimte, in mm, ook negatief).
+
+     GROOTTE is CSS-`zoom` op een binnenste doos, niet op de doos met de marge
+     -- anders krimpt de marge boven het blok mee en klopt het getal niet dat
+     je ziet. Chromium (en dus Browser Rendering) kent zoom; ook Firefox sinds
+     126.
+     ====================================================================== */
+
+  var BLOKKEN = {
+    hero:         { label: 'Intro',             basis: 9 },
+    kolommen:     { label: 'Contact & offerte', basis: 9 },
+    inleiding:    { label: 'Inleiding',         basis: 10 },
+    vergelijking: { label: 'Vergelijking',      basis: 11 },
+    platform:     { label: 'Platform',          basis: 11 },
+    prijzen:      { label: 'Prijzen',           basis: 4 },
+    extra:        { label: 'Bijkomende kosten', basis: 7 },
+    stappen:      { label: 'Stappen',           basis: 6 },
+    vragen:       { label: 'Vragen',            basis: 10 },
+    oproep:       { label: 'Oproep',            basis: 8 }
+  };
+  var STANDAARD_PAGINAS = [
+    ['hero', 'kolommen', 'inleiding', 'vergelijking', 'platform'],
+    ['prijzen', 'extra'],
+    ['stappen', 'vragen', 'oproep']
+  ];
+  var BEELDEN = {
+    foto:     { label: 'Foto contactpersoon', blok: 'kolommen' },
+    platform: { label: 'Schermafbeelding',    blok: 'platform' },
+    qr:       { label: 'QR-code',             blok: 'oproep' },
+    pijl:     { label: 'Pijl',                blok: 'oproep' }
+  };
+  /* Welke afbeelding waar in de gegevens staat. De contactfoto staat er
+     bewust NIET in: die komt bij een echte inzending van de gekozen
+     medewerker, dus vervangen zou enkel het voorbeeld veranderen. */
+  var BEELD_PADEN = {
+    logo:     'beeld.logo',
+    platform: 'beeld.platform',
+    qr:       'beeld.qr',
+    pijl:     'beeld.pijl'
+  };
+  var BEELD_LABELS = { logo: 'Logo' };
+
+  var STAP_RUIMTE = 1;      // mm per klik
+  var STAP_SCHAAL = 5;      // % per klik
+  var STAP_BEELD_SCHAAL = 5;
+  var STAP_VERSCHUIF = 2;   // mm per klik
+
+  var opmaakStand = false;
+
+  function getal(w, standaard) {
+    var n = Number(w);
+    return isFinite(n) ? n : standaard;
+  }
+
+  /* Leest en HERSTELT de indeling: elk bekend blok staat er precies een keer
+     in. Een sjabloon van voor deze functie heeft er geen, en een blok dat er
+     later bijkomt moet ergens verschijnen in plaats van stil te ontbreken --
+     het komt dan op zijn standaardpagina achteraan. */
+  function indeling() {
+    var c = staat.copy;
+    var o = c.indeling;
+    if (!o || typeof o !== 'object' || Array.isArray(o)) o = c.indeling = {};
+    if (!Array.isArray(o.paginas) || !o.paginas.length) o.paginas = kopie(STANDAARD_PAGINAS);
+    var gezien = {};
+    o.paginas = o.paginas.map(function (p) {
+      return (Array.isArray(p) ? p : []).filter(function (k) {
+        if (!BLOKKEN[k] || gezien[k]) return false;
+        gezien[k] = true;
+        return true;
+      });
+    });
+    STANDAARD_PAGINAS.forEach(function (p, i) {
+      p.forEach(function (k) {
+        if (gezien[k]) return;
+        while (o.paginas.length <= i) o.paginas.push([]);
+        o.paginas[i].push(k);
+      });
+    });
+    if (!o.blokken || typeof o.blokken !== 'object' || Array.isArray(o.blokken)) o.blokken = {};
+    if (!o.beelden || typeof o.beelden !== 'object' || Array.isArray(o.beelden)) o.beelden = {};
+    if (!Array.isArray(o.paginaSchaal)) o.paginaSchaal = [];
+    return o;
+  }
+
+  function blokInst(k) { var o = indeling(); return o.blokken[k] || (o.blokken[k] = {}); }
+  function beeldInst(k) { var o = indeling(); return o.beelden[k] || (o.beelden[k] = {}); }
+
+  /* data-beeld + de stijl van een afbeelding. De breedte schaalt via een
+     CSS-variabele (offerte.css rekent ze om per afbeelding), verschuiven met
+     `translate` -- dat duwt niets anders weg, precies wat je wil als je een
+     tekening een paar millimeter wil bijzetten. */
+  function beeldAttr(k) {
+    var b = indeling().beelden[k] || {};
+    var s = getal(b.schaal, 100), x = getal(b.x, 0), y = getal(b.y, 0);
+    var stijl = [];
+    if (s !== 100) stijl.push('--ov-beeld-schaal:' + (s / 100));
+    if (x || y) stijl.push('translate:' + x + 'mm ' + y + 'mm');
+    return ' data-beeld="' + k + '"' + (stijl.length ? ' style="' + stijl.join(';') + '"' : '');
+  }
+
+  function knopje(doe, attrs, tekst, titel, uit) {
+    return '<button type="button" class="ov-ik"' + (uit ? ' disabled' : '') + ' data-action="indeling" data-doe="' + doe + '"' +
+      attrs + ' title="' + esc(titel) + '">' + tekst + '</button>';
+  }
+
+  /* De balk boven een blok, alleen in de opmaakstand. */
+  function blokBalk(k, pagina, positie, aantalOpPagina, aantalPaginas) {
+    var inst = indeling().blokken[k] || {};
+    var a = ' data-blok="' + k + '"';
+    var ruimte = BLOKKEN[k].basis + getal(inst.ruimte, 0);
+    var schaal = getal(inst.schaal, 100);
+    var html = '<div class="ov-ibalk">' +
+      '<span class="ov-ilabel">' + esc(BLOKKEN[k].label) + '</span>' +
+      knopje('op', a, '&uarr;', 'Een plaats omhoog', positie === 0) +
+      knopje('neer', a, '&darr;', 'Een plaats omlaag', positie === aantalOpPagina - 1) +
+      '<span class="ov-isep"></span>' +
+      knopje('vorige-pagina', a, '&#8676; p.', 'Naar de vorige pagina', pagina === 0) +
+      '<span class="ov-iwaarde">p. ' + (pagina + 1) + '</span>' +
+      knopje('volgende-pagina', a, 'p. &#8677;', pagina === aantalPaginas - 1 ? 'Naar een nieuwe pagina' : 'Naar de volgende pagina') +
+      '<span class="ov-isep"></span>' +
+      '<span class="ov-inaam">ruimte boven</span>' +
+      knopje('ruimte-min', a, '&minus;', 'Minder ruimte boven dit blok') +
+      '<span class="ov-iwaarde">' + ruimte + ' mm</span>' +
+      knopje('ruimte-plus', a, '+', 'Meer ruimte boven dit blok') +
+      '<span class="ov-isep"></span>' +
+      '<span class="ov-inaam">grootte</span>' +
+      knopje('klein', a, '&minus;', 'Blok kleiner (tekst en beelden)', schaal <= 50) +
+      '<span class="ov-iwaarde">' + schaal + '%</span>' +
+      knopje('groot', a, '+', 'Blok groter', schaal >= 150) +
+      '<span class="ov-isep"></span>' +
+      knopje('verberg', a, inst.verborgen ? 'Tonen' : 'Verbergen',
+        inst.verborgen ? 'Dit blok weer in de offerte zetten' : 'Dit blok niet in de offerte zetten') +
+      knopje('blok-herstel', a, '&#8634;', 'Ruimte, grootte en zichtbaarheid terugzetten') +
+    '</div>';
+
+    Object.keys(BEELDEN).forEach(function (bk) {
+      if (BEELDEN[bk].blok !== k) return;
+      var b = indeling().beelden[bk] || {};
+      var ba = ' data-beeld="' + bk + '"';
+      html += '<div class="ov-ibalk ov-ibalk--beeld">' +
+        '<span class="ov-ilabel">' + esc(BEELDEN[bk].label) + '</span>' +
+        knopje('beeld-klein', ba, '&minus;', 'Kleiner', getal(b.schaal, 100) <= 20) +
+        '<span class="ov-iwaarde">' + getal(b.schaal, 100) + '%</span>' +
+        knopje('beeld-groot', ba, '+', 'Groter', getal(b.schaal, 100) >= 250) +
+        '<span class="ov-isep"></span>' +
+        '<span class="ov-inaam">verschuif</span>' +
+        knopje('beeld-links', ba, '&larr;', STAP_VERSCHUIF + ' mm naar links') +
+        knopje('beeld-rechts', ba, '&rarr;', STAP_VERSCHUIF + ' mm naar rechts') +
+        knopje('beeld-op', ba, '&uarr;', STAP_VERSCHUIF + ' mm omhoog') +
+        knopje('beeld-neer', ba, '&darr;', STAP_VERSCHUIF + ' mm omlaag') +
+        '<span class="ov-iwaarde">' + getal(b.x, 0) + ' / ' + getal(b.y, 0) + ' mm</span>' +
+        knopje('beeld-herstel', ba, '&#8634;', 'Grootte en plaats terugzetten') +
+        (BEELD_PADEN[bk]
+          ? '<span class="ov-isep"></span>' + knopje('beeld-vervang', ba, 'Vervangen&hellip;', 'Een andere afbeelding kiezen')
+          : '') +
+      '</div>';
+    });
+    return html;
+  }
+
+  function blokHtml(k, stukken, pagina, positie, aantalOpPagina, aantalPaginas) {
+    var inst = indeling().blokken[k] || {};
+    if (inst.verborgen && !opmaakStand) return '';
+    var marge = BLOKKEN[k].basis + getal(inst.ruimte, 0);
+    var schaal = getal(inst.schaal, 100);
+    return '<div class="ov-blok' + (inst.verborgen ? ' ov-blok--verborgen' : '') + '" data-blok="' + k + '"' +
+        ' style="margin-top:' + marge + 'mm">' +
+      (opmaakStand ? blokBalk(k, pagina, positie, aantalOpPagina, aantalPaginas) : '') +
+      '<div class="ov-blok-inhoud"' + (schaal !== 100 ? ' style="zoom:' + (schaal / 100) + '"' : '') + '>' +
+        (stukken[k] || '') +
+      '</div>' +
+    '</div>';
+  }
+
+  function paginaBalk(i, aantal, leeg) {
+    var schaal = getal(indeling().paginaSchaal[i], 100);
+    var a = ' data-pagina="' + i + '"';
+    return '<div class="ov-pbalk">' +
+      '<span class="ov-ilabel">Pagina ' + (i + 1) + '</span>' +
+      '<span class="ov-inaam">alles op deze pagina</span>' +
+      knopje('pagina-klein', a, '&minus;', 'Hele pagina kleiner', schaal <= 50) +
+      '<span class="ov-iwaarde">' + schaal + '%</span>' +
+      knopje('pagina-groot', a, '+', 'Hele pagina groter', schaal >= 150) +
+      '<span class="ov-isep"></span>' +
+      knopje('beeld-vervang', ' data-beeld="logo"', 'Logo vervangen&hellip;', 'Het logo in de kop van elke pagina vervangen') +
+      (leeg ? knopje('pagina-weg', a, 'Lege pagina weg', 'Deze lege pagina verwijderen') : '') +
+      (i === aantal - 1 ? knopje('pagina-erbij', a, '+ lege pagina', 'Een lege pagina achteraan toevoegen') : '') +
+    '</div>';
+  }
+
+  function tekenPaginas() {
+    var o = indeling();
+    var stukken = {};
+    [blokkenPagina1(), blokkenPagina2(), blokkenPagina3()].forEach(function (s) {
+      Object.keys(s).forEach(function (k) { stukken[k] = s[k]; });
+    });
+    var aantal = o.paginas.length;
+    return o.paginas.map(function (sleutels, i) {
+      var schaal = getal(o.paginaSchaal[i], 100);
+      var inhoud = sleutels.map(function (k, j) {
+        return blokHtml(k, stukken, i, j, sleutels.length, aantal);
+      }).join('');
+      if (opmaakStand && !sleutels.length) {
+        inhoud = '<div class="ov-leeg">Lege pagina &mdash; zet hier een blok met &ldquo;p. &#8677;&rdquo;.</div>';
+      }
+      var html = blad(i + 1,
+        '<div class="ov-body-inhoud"' + (schaal !== 100 ? ' style="zoom:' + (schaal / 100) + '"' : '') + '>' + inhoud + '</div>');
+      return opmaakStand ? html.replace('<section class="ov-pagina"', paginaBalk(i, aantal, !sleutels.length) + '<section class="ov-pagina"') : html;
+    }).join('');
+  }
+
+  function beweegBlok(k, doe) {
+    var o = indeling();
+    var p = -1, j = -1;
+    o.paginas.forEach(function (lijst, i) { var x = lijst.indexOf(k); if (x !== -1) { p = i; j = x; } });
+    if (p === -1) return;
+    var lijst = o.paginas[p];
+    if (doe === 'op' && j > 0) { lijst.splice(j, 1); lijst.splice(j - 1, 0, k); }
+    if (doe === 'neer' && j < lijst.length - 1) { lijst.splice(j, 1); lijst.splice(j + 1, 0, k); }
+    if (doe === 'vorige-pagina' && p > 0) { lijst.splice(j, 1); o.paginas[p - 1].push(k); }
+    if (doe === 'volgende-pagina') {
+      lijst.splice(j, 1);
+      if (p === o.paginas.length - 1) o.paginas.push([]);
+      o.paginas[p + 1].unshift(k);
+    }
+  }
+
+  function klem(w, min, max) { return Math.max(min, Math.min(max, w)); }
+
+  function indelingActie(el) {
+    var doe = el.dataset.doe;
+    var o = indeling();
+    var k = el.dataset.blok, bk = el.dataset.beeld, pi = Number(el.dataset.pagina);
+    if (doe === 'beeld-vervang') { toonBeeldKiezer(bk); return; }
+
+    if (k && BLOKKEN[k]) {
+      var inst = blokInst(k);
+      if (doe === 'op' || doe === 'neer' || doe === 'vorige-pagina' || doe === 'volgende-pagina') beweegBlok(k, doe);
+      else if (doe === 'ruimte-min') inst.ruimte = getal(inst.ruimte, 0) - STAP_RUIMTE;
+      else if (doe === 'ruimte-plus') inst.ruimte = getal(inst.ruimte, 0) + STAP_RUIMTE;
+      else if (doe === 'klein') inst.schaal = klem(getal(inst.schaal, 100) - STAP_SCHAAL, 50, 150);
+      else if (doe === 'groot') inst.schaal = klem(getal(inst.schaal, 100) + STAP_SCHAAL, 50, 150);
+      else if (doe === 'verberg') inst.verborgen = !inst.verborgen;
+      else if (doe === 'blok-herstel') delete o.blokken[k];
+      /* Nooit minder dan nul ruimte in totaal: dan schuift het blok over het
+         vorige heen, en dat ziet er in de pdf uit als een fout. */
+      if (o.blokken[k] && BLOKKEN[k].basis + getal(o.blokken[k].ruimte, 0) < 0) o.blokken[k].ruimte = -BLOKKEN[k].basis;
+    } else if (bk && BEELDEN[bk]) {
+      var b = beeldInst(bk);
+      if (doe === 'beeld-klein') b.schaal = klem(getal(b.schaal, 100) - STAP_BEELD_SCHAAL, 20, 250);
+      else if (doe === 'beeld-groot') b.schaal = klem(getal(b.schaal, 100) + STAP_BEELD_SCHAAL, 20, 250);
+      else if (doe === 'beeld-links') b.x = getal(b.x, 0) - STAP_VERSCHUIF;
+      else if (doe === 'beeld-rechts') b.x = getal(b.x, 0) + STAP_VERSCHUIF;
+      else if (doe === 'beeld-op') b.y = getal(b.y, 0) - STAP_VERSCHUIF;
+      else if (doe === 'beeld-neer') b.y = getal(b.y, 0) + STAP_VERSCHUIF;
+      else if (doe === 'beeld-herstel') delete o.beelden[bk];
+    } else if (isFinite(pi)) {
+      var s = getal(o.paginaSchaal[pi], 100);
+      if (doe === 'pagina-klein') o.paginaSchaal[pi] = klem(s - STAP_SCHAAL, 50, 150);
+      else if (doe === 'pagina-groot') o.paginaSchaal[pi] = klem(s + STAP_SCHAAL, 50, 150);
+      else if (doe === 'pagina-erbij') o.paginas.push([]);
+      else if (doe === 'pagina-weg' && !(o.paginas[pi] || []).length && o.paginas.length > 1) {
+        o.paginas.splice(pi, 1);
+        o.paginaSchaal.splice(pi, 1);
+      }
+    } else if (doe === 'alles-herstel') {
+      if (!window.confirm('De hele indeling terugzetten: blokken naar hun standaardpagina, alle ruimtes, groottes en afbeeldingen?')) return;
+      delete staat.copy.indeling;
+    }
+    bewaar();
+    teken();
+  }
+
+  /* ======================================================================
+     Afbeelding vervangen
+
+     Kiezen uit de Asset Manager, of een link plakken. Via
+     /forminator-v2/api/mail-assets -- dezelfde route en DEZELFDE RECHTEN als
+     de bijlagekiezer van de mailstap (zie routes.js). Bewust geen uploadveld:
+     uploaden gebeurt in de Asset Manager, anders staan er twee versies van
+     hetzelfde beeld waarvan er één veroudert. Zelfde afspraak als bij de
+     mailbijlagen.
+
+     De keuze gaat in staat.gegevens.beeld.*, dus in het sjabloon: elke
+     volgende offerte van dit sjabloon krijgt het nieuwe beeld.
+     ====================================================================== */
+
+  var beeldKiezer = { sleutel: null, prefix: '' };
+
+  function isAfbeelding(f) {
+    return /^image\//.test(f.contentType || '') || /\.(png|jpe?g|gif|webp|svg)$/i.test(f.name || '');
+  }
+
+  function toonBeeldKiezer(sleutel) {
+    if (!BEELD_PADEN[sleutel]) return;
+    beeldKiezer.sleutel = sleutel;
+    var huidig = String(lees(BEELD_PADEN[sleutel], staat.gegevens) || '');
+    document.getElementById('ovBeeldTitel').textContent =
+      (BEELD_LABELS[sleutel] || (BEELDEN[sleutel] && BEELDEN[sleutel].label) || 'Afbeelding') + ' vervangen';
+    document.getElementById('ovBeeldUrl').value = huidig;
+    toonBeeldVoorbeeld(huidig);
+    laadBeeldMap('');
+    document.getElementById('ovBeeldDialoog').showModal();
+  }
+
+  function toonBeeldVoorbeeld(url) {
+    var vak = document.getElementById('ovBeeldVoorbeeld');
+    vak.innerHTML = url ? '<img src="' + esc(url) + '" alt="">' : '<span>Geen afbeelding</span>';
+  }
+
+  function laadBeeldMap(prefix) {
+    beeldKiezer.prefix = prefix;
+    var lijst = document.getElementById('ovBeeldLijst');
+    lijst.innerHTML = '<div class="ov-veld-hint">Laden&hellip;</div>';
+    fetch('/forminator-v2/api/mail-assets?prefix=' + encodeURIComponent(prefix), { credentials: 'include' })
+      .then(function (res) {
+        if (res.status === 401) { window.location.href = '/'; return null; }
+        return res.json();
+      })
+      .then(function (json) {
+        if (!json) return;
+        if (!json.success) throw new Error(json.error || 'onbekende fout');
+        var d = json.data || {};
+        var html = '';
+        if (prefix) {
+          var ouder = prefix.replace(/[^/]+\/$/, '');
+          html += '<button type="button" class="ov-beeld-map" data-action="beeld-map" data-prefix="' + esc(ouder) + '">&larr; terug</button>';
+          html += '<div class="ov-veld-hint">' + esc(prefix) + '</div>';
+        }
+        (d.folders || []).forEach(function (f) {
+          html += '<button type="button" class="ov-beeld-map" data-action="beeld-map" data-prefix="' + esc(f.prefix) + '">&#128193; ' + esc(f.name) + '</button>';
+        });
+        var beelden = (d.files || []).filter(isAfbeelding);
+        if (beelden.length) {
+          html += '<div class="ov-beeld-raster">' + beelden.map(function (f) {
+            return '<button type="button" class="ov-beeld-tegel" data-action="beeld-kies" data-url="' + esc(f.url) + '" title="' + esc(f.name) + '">' +
+              '<img src="' + esc(f.url) + '" alt="" loading="lazy"><span>' + esc(f.name) + '</span></button>';
+          }).join('') + '</div>';
+        } else if (prefix) {
+          html += '<div class="ov-veld-hint">Geen afbeeldingen in deze map.</div>';
+        }
+        if (!prefix && d.readable === false) {
+          html = '<div class="ov-veld-hint">Je hebt geen toegang tot mappen in de Asset Manager. Plak hierboven een link.</div>';
+        }
+        lijst.innerHTML = html;
+      })
+      .catch(function (err) {
+        lijst.innerHTML = '<div class="ov-veld-hint">Asset Manager niet bereikbaar (' + esc(err.message) + '). Plak hierboven een link.</div>';
+      });
+  }
+
+  function beeldToepassen() {
+    var url = document.getElementById('ovBeeldUrl').value.trim();
+    if (!url) { window.alert('Kies een afbeelding of plak een link.'); return; }
+    zet(BEELD_PADEN[beeldKiezer.sleutel], url, staat.gegevens);
+    document.getElementById('ovBeeldDialoog').close();
+    bewaar();
+    teken();
+    melding('Afbeelding vervangen.');
   }
 
   /* ======================================================================
      Tekenen
      ====================================================================== */
 
+  /* Licentietotaal = tarief per hoofdkavel x aantal kavels, boven de 60 kavels
+     een ONDERGRENS ("Vanaf") op basis van 60. Draait bij ELKE tekening, want
+     het is een afgeleide: het aantal kavels of het tarief wijzigen moet het
+     bedrag op de licentiekaart meteen meenemen. Daarom staan deze drie ook
+     niet in OFFERTE_VELDEN -- het zijn geen invoervelden.
+
+     TWEEDE KOPIE van berekenLicentiePrijs() in pdf-step.js, met opzet: de
+     Worker kan niets uit public/ importeren, en de editor moet dit zonder
+     server kunnen. Wijzig je de regel, wijzig ze op BEIDE plekken -- anders
+     toont de editor een ander bedrag dan de pdf die de pipeline maakt.
+     Zelfde afweging als CHATTER_KNOP_STIJLEN.
+
+     Onleesbare kavels of een onleesbaar tarief laten de sjabloonwaarde staan,
+     zelfde keuze als de server: liever het bedrag uit het sjabloon dan een
+     leeg vak of "NaN" op een offerte. */
+  function herberekenLicentie() {
+    var g = staat && staat.gegevens;
+    if (!g || !g.prijs) return;
+    var match = String((g.gebouw && g.gebouw.kavels) || '').match(/\d+/);
+    var kavels = match ? parseInt(match[0], 10) : NaN;
+    var tarief = parseFloat(String(g.prijs.licentie == null ? '' : g.prijs.licentie).replace(',', '.'));
+    if (!isFinite(kavels) || kavels <= 0 || !isFinite(tarief)) return;
+
+    var vanaf = kavels > 60;
+    var basis = vanaf ? 60 : kavels;
+    var totaal = tarief * basis;
+    g.prijs.licentie_totaal = Number.isInteger(totaal) ? String(totaal) : totaal.toFixed(2).replace('.', ',');
+    g.prijs.licentie_totaal_label = vanaf ? 'Vanaf ' : '';
+    g.prijs.licentie_basis = String(basis);
+  }
+
   function teken() {
+    herberekenLicentie();
     var doc = document.getElementById('ovDocument');
-    doc.innerHTML = blad1() + blad2() + blad3();
+    doc.innerHTML = tekenPaginas();
     document.body.classList.toggle('ov-bewerkstand', bewerken);
+    document.body.classList.toggle('ov-opmaakstand', opmaakStand);
+    var knopOpmaak = document.getElementById('ovKnopOpmaak');
+    if (knopOpmaak) {
+      knopOpmaak.classList.toggle('ov-knop--actief', opmaakStand);
+      knopOpmaak.textContent = opmaakStand ? 'Klaar met opmaak' : 'Opmaak';
+    }
+    var knopAllesHerstel = document.getElementById('ovKnopIndelingHerstel');
+    if (knopAllesHerstel) knopAllesHerstel.hidden = !opmaakStand;
     var knop = document.getElementById('ovKnopBewerken');
     if (knop) {
       knop.classList.toggle('ov-knop--actief', bewerken);
       knop.textContent = bewerken ? 'Klaar met bewerken' : 'Tekst bewerken';
     }
     controleerOverloop();
+    meetLaterOpnieuw(doc);
   }
 
   /* Een pagina die overloopt is de klassieke stille fout van een pdf-sjabloon:
-     op het scherm zie je het niet, in de pdf is de laatste alinea weg. */
+     op het scherm zie je het niet, in de pdf is de laatste alinea weg.
+
+     Gemeten als: waar eindigt de INHOUD van de blokken, tegenover de onderkant
+     van het vlak tussen kop en voet. NIET met scrollHeight: dat telt alles mee
+     wat uitsteekt, ook de knoppenbalk van de opmaakstand die onder een blok
+     hangt -- dan meldt een pagina altijd "loopt over", hoe klein je ook maakt.
+     Een verschoven afbeelding (translate) telt hier ook niet mee; dat is een
+     bewuste keuze van wie ze verschoof. */
   function controleerOverloop() {
     document.querySelectorAll('.ov-pagina').forEach(function (p) {
       var body = p.querySelector('.ov-body');
       if (!body) return;
-      p.classList.toggle('ov-pagina--vol', body.scrollHeight > body.clientHeight + 2);
+      var grens = body.getBoundingClientRect().bottom;
+      var einde = 0;
+      p.querySelectorAll('.ov-blok-inhoud, .ov-leeg').forEach(function (el) {
+        var onder = el.getBoundingClientRect().bottom;
+        if (onder > einde) einde = onder;
+      });
+      p.classList.toggle('ov-pagina--vol', einde > grens + 2);
     });
+  }
+
+  /* Een afbeelding of lettertype dat pas NA het tekenen binnenkomt, verandert
+     de hoogte nog. Zonder opnieuw te meten blijft een melding staan (of weg)
+     die niet meer klopt. */
+  function meetLaterOpnieuw(doc) {
+    doc.querySelectorAll('img').forEach(function (img) {
+      if (!img.complete) img.addEventListener('load', controleerOverloop, { once: true });
+    });
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(controleerOverloop);
+  }
+
+  /* ======================================================================
+     Invulvelden aanvullen uit de copy
+
+     Typ je ergens {{gebouw.situatie}}, dan moet dat ook een INVULVELD worden:
+     de koppeling toont enkel velden uit OFFERTE_VELDEN (template.data.velden),
+     en de server (toegestaneGegevenspaden in pdf-step.js) weigert elk ander
+     pad. Zonder dit bleef zo'n placeholder op elke offerte stil leeg.
+
+     Zelf toegevoegde velden krijgen een derde element `true` ([pad, label,
+     true]). Alleen DIE worden bijgewerkt en weer opgeruimd als de placeholder
+     nergens meer staat -- anders blijft elk tussenstadium van het typen
+     ({{gebouw.situati}}) als veld achter. Velden die in offerte-data.js
+     staan, raakt dit nooit aan.
+
+     Het label komt uit de gegevensrij waar de placeholder in staat ("Huidige
+     situatie"); anders uit het laatste stuk van het pad.
+     ====================================================================== */
+
+  /* Afgeleid of met een eigen bron -- geen invulveld. */
+  var GEEN_INVULVELD = /^(prijs\.licentie_totaal|prijs\.licentie_totaal_label|prijs\.licentie_basis)$|^(contact|bedrijf|beeld)\./;
+
+  var GROEP_VOOR = { offerte: 'Offerte', gebouw: 'Gebouw en klant', klant: 'Gebouw en klant', prijs: 'Prijzen' };
+
+  function labelVoorPad(pad) {
+    var rijen = (staat.copy && staat.copy.offerte && staat.copy.offerte.rijen) || [];
+    var patroon = new RegExp('\\{\\{\\s*' + pad.replace(/\./g, '\\.') + '\\s*\\}\\}');
+    for (var i = 0; i < rijen.length; i++) {
+      if (rijen[i] && patroon.test(String(rijen[i].waarde || '')) && String(rijen[i].label || '').trim()) {
+        return String(rijen[i].label).trim();
+      }
+    }
+    var laatste = pad.split('.').pop().replace(/_/g, ' ');
+    return laatste.charAt(0).toUpperCase() + laatste.slice(1);
+  }
+
+  /* @returns {boolean} of er iets veranderde */
+  function vulVeldenAan() {
+    var velden = window.OFFERTE_VELDEN;
+    if (!Array.isArray(velden) || !staat || !staat.copy) return false;
+
+    var gebruikt = {};
+    JSON.stringify(staat.copy).replace(/\{\{\s*([\w]+(?:\.[\w]+)+)\s*\}\}/g, function (_, pad) {
+      if (!GEEN_INVULVELD.test(pad)) gebruikt[pad] = true;
+      return '';
+    });
+
+    var veranderd = false;
+    var bekend = {};
+    velden.forEach(function (groep) {
+      groep.velden = (groep.velden || []).filter(function (paar) {
+        if (paar[2] === true && !gebruikt[paar[0]]) { veranderd = true; return false; }
+        if (paar[2] === true) {
+          var label = labelVoorPad(paar[0]);
+          if (label !== paar[1]) { paar[1] = label; veranderd = true; }
+        }
+        bekend[paar[0]] = true;
+        return true;
+      });
+    });
+
+    Object.keys(gebruikt).forEach(function (pad) {
+      if (bekend[pad]) return;
+      var naam = GROEP_VOOR[pad.split('.')[0]] || 'Eigen velden';
+      var groep = velden.filter(function (g) { return g.groep === naam; })[0];
+      if (!groep) {
+        groep = { groep: naam, velden: [] };
+        /* Voor Contactpersoon/Bedrijf/Beeldmateriaal, zodat de nieuwe groep
+           bij de andere invulvelden staat en niet achteraan. */
+        var voor = velden.map(function (g) { return g.groep; }).indexOf('Contactpersoon');
+        if (voor === -1) velden.push(groep); else velden.splice(voor, 0, groep);
+      }
+      groep.velden.push([pad, labelVoorPad(pad), true]);
+      if (lees(pad, staat.gegevens) === '') zet(pad, '', staat.gegevens);
+      veranderd = true;
+    });
+
+    /* Een lege eigen groep ruimen we op; de vaste groepen blijven staan. */
+    window.OFFERTE_VELDEN = velden.filter(function (g) {
+      return g.velden.length || g.groep !== 'Eigen velden';
+    });
+    return veranderd;
   }
 
   /* ======================================================================
@@ -439,6 +994,7 @@
   var bewaarTimer = null;
   function bewaar() {
     if (SERVER) return;   // Browser Rendering: nooit iets bewaren.
+    vulVeldenAan();
 
     clearTimeout(bewaarTimer);
     bewaarTimer = setTimeout(function () {
@@ -491,6 +1047,10 @@
         var titel = document.querySelector('.ov-werkbalk-titel');
         if (titel && json.data.name) titel.textContent = 'Offerte — ' + json.data.name;
         teken();
+        if (vulVeldenAan()) {
+          bewaar();
+          melding('Nieuwe invulvelden toegevoegd aan het sjabloon.');
+        }
       })
       .catch(function () {
         melding('Sjabloon kon niet geladen worden — wijzigingen worden NIET bewaard.');
@@ -502,6 +1062,7 @@
      ====================================================================== */
 
   document.addEventListener('input', function (e) {
+    if (e.target && e.target.id === 'ovBeeldUrl') { toonBeeldVoorbeeld(e.target.value.trim()); return; }
     if (!bewerken) return;
     var el = e.target.closest && e.target.closest('[data-bind]');
     if (!el) return;
@@ -533,16 +1094,31 @@
      Werkbalk en dialogen
      ====================================================================== */
 
+  /* Staat dit pad in deze groep? Zo weet het dialoog waar de nummerknop en de
+     medewerkerkiezer horen, zonder op de GROEPSNAAM te matchen -- die is een
+     label dat iemand morgen kan hernoemen. */
+  function groepHeeft(groep, pad) {
+    return (groep.velden || []).some(function (v) { return v[0] === pad; });
+  }
+
   function toonGegevens() {
     var body = document.getElementById('ovGegevensBody');
     body.innerHTML = (window.OFFERTE_VELDEN || []).map(function (groep) {
-      return '<div class="ov-groepkop">' + esc(groep.groep) + '</div>' +
-        groep.velden.map(function (v) {
-          return '<label class="ov-veld"><span>' + esc(v[1]) + '</span>' +
-            '<input type="text" data-gegeven="' + esc(v[0]) + '" value="' + esc(lees(v[0], staat.gegevens)) + '">' +
-          '</label>';
-        }).join('');
+      var velden = groep.velden.map(function (v) {
+        return '<label class="ov-veld"><span>' + esc(v[1]) + '</span>' +
+          '<input type="text" data-gegeven="' + esc(v[0]) + '" value="' + esc(lees(v[0], staat.gegevens)) + '">' +
+        '</label>';
+      }).join('');
+
+      if (groepHeeft(groep, 'offerte.nummer')) velden += nummerKnopHtml();
+      /* De kiezer VOOR de velden die hij invult -- erachter lees je eerst drie
+         lege velden en pas dan dat je ze niet zelf hoeft te typen. */
+      if (groepHeeft(groep, 'contact.naam')) velden = contactKiezerHtml() + velden;
+
+      return '<div class="ov-groepkop">' + esc(groep.groep) + '</div>' + velden;
     }).join('');
+
+    laadContacten();
     document.getElementById('ovGegevensDialoog').showModal();
   }
 
@@ -553,6 +1129,139 @@
     document.getElementById('ovGegevensDialoog').close();
     bewaar();
     teken();
+  }
+
+  /* ----------------------------------------------------------------------
+     Offertenummer + datums genereren
+
+     Het nummer komt van de SERVER: de teller staat op het sjabloon
+     (fs_v2_pdf_templates), dezelfde die een echte inzending gebruikt. Een
+     tweede reeks in de browser zou ooit twee offertes met hetzelfde nummer
+     geven. De datums worden er meteen bij gezet -- vandaag, en vandaag plus de
+     ingestelde geldigheidstermijn.
+
+     De waarden gaan in de INVOERVELDEN, niet rechtstreeks in de gegevens: zo
+     zie je wat je krijgt voor je op "Invullen" drukt. Het nummer is op dat
+     moment wel al opgebruikt; annuleren laat dus een gat in de reeks, en dat
+     is de goede kant om op te falen.
+     -------------------------------------------------------------------- */
+
+  function nummerKnopHtml() {
+    return '<div class="ov-veld-actie">' +
+      '<button type="button" class="ov-knop" data-action="nummer-genereren">Nummer &amp; datum genereren</button>' +
+      '<span class="ov-veld-hint" id="ovNummerHint">' +
+        (TEMPLATE_ID
+          ? 'Neemt het volgende nummer uit de reeks van dit sjabloon en zet de datum van vandaag erbij.'
+          : 'Enkel beschikbaar voor een opgeslagen sjabloon; hier wordt alleen de datum van vandaag ingevuld.') +
+      '</span></div>';
+  }
+
+  /* Vandaag als DD/MM/JJJJ in Belgische tijd. Zelfde vorm als het sjabloon en
+     als formatDatumBrussel() in pdf-step.js. In de browser staat de klok al op
+     de tijdzone van de gebruiker, maar de tijdzone expliciet noemen kost niets
+     en is juist voor wie van elders inlogt. */
+  function vandaag() {
+    var d = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Europe/Brussels', year: 'numeric', month: '2-digit', day: '2-digit'
+    }).formatToParts(new Date()).reduce(function (acc, deel) { acc[deel.type] = deel.value; return acc; }, {});
+    return d.day + '/' + d.month + '/' + d.year;
+  }
+
+  function zetGegevenVeld(pad, waarde) {
+    var input = document.querySelector('#ovGegevensBody [data-gegeven="' + pad + '"]');
+    if (input) input.value = waarde;
+  }
+
+  function genereerNummer() {
+    if (!TEMPLATE_ID) {
+      zetGegevenVeld('offerte.datum', vandaag());
+      melding('Datum ingevuld.');
+      return;
+    }
+    var knop = document.querySelector('[data-action="nummer-genereren"]');
+    if (knop) knop.disabled = true;
+    fetch('/forminator-v2/api/pdf-templates/' + TEMPLATE_ID + '/next-number', {
+      method: 'POST', credentials: 'include'
+    }).then(function (res) { return res.json(); }).then(function (json) {
+      if (!json || !json.success) throw new Error((json && json.error) || 'onbekende fout');
+      zetGegevenVeld('offerte.nummer', json.data.nummer);
+      zetGegevenVeld('offerte.datum', json.data.datum || vandaag());
+      if (json.data.geldig_tot) zetGegevenVeld('offerte.geldig_tot', json.data.geldig_tot);
+      melding('Nummer ' + json.data.nummer + ' genomen.');
+    }).catch(function (err) {
+      window.alert('Nummer genereren mislukt: ' + err.message);
+    }).then(function () {
+      if (knop) knop.disabled = false;
+    });
+  }
+
+  /* ----------------------------------------------------------------------
+     Contactpersoon uit Odoo (hr.employee)
+
+     Naam, e-mailadres en pasfoto komen uit hetzelfde record en op dezelfde
+     manier als buildPdfGegevens() bij een echte inzending doet -- anders
+     levert een offerte uit de editor iets anders op dan een uit de pipeline.
+     De foto is een data-URI en dus lang; ze staat in het gewone
+     contact.foto-veld, zodat je ze nog met de hand kan vervangen door een pad.
+     -------------------------------------------------------------------- */
+
+  var contacten = { lijst: null, bezig: false };
+
+  function contactKiezerHtml() {
+    return '<label class="ov-veld"><span>Kies uit Odoo</span>' +
+      '<select id="ovContactKiezer" data-change="contact-kiezen">' +
+        '<option value="">Medewerkers laden&hellip;</option>' +
+      '</select></label>' +
+      '<div class="ov-veld-hint">Vult naam, e-mailadres en pasfoto in met de gegevens uit Odoo.</div>';
+  }
+
+  function tekenContactKiezer() {
+    var sel = document.getElementById('ovContactKiezer');
+    if (!sel) return;
+    if (!contacten.lijst) {
+      sel.innerHTML = '<option value="">Medewerkers laden&hellip;</option>';
+      return;
+    }
+    sel.innerHTML = '<option value="">- kies een medewerker -</option>' +
+      contacten.lijst.map(function (m) {
+        return '<option value="' + esc(m.id) + '">' + esc(m.naam) + (m.email ? ' (' + esc(m.email) + ')' : '') + '</option>';
+      }).join('');
+  }
+
+  function laadContacten() {
+    if (contacten.lijst || contacten.bezig) { tekenContactKiezer(); return; }
+    contacten.bezig = true;
+    fetch('/forminator-v2/api/pdf-contacten', { credentials: 'include' })
+      .then(function (res) { return res.json(); })
+      .then(function (json) {
+        if (!json || !json.success) throw new Error((json && json.error) || 'onbekende fout');
+        contacten.lijst = json.data || [];
+        tekenContactKiezer();
+      })
+      .catch(function () {
+        var sel = document.getElementById('ovContactKiezer');
+        if (sel) sel.innerHTML = '<option value="">Lijst kon niet geladen worden - vul hieronder met de hand in</option>';
+      })
+      .then(function () { contacten.bezig = false; });
+  }
+
+  function kiesContact(id) {
+    if (!id) return;
+    fetch('/forminator-v2/api/pdf-contacten/' + encodeURIComponent(id), { credentials: 'include' })
+      .then(function (res) { return res.json(); })
+      .then(function (json) {
+        if (!json || !json.success) throw new Error((json && json.error) || 'onbekende fout');
+        zetGegevenVeld('contact.naam', json.data.naam || '');
+        zetGegevenVeld('contact.email', json.data.email || '');
+        /* Geen foto in Odoo? Dan blijft de bestaande staan -- een offerte
+           zonder gezicht is erger dan een offerte met de vorige foto, en je
+           ziet meteen dat er nog iets te doen is. */
+        if (json.data.foto) zetGegevenVeld('contact.foto', json.data.foto);
+        melding(json.data.foto ? 'Contactpersoon ingevuld.' : 'Contactpersoon ingevuld (geen foto in Odoo).');
+      })
+      .catch(function (err) {
+        window.alert('Medewerker ophalen mislukt: ' + err.message);
+      });
   }
 
   function toonJson() {
@@ -596,8 +1305,9 @@
   function afdrukken() {
     /* De bewerkstand toont ruwe tekst met {{...}} erin. Die mag nooit in een
        pdf belanden, dus ze gaat hier vanzelf uit. */
-    if (bewerken) {
+    if (bewerken || opmaakStand) {
       bewerken = false;
+      opmaakStand = false;
       teken();
     }
     setTimeout(function () { window.print(); }, 60);
@@ -761,13 +1471,22 @@
 
     if (actie === 'bewerken') {
       bewerken = !bewerken;
+      if (bewerken) opmaakStand = false;
       teken();
+    } else if (actie === 'opmaak') {
+      opmaakStand = !opmaakStand;
+      if (opmaakStand) bewerken = false;
+      teken();
+    } else if (actie === 'indeling') {
+      indelingActie(el);
     } else if (actie === 'afdrukken') {
       afdrukken();
     } else if (actie === 'gegevens') {
       toonGegevens();
     } else if (actie === 'gegevens-bewaren') {
       bewaarGegevens();
+    } else if (actie === 'nummer-genereren') {
+      genereerNummer();
     } else if (actie === 'instellingen') {
       toonInstellingen();
     } else if (actie === 'instellingen-bewaren') {
@@ -787,6 +1506,13 @@
       tekenBedrijvenOverzicht();
     } else if (actie === 'json') {
       toonJson();
+    } else if (actie === 'beeld-map') {
+      laadBeeldMap(el.dataset.prefix || '');
+    } else if (actie === 'beeld-kies') {
+      document.getElementById('ovBeeldUrl').value = el.dataset.url || '';
+      toonBeeldVoorbeeld(el.dataset.url || '');
+    } else if (actie === 'beeld-toepassen') {
+      beeldToepassen();
     } else if (actie === 'json-toepassen') {
       pasJsonToe();
     } else if (actie === 'json-kopieren') {
@@ -816,7 +1542,23 @@
       l.splice(Number(el.dataset.index), 1);
       bewaar();
       teken();
+    } else if (actie === 'rij-op' || actie === 'rij-neer') {
+      var rijen = lees(el.dataset.lijst);
+      var van = Number(el.dataset.index);
+      var naar = actie === 'rij-op' ? van - 1 : van + 1;
+      if (!Array.isArray(rijen) || naar < 0 || naar >= rijen.length) return;
+      var rij = rijen.splice(van, 1)[0];
+      rijen.splice(naar, 0, rij);
+      bewaar();
+      teken();
     }
+  });
+
+  /* Keuzelijsten in de dialogen -- zelfde aanpak als de klikluisteraar. */
+  document.addEventListener('change', function (e) {
+    var el = e.target.closest && e.target.closest('[data-change]');
+    if (!el) return;
+    if (el.dataset.change === 'contact-kiezen') kiesContact(el.value);
   });
 
   /* ======================================================================

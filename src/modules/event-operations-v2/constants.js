@@ -200,12 +200,19 @@ export const PUBLIC_SHAPE_VERSION = 1;
 /**
  * Basispad van de publieke eventpagina.
  *
- * Enkelvoud, met sluitende slash: dat is exact de vorm die The Events
- * Calendar vandaag gebruikt (`/event/{slug}/?owid={id}`), geverifieerd op
- * openvme.be. Zo blijven bestaande links en zoekresultaten werken na de
- * omschakeling. Het archief staat op /events/.
+ * Meervoud: `/events/{slug}/?owid={id}`, het pad waarop de eventpagina's van
+ * de plugin vandaag echt staan. Tot 2026-09-24 stond hier '/event' (de vorm
+ * van The Events Calendar), en daardoor wees de link in elke
+ * e-mailhandtekening, in de mails en in de nieuwsfeed naar een pagina die
+ * niet bestond -- zonder foutmelding, want een link is gewoon tekst.
+ *
+ * Dit is de ENIGE bron voor dat pad in de Worker (mails, handtekening,
+ * nieuwsfeed, klikherkenning). De instelling "Pad eventpagina" in de plugin
+ * moet hiermee overeenkomen; de plugin gebruikt standaard dezelfde waarde.
+ * Het archief staat op /events/ zelf -- dat botst niet, het is een niveau
+ * minder diep.
  */
-export const PUBLIC_EVENT_PATH = '/event';
+export const PUBLIC_EVENT_PATH = '/events';
 export const PUBLIC_ARCHIVE_PATH = '/events';
 
 /**

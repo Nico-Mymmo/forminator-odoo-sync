@@ -42,6 +42,22 @@ export function extractSessionToken(request) {
 }
 
 /**
+ * Een `next`-pad dat veilig is om na het inloggen naartoe te sturen.
+ *
+ * Enkel een pad op DEZE site: begint met één `/`, niet met `//` of `/\`
+ * (dat leest een browser als een ander domein). Alles anders wordt null --
+ * anders is de loginpagina een open redirect naar eender welke site.
+ *
+ * @param {string|null} waarde @returns {string|null}
+ */
+export function veiligNextPad(waarde) {
+  const pad = String(waarde || '');
+  if (!pad.startsWith('/') || pad.startsWith('//') || pad.startsWith('/\\')) return null;
+  if (/[\r\n]/.test(pad)) return null;
+  return pad;
+}
+
+/**
  * Valideer de sessie en controleer module-toegang.
  *
  * @param {Request} request
@@ -57,10 +73,19 @@ export async function authGate(request, env, module) {
     user = await validateSession(env, token);
   }
 
-  // Module vereist auth maar gebruiker is niet ingelogd → redirect naar login (home)
+  // Module vereist auth maar gebruiker is niet ingelogd → redirect naar login (home).
+  // Bij een GET gaat het gevraagde pad mee als ?next=, zodat je na het
+  // inloggen terechtkomt waar je heen wou (een offerte uit de Odoo-chatter)
+  // in plaats van op het dashboard.
   const requiresAuth = module.requiresAuth !== false && module.code !== 'home';
   if (!user && requiresAuth) {
-    return Response.redirect(new URL('/', request.url), 302);
+    const login = new URL('/', request.url);
+    if (request.method === 'GET') {
+      const gevraagd = new URL(request.url);
+      const next = veiligNextPad(gevraagd.pathname + gevraagd.search);
+      if (next && next !== '/') login.searchParams.set('next', next);
+    }
+    return Response.redirect(login.toString(), 302);
   }
 
   if (user) {

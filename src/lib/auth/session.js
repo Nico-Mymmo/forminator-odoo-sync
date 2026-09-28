@@ -8,6 +8,24 @@ import { getSupabaseClient } from '../database.js';
 import { getOrderedFavorites } from '../../modules/mini-apps/lib/favorites.js';
 
 /**
+ * Hoe lang een sessie geldig is: 30 dagen, GLIJDEND.
+ *
+ * Iedereen die inlogt is een interne gebruiker, en de OM wordt vanuit Odoo
+ * aangeklikt (een offerte in de chatter, een link in een notitie). Met 24 uur
+ * vast stond je bij zo'n klik bijna altijd op het loginscherm. Glijdend: wie
+ * de OM gebruikt, blijft ingelogd; pas na 30 dagen niets moet je opnieuw.
+ * Uitloggen en een gedeactiveerd account (is_active) blijven meteen werken.
+ */
+export const SESSION_DAYS = 30;
+const SESSION_MS = SESSION_DAYS * 24 * 60 * 60 * 1000;
+
+/**
+ * Pas verlengen als er minder dan zoveel over is. Zo kost een gewone dag
+ * werken hoogstens één schrijfactie op `sessions`, niet een per verzoek.
+ */
+const VERLENG_ALS_MINDER_DAN_MS = (SESSION_DAYS - 1) * 24 * 60 * 60 * 1000;
+
+/**
  * Create a new session for a user
  * 
  * @param {Object} env - Environment variables
@@ -21,8 +39,7 @@ export async function createSession(env, userId, metadata = {}) {
   // Generate secure token
   const token = crypto.randomUUID();
   
-  // Set expiry (24 hours)
-  const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+  const expiresAt = new Date(Date.now() + SESSION_MS);
   
   const { data, error } = await supabase
     .from('sessions')
@@ -86,6 +103,19 @@ export async function validateSession(env, token) {
   // Check if user is active
   if (!session.user.is_active) {
     return null;
+  }
+
+  // Glijdend verlengen (zie SESSION_DAYS). Mislukt dat, dan is de sessie
+  // gewoon nog geldig tot haar huidige einde -- geen reden om te weigeren.
+  if (new Date(session.expires_at).getTime() - Date.now() < VERLENG_ALS_MINDER_DAN_MS) {
+    const { error: verlengFout } = await supabase
+      .from('sessions')
+      .update({
+        expires_at: new Date(Date.now() + SESSION_MS).toISOString(),
+        last_activity_at: new Date().toISOString()
+      })
+      .eq('token', token);
+    if (verlengFout) console.error('Session verlengen mislukt:', verlengFout.message);
   }
   
   // Get user's enabled modules
@@ -189,7 +219,7 @@ export async function invalidateAllUserSessions(env, userId) {
 export async function refreshSession(env, token) {
   const supabase = getSupabaseClient(env);
   
-  const newExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+  const newExpiresAt = new Date(Date.now() + SESSION_MS);
   
   const { data, error } = await supabase
     .from('sessions')

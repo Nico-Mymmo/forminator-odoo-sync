@@ -47,7 +47,9 @@
             </div>
             <div class="join">
               <button class="btn btn-sm join-item" data-action="setPeriod" data-period="30d">Laatste 30 dagen</button>
+              <button class="btn btn-sm join-item" data-action="setPeriod" data-period="3m">Laatste 3 maanden</button>
               <button class="btn btn-sm join-item" data-action="setPeriod" data-period="6m">Laatste 6 maanden</button>
+              <button class="btn btn-sm join-item" data-action="setPeriod" data-period="12m">Laatste 12 maanden</button>
             </div>
           </div>
 
@@ -66,7 +68,7 @@
                 </div>
                 <div class="text-sm text-base-content/60 mt-1" id="statCurrentDelta">&nbsp;</div>
                 <div class="flex flex-wrap gap-1 mt-3" id="statCurrentBrands"></div>
-                <p class="text-xs text-base-content/40 mt-3">Aantal/dag, rollend venster van 30 dagen, voorbije 2 jaar (absoluut)</p>
+                <p class="text-xs text-base-content/40 mt-3" id="absoluteSparklineCaption">&nbsp;</p>
                 <div style="height: 64px;" class="mt-1">
                   <canvas id="targetAbsoluteSparkline"></canvas>
                 </div>
@@ -87,7 +89,7 @@
                   <span class="text-3xl font-bold shrink-0" id="targetPct">—</span>
                 </div>
                 <p class="text-sm text-base-content/60 mt-2" id="targetDesc">Nog geen target ingesteld voor deze periode.</p>
-                <p class="text-xs text-base-content/40 mt-3">% van target, rollend venster van 30 dagen, voorbije 2 jaar</p>
+                <p class="text-xs text-base-content/40 mt-3" id="targetSparklineCaption">&nbsp;</p>
                 <div style="height: 64px;" class="mt-1">
                   <canvas id="targetSparkline"></canvas>
                 </div>
@@ -118,10 +120,11 @@
 
       <div class="card bg-base-100 border border-base-300 shadow-sm">
         <div class="card-body">
-          <h2 class="text-base font-semibold mb-2">Aanvragen per dag</h2>
+          <h2 class="text-base font-semibold mb-2" id="dailyChartTitle">Aanvragen per dag</h2>
           <div style="height: 320px;">
             <canvas id="dailyChart"></canvas>
           </div>
+          <div id="dailyChartLegend" class="grid grid-cols-1 sm:grid-cols-3 gap-x-6 gap-y-4 mt-4"></div>
         </div>
       </div>
 
@@ -132,9 +135,8 @@
     <div class="modal-box max-w-3xl">
       <h3 class="font-bold text-lg mb-1">Targets instellen <span class="text-base-content/50 font-normal" id="targetsModalScope"></span></h3>
       <p class="text-sm text-base-content/60 mb-4">
-        Eén target per kalendermaand. Zowel voorbije als komende maanden zijn instelbaar -- hoe verder
-        je historische maanden invult, hoe eerder de op-en-neerbeweging in de benchmarkgrafiek (die
-        altijd de voorbije 2 jaar toont) zichtbaar wordt, in plaats van pas in de recentste maanden.
+        Eén target per kalendermaand. Zowel voorbije als komende maanden zijn instelbaar -- de
+        benchmarkgrafiek toont enkel een percentage voor de periodes waarvoor een target bestaat.
         Wijzig wat je nodig hebt en druk één keer op "Opslaan".
       </p>
       <div id="targetsRows" class="grid grid-cols-4 gap-3"></div>

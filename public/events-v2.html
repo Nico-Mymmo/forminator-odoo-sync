@@ -184,16 +184,30 @@
       min-width: 0;
       position: relative;
     }
+    /* De titelregel draagt de badges MEE in plaats van eronder te lopen.
+       Noem de richting expliciet: een flexrij zonder flex-direction is een
+       gat waar een andere stylesheet in stapt. */
     .fc-event-card .event-type-label {
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      gap: 0.2rem;
+      min-width: 0;
       font-size: 0.625rem;
       font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 0.04em;
       opacity: 0.85;
+      /* Ruimte voor .status-dot, die rechtsboven blijft hangen. */
+      padding-right: 0.75rem;
+    }
+    /* Alleen de TEKST kapt af; de badges mogen nooit wegvallen -- ze zijn het
+       hele signaal. */
+    .fc-event-card .event-type-text {
+      min-width: 0;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
-      padding-right: 0.75rem;
     }
     .fc-event-card .event-detail-row {
       display: flex;
@@ -224,30 +238,40 @@
       background-color: var(--status-dot, oklch(var(--n)));
       border: 1.5px solid oklch(var(--b1));
     }
-    /* Sterretje: welk event momenteel gehighlight is in de
-       aankondiging-widget (WP-plugin). Bewust links i.p.v. rechts, want
-       .status-dot (publicatiestatus) zit al rechtsboven. Negatieve top/left
-       laten 'm over de rand van de kaart hangen (zoals een
-       notificatie-bolletje op een app-icoon) i.p.v. plat tegen de hoek --
-       dat stond er eerst als een gewone kleur binnen de kaart en las niet
-       als een apart label. */
-    .fc-event-card .highlight-badge {
-      position: absolute;
-      top: -0.3rem;
-      left: -0.3rem;
-      z-index: 2;
-      width: 0.9rem;
-      height: 0.9rem;
+    /* De badges vooraan de titelregel: geel sterretje = gehighlight in de
+       aankondiging-widget, blauwe pen = staat in de e-mailhandtekeningen.
+
+       Ze hingen tot 2026-09-21 als absoluut gepositioneerde bolletjes over de
+       hoek van de kaart. Met een badge ging dat nog net; met twee liep het
+       sterretje pal over de eerste letters van het type. Een kaart in een
+       maandcel is 90 pixels breed -- daar is geen ruimte om iets bovenop
+       iets anders te leggen. */
+    .fc-event-card .event-badges {
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      gap: 0.15rem;
+      flex: 0 0 auto;
+    }
+    .fc-event-card .event-badge {
       display: flex;
       align-items: center;
       justify-content: center;
+      flex: 0 0 auto;
+      width: 0.85rem;
+      height: 0.85rem;
       border-radius: 50%;
+      border: 1px solid oklch(var(--b1));
+    }
+    .fc-event-card .event-badge svg { width: 0.5rem; height: 0.5rem; }
+    .fc-event-card .event-badge.is-highlight {
       background-color: oklch(var(--wa));
       color: oklch(var(--wac));
-      border: 1.5px solid oklch(var(--b1));
-      box-shadow: 0 1px 3px oklch(var(--bc) / 0.3);
     }
-    .fc-event-card .highlight-badge svg { width: 0.5rem; height: 0.5rem; }
+    .fc-event-card .event-badge.is-signature {
+      background-color: oklch(var(--in));
+      color: oklch(var(--inc));
+    }
     .fc .fc-daygrid-more-link {
       font-size: 0.6875rem;
       color: oklch(var(--bc) / 0.6);

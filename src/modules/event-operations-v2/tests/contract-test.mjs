@@ -232,7 +232,7 @@ test('publiek DTO bouwt de website-URL uit de slug', () => {
   const pub = toPublicEventDto({ ...base, x_studio_slug: 'q-and-a-16-12' });
   // Enkelvoud met sluitende slash: exact de vorm die The Events Calendar
   // vandaag gebruikt, zodat bestaande links blijven werken.
-  assert.equal(pub.url, '/event/q-and-a-16-12/');
+  assert.equal(pub.url, '/events/q-and-a-16-12/');
 });
 
 test('event type krijgt de bestaande tribe-slug en een vaste kleur', () => {
@@ -310,7 +310,7 @@ test('alleen een gedeeld event krijgt een canonical naar de hoofdsite', () => {
     { ...base, x_studio_slug: 'gedeeld', x_studio_brand: 'both' },
     { sharedCanonicalOrigin: 'https://openvme.be' }
   );
-  assert.equal(shared.canonical_url, 'https://openvme.be/event/gedeeld/');
+  assert.equal(shared.canonical_url, 'https://openvme.be/events/gedeeld/');
 
   const own = toPublicEventDto(
     { ...base, x_studio_slug: 'eigen', x_studio_brand: 'syndicoach' },

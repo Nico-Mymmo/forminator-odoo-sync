@@ -556,6 +556,464 @@ injectiepad zijn naar elke site die het formulier toont.
 
 ## Versies
 
+**1.18.4** — de labels van de stappen gaan mee bij een inzending. Een stap zet de
+WAARDE van een keuze in het verborgen veld (`lift,water_verwarming`), en dat
+blijft zo: die sleutel ligt vast en een koppeling rekent erop. Maar wat de
+bezoeker aanklikte ("Water en verwarming") stond enkel in de HTML van de stap,
+dus in de notitie en de offerte in Odoo stonden de sleutels, met liggende
+streepjes en zonder spatie na de komma. `Mymmo_Forms_Steps::waarde_labels()`
+leest nu per `data-waarde` het label uit de stap (met de copy uit de bouwer
+toegepast) en de inzending stuurt dat mee als `value_labels`. De OM gebruikt
+die labels enkel voor tekst, nooit voor een Odoo-veld.
+
+**1.18.3** — het venster van een afspraaklink sluit niet meer bij een klik
+ernaast. Die persoonlijke agenda kwam uit een link in een mail; wie per ongeluk
+naast het venster klikte, was ze kwijt en kon ze niet zelf terug openen. Sluiten
+gaat nu met het kruisje (of Escape). Het gewone venster met de tabbladen sluit
+wel nog bij wegklikken: dat opent de bezoeker gewoon opnieuw met de knop.
+
+**1.18.2** — een afspraaklink opent een eigen venster, met de copy van die link.
+
+- Waarom: `?afspraak=` opende het venster van de opstelling met al zijn
+  tabbladen (formulier + agenda) en de copy van dat formulier. Wie een
+  persoonlijke link krijgt, komt voor één ding: een gesprek met die persoon.
+  De titel van de link (`tab_title`) kwam bovendien enkel op het tabbladknopje
+  terecht, en met één tabblad wordt dat niet getekend.
+- Nu: ENKEL het agendatabblad (`Mymmo_Forms_Shortcodes::render_agenda()`, geen
+  shortcode). De kop krijgt de foto van de collega (zijn avatar in Odoo) en de
+  titel van de link; de zijkolom de subtekst en de vinkjes die bij de link in de
+  OM staan. Een lege subtekst wordt de omschrijving van het afspraaktype in
+  Calendly; is die ook leeg, dan blijft de tekst van de opstelling. Met een
+  foto valt de tekening van de opstelling weg.
+- De server schrijft die plekken leeg en verborgen uit; `mymmo-forms-booking.js`
+  vult ze. Zo blijft de pagina voor iedereen gelijk (paginacache, zie 1.18.1).
+- De inleiding van het FORMULIER staat niet meer naast de agenda, tenzij de
+  opstelling een eigen `intro` heeft.
+- Op een telefoon blijft de kop (foto + titel) staan, anders dan bij een gewoon
+  venster: daar zie je met wie je afspreekt.
+- Vraagt de Worker-deploy met migratie `20260924150000_booking_links_copy.sql`.
+  Een oudere Worker stuurt die velden niet mee; dan opent het venster gewoon
+  met de copy van de opstelling.
+
+**1.18.1** — afspraaklinks zijn veilig met een paginacache.
+
+- Waarom: in 1.18.0 zette de SERVER de persoonlijke agenda in de pagina. Een
+  paginacache die de query negeert, bewaart dan `/?afspraak=rob-demo` als `/`
+  -- en daarna opent de homepage voor iedereen Robs agenda. De site heeft zo'n
+  cache en die moet blijven.
+- Nu hangt de HTML niet meer af van de URL: op elke pagina staat hetzelfde
+  dichte venster van de opstelling, met de ALGEMENE agenda.
+  `assets/js/mymmo-forms-booking.js` leest `?afspraak=`, vraagt de agenda op bij
+  de nieuwe REST-route `/wp-json/mymmo-forms/v1/afspraak/<sleutel>` (sleutel in
+  het PAD, dus een gecachet antwoord hoort altijd bij die sleutel), zet ze in het
+  venster en opent het. Het verwisselen gebeurt vóór het openen, want de
+  kalender wordt pas bij het openen opgebouwd.
+- Geen antwoord binnen vier seconden, of onbekende sleutel: het venster opent
+  met de algemene agenda.
+- De opstelling voor afspraaklinks MOET een Calendly-link hebben; anders is er
+  geen tabblad om een agenda in te zetten (melding in de console voor beheerders).
+- Gevolg om te kennen: het venster staat nu op elke pagina in de HTML, ook voor
+  wie geen `?afspraak=` heeft. Het blijft dicht en laadt niets van Calendly tot
+  iemand het opent (enkel de verbinding wordt vooraf geopend, zoals bij elk
+  venster met een agenda).
+
+**1.18.0** — afspraaklinks: `?afspraak=<sleutel>` op elke pagina opent het
+venster meteen op "Plan een gesprek", met de agenda van die collega.
+
+- Waarom: een collega wil een link kunnen sturen ("maak een afspraak hier")
+  die op ONZE site opent, met het venster en ons formulier één tabblad verder,
+  in plaats van een kale Calendly-pagina. En een koppeling moet in een mail de
+  agenda van de eigenaar van de lead kunnen zetten.
+- De sleutel wordt server-side opgezocht bij de Operations Manager
+  (`/forminator-v2/public/v1/booking-links/<sleutel>`, zelfde sitesleutel,
+  120s bewaard). In de URL staat nooit een Calendly-link: dan kan iedereen op
+  onze site de agenda van een vreemde tonen. Wat terugkomt moet met
+  `https://calendly.com/` beginnen, anders wordt het genegeerd.
+- Welk venster het wordt: nieuwe instelling "Afspraaklinks" op het tabblad
+  Verbinding (een opstelling). Alles behalve de agenda komt uit die opstelling.
+  Staat ze uit, dan doet `?afspraak=` niets (beheerders krijgen een melding in
+  de console).
+- Onbekend, gepauzeerd, `algemeen`, of de OM onbereikbaar: de agenda van de
+  opstelling zelf. Wie op "maak een afspraak" klikte, kan altijd iets boeken.
+- Nieuw shortcode-attribuut `open="yes"`: het venster opent bij het laden.
+- Het venster wordt in `wp_footer` gerenderd (prioriteit 5) via
+  `render_button()`, dus exact hetzelfde venster als een `[mymmo_form_button]`
+  met die opstelling. Een paginacache mag URL's met `?afspraak=` niet cachen.
+
+**1.17.29** — geen dubbele "verzonden" meer. Tijdens het versturen staat er
+enkel de vlieger met "We maken je offerte op..." (geanimeerde puntjes, geen
+spinner); na een geslaagde inzending gaat het METEEN naar het dankjewelscherm.
+De tussenmelding "Verzonden. Kijk meteen in je mailbox!" en de sleutel
+`sent_mailbox` zijn weg -- die stond er samen met het dankjewelscherm twee keer.
+
+**1.17.28** — de wachtmelding staat op een vol wit vlak met afgeronde hoeken
+(`#ffffff`, radius 16px), niet meer op `--mf-bg`. Het formulier eronder blijft
+onzichtbaar tijdens het versturen, zoals in 1.17.27.
+
+**1.17.27** — de wachtmelding in de pop-up dekt het formulier echt af.
+
+- Tijdens het versturen schemerde de formuliertekst door de melding heen: het
+  overlay was 85% dekkend op `--mf-bg`, en die staat in de pop-up vaak op
+  transparant, dus dan dekte het niets. De inhoud van de wikkel krijgt nu
+  `visibility: hidden` (klasse `mymmo-form-wrap--bezig`); het venster houdt zijn
+  hoogte en springt niet in elkaar.
+- Nieuwe copy: "Wij maken meteen je offerte" met geanimeerde puntjes, en na een
+  geslaagde inzending 2,6 s "Verzonden. Kijk meteen in je mailbox!" met de
+  vlieger (`thingies_vlieger.svg`), daarna het dankjewelscherm van het tabblad.
+  De teksten staan als `busy` / `sent_mailbox` in MESSAGES (OM), met een
+  terugval in de JS zolang de Worker ze nog niet meestuurt.
+
+**1.17.26** — één venster per trigger, en ook knoppen die later verschijnen.
+
+- Staan er meerdere vensters met dezelfde `trigger`, dan blijft bij het laden
+  het eerste over en verdwijnt de rest. Nodig voor Mymmo Componenten 1.7.1, dat
+  het venster bij elke knop meeschrijft omdat de server niet kan weten welke
+  render op de pagina belandt.
+- Een element met de trigger-klasse dat pas NA het laden in de pagina kwam
+  (een menu dat voor mobiel opnieuw opgebouwd wordt, een blok dat later
+  inlaadt), opent het venster nu ook: bij de klik wordt opnieuw gekeken.
+
+**1.17.25** — het venster ligt altijd boven de hele pagina.
+
+- Stond de knop in een blok van het thema met een transform, filter,
+  `contain` of een eigen `z-index` (een kaart, een geanimeerde groep, een
+  sectie), dan zat het venster in dat blok gevangen: de grijze laag bedekte
+  enkel dat blok en de footer schoof eroverheen. `position: fixed` en een hoge
+  `z-index` helpen daar niet -- een stapelcontext kan je van binnenuit niet
+  verlaten.
+- Het venster hangt nu zolang het openstaat rechtstreeks onder `<body>` en gaat
+  na het sluiten terug naar zijn plek. De taal en de CSS-variabelen van het
+  thema die het van de wikkel erfde, gaan mee.
+- De stappenreeks van een callout luistert daarvoor ook op het venster zelf;
+  anders zouden "Volgende" en de velden in het verhuisde venster niets meer
+  doen.
+
+**1.17.24** — kaal houdt het witte vak.
+
+- Het vak rond het uitgelichte onderdeel (wit, dunne rand, hoeken, schaduw,
+  opvulling) hoort bij het ONDERDEEL en niet bij de chrome van de callout: het
+  is wat de bediening laat opvallen op een gekleurd vlak. In 1.17.23 viel het
+  weg samen met de titel en de achtergrond, en dan zweeft een formulier los op
+  de kaartkleur — tekst met een knop eronder in plaats van een bediening.
+  `chrome="no"` houdt het vak nu. Het is exact hetzelfde element als in de
+  callout (`.mymmo-callout-uitgelicht`), dus er is geen tweede opmaak die uit de
+  pas kan lopen.
+- Wie het écht zonder wil — een ingang die al op een wit vlak staat, want twee
+  witte vlakken op elkaar leest als een fout — zet `chrome="bare"`, of in het
+  blok "Mymmo ingang" de schakelaar **Met wit vak** uit.
+- Een blok dat vóór deze versie op "kaal" stond, krijgt het vak vanzelf: het
+  attribuut ontbreekt daar en de standaard is AAN.
+
+**1.17.23** — een ingang kan KAAL, zodat ze in een kaart past.
+
+- **`chrome="no"`, en het nieuwe blok "Mymmo ingang".** Kaal betekent: enkel het
+  uitgelichte onderdeel (het formulier of een stap) plus de knop. Geen kaartje,
+  geen titel, geen tekst, geen achtergrond, geen eigen opvulling en geen
+  uitbraak uit de inhoudskolom.
+  Waarvoor: een ingang die IN iets staat dat zelf al een kaart is — een kaart
+  van **Mymmo Cards** bijvoorbeeld. Een callout is namelijk zelf een kaart, met
+  haar eigen kop en opvulling. Staat ze tussen kaarten die uit core-blokken
+  gebouwd zijn, dan moet elke eigenschap (lettergrootte, dikte, kleur,
+  opvulling, hoeken) overgetypt worden om gelijk te lijken — en die waarden
+  komen uit het THEMA, dus de plugin kent ze niet. Dat kostte een instelling per
+  eigenschap, telkens met een release erbij, zonder dat het ooit helemaal klopte
+  (zie 1.17.22 hieronder: die drie velden blijven bestaan voor een callout die
+  wél zelf de kaart is).
+  Kaal renderen haalt die vergelijking weg: de titel is dan een gewoon kopblok
+  van de pagina en heeft dus vanzelf de letter van het thema.
+  `chrome` hoort bij de PLAATSING en niet bij de ingang (het staat in
+  `SHORTCODE_ATTS`): dezelfde ingang kan op de ene pagina een callout zijn en in
+  een kaart op de andere.
+- **Het blok "Mymmo ingang"** (naast het bestaande "Mymmo formulier"): kies een
+  ingang, zet eventueel "Kaal tonen" aan, klaar. Server-side gerenderd, dus een
+  wijziging aan de ingang werkt meteen door op elke pagina waar ze staat.
+- **De knop hangt niet langer aan `.mymmo-callout`.** De selectors gingen van
+  `.mymmo-callout .mymmo-callout-knop` naar `.mymmo-callout-actie
+  .mymmo-callout-knop` — even zwaar (0,2,0), maar werkt in beide standen. Zonder
+  dat zou de knop in de kale modus ongestyled staan.
+- Het dok en de knop worden nu één keer opgebouwd (in een buffer) en door beide
+  standen gebruikt. Twee kopieën zouden uit elkaar lopen zodra iemand er een
+  attribuut bij zet — en dan werkt het verhuizen naar het venster nog op de ene
+  plek en niet meer op de andere, zonder foutmelding.
+- Uitproberen zonder WordPress:
+  `php wp-plugin/mymmo-forms-callout-preview.php gebouwgrootte kolommen callout kaal`
+
+**1.17.22** — de titel van een callout mag de letter van de pagina dragen.
+
+- **Drie instellingen erbij bij een callout: grootte, dikte en kleur van de
+  titel** (Ingangen → "Letter van de titel"; `--mf-callout-titel-maat`,
+  `-dikte`, `-kleur`). Ze bestaan om dezelfde reden als `pad` en `text_pad`:
+  staat een callout tussen de kaarten van een pagina, dan hoort haar kop
+  dezelfde te zijn als die van die kaarten. Op syndicoach.be zet het thema daar
+  30px/400 in `neutral-950` op en de plugin standaard 22–32px/700 — de callout
+  was dus de enige met een andere kop, en in een kaartenstapel waar de koppen
+  onder elkaar staan valt dat meteen op. Die maten komen uit het THEMA; de
+  plugin kent die tokens niet en kan ze dus niet zelf overnemen.
+  De dikte gaat door een gesloten lijst (`300`…`900`, `normal`, `bold`) en de
+  kleur door dezelfde vormcontrole als overal: deze waarden belanden in een
+  style-attribuut op de pagina van een bezoeker.
+  Leeg = precies wat er tot nu toe stond, dus deze versie verandert op zichzelf
+  aan geen enkele callout iets.
+  De REGELHOOGTE heeft bewust geen veld gekregen — ze volgt in de praktijk de
+  grootte. Moet ze toch mee, dan is `--mf-callout-titel-lijn` de plek.
+
+**1.17.21** — een eigen kop boven de agenda, en stap 3 leest rustiger.
+
+- **`calendly_title` en `calendly_sub` op de shortcode.** Ze staan in het
+  agenda-tabblad boven de kalender, om iemand die een uur moet kiezen op weg te
+  helpen. Ze gebruiken dezelfde functie en dezelfde klassen als de kop boven het
+  formulier (`mymmo_forms_kop_blok()`, nieuw in helpers.php): er hoort geen
+  tweede stijl te bestaan die uit de pas kan lopen — zelfde afweging als bij
+  `form_title`. Leeg = geen kop, en er is bewust GEEN standaardtekst: een kop die
+  niemand geschreven heeft leest als opvulling en staat dan in elk venster.
+  De kop staat BINNEN het paneel en niet in de agenda-div zelf: die wordt door
+  mymmo-forms-modal.js leeggemaakt en met het iframe gevuld, dus een kop daarin
+  zou verdwijnen zodra de kalender laadt.
+  Ook in de shortcode-bouwer, onder "Boven de agenda", en alleen uitgeschreven
+  als er ook een agenda is.
+- **Stap 3 (`waarom-syndicoach`) leest rustiger.** De tekst van een vakje is een
+  ZIN, geen label: op gewicht 500 stonden er tien halfvette regels onder elkaar
+  en las het scherm als een opsomming van koppen. Nu 400, gekozen 500 in plaats
+  van 600 (de KLEUR doet daar het werk), en een tik kleiner (.9rem, mobiel
+  .85rem) zodat de langere zinnen op één regel blijven.
+
+**1.17.20** — de kalenderblaadjes waren volledig verdwenen; dat is een aparte
+bug die niets met de hertekening te maken had. Plus: "welk tabblad opent" staat
+nu in de shortcode-bouwer.
+
+- **`.mf-av-blad` mat 0 x 0**, gemeten in de browser. De regel was in een eerdere
+  sessie van `width: clamp(112px, 30vw, 136px)` naar `flex: 0 1 136px;
+  min-width: 0` gegaan — terecht bedoeld om de VIEWPORT-eenheid weg te krijgen,
+  maar een kale flex-basis kan hier niet: door `container-type: inline-size` op
+  datzelfde blaadje is de max-content-bijdrage NUL (de inhoud mag de inline-maat
+  immers niet bepalen). De rij eromheen krijgt haar breedte van haar inhoud
+  (`fit-content`) en werd dus zo breed als alleen het woordje "en"; daarna
+  krompen beide blaadjes met `flex-shrink: 1` en `min-width: 0` netjes naar nul.
+  Geen foutmelding, geen kapot plaatje — gewoon weg.
+  Nu: `width: 136px; max-width: 100%; flex: 0 1 auto; min-width: 0`. Een
+  definitieve breedte geeft wél een max-content-bijdrage, en krimpen in een
+  smalle kolom blijft werken. Geen `vw`, dus de reden van die eerdere wijziging
+  blijft overeind.
+- **De getallen staan lager in het witte deel**: het vak loopt nu van 22% tot
+  64,5% in plaats van vanaf 12%. De scheurrand en de ringetjes bovenaan vragen
+  zelf al aandacht, dus een cijfer dat vlak onder de bovenrand hangt oogt hoog.
+- **"Welk tabblad opent" staat in de shortcode-bouwer.** Het ATTRIBUUT `tab`
+  bestond al en werkte (het wordt in class-shortcodes.php gevalideerd op
+  form/calendly/extra), maar de bouwer schreef het nooit uit — je moest het met
+  de hand achter de shortcode typen. Leeg blijft leeg: dan opent het bovenste
+  tabblad uit `tab_order`, en dat is bijna altijd het goede antwoord. Een `tab`
+  die hetzelfde zegt als de volgorde wordt dus niet uitgeschreven; dat attribuut
+  zou anders blijven staan zodra iemand de volgorde wijzigt, en dan opent het
+  venster stil op het verkeerde tabblad.
+
+**1.17.19** — de hertekende kalenderblaadjes: juiste bestandsnaam, copy op de
+nieuwe vlakken, en ze worden nooit meer gedimd.
+
+- **`thingies-calendar2.svg` (met streepje) geeft 404.** Het tweede blaadje is
+  opnieuw geupload als `thingies_calendar2.svg`, met underscore zoals de rest.
+  Het rechterblaadje toonde dus niets meer op de site — dat is de belangrijkste
+  regel van deze versie.
+- **De copy staat op de nieuwe vlakken.** Het mintvlak is bij de hertekening naar
+  beneden geschoven en dunner geworden: het begon rond y 162-170 (53,5% van de
+  hoogte) en begint nu rond y 200-206. De maand gaat daarmee van
+  `top: 53,5% / height: 33,5%` naar `top: 66,3% / height: 21%`. Die maten komen
+  uit de mintpolygoon van de SVG's zelf; allebei de banden lopen SCHUIN
+  (gescheurd papier), dus er is gerekend met de laagste bovenhoek en de hoogste
+  onderhoek — anders steekt de tekst aan één kant boven het mint uit. De
+  horizontale maten waren ongewijzigd en zijn dus blijven staan.
+- **Het getal staat in een vak dat een derde hoger is** (12% tot 64% in plaats van
+  tot 51%) en is mee gegroeid van 36 naar 40cqw. Anders zweeft een klein cijfer in
+  een groot wit vlak. Die vergroting is een keuze en geen meting — makkelijk
+  terug te draaien als ze te fors is.
+- **De blaadjes worden NOOIT meer gedimd.**
+  `.mf-av.is-open .mf-av-kop { opacity: .38 }` is weg. De gedachte was "dit is nog
+  maar een voorstel, geen antwoord", maar een tekening op 38% leest als
+  uitgeschakeld terwijl er niets uitgeschakeld is: de lijn staat er en je mag
+  schuiven. De klasse `is-open` blijft bestaan (de JS zet en haalt ze), ze stuurt
+  alleen geen stijl meer aan. Zet daar geen opacity en geen grijstint terug.
+  "Nog geen idee" verbergt de blaadjes nog steeds volledig — dat is iets anders
+  dan dimmen: er valt op dat moment niets te tonen.
+
+**1.17.18** — "Meerdere ingangen" krijgt een deur in plaats van een trap.
+
+- De kei gebruikt nu `thingies_deur.svg`; `thingies_traphal.svg` beeldde een
+  traphal af, en dat leest als een verdieping en niet als een ingang. Enkel de
+  tekening wijzigt — de waarde blijft `meerdere_ingangen`, dus bestaande
+  inzendingen blijven kloppen.
+
+**1.17.17** — de tekeningen nu wel merkbaar groter, en het label dat lelijk
+afbrak is vervangen in plaats van omzeild.
+
+- **Stap 2:** de tekening gaat van 58 (1.17.15) naar **78px**, de kei van 76 naar
+  92 en het vak van 96x80 naar 104x96. De KOLOMRUIMTE gaat daarbij van 14 naar
+  8px terug, zodat een kei samen 112px inneemt: het venster heeft ongeveer 570px
+  inhoud, dus 5 x 112 past nog net. Bij de 118px van 1.17.16 pasten er maar vier
+  meer en kwam er een derde rij bij voor één eenzame kei — dat vrat precies de
+  hoogte op die de grotere tekeningen nodig hadden.
+- **Stap 3:** de tekening gaat van 38 (1.17.15) naar **62px** en de kei van 52
+  naar 76. Een vakje wordt daarmee 92px hoog in plaats van 72; met tien vakjes
+  betekent dat dat het paneel op een lager scherm scrolt. Bewuste afweging — het
+  paneel is `overflow-y: auto` en de tekeningen waren de reden van de wijziging.
+- Mobiel schaalt in verhouding mee (stap 2: 50 → 66px, stap 3: 32 → 44px). In
+  1.17.16 bleven die bewust staan, maar dan lopen de twee schermen te ver uiteen.
+- **"Gemeenschappelijke verwarming" heet nu "Water en verwarming".** Dat ene
+  woord was breder dan de kei zelf, dus het brak midden in het woord af onder de
+  tekening. In 1.17.15 was daarvoor het LABELVAK verbreed (112px), wat het
+  probleem verplaatste naar de ruimte tussen de keien; een korter label is het
+  echte antwoord. Het labelvak staat weer op 102px — genoeg voor
+  "fietsenstalling", het langste woord dat overblijft.
+  De WAARDE heet mee `water_verwarming` in plaats van
+  `gemeenschappelijke_verwarming`. Dat mocht omdat die waarde uit 1.17.15 komt en
+  nog geen dag oud is; staan er al inzendingen mee, zet hem dan terug naar de
+  oude naam en wijzig alleen het label.
+- **De titel van stap 2** is "Welke voorzieningen zijn er aanwezig in de
+  gemeenschap?". Die titel komt van het STAP-RECORD in wp-admin, niet uit de HTML
+  — bij een stap die al bewaard staat moet je hem daar zelf aanpassen.
+
+**1.17.16** — de tekeningen in stap 2 en stap 3 zijn groter op desktop.
+
+- **Stap 2 (`gebouwkenmerken`):** de tekening gaat van 58 naar 70px, de kei van
+  76 naar 84 en het vak eromheen van 96x80 naar 104x88. De KOLOMRUIMTE in de
+  wolk gaat tegelijk van 20 naar 14px terug: samen blijft een kei 118px breed
+  innemen, en dat is net smal genoeg om er nog altijd vijf naast elkaar te
+  krijgen in het venster. Zonder die correctie sprong de rij naar vier en kwam er
+  een derde rij met één eenzame kei bij. 118px is ook nog altijd meer dan de
+  112px van een label, dus labels van buren raken elkaar niet.
+- **Stap 3 (`waarom-syndicoach`):** de tekening gaat van 38 naar 48px en de kei
+  van 52 naar 62. De verticale opvulling van een vakje gaat daarbij van 10 naar
+  8px terug, zodat een vakje maar 6px hoger wordt in plaats van 20 — met tien
+  vakjes onder elkaar in een venster van 88vh tikt dat anders meteen aan en zit
+  je op een telefoon te scrollen voor iets dat cosmetisch is.
+- De mobiele maten (onder 420px) zijn NIET gewijzigd: daar was de vraag niet, en
+  daar is de ruimte het krapst.
+
+**1.17.15** — stap 2 en stap 3 van de Syndicoach-reeks herwerkt: eerst welke
+voorzieningen er ZIJN, daarna waarom iemand met ons praat — allebei meerkeuze.
+
+- **Stap 2 (`gebouwkenmerken`) gaat nu over VOORZIENINGEN, niet over problemen.**
+  De lijst is van dertien naar acht keien gegaan: lift, gemeenschappelijke
+  verwarming, zonnepanelen, laadpalen, tuin met onderhoud, garages en
+  fietsenstalling, afvallokaal, meerdere ingangen. De vrije ingave ("+") blijft.
+  Reden: de helft van de oude keien waren klachten (moeilijke sfeer, ontbrekende
+  verzekeringen, geen reserverekening) en die vraag stond dus twee keer in de
+  reeks — hier als kei en in stap 3 als keuze. Nu vraagt stap 2 wat er IS en
+  stap 3 waarom je belt.
+- **Vijf waarden zijn daarmee weggevallen**: `verouderde_installaties`,
+  `moeilijke_sfeer`, `ontbrekende_verzekeringen`, `geen_reserverekening` en
+  `sleutels_badges`. Ze staan nog in bestaande inzendingen, dus hergebruik die
+  namen nooit voor iets anders. `gemeenschappelijke_verwarming` is nieuw.
+  `garages` en `onderhoud_tuin` zijn als WAARDE blijven staan en kregen alleen
+  een ander label — bestaande inzendingen blijven zo leesbaar.
+- **De labels kregen meer ruimte** (112px in plaats van 100px, en meer
+  kolomruimte in de wolk). "Gemeenschappelijke verwarming" brak anders midden in
+  het woord, want dat ene woord is breder dan een kei.
+- **Stap 3 is een nieuw voorbeeld: `waarom-syndicoach`.** Vakjesstijl zoals
+  `huidig-beheer`, maar MEERKEUZE, met een tekening per reden en in twee
+  kolommen vanaf 560px. Tien redenen: te duur, te veel fouten, moeilijk
+  bereikbaar, nog geen beheer, gebrek aan transparantie, niet meer zelf doen,
+  extra ondersteuning, renovatieproject, moeilijke sfeer, administratieve
+  achterstand.
+- **`huidig-beheer` blijft gewoon bestaan** en staat nog in de keuzelijst van
+  wp-admin. Het is nog steeds een geldige vraag; hij is alleen niet meer de
+  derde stap van deze reeks.
+- **LET OP — dit verandert wat er in Odoo aankomt.** `waarom_syndicoach` levert
+  NUL TOT TIEN waarden af, komma-gescheiden, waar `huidig_beheer` er precies
+  één gaf. Dat veld mag dus niet gemapt worden op een Odoo-selectieveld dat
+  maar één waarde aankan — gebruik een tekstveld, of splits het in de
+  veldkoppelingen naar meerdere vinkjes. Zonder die aanpassing komt er bij twee
+  aangeduide redenen stil niets of een onbekende waarde in Odoo terecht. Ook
+  `gebouw_kenmerken` was al meervoudig; daar verandert alleen de inhoud van de
+  lijst.
+- **Een stap die al in WordPress bewaard staat, is een kopie.** Deze versie
+  wijzigt de VOORBEELDEN; de stappen die al onder Instellingen → Mymmo Forms
+  → Stappen staan, veranderen niet vanzelf. Voeg het voorbeeld opnieuw in (of
+  plak de HTML over de bestaande stap) om de nieuwe lijst te krijgen. Zelf
+  getypte copy hangt aan de stap en blijft staan zolang de originele tekst
+  hetzelfde is.
+
+**1.17.14** — minder wit onder de knoppen, twee gelijke knoppen, en een stap
+die nooit breder wordt dan het scherm.
+
+- **De knoppen staan lager.** Onder de knoppenrij stond op een telefoon tot
+  70px wit: 24px opvulling van het paneel, 12px van de rij zelf, en daar
+  bovenop de veilige zone van de iPhone — die stond namelijk TWEE keer in de
+  stapel (in de knoppenrij én in de strook met de overige tabbladen eronder).
+  `.mymmo-modal-paneel` heeft op mobiel geen onderopvulling meer; de onderste
+  rij van een paneel levert nu zelf 12px, en de veilige zone staat op één
+  plek: het venster (`.mymmo-modal-panel`).
+- Daarmee vervalt ook het afdekvlak uit 1.17.13: zonder die 24px opvulling is
+  er geen band meer waar de inhoud doorheen kan scrollen — de knoppenrij sluit
+  gewoon aan op de onderrand.
+- **"Vorige" en "Versturen" zijn nu even breed**, net als Vorige/Volgende op de
+  stappen ervoor. De verzendknop staat in `mymmo-forms.css` op `width: 100%`
+  (een formulier zonder stappen heeft daar maar één knop); naast een "Vorige"
+  die de helft van de rij neemt, gaf dat een smalle en een brede knop. Binnen
+  een stappenreeks én met een "Vorige" ernaast deelt hij de rij nu half-om-half.
+- **Het venster scrolt nooit meer zijwaarts.** `overflow-x: hidden` op de twee
+  plekken die verticaal scrollen (`.mymmo-modal-body` en, met tabbladen, het
+  paneel zelf). Steekt er iets uit, dan wordt het afgekapt in plaats van dat je
+  op een telefoon opzij kan vegen en alles scheef staat. Een stap met een eigen
+  zijwaarts scrollvlak (het jaarwiel) blijft gewoon werken.
+- **Een stap is nooit breder dan haar kolom** (`min-width: 0` + `max-width:
+  100%` op `.mymmo-stap`, `.mymmo-stap-inhoud` en de blokken die een stap
+  meebrengt). Een flexitem mag standaard niet kleiner worden dan zijn inhoud;
+  daardoor kon een stap met een vaste maat de kolom openduwen.
+- **De stap met het jaarwiel gebruikt geen `vw` meer.** De twee
+  scheurkalenderblaadjes stonden op `clamp(112px, 30vw, 136px)` — een maat van
+  het SCHERM, terwijl de stap in een callout of naast een zijkolom in een veel
+  smallere kolom staat. Ze delen nu de rij (`flex: 0 1 136px`) en krimpen mee;
+  de tekst erin schaalde al mee (`cqw`). **Een stap die al in WordPress bewaard
+  staat is een kopie**: die krijgt dit pas na opnieuw invoegen bij
+  Instellingen → Mymmo Forms → Stappen.
+
+**1.17.13** — en de derde kier: die zat niet in een marge maar in een
+doorkijk.
+
+- Op een telefoon stond er tussen de Vorige/Volgende-rij en de strook met de
+  overige tabbladen ("Stuur een bericht" / "Plan een gesprek") nog steeds een
+  band waar je de inhoud van de stap doorheen zag scrollen — de keien van
+  "Wat speelt er in jullie gebouw" kwamen half onder de knoppen door.
+- **Oorzaak:** met tabbladen is `.mymmo-modal-paneel` zelf de scrollcontainer
+  (`overflow-y: auto`), en de onderste 24px daarvan is OPVULLING. Scrollende
+  inhoud is in die band gewoon zichtbaar. De knoppenrij (sinds 1.17.9 sticky)
+  kan ze niet zelf innemen: een sticky element blijft binnen zijn containing
+  block, en dat eindigt op de contentrand van het paneel, 24px hoger.
+- **Opgelost** met een vlak dat aan de knoppenrij hangt en die 24px afdekt
+  (`::after`, `top: 100%`, tot beide zijranden). Bewust geen negatieve marge
+  op de rij zelf: dat zou de knoppen verplaatsen en meerekenen in de
+  sticky-berekening. Aan de layout verandert dus niets — enkel wat er te
+  zien is.
+
+**1.17.12** — de kier uit 1.17.11 zat niet waar de fix hem zocht.
+
+- Er bleken TWEE aparte `@media (max-width: 640px)`-blokken in
+  `mymmo-forms-modal.css` te bestaan die allebei `.mymmo-modal-main` en
+  `.mymmo-modal-aside` beschrijven (dit stond al gedocumenteerd bovenaan het
+  bestand: "bij gelijke specificiteit wint de laatste"). Het EERSTE, oudere
+  blok zette `.mymmo-modal-main` op mobiel al op `margin: 0` — de
+  `margin-bottom: 0` uit 1.17.11 deed dus niets, want die marge was al nul.
+- De echte kier zat in de BOVENPADDING van `.mymmo-modal-aside` zelf (12px, op
+  de eigen getinte achtergrond van die strook) uit het TWEEDE blok, dat wint
+  omdat het verderop in het bestand staat. Die padding staat nu op 0.
+
+**1.17.11** — Vorige/Volgende naast elkaar op mobiel, en drie strookjes die nu
+tegen elkaar aan sluiten in plaats van ertussen een kier te laten.
+
+- **Vorige/Volgende stonden sinds 1.17.9 onder elkaar** (column-reverse, met
+  Volgende bovenaan) om te voorkomen dat je op een telefoon per ongeluk de
+  verkeerde knop raakt. Op uitdrukkelijk verzoek staan ze nu weer NAAST
+  elkaar, elk de helft van de rij (`flex: 1 1 0`) — dezelfde rijindeling als
+  op desktop.
+- **De "extra acties"-strook onderaan (de niet-gekozen tabbladen, bv.
+  "Stuur een bericht" / "Plan een gesprek") had een eigen, kleinere
+  zijopvulling (16px) dan de rest van het venster (24px op mobiel)**, waardoor
+  die strook smaller oogde dan de Vorige/Volgende-rij erboven. Nu dezelfde
+  24px als `.mymmo-modal-paneel`.
+- **Tussen de kaart (met Vorige/Volgende) en die strook zat een zichtbare
+  kier van 12px** — de normale `margin-bottom` van `.mymmo-modal-main` (de
+  "los zwevende kaart"-look), die op mobiel niet hoort: de knoppenrij moet
+  tegen de onderrand aansluiten. Op mobiel staat die marge nu op 0.
+
 **1.17.10** — een zichtbaar "bezig"-scherm tijdens het versturen, i.p.v. enkel een veranderde knoptekst.
 
 - Een indiening kan enkele seconden duren zodra de gekoppelde koppeling een

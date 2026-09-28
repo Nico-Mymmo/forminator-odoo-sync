@@ -1,0 +1,85 @@
+/**
+ * De keienwolk -- enkel wat in de EDITOR anders is dan op de pagina.
+ *
+ * Hier staat niets dat de vorm bepaalt; dat komt uit mymmo-keien.css, zodat de
+ * editor niet kan liegen over wat er op de pagina komt. Wat hier wel staat:
+ *
+ *   - de beweging UIT (een keitje dat wegschuift is niet aan te klikken);
+ *   - keitjes AANKLIKBAAR (op de pagina zijn ze pointer-events:none);
+ *   - de sleepgreep.
+ *
+ * Drie klassen op de keitjes: de editor zet op elk blok
+ * `.block-editor-block-list__layout .block-editor-block-list__block
+ * { position: relative }`, en dat is even zwaar als onze regel. Wie dan
+ * achteraan staat wint, en daar mag een keitje niet van afhangen.
+ */
+
+.mymmo-keien--editor .mymmo-kei-vorm,
+.mymmo-keien--editor .mymmo-keitje-vorm {
+  animation: none;
+}
+
+/* Het lege afbeeldingsvak van core in een scheve kei toonde schuifbalken. */
+.mymmo-keien--editor .mymmo-kei-vorm .components-placeholder {
+  overflow: hidden;
+}
+
+.mymmo-keien--editor .mymmo-kei.mymmo-kei {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+.mymmo-keien--editor .mymmo-keitje.mymmo-keitje {
+  position: absolute;
+  margin: 0;
+  max-width: none;
+  pointer-events: auto;
+  cursor: pointer;
+}
+.mymmo-keien--editor .mymmo-keitje.mymmo-keitje.is-selected {
+  z-index: 6;
+}
+
+.mymmo-keien--editor .mymmo-keitje-vorm img {
+  pointer-events: none;
+  user-select: none;
+}
+
+.mymmo-keien--editor .mymmo-keitje-greep {
+  position: absolute;
+  top: -12px;
+  right: -12px;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: #1e1e1e;
+  color: #ffffff;
+  cursor: grab;
+  touch-action: none;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+}
+.mymmo-keien--editor .mymmo-keitje-greep:active {
+  cursor: grabbing;
+}
+.mymmo-keien--editor .mymmo-keitje-greep .dashicon {
+  width: 18px;
+  height: 18px;
+  font-size: 18px;
+}
+
+/* In de telefoonstand is de greep groen: je verschuift dan de TELEFOONplaats. */
+.mymmo-keien--editor .mymmo-keitje-greep--telefoon {
+  background: #1a7f37;
+}
+
+/* Een keitje dat op een telefoon verborgen is, blijft in het mobiele voorbeeld
+   half zichtbaar -- anders kan je het daar niet meer aanklikken om het terug
+   aan te zetten. Op de pagina blijft het gewoon weg. */
+@media (max-width: 640px) {
+  .mymmo-keien--editor .mymmo-keitje.mymmo-keitje--niet-mobiel {
+    display: block;
+    opacity: 0.3;
+  }
+}

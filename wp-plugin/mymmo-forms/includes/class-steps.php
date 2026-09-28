@@ -299,6 +299,98 @@ final class Mymmo_Forms_Steps {
     }
 
     /**
+     * De LABELS bij de waarden die de stappen in verborgen velden zetten:
+     * `[ veldsleutel => [ waarde => label ] ]`.
+     *
+     * Een stap zet `lift,water_verwarming` in het verborgen veld -- de WAARDE
+     * uit `data-waarde`, en die ligt vast. Wat de bezoeker aanklikte ("Water en
+     * verwarming") staat enkel in de HTML van de stap, en die kent alleen
+     * WordPress. Zonder deze kaart kan een notitie of offerte in Odoo niets
+     * anders tonen dan de sleutels. Gaat mee als `value_labels` bij de
+     * inzending; de OM gebruikt ze enkel voor tekst, nooit voor Odoo-velden
+     * (zie display-values.js).
+     *
+     * Hoe: elke stap die een van deze sleutels aflevert, met zijn COPY toegepast
+     * (render_html, dus een label dat in de bouwer hertypt is telt mee). Per
+     * element met `data-waarde` is de sleutel die van de dichtstbijzijnde
+     * `data-sleutel` erboven, of -- zonder die -- het enige veld van de stap.
+     * Het label is de tekst van het eerste kind met een klasse op `-label` of
+     * `-titel`, en anders alle tekst van het element.
+     *
+     * DOMDocument mag hier: er wordt enkel GELEZEN, er gaat niets van zijn
+     * uitvoer naar het scherm (anders dan bij vervang_tekstknopen()). Zonder de
+     * dom-extensie is er geen kaart, en dan valt de OM terug op de sleutels.
+     *
+     * @param  array<int,string> $sleutels  de veldsleutels van het formulier
+     * @return array<string,array<string,string>>
+     */
+    public static function waarde_labels(array $sleutels): array {
+        $gezocht = array_fill_keys(array_map('strval', $sleutels), true);
+        if ($gezocht === [] || !class_exists('DOMDocument')) {
+            return [];
+        }
+
+        $uit = [];
+        foreach (self::all() as $stap) {
+            $velden = array_values(array_filter(
+                (array) ($stap['fields'] ?? []),
+                static fn ($v) => isset($gezocht[(string) $v])
+            ));
+            $html = self::render_html($stap);
+            if ($velden === [] || $html === '' || strpos($html, 'data-waarde') === false) {
+                continue;
+            }
+
+            $vorige = libxml_use_internal_errors(true);
+            $doc    = new DOMDocument();
+            $gelukt = $doc->loadHTML(
+                '<?xml encoding="UTF-8"><div>' . $html . '</div>',
+                LIBXML_NOERROR | LIBXML_NOWARNING | LIBXML_NONET
+            );
+            libxml_clear_errors();
+            libxml_use_internal_errors($vorige);
+            if (!$gelukt) {
+                continue;
+            }
+
+            $xpath = new DOMXPath($doc);
+            foreach ($xpath->query('//*[@data-waarde]') ?: [] as $el) {
+                if (!$el instanceof DOMElement) {
+                    continue;
+                }
+                $waarde = trim($el->getAttribute('data-waarde'));
+                if ($waarde === '') {
+                    continue;
+                }
+
+                $sleutel = '';
+                for ($n = $el; $n instanceof DOMElement; $n = $n->parentNode) {
+                    if ($n->hasAttribute('data-sleutel')) {
+                        $sleutel = trim($n->getAttribute('data-sleutel'));
+                        break;
+                    }
+                }
+                if ($sleutel === '' && count($velden) === 1) {
+                    $sleutel = (string) $velden[0];
+                }
+                if ($sleutel === '' || !isset($gezocht[$sleutel]) || isset($uit[$sleutel][$waarde])) {
+                    continue;
+                }
+
+                $bron  = $xpath->query('.//*[contains(@class, "-label") or contains(@class, "-titel")]', $el);
+                $label = ($bron && $bron->length) ? $bron->item(0)->textContent : $el->textContent;
+                $label = trim((string) preg_replace('/\s+/u', ' ', (string) $label));
+                if ($label === '' || $label === $waarde) {
+                    continue;
+                }
+                $uit[$sleutel][$waarde] = function_exists('mb_substr') ? mb_substr($label, 0, 300) : substr($label, 0, 300);
+            }
+        }
+
+        return $uit;
+    }
+
+    /**
      * De HTML van een stap zoals ze getoond hoort te worden.
      *
      * Overal gebruiken waar de HTML van een stap naar het scherm gaat --
@@ -668,7 +760,8 @@ final class Mymmo_Forms_Steps {
     public static function examples(): array {
         return [
             'gebouwgrootte'   => 'Schuifbalk — grootte van het gebouw (Syndicoach)',
-            'gebouwkenmerken' => 'Keien — wat is er in het gebouw (Syndicoach)',
+            'gebouwkenmerken' => 'Keien — welke voorzieningen zijn er (Syndicoach)',
+            'waarom-syndicoach' => 'Vakjes — waarom overweeg je Syndicoach (Syndicoach)',
             'huidig-beheer'   => 'Keuze — hoe wordt het gebouw vandaag beheerd (Syndicoach)',
             'algemene-vergadering' => 'Jaarwiel — wanneer is de volgende algemene vergadering (Syndicoach)',
         ];
@@ -704,9 +797,14 @@ final class Mymmo_Forms_Steps {
                 'velden' => 'aantal_kavels, commerciele_kavels',
             ],
             'gebouwkenmerken' => [
-                'titel'  => 'Wat speelt er in jullie gebouw?',
-                'sub'    => 'Duid aan wat klopt, of sla dit gewoon over.',
+                'titel'  => 'Welke voorzieningen zijn er aanwezig in de gemeenschap?',
+                'sub'    => 'Duid aan wat er is. Staat er iets niet bij, voeg het dan zelf toe.',
                 'velden' => '',
+            ],
+            'waarom-syndicoach' => [
+                'titel'  => 'Waarom overweeg je Syndicoach?',
+                'sub'    => 'Duid alles aan wat meespeelt. Zo weten we meteen waar het over moet gaan.',
+                'velden' => 'waarom_syndicoach',
             ],
             'huidig-beheer'   => [
                 'titel'  => 'Hoe wordt je appartement momenteel beheerd?',

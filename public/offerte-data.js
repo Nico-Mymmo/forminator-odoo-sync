@@ -65,12 +65,19 @@ window.OFFERTE_DATA = {
       opstart:      '960',
       licentie:     '4',
       /* Afgeleid (kavels x licentie, geplafonneerd op 60) door
-         berekenLicentiePrijs() in pdf-step.js -- deze twee staan hier enkel
+         berekenLicentiePrijs() in pdf-step.js -- deze drie staan hier enkel
          als DEMOWAARDE voor de losse editor/preview (26 kavels x 4). Bij een
          echte inzending overschrijft de server ze altijd, en ze staan bewust
-         niet in OFFERTE_VELDEN: het zijn geen invoervelden. */
+         niet in OFFERTE_VELDEN: het zijn geen invoervelden.
+
+         licentie_basis is het AANTAL kavels waarmee gerekend is -- niet altijd
+         hetzelfde als gebouw.kavels: boven de 60 kavels rekent de offerte met
+         60 en toont ze "Vanaf". Zonder dit veld zou de voetnoot van de
+         licentiekaart bij een groot gebouw een berekening tonen die niet
+         uitkomt op het bedrag ernaast. */
       licentie_totaal:       '104',
       licentie_totaal_label: '',
+      licentie_basis:        '26',
       uurtarief:    '80',
       verplaatsing: '0,42'
     },
@@ -195,10 +202,24 @@ window.OFFERTE_DATA = {
         }
       ],
 
+      /* De DERDE kaart. Staat bewust onder een eigen sleutel en niet als
+         derde item in `kaarten` hierboven: elk bewaard sjabloon in
+         fs_v2_pdf_templates heeft precies twee kaarten plus deze `strook`, en
+         die zouden hun licentieblok kwijtraken zodra het naar de lijst
+         verhuist. Ze tekent wel met exact dezelfde bouwstenen als de twee
+         erboven -- zie kaartHtml() in offerte-render.js. */
       strook: {
-        bedrag:   '{{prijs.licentie_totaal_label}}€{{prijs.licentie_totaal}}',
-        titel:    'Licentie {{bedrijf.platform}} platform',
-        voetnoot: 'Per maand, voor het hele gebouw (€{{prijs.licentie}} per hoofdkavel)'
+        titel:       'Licentie {{bedrijf.platform}} platform',
+        bedrag:      '{{prijs.licentie_totaal_label}}€{{prijs.licentie_totaal}}',
+        voetnoot:    'Berekend: {{prijs.licentie_basis}} × €{{prijs.licentie}} per hoofdkavel, per maand',
+        inhoudtitel: 'Wat houdt dit in?',
+        punten: [
+          'Persoonlijk portaal voor elke bewoner',
+          'Alle documenten en facturen op één plek',
+          'Opvolging van herstellingen en leveranciers',
+          'Tussentijdse afrekeningen altijd inkijkbaar',
+          'De data blijven van de VME'
+        ]
       }
     },
 

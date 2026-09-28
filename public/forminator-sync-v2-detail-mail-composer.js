@@ -28,8 +28,12 @@
     { pad: 'contact.first_name', label: 'Voornaam' },
     { pad: 'contact.name',       label: 'Naam' },
     { pad: 'contact.email',      label: 'E-mailadres' },
+    { pad: 'sender.first_name',  label: 'Voornaam afzender' },
     { pad: 'sender.name',        label: 'Naam afzender' },
     { pad: 'sender.job_title',   label: 'Functie afzender' },
+    // De agenda van de afzender (zie resolveSenderAfspraak in mail-step.js).
+    // Een andere soort typ je zelf: {{afspraak.sender.demo}}.
+    { pad: 'afspraak.sender.standaard', label: 'Afspraaklink afzender' },
     { pad: 'now.year',           label: 'Huidig jaar' }
   ];
 
@@ -75,6 +79,20 @@
           label: 'Unieke identifier (stap ' + (i + 1) + ')',
         });
       });
+      // De afspraaklink van de EIGENAAR van het record uit deze stap (zie
+      // src/modules/booking-links/lib/placeholders.js). Alleen voor stappen
+      // die een record met een eigenaar opleveren; een andere soort dan
+      // `standaard` typ je zelf: {{afspraak.<stap>.demo}}.
+      var model = String(t.odoo_model || '');
+      var handeling = ['send_mail', 'chatter_message', 'create_activity', 'generate_pdf', 'mailing_list']
+        .indexOf(String(t.operation_type || '')) !== -1;
+      if (!handeling && /lead|partner|employee/.test(model)) {
+        res.push({
+          pad:   'afspraak.' + stapVolgorde(t) + '.standaard',
+          label: 'Afspraaklink eigenaar (stap ' + (i + 1) + ')',
+          voorbeeld: 'https://openvme.be/?afspraak=algemeen'
+        });
+      }
     });
     return res;
   }
@@ -92,13 +110,15 @@
       'contact.first_name': 'Jadranka',
       'contact.name':       'Jadranka Vleyninckx',
       'contact.email':      'jadranka@example.org',
+      'sender.first_name':  'Thomas',
       'sender.name':        'Thomas Peeters',
       'sender.email':       'thomas@openvme.be',
       'sender.job_title':   'Coach',
+      'afspraak.sender.standaard': 'https://syndicoach.be/?afspraak=kennismaking-thomas',
       'now.year':           String(new Date().getFullYear())
     };
     formulierTokens().forEach(function (t) { s[t.pad] = '[' + t.label + ']'; });
-    voorgaandeStapTokens(tid).forEach(function (t) { s[t.pad] = '[' + t.label + ']'; });
+    voorgaandeStapTokens(tid).forEach(function (t) { s[t.pad] = t.voorbeeld || ('[' + t.label + ']'); });
     return s;
   }
 
@@ -126,6 +146,69 @@
 
   // ─── Renderen ──────────────────────────────────────────────────────────────
 
+  /** Modellen met een eigenaar in `user_id` -- zelfde lijst als booking-links/lib/placeholders.js. */
+  var MODELLEN_MET_EIGENAAR = ['crm.lead', 'res.partner', 'project.task', 'helpdesk.ticket'];
+
+  /**
+   * De keuzelijst "medewerker uit een vorige stap": wat buildEmployeeStepOptions
+   * al aanbiedt (een hr.employee-stap, een round robin), plus de EIGENAAR van
+   * het record uit een stap (`step.N.owner`, bv. de coach op de lead). Een stap
+   * met een round robin krijgt geen aparte eigenaar-optie: dat is dezelfde persoon.
+   */
+  function afzenderStapOpties(sortedTargets, tid, huidige) {
+    var html = window.FSV2.buildEmployeeStepOptions(sortedTargets, tid, huidige);
+    var lijst = Array.isArray(sortedTargets) ? sortedTargets : [];
+    var mijn = lijst.find(function (t) { return String(t.id) === String(tid); });
+    var mijnOrder = mijn ? window.FSV2.getTargetOrder(mijn, 0) : Infinity;
+    var mappingsByTarget = (S().detail && S().detail.mappingsByTarget) || {};
+    lijst.forEach(function (t, idx) {
+      var order = window.FSV2.getTargetOrder(t, idx);
+      if (order >= mijnOrder) return;
+      if (MODELLEN_MET_EIGENAAR.indexOf(String(t.odoo_model || '')) === -1) return;
+      var handeling = ['send_mail', 'chatter_message', 'create_activity', 'generate_pdf', 'mailing_list']
+        .indexOf(String(t.operation_type || '')) !== -1;
+      if (handeling) return;
+      var roundRobin = (mappingsByTarget[t.id] || []).some(function (m) { return m.source_type === 'round_robin_pool'; });
+      if (roundRobin) return;
+      var waarde = 'step.' + order + '.owner';
+      var label = 'Stap ' + (idx + 1) + ' — ' + (t.label || window.FSV2.modelLabel(t.odoo_model)) + ': de verantwoordelijke';
+      html += `<option value="${esc(waarde)}"${waarde === huidige ? ' selected' : ''}>${esc(label)}</option>`;
+    });
+    return html;
+  }
+
+  /**
+   * Welke van de drie afzenderkeuzes deze stap is. Opgeslagen staat dat in
+   * twee velden (mail_from_source + mail_signature_source); de UI toont er één
+   * keuze van, want afzender en handtekening horen bij dezelfde persoon.
+   * Een oude stap zonder handtekening op "eigenaar" wordt de verantwoordelijke
+   * van de stap waar de mail aan hangt -- dat is wat hij al deed.
+   */
+  function afzenderStand(target) {
+    if (String(target.mail_from_source || 'record_user') === 'fixed') return { modus: 'fixed', stap: '' };
+    var sig = String(target.mail_signature_source || '');
+    if (sig === 'fixed') return { modus: 'employee', stap: '' };
+    if (sig === 'dynamic') return { modus: 'step', stap: String(target.mail_signature_source_value || '') };
+    var m = String(target.mail_res_id_source || '').match(/^step\.([^.]+)\.record_id$/);
+    return { modus: 'step', stap: m ? 'step.' + m[1] + '.owner' : '' };
+  }
+
+  /** De velden van de gekozen afzendermodus tonen, de rest verbergen. */
+  function toonAfzenderModus(tid, modus) {
+    var stap = document.getElementById('mailSenderStep-' + tid);
+    var emp  = document.getElementById('mailSigEmployeeId-' + tid);
+    var terug = document.getElementById('mailFromFallback-' + tid);
+    var terugKop = document.getElementById('mailFromFallbackSummary-' + tid);
+    var persoonUitleg = document.getElementById('mailSenderPersonHelp-' + tid);
+    if (stap) stap.style.display = modus === 'step' ? '' : 'none';
+    if (emp)  emp.style.display  = modus === 'employee' ? '' : 'none';
+    if (persoonUitleg) persoonUitleg.style.display = modus === 'fixed' ? 'none' : '';
+    // Bij een vast adres IS dit de afzender; bij een persoon enkel de terugval,
+    // ingeklapt -- anders leest het alsof die naam de afzender wordt.
+    if (terug) terug.open = modus === 'fixed' ? true : terug.open;
+    if (terugKop) terugKop.style.display = modus === 'fixed' ? 'none' : '';
+  }
+
   function renderMailComposer(target, tid, sortedTargets) {
     var el = document.getElementById('det-mc-' + tid);
     if (!el) return;
@@ -147,8 +230,7 @@
 
     var vertraging = splitsVertraging(target.mail_delay_minutes);
     var layout     = String(target.mail_layout || 'plain');
-    var fromSource = String(target.mail_from_source || 'record_user');
-    var sigSource   = String(target.mail_signature_source || '');
+    var afzender   = afzenderStand(target);
     var tokens     = alleTokens().concat(voorgaandeStapTokens(tid));
     var velden     = formulierTokens();
 
@@ -193,8 +275,9 @@
           <div id="mailQuill-${esc(tid)}" class="min-w-0"></div>
           <label class="label pt-1 pb-0">
             <span class="label-text-alt text-base-content/50">
-              Vet, cursief, onderstreept, lijstjes en links. Een link maak je door de tekst te
-              selecteren en op het schakeltje te klikken. Bewust geen kleuren, lettergroottes of
+              Vet, cursief, onderstreept, lijstjes en links. Een afspraaklink achter een woord: selecteer
+              het woord en kies <strong>Afspraaklink afzender</strong> bij "Veld invoegen". Een andere link:
+              selecteer de tekst en klik op het schakeltje. Bewust geen kleuren, lettergroottes of
               afbeeldingen — dit is een gewone mail, geen mailing.
             </span>
           </label>
@@ -242,54 +325,62 @@
         </div>
 
         <div class="form-control mb-3">
-          <label class="label pt-0 pb-1"><span class="label-text text-sm font-medium">Afzender</span></label>
-          <div class="flex flex-col gap-1">
+          <label class="label pt-0 pb-1"><span class="label-text text-sm font-medium">Wie verstuurt deze mail?</span></label>
+          <div class="flex flex-col gap-1.5">
             <label class="flex items-center gap-2 cursor-pointer">
-              <input type="radio" name="mailFrom-${esc(tid)}" value="record_user" class="radio radio-sm"
-                     ${fromSource === 'record_user' ? 'checked' : ''}>
-              <span class="text-sm">De eigenaar van het record (de toegewezen coach)</span>
+              <input type="radio" name="mailSender-${esc(tid)}" value="step" class="radio radio-sm"
+                     data-mail-sender-mode="${esc(tid)}" ${afzender.modus === 'step' ? 'checked' : ''}>
+              <span class="text-sm">Een medewerker uit een vorige stap</span>
             </label>
+            <select id="mailSenderStep-${esc(tid)}" class="select select-bordered select-sm w-full ml-6 max-w-[calc(100%-1.5rem)]"
+                    ${afzender.modus === 'step' ? '' : 'style="display:none"'}>
+              ${afzenderStapOpties(sortedTargets, tid, afzender.stap)}
+            </select>
             <label class="flex items-center gap-2 cursor-pointer">
-              <input type="radio" name="mailFrom-${esc(tid)}" value="fixed" class="radio radio-sm"
-                     ${fromSource === 'fixed' ? 'checked' : ''}>
-              <span class="text-sm">Altijd hetzelfde adres</span>
+              <input type="radio" name="mailSender-${esc(tid)}" value="employee" class="radio radio-sm"
+                     data-mail-sender-mode="${esc(tid)}" ${afzender.modus === 'employee' ? 'checked' : ''}>
+              <span class="text-sm">Altijd dezelfde medewerker</span>
+            </label>
+            <input type="number" min="1" id="mailSigEmployeeId-${esc(tid)}"
+                   class="input input-bordered input-sm w-full ml-6 max-w-[calc(100%-1.5rem)]"
+                   placeholder="Medewerker-ID (hr.employee, uit de Odoo-URL)"
+                   value="${target.mail_signature_employee_id || ''}"
+                   ${afzender.modus === 'employee' ? '' : 'style="display:none"'}>
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input type="radio" name="mailSender-${esc(tid)}" value="fixed" class="radio radio-sm"
+                     data-mail-sender-mode="${esc(tid)}" ${afzender.modus === 'fixed' ? 'checked' : ''}>
+              <span class="text-sm">Een vast adres, zonder persoon erachter</span>
             </label>
           </div>
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-2 mt-2">
-            <input type="text" id="mailFromName-${esc(tid)}" class="input input-bordered input-sm"
-                   value="${esc(target.mail_from_name || '')}" placeholder="Naam (bv. Thomas van Syndicoach)">
-            <input type="email" id="mailFromEmail-${esc(tid)}" class="input input-bordered input-sm"
-                   value="${esc(target.mail_from_email || '')}" placeholder="E-mailadres">
-          </div>
-          <label class="label pt-1 pb-0">
+          <label class="label pt-1 pb-0" id="mailSenderPersonHelp-${esc(tid)}"
+                 ${afzender.modus === 'fixed' ? 'style="display:none"' : ''}>
             <span class="label-text-alt text-base-content/50">
-              Ook de terugval: heeft het record geen eigenaar met e-mailadres, dan wordt dit gebruikt. Laat het niet leeg.
+              Alles komt dan van die ene persoon: het afzenderadres, de handtekening, <code>{{sender.first_name}}</code>
+              en co, en de afspraaklink <code>{{afspraak.sender.standaard}}</code>. De handtekening is die van de
+              signature-designer; nog niet gepusht, dan vertrekt de mail zonder, geen fout.
             </span>
           </label>
-        </div>
 
-        <div class="form-control mb-3">
-          <label class="label pt-0 pb-1"><span class="label-text text-sm font-medium">Handtekening</span></label>
-          <select id="mailSigSource-${esc(tid)}" class="select select-bordered select-sm w-full mb-1.5">
-            <option value=""${sigSource === '' ? ' selected' : ''}>Geen handtekening</option>
-            <option value="fixed"${sigSource === 'fixed' ? ' selected' : ''}>Vaste medewerker</option>
-            <option value="dynamic"${sigSource === 'dynamic' ? ' selected' : ''}>Uit een vorige stap</option>
-          </select>
-          <input type="number" min="1" id="mailSigEmployeeId-${esc(tid)}"
-                 class="input input-bordered input-sm w-full mb-1.5"
-                 placeholder="Medewerker-ID (hr.employee, uit de Odoo-URL)"
-                 value="${target.mail_signature_employee_id || ''}"
-                 ${sigSource === 'fixed' ? '' : 'style="display:none"'}>
-          <select id="mailSigStepValue-${esc(tid)}"
-                 class="select select-bordered select-sm w-full"
-                 ${sigSource === 'dynamic' ? '' : 'style="display:none"'}>
-            ${window.FSV2.buildEmployeeStepOptions(sortedTargets, tid, target.mail_signature_source_value || '')}
-          </select>
+          <details id="mailFromFallback-${esc(tid)}" class="mt-2" ${afzender.modus === 'fixed' ? 'open' : ''}>
+            <summary id="mailFromFallbackSummary-${esc(tid)}" class="text-xs text-base-content/60 cursor-pointer"
+                     ${afzender.modus === 'fixed' ? 'style="display:none"' : ''}>
+              Terugval als die persoon niet gevonden wordt of geen e-mailadres heeft
+            </summary>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-2 mt-2">
+              <input type="text" id="mailFromName-${esc(tid)}" class="input input-bordered input-sm"
+                     value="${esc(target.mail_from_name || '')}" placeholder="Naam (bv. Team Syndicoach)">
+              <input type="email" id="mailFromEmail-${esc(tid)}" class="input input-bordered input-sm"
+                     value="${esc(target.mail_from_email || '')}" placeholder="E-mailadres">
+            </div>
+          </details>
+
+          <label class="label pt-3 pb-1"><span class="label-text text-sm font-medium">Naam die de ontvanger ziet</span></label>
+          <input type="text" id="mailFromDisplay-${esc(tid)}" class="input input-bordered input-sm"
+                 value="${esc(target.mail_from_display_name || '')}" placeholder="{{sender.first_name}} van Syndicoach">
           <label class="label pt-1 pb-0">
             <span class="label-text-alt text-base-content/50">
-              Odoo levert de HTML zelf (“res.users.signature”) -- dezelfde handtekening die de
-              medewerker al via de signature-designer naar Gmail pusht. Nog niet gepusht? Dan vertrekt
-              de mail gewoon zonder handtekening, geen fout.
+              Staat in de inbox voor het adres. <code>{{sender.first_name}}</code> is de voornaam van de afzender,
+              <code>{{sender.name}}</code> zijn volledige naam. Leeg = de naam van de afzender.
             </span>
           </label>
         </div>
@@ -385,15 +476,10 @@
       if (actie === 'preview')      vernieuwVoorbeeld(doelTid);
     });
 
-    // Handtekening: vast/dynamisch/geen -- zelfde toggle-patroon als de
-    // Contactpersoon-bron in de pdf-composer.
+    // Afzender: stap / vaste medewerker / vast adres.
     el.addEventListener('change', function (e) {
-      if (e.target.id !== 'mailSigSource-' + tid) return;
-      var v = e.target.value;
-      var empEl  = document.getElementById('mailSigEmployeeId-' + tid);
-      var stepEl = document.getElementById('mailSigStepValue-' + tid);
-      if (empEl)  empEl.style.display  = v === 'fixed'   ? '' : 'none';
-      if (stepEl) stepEl.style.display = v === 'dynamic' ? '' : 'none';
+      if (!e.target.matches('[data-mail-sender-mode]')) return;
+      toonAfzenderModus(tid, e.target.value);
     });
   }
 
@@ -542,6 +628,27 @@
     if (!qi || !qi.quill) return;
     var sel = qi.quill.getSelection(true);
     var pos = sel ? sel.index : qi.quill.getLength();
+
+    // Een AFSPRAAKLINK hoort achter tekst, niet als kale URL in de zin. Staat
+    // er tekst geselecteerd, dan wordt die tekst de link; anders komt er
+    // "plan een afspraak" met de link erachter. Zo hoeft niemand de
+    // placeholder in het linkvenster van Quill over te typen.
+    if (/^afspraak\./.test(pad)) {
+      var href = '{{' + pad + '}}';
+      if (sel && sel.length > 0) {
+        qi.quill.formatText(sel.index, sel.length, 'link', href, 'user');
+        qi.quill.setSelection(sel.index + sel.length, 0);
+      } else {
+        var tekst = 'plan een afspraak';
+        qi.quill.insertText(pos, tekst, { link: href }, 'user');
+        qi.quill.setSelection(pos + tekst.length, 0);
+        // Wat je hierna typt hoort niet meer bij de link.
+        qi.quill.format('link', false, 'user');
+      }
+      keuze.value = '';
+      return;
+    }
+
     qi.quill.insertText(pos, '{{' + pad + '}}', 'user');
     qi.quill.setSelection(pos + pad.length + 4, 0);
     keuze.value = '';
@@ -601,10 +708,11 @@
     var qi = window.FSV2._mailQuills && window.FSV2._mailQuills[tid];
     var uren = Number((document.getElementById('mailDelayH-' + tid) || {}).value || 0);
     var min  = Number((document.getElementById('mailDelayM-' + tid) || {}).value || 0);
-    var fromEl = document.querySelector('input[name="mailFrom-' + tid + '"]:checked');
+    var modusEl = document.querySelector('input[name="mailSender-' + tid + '"]:checked');
+    var modus = modusEl ? modusEl.value : 'step';
     var serverRaw = (document.getElementById('mailServerId-' + tid) || {}).value;
-    var sigSourceEl = document.getElementById('mailSigSource-' + tid);
-    var sigSourceVal = sigSourceEl ? sigSourceEl.value : '';
+    // Eén keuze in de UI, twee velden in de database -- zie afzenderStand().
+    var sigSourceVal = modus === 'step' ? 'dynamic' : (modus === 'employee' ? 'fixed' : '');
     return {
       mail_layout:            'plain',
       mail_subject_template:  (document.getElementById('mailSubject-' + tid) || {}).value || '',
@@ -613,8 +721,9 @@
       mail_recipient_source:  (document.getElementById('mailRecipient-' + tid) || {}).value || 'record.email',
       mail_window_start_min:  alsMinuten((document.getElementById('mailWinStart-' + tid) || {}).value) ?? 480,
       mail_window_end_min:    alsMinuten((document.getElementById('mailWinEnd-' + tid) || {}).value) ?? 1200,
-      mail_from_source:       fromEl ? fromEl.value : 'record_user',
+      mail_from_source:       modus === 'fixed' ? 'fixed' : 'record_user',
       mail_from_name:         (document.getElementById('mailFromName-' + tid) || {}).value || '',
+      mail_from_display_name: (document.getElementById('mailFromDisplay-' + tid) || {}).value || '',
       mail_from_email:        (document.getElementById('mailFromEmail-' + tid) || {}).value || '',
       mail_reply_to:          (document.getElementById('mailReplyTo-' + tid) || {}).value || '',
       mail_server_id:         serverRaw ? Number(serverRaw) : null,
@@ -625,7 +734,7 @@
       mail_signature_employee_id:  sigSourceVal === 'fixed'
         ? Number((document.getElementById('mailSigEmployeeId-' + tid) || {}).value) || null : null,
       mail_signature_source_value: sigSourceVal === 'dynamic'
-        ? ((document.getElementById('mailSigStepValue-' + tid) || {}).value || null) : null
+        ? ((document.getElementById('mailSenderStep-' + tid) || {}).value || null) : null
     };
   }
 
@@ -663,15 +772,15 @@
       return;
     }
     if (velden.mail_from_source === 'fixed' && !velden.mail_from_email.trim()) {
-      window.FSV2.showAlert('Kies een vast afzenderadres, of zet de afzender op de eigenaar van het record.', 'error');
+      window.FSV2.showAlert('Vul het vaste afzenderadres in, of kies een medewerker als afzender.', 'error');
       return;
     }
     if (velden.mail_signature_source === 'fixed' && !(velden.mail_signature_employee_id > 0)) {
-      window.FSV2.showAlert('Vul een geldig medewerker-ID in bij Handtekening, of kies een andere bron.', 'error');
+      window.FSV2.showAlert('Vul een geldig medewerker-ID in, of kies een andere afzender.', 'error');
       return;
     }
     if (velden.mail_signature_source === 'dynamic' && !velden.mail_signature_source_value) {
-      window.FSV2.showAlert('Kies een stap voor de handtekening.', 'error');
+      window.FSV2.showAlert('Kies uit welke stap de afzender komt.', 'error');
       return;
     }
 

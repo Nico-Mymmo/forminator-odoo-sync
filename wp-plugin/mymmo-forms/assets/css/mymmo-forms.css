@@ -104,29 +104,49 @@
   position: absolute;
   inset: 0;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 10px;
-  background: color-mix(in srgb, var(--mf-bg, #fff) 85%, transparent);
-  border-radius: var(--mf-radius);
+  gap: 16px;
+  padding: 16px;
+  text-align: center;
+  /* Een VOL wit vlak, bewust geen var(--mf-bg): die staat in de pop-up vaak op
+     transparent, en dan schemert alles erdoor. */
+  background: #ffffff;
+  border-radius: 16px;
   z-index: 5;
-  font-size: 0.95rem;
+  font-size: 1.05rem;
+  font-weight: 600;
   color: var(--mf-text);
 }
 
 .mymmo-form-bezig[hidden] { display: none; }
 
-.mymmo-form-bezig-spinner {
-  width: 18px;
-  height: 18px;
-  border: 2.5px solid var(--mf-border);
-  border-top-color: var(--mf-accent);
-  border-radius: 50%;
-  animation: mymmo-form-bezig-draai 0.7s linear infinite;
+/* De INHOUD van de wikkel verdwijnt tijdens het versturen. Een half
+   doorzichtig vlak erover liet de formuliertekst erdoor schemeren (en in de
+   pop-up is --mf-bg vaak transparent, dus dan dekte het vlak helemaal niets).
+   visibility en geen display: de wikkel houdt zo zijn hoogte, en het venster
+   springt niet in elkaar. */
+.mymmo-form-wrap.mymmo-form-wrap--bezig > :not(.mymmo-form-bezig) {
+  visibility: hidden;
 }
 
-@keyframes mymmo-form-bezig-draai {
-  to { transform: rotate(360deg); }
+.mymmo-form-bezig .mymmo-form-bezig-beeld {
+  display: block;
+  width: 96px;
+  max-width: 40%;
+  height: auto;
+}
+
+.mymmo-form-bezig .mymmo-form-bezig-puntjes span {
+  animation: mymmo-form-bezig-punt 1.2s infinite both;
+}
+.mymmo-form-bezig .mymmo-form-bezig-puntjes span:nth-child(2) { animation-delay: 0.2s; }
+.mymmo-form-bezig .mymmo-form-bezig-puntjes span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes mymmo-form-bezig-punt {
+  0%, 80%, 100% { opacity: 0; }
+  40% { opacity: 1; }
 }
 
 /* Alleen zichtbaar voor beheerders — bewust opvallend en lelijk, want het

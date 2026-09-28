@@ -68,20 +68,18 @@ $ics = mymmo_events_ics_url($event);
                 <?php endif; ?>
             </div>
 
-            <?php if ($capacity) : ?>
+            <?php
+            // Geen "nog x van y": hoeveel mensen er al ingeschreven zijn, gaat
+            // een bezoeker niet aan. Enkel als het (bijna) vol is, zeggen we het.
+            ?>
+            <?php if ($capacity && is_int($seats_left) && $seats_left < MYMMO_EVENTS_ALMOST_FULL) : ?>
                 <div class="mymmo-ev-fact">
                     <span class="mymmo-ev-fact__label">Plaatsen</span>
-                    <span class="mymmo-ev-fact__value">
-                        <?php if ($seats_left === 0) : ?>
-                            Volzet
-                        <?php elseif (is_int($seats_left)) : ?>
-                            <?php echo esc_html(sprintf('Nog %d vrij', $seats_left)); ?>
-                        <?php else : ?>
-                            <?php echo esc_html(sprintf('%d plaatsen', (int) $capacity)); ?>
-                        <?php endif; ?>
-                    </span>
-                    <?php if (is_int($seats_left) && $seats_left > 0) : ?>
-                        <span class="mymmo-ev-fact__sub"><?php echo esc_html(sprintf('van %d', (int) $capacity)); ?></span>
+                    <?php if ($seats_left === 0) : ?>
+                        <span class="mymmo-ev-fact__value">Volzet</span>
+                    <?php else : ?>
+                        <span class="mymmo-ev-fact__value">Bijna volzet</span>
+                        <span class="mymmo-ev-fact__sub">Schrijf je snel in</span>
                     <?php endif; ?>
                 </div>
             <?php endif; ?>

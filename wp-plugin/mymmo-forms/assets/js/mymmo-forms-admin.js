@@ -539,6 +539,24 @@
         atts.tab_order = volgorde.join(',');
       }
 
+      // Welk tabblad openstaat. Leeg blijft leeg: dan opent het bovenste uit
+      // tab_order, en dat is de bedoeling. Een `tab` die hetzelfde zegt als de
+      // volgorde is een attribuut dat niets doet maar wel meeverhuist zodra
+      // iemand die volgorde wijzigt -- en dan opent het venster stil op het
+      // verkeerde tabblad.
+      var tabActief = waardeVan('mymmoFormsTabActief');
+      if (tabActief) atts.tab = tabActief;
+
+      // De kop boven de agenda. Alleen als er ook een agenda IS: anders staat
+      // er een attribuut in de shortcode voor een tabblad dat niet bestaat, en
+      // dat duikt pas op als iemand later een agenda aanzet.
+      if (agenda) {
+        var calTitel = waardeVan('mymmoFormsCalendlyTitle');
+        var calSub = waardeVan('mymmoFormsCalendlySub');
+        if (calTitel) atts.calendly_title = calTitel;
+        if (calSub) atts.calendly_sub = calSub;
+      }
+
       // De opschriften van de tabbladen alleen meegeven als ze afwijken van de
       // standaard, en alleen als er een tweede tabblad IS: zonder agenda staat
       // er maar een deel in het venster en is er niets om op te schrijven.
@@ -776,6 +794,9 @@
     zetVeld('mymmoFormsTabExtra', atts.tab_extra);
     zetVeld('mymmoFormsTabExtraSub', atts.tab_extra_sub);
     zetVolgorde(atts.tab_order);
+    zetVeld('mymmoFormsTabActief', atts.tab);
+    zetVeld('mymmoFormsCalendlyTitle', atts.calendly_title);
+    zetVeld('mymmoFormsCalendlySub', atts.calendly_sub);
     zetVeld('mymmoFormsTrigger', atts.trigger);
     zetVeld('mymmoFormsGap', atts.gap);
     zetVeld('mymmoFormsFormTitle', atts.form_title);
@@ -964,7 +985,8 @@
       + ' #mymmoFormsThanksExtraImage, #mymmoFormsThanksExtraTitle, #mymmoFormsThanksExtraText,'
       + ' #mymmoFormsThanksCalendlyImage, #mymmoFormsThanksCalendlyTitle,'
       + ' #mymmoFormsGoalForm, #mymmoFormsGoalCalendly, #mymmoFormsGoalExtra,'
-      + ' #mymmoFormsPanelBreed'
+      + ' #mymmoFormsPanelBreed, #mymmoFormsTabActief,'
+      + ' #mymmoFormsCalendlyTitle, #mymmoFormsCalendlySub'
     );
     for (var i = 0; i < velden.length; i += 1) {
       velden[i].addEventListener('input', function () {

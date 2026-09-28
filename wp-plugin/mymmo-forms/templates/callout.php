@@ -74,6 +74,38 @@ $breed  = $layout === 'breed';
 $agenda = is_array($agenda ?? null) ? $agenda : null;
 $sectie = (string) ($sectie ?? '');
 
+/*
+ * DE KALE MODUS (`chrome="no"` op de shortcode of het blok).
+ *
+ * Dan wordt enkel het uitgelichte onderdeel plus de knop gerenderd: geen
+ * kaartje, geen titel, geen tekst, geen achtergrond, geen eigen opvulling en
+ * geen uitbraak uit de inhoudskolom. Voor een ingang die IN iets anders staat
+ * dat al een kaart is -- een kaart van Mymmo Cards bijvoorbeeld.
+ *
+ * Waarom dat bestaat: een callout is zelf een kaart, met haar eigen kop en
+ * opvulling. Staat ze tussen kaarten die uit core-blokken gebouwd zijn, dan
+ * moet elke eigenschap (lettergrootte, dikte, kleur, opvulling, hoeken)
+ * overgetypt worden om gelijk te lijken -- en die eigenschappen komen uit het
+ * THEMA, dus de plugin kent ze niet. Kaal renderen haalt die hele vergelijking
+ * weg: de titel is dan een gewoon kopblok van de pagina zelf.
+ */
+$kaal = !empty($kaal);
+
+/*
+ * MET OF ZONDER HET WITTE VAK.
+ *
+ * Het vak (wit, dunne rand, hoeken, schaduw, opvulling) hoort bij het
+ * uitgelichte ONDERDEEL en niet bij de chrome van de callout: het is wat de
+ * bediening laat opvallen op een gekleurd vlak. In een kaart van Mymmo Cards
+ * geldt dat net zo goed als in een callout, dus kaal houdt het vak -- anders
+ * zweeft het formulier los op de kaartkleur en is het geen bediening meer maar
+ * tekst met een knop eronder.
+ *
+ * Zonder vak (`chrome="bare"`) blijft bestaan voor een ingang die al op een wit
+ * vlak staat; twee witte vlakken op elkaar leest als een fout.
+ */
+$kaal_vak = !isset($kaal_vak) || $kaal_vak;
+
 $klassen = 'mymmo-callout mymmo-callout--' . ($breed ? 'breed' : 'kolommen');
 if ($beeld === '') {
     $klassen .= ' mymmo-callout--zonder-beeld';
@@ -81,59 +113,18 @@ if ($beeld === '') {
 if ($klasse !== '') {
     $klassen .= ' ' . $klasse;
 }
+
+/*
+ * Het uitgelichte onderdeel wordt EERST opgebouwd, in een buffer.
+ *
+ * Twee standen (met kaartje en kaal) die allebei hetzelfde dok en dezelfde knop
+ * tonen: dat is exact dezelfde markup, dus ze hoort ook maar op een plek te
+ * staan. Twee kopieen zouden uit elkaar lopen op het moment dat iemand er een
+ * attribuut bij zet -- en dan werkt het verhuizen naar het venster nog wel op
+ * de ene plek en niet meer op de andere, zonder foutmelding.
+ */
+ob_start();
 ?>
-<section class="<?php echo esc_attr($klassen); ?>"<?php echo $stijl !== '' ? ' style="' . esc_attr($stijl) . '"' : ''; ?>>
-  <?php
-  // Het raster staat in een EIGEN element, zodat de callout eromheen de
-  // container kan zijn waar de kolommen op reageren. Een callout staat in de
-  // inhoudskolom van een pagina, en die is vaak smaller dan het scherm -- op de
-  // breedte van het SCHERM omslaan gaf dus één kolom op een plek waar er twee
-  // pasten. Zie mymmo-forms-callout.css.
-  ?>
-  <div class="mymmo-callout-raster">
-
-    <?php
-    // De kolom van de marketeer: titel, tekst, afbeelding. In de brede indeling
-    // staat dit blok bovenaan over de volle breedte.
-    ?>
-    <div class="mymmo-callout-tekst">
-        <?php if ($titel !== '' || $tekst !== '') : ?>
-            <div class="mymmo-callout-kop">
-                <?php if ($titel !== '') : ?>
-                    <?php
-                    // Beide koppen staan in de markup; de CSS toont er een, op de
-                    // breedte van het BLOK. Server-side kiezen kan niet: de pagina
-                    // wordt gecachet en weet dus niet op welk scherm ze belandt.
-                    ?>
-                    <h2 class="mymmo-callout-titel<?php echo $titel_kort !== '' ? ' mymmo-callout-titel--lang' : ''; ?>"><?php echo esc_html($titel); ?></h2>
-                    <?php if ($titel_kort !== '') : ?>
-                        <h2 class="mymmo-callout-titel mymmo-callout-titel--kort"><?php echo esc_html($titel_kort); ?></h2>
-                    <?php endif; ?>
-                <?php endif; ?>
-                <?php if ($tekst !== '') : ?>
-                    <p class="mymmo-callout-uitleg"><?php echo esc_html($tekst); ?></p>
-                <?php endif; ?>
-            </div>
-        <?php endif; ?>
-
-        <?php if ($beeld !== '') : ?>
-            <?php
-            // alt="" als er geen beschrijving is: dit is sfeerbeeld, geen
-            // informatie. Een schermlezer die de bestandsnaam voorleest is erger
-            // dan stilte.
-            ?>
-            <div class="mymmo-callout-figuur">
-                <img class="mymmo-callout-beeld"
-                     src="<?php echo esc_url($beeld); ?>"
-                     alt="<?php echo esc_attr($beeld_alt); ?>"
-                     loading="lazy"
-                     decoding="async">
-            </div>
-        <?php endif; ?>
-    </div>
-
-    <?php // De kolom met het uitgelichte onderdeel, plus de knop die opent. ?>
-    <div class="mymmo-callout-uitgelicht">
         <?php
         // Het DOK. Hier woont de stap of het formulier zolang het venster dicht
         // is; zodra het opengaat schuift mymmo-forms-steps.js het naar de plek
@@ -188,6 +179,72 @@ if ($klasse !== '') {
                 </svg>
             </a>
         </div>
+<?php
+$uitgelicht_html = (string) ob_get_clean();
+
+if ($kaal) {
+    // Kaal: enkel het onderdeel en de knop. MET vak is dat exact hetzelfde
+    // element als in de callout (.mymmo-callout-uitgelicht) -- geen tweede
+    // opmaak die uit de pas kan lopen. Zonder vak blijft er een wikkel over die
+    // de twee enkel onder elkaar zet.
+    echo '<div class="' . ($kaal_vak ? 'mymmo-callout-uitgelicht' : 'mymmo-ingang-kaal') . '">'
+        . $uitgelicht_html . '</div>'; // phpcs:ignore WordPress.Security.EscapeOutput
+    return;
+}
+?>
+<section class="<?php echo esc_attr($klassen); ?>"<?php echo $stijl !== '' ? ' style="' . esc_attr($stijl) . '"' : ''; ?>>
+  <?php
+  // Het raster staat in een EIGEN element, zodat de callout eromheen de
+  // container kan zijn waar de kolommen op reageren. Een callout staat in de
+  // inhoudskolom van een pagina, en die is vaak smaller dan het scherm -- op de
+  // breedte van het SCHERM omslaan gaf dus één kolom op een plek waar er twee
+  // pasten. Zie mymmo-forms-callout.css.
+  ?>
+  <div class="mymmo-callout-raster">
+
+    <?php
+    // De kolom van de marketeer: titel, tekst, afbeelding. In de brede indeling
+    // staat dit blok bovenaan over de volle breedte.
+    ?>
+    <div class="mymmo-callout-tekst">
+        <?php if ($titel !== '' || $tekst !== '') : ?>
+            <div class="mymmo-callout-kop">
+                <?php if ($titel !== '') : ?>
+                    <?php
+                    // Beide koppen staan in de markup; de CSS toont er een, op de
+                    // breedte van het BLOK. Server-side kiezen kan niet: de pagina
+                    // wordt gecachet en weet dus niet op welk scherm ze belandt.
+                    ?>
+                    <h2 class="mymmo-callout-titel<?php echo $titel_kort !== '' ? ' mymmo-callout-titel--lang' : ''; ?>"><?php echo esc_html($titel); ?></h2>
+                    <?php if ($titel_kort !== '') : ?>
+                        <h2 class="mymmo-callout-titel mymmo-callout-titel--kort"><?php echo esc_html($titel_kort); ?></h2>
+                    <?php endif; ?>
+                <?php endif; ?>
+                <?php if ($tekst !== '') : ?>
+                    <p class="mymmo-callout-uitleg"><?php echo esc_html($tekst); ?></p>
+                <?php endif; ?>
+            </div>
+        <?php endif; ?>
+
+        <?php if ($beeld !== '') : ?>
+            <?php
+            // alt="" als er geen beschrijving is: dit is sfeerbeeld, geen
+            // informatie. Een schermlezer die de bestandsnaam voorleest is erger
+            // dan stilte.
+            ?>
+            <div class="mymmo-callout-figuur">
+                <img class="mymmo-callout-beeld"
+                     src="<?php echo esc_url($beeld); ?>"
+                     alt="<?php echo esc_attr($beeld_alt); ?>"
+                     loading="lazy"
+                     decoding="async">
+            </div>
+        <?php endif; ?>
+    </div>
+
+    <?php // De kolom met het uitgelichte onderdeel, plus de knop die opent. ?>
+    <div class="mymmo-callout-uitgelicht">
+        <?php echo $uitgelicht_html; // phpcs:ignore WordPress.Security.EscapeOutput -- hierboven opgebouwd ?>
     </div>
 
   </div>

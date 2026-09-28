@@ -134,6 +134,23 @@ function jsonError(message, status = 500, code = undefined) {
 
 const VALID_VISIBILITIES = ['private', 'shared', 'specific'];
 
+/**
+ * Leesbare namen voor AI-aanroepen die NIET van een mini-app komen.
+ *
+ * `mini_app_ai_calls.source` (migratie 20260920140000) zegt waar een aanroep
+ * vandaan kwam. Zonder dit lijstje stond een aanroep van Content Feed in het
+ * kostenrapport als "Verwijderde app" -- dat leest als een fout terwijl er
+ * niets stuk is.
+ *
+ * Een onbekende source toont bewust zijn EIGEN naam in plaats van te
+ * verdwijnen: een nieuwe module die zichzelf logt, hoort meteen in het rapport
+ * te staan, ook voor iemand deze lijst bijwerkt.
+ */
+const SOURCE_LABELS = {
+  mini_app: 'Mini-app',
+  content_feed: 'Nieuws & updates'
+};
+
 // Lucide-iconnamen die de eigenaar mag kiezen in de Instellingen-tab (dropdown).
 // Moet in sync blijven met ICON_OPTIONS in public/mini-apps.js (daar staan ook
 // de Nederlandse labels bij). Vrije DB-kolom, maar hier hard gevalideerd zodat
@@ -1979,6 +1996,10 @@ export const routes = {
   // batch-korting verrekend); rijen van vóór de kostenmigratie hebben geen
   // opgeslagen waarde en worden hier on-the-fly herberekend met de HUIDIGE
   // prijstabel.
+  /* Leesbare namen voor AI-aanroepen die niet van een mini-app komen.
+     Een onbekende source toont bewust zijn eigen naam in plaats van te
+     verdwijnen: een nieuwe module die zichzelf logt, hoort meteen in het
+     rapport te staan, ook voor iemand dit lijstje bijwerkt. */
   'GET /api/ai-usage': async ({ env, user, request }) => {
     if (user.role !== 'admin') return jsonError('Forbidden', 403, 'FORBIDDEN');
 
@@ -1992,7 +2013,7 @@ export const routes = {
     const [{ data: calls, error: callsErr }, { data: apps, error: appsErr }, { data: users, error: usersErr }] = await Promise.all([
       supabase
         .from('mini_app_ai_calls')
-        .select('mini_app_id, user_id, provider, model, tokens_in, tokens_out, estimated_cost_usd, status, created_at')
+        .select('mini_app_id, user_id, source, provider, model, tokens_in, tokens_out, estimated_cost_usd, status, created_at')
         .gte('created_at', since)
         .order('created_at', { ascending: false })
         .limit(20000),
@@ -2023,9 +2044,16 @@ export const routes = {
       totals.tokensIn += r.tokens_in || 0;
       totals.tokensOut += r.tokens_out || 0;
 
-      const appKey = r.mini_app_id || 'onbekend';
+      /* Niet elke aanroep komt van een mini-app: Content Feed analyseert
+         hier artikelen (source = 'content_feed'). Zo'n rij heeft geen
+         mini_app_id, en zonder dit onderscheid stond ze als "Verwijderde app"
+         in het rapport -- wat leest als een fout terwijl er niets stuk is. */
+      const appKey = r.mini_app_id || `bron:${r.source || 'mini_app'}`;
       if (!byApp.has(appKey)) {
-        byApp.set(appKey, { id: r.mini_app_id, title: appTitleById.get(r.mini_app_id) || 'Verwijderde app', calls: 0, failed: 0, cost: 0, tokensIn: 0, tokensOut: 0 });
+        const title = r.mini_app_id
+          ? (appTitleById.get(r.mini_app_id) || 'Verwijderde app')
+          : (SOURCE_LABELS[r.source] || r.source || 'Onbekende bron');
+        byApp.set(appKey, { id: r.mini_app_id, source: r.source || 'mini_app', title, calls: 0, failed: 0, cost: 0, tokensIn: 0, tokensOut: 0 });
       }
       const a = byApp.get(appKey);
       a.calls += 1;

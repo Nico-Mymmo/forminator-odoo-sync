@@ -2,11 +2,13 @@ import { executeKw } from '../../lib/odoo.js';
 import { fetchFsv2ActivityTypes, fetchFsv2OdooUsers, fetchFsv2OdooEmployees } from './odoo-client.js';
 import { renderPlainMailHtml, renderPlainSubject, nietPlatteOpmaak } from '../../lib/mail/render-plain.js';
 import { describeMailAttachments, MAX_MAIL_ATTACHMENTS, MAX_MAIL_ATTACHMENT_BYTES } from './mail-attachments.js';
+import { buildDisplayForm } from './display-values.js';
 import {
   buildPdfGegevens, renderPdf, pdfBytesToBase64,
   listPdfTemplates, getPdfTemplate, createPdfTemplate, updatePdfTemplate, deletePdfTemplate,
   listBedrijfProfielen, getBedrijfProfiel, createBedrijfProfiel, updateBedrijfProfiel, deleteBedrijfProfiel,
-  listGeneratedDocuments, getGeneratedDocument, deleteGeneratedDocument, cleanupGeneratedDocuments
+  listGeneratedDocuments, getGeneratedDocument, deleteGeneratedDocument, cleanupGeneratedDocuments,
+  takeNextOfferNumber, listOfferContacten, getOfferContact
 } from './pdf-step.js';
 import { listObjects } from '../asset-manager/lib/r2-client.js';
 import {
@@ -444,6 +446,32 @@ function parseJsonObject(value) {
   } catch {
     return {};
   }
+}
+
+// Dezelfde omhulsels als normalizeFormValues() in worker-handler.js en
+// parsePayload() in forminator-sync-v2-detail-submissions-tab.js.
+const PAYLOAD_OMHULSELS = ['form_fields', 'form_data', 'data', 'submission', 'raw'];
+
+/**
+ * Een inzending met `display_values` erbij: de platgeslagen formulierwaarden,
+ * leesbaar gemaakt door buildDisplayForm(). Alleen tekstwaarden; wat geen
+ * string of getal is, laat de browser zoals het was.
+ */
+function metLeesbareWaarden(row) {
+  const payload = parseJsonObject(row && row.source_payload);
+  const plat = {};
+  for (const [k, v] of Object.entries(payload)) {
+    if (PAYLOAD_OMHULSELS.includes(k) || k === 'value_labels') continue;
+    if (typeof v === 'string' || typeof v === 'number') plat[k] = String(v);
+  }
+  for (const naam of PAYLOAD_OMHULSELS) {
+    const binnenin = payload[naam];
+    if (!binnenin || typeof binnenin !== 'object' || Array.isArray(binnenin)) continue;
+    for (const [k, v] of Object.entries(binnenin)) {
+      if (plat[k] === undefined && (typeof v === 'string' || typeof v === 'number')) plat[k] = String(v);
+    }
+  }
+  return { ...row, display_values: buildDisplayForm(plat, payload.value_labels) };
 }
 
 function extractExpectedImportFields(bundle) {
@@ -1289,6 +1317,7 @@ export const routes = {
         ...(payload.mail_res_id_source     !== undefined ? { mail_res_id_source:     payload.mail_res_id_source     || null } : {}),
         ...(payload.mail_from_source       !== undefined ? { mail_from_source:       payload.mail_from_source       || 'record_user' } : {}),
         ...(payload.mail_from_name         !== undefined ? { mail_from_name:         payload.mail_from_name         || null } : {}),
+        ...(payload.mail_from_display_name !== undefined ? { mail_from_display_name: String(payload.mail_from_display_name || '').trim() || null } : {}),
         ...(payload.mail_from_email        !== undefined ? { mail_from_email:        payload.mail_from_email        || null } : {}),
         ...(payload.mail_reply_to          !== undefined ? { mail_reply_to:          payload.mail_reply_to          || null } : {}),
         // Expliciet zetten, want de default (ir.mail_server 4) is de Postmark
@@ -1383,6 +1412,7 @@ export const routes = {
         ...(payload.mail_res_id_source     !== undefined ? { mail_res_id_source:     payload.mail_res_id_source     || null } : {}),
         ...(payload.mail_from_source       !== undefined ? { mail_from_source:       payload.mail_from_source       || 'record_user' } : {}),
         ...(payload.mail_from_name         !== undefined ? { mail_from_name:         payload.mail_from_name         || null } : {}),
+        ...(payload.mail_from_display_name !== undefined ? { mail_from_display_name: String(payload.mail_from_display_name || '').trim() || null } : {}),
         ...(payload.mail_from_email        !== undefined ? { mail_from_email:        payload.mail_from_email        || null } : {}),
         ...(payload.mail_reply_to          !== undefined ? { mail_reply_to:          payload.mail_reply_to          || null } : {}),
         // Expliciet zetten, want de default (ir.mail_server 4) is de Postmark
@@ -1468,6 +1498,39 @@ export const routes = {
         geldigheid_dagen: payload.geldigheid_dagen
       });
       return jsonResponse({ success: true, data: updated });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
+    }
+  },
+
+  // Het volgende offertenummer nemen, voor wie in de editor met de hand een
+  // offerte opmaakt. Een POST en geen GET: dit VERHOOGT de teller.
+  'POST /api/pdf-templates/:id/next-number': async (context) => {
+    try {
+      const data = await takeNextOfferNumber(context.env, context.params?.id);
+      return jsonResponse({ success: true, data });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
+    }
+  },
+
+  // De contactpersoon-keuzelijst van diezelfde editor. Apart van
+  // /api/odoo/employees hierboven: die geeft enkel id + naam (genoeg voor een
+  // round-robin-poule), hier hoort ook het e-mailadres en -- per medewerker --
+  // de pasfoto bij.
+  'GET /api/pdf-contacten': async (context) => {
+    try {
+      const data = await listOfferContacten(context.env);
+      return jsonResponse({ success: true, data });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
+    }
+  },
+
+  'GET /api/pdf-contacten/:id': async (context) => {
+    try {
+      const data = await getOfferContact(context.env, context.params?.id);
+      return jsonResponse({ success: true, data });
     } catch (error) {
       return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
     }
@@ -2443,7 +2506,11 @@ export const routes = {
       assertIntegrationSelected(integrationId);
 
       const rows = await listSubmissionsByIntegration(context.env, integrationId, 50);
-      return jsonResponse({ success: true, data: rows });
+      // Per inzending ook de LEESBARE waarden (labels, tijdstippen in Brussel),
+      // met dezelfde functie als de pipeline. Zo tonen de indieningenlijst en
+      // het chatter-voorbeeld wat er ook in Odoo komt, en bestaat de omzetting
+      // niet een tweede keer in de browser. source_payload blijft ongewijzigd.
+      return jsonResponse({ success: true, data: (rows || []).map(metLeesbareWaarden) });
     } catch (error) {
       return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
     }

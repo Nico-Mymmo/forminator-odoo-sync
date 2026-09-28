@@ -870,13 +870,31 @@ function mymmo_forms_form_kop(array $form, array $form_args): string {
         );
     }
 
+    return mymmo_forms_kop_blok($titel, $sub, 'form');
+}
+
+/**
+ * De kop boven een paneel: een titel met eventueel een regel eronder.
+ *
+ * Staat apart omdat er intussen TWEE panelen zo'n kop hebben (het formulier
+ * en de agenda) en er maar EEN stijl voor mag bestaan. Precies dezelfde
+ * klassen als een stap gebruikt (`mymmo-stap-titel` / `mymmo-stap-tekst`),
+ * zodat stap 1 en het laatste scherm er hetzelfde uitzien. Schrijf een tweede
+ * variant hier dus niet naast -- geef ze een `$merk` en voeg ze hier toe.
+ *
+ * @param string $titel
+ * @param string $sub
+ * @param string $merk  wat er in data-mymmo-kop komt (form, calendly, ...)
+ */
+function mymmo_forms_kop_blok(string $titel, string $sub, string $merk): string {
     $html = '';
     if ($titel !== '') {
         $html .= '<h3 class="mymmo-stap-titel' . ($sub !== '' ? ' mymmo-stap-titel--met-tekst' : '')
-            . '" data-mymmo-kop="form-titel">' . esc_html($titel) . '</h3>';
+            . '" data-mymmo-kop="' . esc_attr($merk) . '-titel">' . esc_html($titel) . '</h3>';
     }
     if ($sub !== '') {
-        $html .= '<p class="mymmo-stap-tekst" data-mymmo-kop="form-sub">' . esc_html($sub) . '</p>';
+        $html .= '<p class="mymmo-stap-tekst" data-mymmo-kop="' . esc_attr($merk) . '-sub">'
+            . esc_html($sub) . '</p>';
     }
 
     return $html;

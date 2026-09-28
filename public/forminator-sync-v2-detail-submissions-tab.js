@@ -159,6 +159,7 @@
       var plat = {};
       Object.keys(obj).forEach(function (k) {
         if (CONTAINERS.indexOf(k) !== -1) return;  // het omhulsel zelf is geen waarde
+        if (k === 'value_labels') return;           // labels bij de waarden, geen veld
         plat[k] = obj[k];
       });
 
@@ -172,8 +173,25 @@
 
       return plat;
     }
+
+    /**
+     * parsePayload(), maar met de LEESBARE waarden die de server meestuurt
+     * (`display_values`: labels in plaats van optiesleutels, tijdstippen in
+     * Brussel -- zie display-values.js). Enkel voor wat een mens leest in de
+     * lijst. Nooit voor de logica hierboven (ketens, afspraakstand): die rekent
+     * op de ruwe `booking_action` en op ISO-tijdstippen.
+     */
+    function leesbarePayload(sub) {
+      var plat = parsePayload(sub);
+      var lees = sub && sub.display_values;
+      if (!lees || typeof lees !== 'object') return plat;
+      Object.keys(lees).forEach(function (k) {
+        if (plat[k] !== undefined && typeof plat[k] !== 'object') plat[k] = lees[k];
+      });
+      return plat;
+    }
     function listColumnValue(sub, col) {
-      var payload = parsePayload(sub);
+      var payload = leesbarePayload(sub);
       // col can be { fids, label } (new) or a bare fid string (safety)
       var fids = (col && col.fids) ? col.fids : [col];
       var val  = '';
@@ -494,7 +512,7 @@
       var rc = sub.resolved_context;
       try { ctx = (rc && typeof rc === 'object') ? rc : JSON.parse(rc || '{}'); } catch (e2) { ctx = {}; }
       var actions  = ctx.target_actions || [];
-      var payload  = parsePayload(sub);
+      var payload  = leesbarePayload(sub);
       var pKeys    = Object.keys(payload).filter(function (k) { return payload[k] && k !== 'nonce'; }).slice(0, 5);
       var payloadHtml = pKeys.length
         ? '<div class="flex flex-wrap gap-x-3 gap-y-0.5 mb-2 text-xs text-base-content/60">' +

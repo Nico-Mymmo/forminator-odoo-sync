@@ -275,6 +275,45 @@ function onEventPromoToggle(checked) {
 }
 window.onEventPromoToggle = onEventPromoToggle;
 
+/**
+ * Stuurt een testbericht over het huidige handtekening-event naar het
+ * waarschuwingskanaal. Verandert niets -- het is er om na te gaan of dat
+ * kanaal bereikbaar is en of de rotatie bij is, zonder te wachten tot een
+ * event passeert.
+ */
+async function testEventChat(knop) {
+  const label = knop ? knop.innerHTML : null;
+  if (knop) { knop.disabled = true; knop.textContent = 'Versturen\u2026'; }
+
+  try {
+    const res = await fetch('/mail-signatures/api/event-rotation/test', {
+      method: 'POST',
+      credentials: 'include'
+    });
+    const json = await res.json();
+
+    if (!res.ok || json.error) {
+      // De servermelding zegt WAT er ontbreekt (het secret, het kanaal); die
+      // tonen is het hele nut van deze knop.
+      showToast(json.error || ('Versturen mislukt (' + res.status + ')'), 'error');
+      return;
+    }
+
+    const waar = json.channelName ? ('"' + json.channelName + '"') : 'de chat';
+    showToast(
+      json.inSync
+        ? ('Testbericht verstuurd naar ' + waar + '. De rotatie is bij.')
+        : ('Testbericht verstuurd naar ' + waar + '. Let op: de rotatie staat nog niet gelijk.'),
+      json.inSync ? 'success' : 'warning'
+    );
+  } catch (err) {
+    showToast('Versturen mislukt: ' + err.message, 'error');
+  } finally {
+    if (knop) { knop.disabled = false; knop.innerHTML = label; }
+  }
+}
+window.testEventChat = testEventChat;
+
 function onEventSelect(idStr, silent = false) {
   const eventId   = parseInt(idStr, 10);
   const titleEl   = $('event-hidden-title');
@@ -495,6 +534,29 @@ function applyConfigToForm(config) {
   // Conditional visibility
   const promoOn = !!config.eventPromoEnabled;
   toggleCond('event-promo-fields', promoOn);
+
+  /* Het event wordt hier niet meer beheerd, alleen getoond. Met textContent
+     en losse elementen -- de titel komt uit Odoo en hoort nooit als HTML in
+     dit scherm terecht te komen. */
+  const statusEl = $('event-status');
+  if (statusEl) {
+    statusEl.textContent = '';
+    if (promoOn && config.eventTitle) {
+      const titel = document.createElement('div');
+      titel.className = 'font-medium text-base-content';
+      titel.textContent = config.eventTitle;
+      statusEl.appendChild(titel);
+      if (config.eventDate) {
+        const datum = document.createElement('div');
+        datum.className = 'text-xs mt-0.5';
+        datum.textContent = config.eventDate;
+        statusEl.appendChild(datum);
+      }
+    } else {
+      statusEl.textContent =
+        'Er staat geen event in de handtekening. Vink er een aan in Eventbeheer.';
+    }
+  }
   const fallback = $('fallback-banner-section');
   if (fallback) fallback.classList.toggle('visible', !promoOn);
   toggleCond('fallback-banner-fields',    !!config.showBanner);
@@ -533,11 +595,9 @@ async function saveConfig() {
     if (json.success) {
       markClean();
       setPreviewState('saved');
-      if (json.data?.eventPushTriggered) {
-        showToast('Configuratie opgeslagen — handtekeningen worden bijgewerkt voor alle gebruikers', 'success');
-      } else {
-        showToast('Configuratie opgeslagen', 'success');
-      }
+      // Opslaan duwt NIETS meer naar de gebruikers: het event wordt hier niet
+      // meer gekozen, en branding volgt pas bij een expliciete push.
+      showToast('Configuratie opgeslagen', 'success');
       // Refresh marketing preview
       updatePreview();
       // Also refresh the "Mijn handtekening" preview so _activeEvent is up-to-date
@@ -1229,9 +1289,10 @@ function getMySettingsForm() {
     show_email:             bool('show_email'),
     show_phone:             bool('show_phone'),
     show_photo:             bool('show_photo'),
-    // Per-event opt-out: store the current event ID (as string to match the TEXT column)
-    // when the user hides it, clear it when they re-enable.
-    hidden_event_id:        bool('show_event_promo') ? null : (_activeEvent?.id != null ? String(_activeEvent.id) : null),
+    // Blijvende voorkeur: wil deze gebruiker events in zijn handtekening?
+    // Wordt nooit automatisch teruggezet wanneer marketing iets anders
+    // klaarzet -- dat is een beslissing van de eigenaar.
+    show_event_promo:       bool('show_event_promo'),
     // Preview-only signal — not saved to DB (not in store allowlist).
     // Lets the preview route bypass ID-matching and directly respect the toggle.
     _preview_show_event:    bool('show_event_promo'),
@@ -1300,11 +1361,8 @@ function applyMySettingsToForm(settings, odooProfile) {
   set('show_email',             settings.show_email      !== false);   // default true
   set('show_phone',             settings.show_phone      !== false);   // default true
   set('show_photo',             settings.show_photo      !== false);   // default true
-  // Event toggle: checked UNLESS hidden_event_id matches the current active event.
-  // hidden_event_id is stored as TEXT in the DB so normalise both to strings.
-  const eventIsHidden = !!(settings.hidden_event_id && _activeEvent?.id &&
-                           String(settings.hidden_event_id) === String(_activeEvent.id));
-  set('show_event_promo', !eventIsHidden);
+  // Blijvende voorkeur; standaard aan voor wie nooit iets koos.
+  set('show_event_promo', settings.show_event_promo !== false);
 
   // Show active event or 'geen event' message
   const hasEvent = !!(_activeEvent?.title);

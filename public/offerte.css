@@ -210,7 +210,6 @@ html, body{
 
 .ov-hero{
   background: var(--ov-mint-vlak);
-  margin-top: 9mm;
   padding: 4mm 7mm;   /* krapper dan de andere panelen, zoals in het origineel */
 }
 .ov-hero-titel{
@@ -230,14 +229,13 @@ html, body{
   display: grid;
   grid-template-columns: 55mm 1fr;
   gap: 3mm;
-  margin-top: 9mm;
 }
 
 .ov-contact{ text-align: center; }
 .ov-contact .ov-h2{ text-align: left; }
 .ov-contact-foto{
-  width: 25mm;
-  height: 25mm;
+  width: calc(25mm * var(--ov-beeld-schaal, 1));
+  height: calc(25mm * var(--ov-beeld-schaal, 1));
   border-radius: 50%;
   object-fit: cover;
   display: block;
@@ -274,12 +272,10 @@ html, body{
 
 /* --- inleiding ---------------------------------------------------------- */
 
-.ov-inleiding{ margin-top: 10mm; }
 .ov-inleiding-titel{ font-weight: 700; color: var(--ov-inkt-diep); }
 
 /* --- vergelijkingstabel ------------------------------------------------- */
 
-.ov-vergelijking{ margin-top: 11mm; }
 .ov-vgl-tabel{
   border-radius: var(--ov-radius-klein);
   overflow: hidden;
@@ -304,7 +300,6 @@ html, body{
 
 /* --- het platform ------------------------------------------------------- */
 
-.ov-platform{ margin-top: 11mm; }
 .ov-platform-raster{
   display: grid;
   grid-template-columns: 78mm 1fr;
@@ -312,13 +307,13 @@ html, body{
   align-items: start;
 }
 .ov-platform-beeld{
-  width: 100%;
+  width: calc(100% * var(--ov-beeld-schaal, 1));
   height: auto;
   display: block;
   margin-top: 2mm;
   /* De schermafdruk loopt onderaan van het blad af, net als in het origineel.
      Zonder deze grens duwt ze de voet van pagina 1 eruit. */
-  max-height: 38mm;
+  max-height: calc(38mm * var(--ov-beeld-schaal, 1));
   object-fit: cover;
   object-position: left top;
 }
@@ -327,7 +322,12 @@ html, body{
    Pagina 2 — de prijzen
    ========================================================================== */
 
-.ov-prijzen{ margin-top: 6mm; }
+/* De maatvoering hieronder is KRAP, en dat is bewust: sinds de licentie een
+   volwaardige derde kaart is (in plaats van de smalle strook die ze was) moet
+   pagina 2 drie kaarten EN de tabel met bijkomende kosten dragen. Elke marge
+   die je hier weer optrekt, duwt de voetnoten onder die tabel van het blad --
+   de pagina snijdt gewoon af, controleerOverloop() zet er enkel een melding
+   bij. Meet in de editor na, niet enkel in de preview. */
 
 .ov-kaart{
   display: grid;
@@ -335,16 +335,20 @@ html, body{
   width: 155mm;
   border-radius: var(--ov-radius);
   overflow: hidden;
-  margin-bottom: 8.5mm;
+  margin-bottom: 5mm;
 }
 .ov-kaart--blauw{ background: var(--ov-blauw-vlak); }
 .ov-kaart--roze{  background: var(--ov-roze-vlak); }
+.ov-kaart--mint{  background: var(--ov-mint-vlak); }
 
 .ov-kaart-links{
-  padding: 4.5mm 5mm 4.5mm 6.5mm;
+  padding: 4mm 5mm 4mm 6.5mm;
   display: flex;
   flex-direction: column;
-  min-height: 40mm;
+  /* Alleen een ONDERGRENS: de kaart volgt de hoogte van haar puntenlijst.
+     Stond hier de oude 40mm, dan werd de licentiekaart -- met de kortste
+     lijst van de drie -- onnodig het hoogste blok op de pagina. */
+  min-height: 30mm;
 }
 .ov-kaart-bedrag{
   font-family: var(--ov-font-kop);
@@ -362,7 +366,7 @@ html, body{
 }
 
 .ov-kaart-rechts{
-  padding: 4.5mm 6mm 4.5mm 5.5mm;
+  padding: 4mm 6mm 4mm 5.5mm;
   background: rgba(255, 255, 255, .5);
 }
 
@@ -390,46 +394,20 @@ html, body{
 }
 .ov-punten li:last-child{ margin-bottom: 0; }
 
-/* de smalle mint-strook met de licentieprijs */
-.ov-strook{
-  display: flex;
-  align-items: center;
-  gap: 5mm;
-  width: 87mm;
-  background: var(--ov-mint-vlak);
-  border-radius: var(--ov-radius);
-  padding: 4mm 6mm;
-}
-.ov-strook-bedrag{
-  font-family: var(--ov-font-kop);
-  font-size: 26px;
-  font-weight: 700;
-  color: var(--ov-blauw);
-  line-height: 1;
-}
-.ov-strook-titel{
-  font-family: var(--ov-font-kop);
-  font-size: var(--ov-fs-h3);
-  font-weight: 700;
-  color: var(--ov-blauw);
-  line-height: 1.25;
-}
-.ov-strook-voetnoot{
-  font-size: var(--ov-fs-klein);
-  font-style: italic;
-  color: var(--ov-blauw);
-}
+/* De licentieprijs was tot 2026-09 een smalle mint-strook met een eigen stel
+   .ov-strook*-regels. Ze is nu een gewone .ov-kaart--mint: dezelfde opmaak als
+   de twee kaarten erboven, zodat een lezer de drie bedragen naast elkaar kan
+   leggen en de rechterkolom ook hier kan zeggen wat je ervoor krijgt. */
 
 /* --- bijkomende kosten -------------------------------------------------- */
 
-.ov-extra{ margin-top: 12mm; }
 .ov-extra-tabel{ margin-top: 4.5mm; width: 171mm; }
 .ov-extra-rij{
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: 6mm;
-  padding: 2.2mm 0;
+  padding: 1.8mm 0;
   border-bottom: 0.3mm solid var(--ov-lijn);
 }
 .ov-extra-rij:first-child{ border-top: 0.3mm solid var(--ov-lijn); }
@@ -439,14 +417,13 @@ html, body{
   white-space: nowrap;
   min-width: 34mm;
 }
-.ov-voetnoten{ margin-top: 4mm; }
+.ov-voetnoten{ margin-top: 3mm; }
 .ov-voetnoten p{ margin: 0 0 1mm; }
 
 /* ==========================================================================
    Pagina 3 — stappen, vragen, oproep
    ========================================================================== */
 
-.ov-stappen{ margin-top: 6mm; }
 .ov-stap{
   display: grid;
   grid-template-columns: 12.5mm 1fr;
@@ -475,7 +452,6 @@ html, body{
   color: var(--ov-inkt-zacht);
 }
 
-.ov-vragen{ margin-top: 10mm; }
 .ov-vraag{ margin-bottom: 3mm; }
 .ov-vraag:last-child{ margin-bottom: 0; }
 .ov-vraag-titel{ font-weight: 700; color: var(--ov-blauw); margin-bottom: 0.4mm; }
@@ -483,7 +459,6 @@ html, body{
 
 .ov-oproep{
   background: var(--ov-mint-vlak);
-  margin-top: 8mm;
   display: grid;
   grid-template-columns: 1fr 40mm;
   gap: 4mm;
@@ -494,7 +469,7 @@ html, body{
 .ov-oproep-tekst p:last-child{ margin-bottom: 0; }
 .ov-oproep-beeld{ position: relative; justify-self: end; }
 .ov-oproep-qr{
-  width: 28mm;
+  width: calc(28mm * var(--ov-beeld-schaal, 1));
   height: auto;
   display: block;
   border-radius: var(--ov-radius-klein);
@@ -503,7 +478,7 @@ html, body{
   position: absolute;
   left: -14mm;
   top: 5mm;
-  width: 13mm;
+  width: calc(13mm * var(--ov-beeld-schaal, 1));
   height: auto;
   /* De uitsnede draagt dezelfde mint achtergrond als het paneel, dus er is
      geen overvloeimodus nodig — die zou het vlak eronder juist donkerder maken. */
@@ -554,6 +529,8 @@ html, body{
   vertical-align: baseline;
   padding: 0.6mm 1.4mm;
 }
+/* omhoog/omlaag staan tegen elkaar en tegen het wegknopje aan */
+.ov-rijknop--pijl + .ov-rijknop--weg{ margin-left: 0.8mm; }
 
 /* De balk met "+ rij" bestaat alleen in de bewerkstand: anders zou hij ook in
    de rustige weergave ruimte innemen en het blad anders laten uitlopen dan de
@@ -675,6 +652,24 @@ html, body{
 .ov-dialoog textarea{ min-height: 300px; font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
 .ov-veld input:focus,
 .ov-dialoog textarea:focus{ outline: 2px solid var(--ov-blauw); outline-offset: -1px; border-color: transparent; }
+/* Keuzelijst in een dialoog (medewerker uit Odoo) -- zelfde vorm als een
+   invoerveld; anders leest het als iets dat niet bij het formulier hoort. */
+.ov-veld select{
+  width: 100%;
+  border: 1px solid #cbd5e1;
+  border-radius: 7px;
+  padding: 7px 9px;
+  font: 400 13px var(--ov-font-tekst);
+  color: #1e293b;
+  background: #fff;
+}
+.ov-veld select:focus{ outline: 2px solid var(--ov-blauw); outline-offset: -1px; border-color: transparent; }
+
+/* Een knop met zijn uitleg eronder, binnen een veldgroep ("Nummer & datum
+   genereren"). */
+.ov-veld-actie{ margin: -4px 0 14px; }
+.ov-veld-actie .ov-veld-hint{ display: block; margin: 6px 0 0; }
+
 .ov-groepkop{
   font-family: var(--ov-font-kop);
   font-weight: 700;
@@ -719,6 +714,123 @@ html, body{
 .ov-bedrijf-form-grid .ov-veld{ margin-bottom: 10px; }
 
 /* ==========================================================================
+   Opmaakstand — blokken verplaatsen, ruimte en grootte, afbeeldingen
+   (de indeling zelf staat in copy.indeling, zie offerte-render.js)
+   ========================================================================== */
+
+.ov-blok{ position: relative; }
+
+/* Wat niet op het blad past, blijft ZICHTBAAR onder de onderrand: zo zie je
+   precies wat er in de pdf zou wegvallen, in plaats van enkel de melding. */
+.ov-opmaakstand .ov-pagina{ overflow: visible; }
+.ov-opmaakstand .ov-blok{ outline: 0.3mm dashed #94a3b8; outline-offset: 1mm; }
+.ov-opmaakstand .ov-blok:hover{ outline-color: var(--ov-blauw); }
+.ov-blok--verborgen{ opacity: .35; }
+.ov-blok--verborgen .ov-blok-inhoud{ filter: grayscale(1); }
+
+.ov-ibalk,
+.ov-pbalk{
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 3px;
+  font: 500 11px var(--ov-font-tekst);
+  color: #334155;
+  line-height: 1;
+}
+.ov-ibalk{
+  position: absolute;
+  z-index: 5;
+  right: 0;
+  top: 0;
+  transform: translateY(-100%);
+  background: #fff;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 3px 5px;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, .12);
+  opacity: .25;
+}
+.ov-ibalk--beeld{ top: auto; bottom: 0; transform: translateY(100%); }
+.ov-blok:hover > .ov-ibalk{ opacity: 1; z-index: 6; }
+.ov-pbalk{
+  width: var(--ov-pagina-breed);
+  margin-bottom: -6mm;
+  padding: 0 1mm;
+}
+.ov-ilabel{ font-weight: 700; color: var(--ov-blauw); margin-right: 4px; }
+.ov-inaam{ color: #64748b; margin-left: 2px; }
+.ov-iwaarde{ min-width: 30px; text-align: center; font-variant-numeric: tabular-nums; }
+.ov-isep{ width: 1px; height: 14px; background: #e2e8f0; margin: 0 3px; }
+.ov-ik{
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  color: #1e293b;
+  border-radius: 4px;
+  padding: 3px 6px;
+  font: 600 11px var(--ov-font-tekst);
+  cursor: pointer;
+}
+.ov-ik:hover{ border-color: var(--ov-blauw); color: var(--ov-blauw); }
+.ov-ik:disabled{ opacity: .35; cursor: default; }
+.ov-leeg{
+  margin-top: 10mm;
+  padding: 12mm;
+  border: 0.4mm dashed #cbd5e1;
+  border-radius: var(--ov-radius);
+  color: #64748b;
+  text-align: center;
+}
+
+/* Afbeelding vervangen (dialoog) */
+.ov-beeld-voorbeeld{
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 120px;
+  margin-bottom: 12px;
+  background: #f1f5f9;
+  border-radius: 8px;
+  color: #64748b;
+  font-size: 12px;
+}
+.ov-beeld-voorbeeld img{ max-width: 100%; max-height: 110px; object-fit: contain; }
+.ov-beeld-map{
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  border-bottom: 1px solid #e2e8f0;
+  background: none;
+  padding: 7px 4px;
+  font: 500 13px var(--ov-font-tekst);
+  color: #1e293b;
+  cursor: pointer;
+}
+.ov-beeld-map:hover{ color: var(--ov-blauw); }
+.ov-beeld-raster{
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+.ov-beeld-tegel{
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border: 1px solid #e2e8f0;
+  border-radius: 7px;
+  background: #fff;
+  padding: 6px;
+  cursor: pointer;
+  font: 400 11px var(--ov-font-tekst);
+  color: #475569;
+}
+.ov-beeld-tegel:hover{ border-color: var(--ov-blauw); }
+.ov-beeld-tegel img{ width: 100%; height: 70px; object-fit: contain; background: #f8fafc; }
+.ov-beeld-tegel span{ overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ==========================================================================
    Afdrukken / pdf
    ========================================================================== */
 
@@ -732,6 +844,8 @@ html, body{
   .ov-werkbalk,
   .ov-dialoog,
   .ov-vol-melding,
+  .ov-ibalk,
+  .ov-pbalk,
   .ov-rijknop{ display: none !important; }
 
   .ov-doc{ gap: 0; padding: 0; display: block; }

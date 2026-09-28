@@ -26,7 +26,8 @@
  * Beschikbaar: $form, $slug, $lang, $flash, $stale, $modal_id, $launch_id,
  * $label, $variant, $extra_class, $heading, $tab_form_label,
  * $tab_calendly_label, $tab_form_sub, $tab_calendly_sub, $close_label,
- * $calendly, $calendly_kleur, $active_tab, $auto_open, $image, $image_alt,
+ * $calendly, $calendly_kleur, $calendly_title, $calendly_sub, $active_tab,
+ * $auto_open, $image, $image_alt,
  * $lead, $points, $show_button, $trigger, $accent_style, $thanks_calendly,
  * $goal_calendly, $goal_form.
  */
@@ -62,6 +63,8 @@ if (!defined('ABSPATH')) {
 /** @var string $close_label */
 /** @var string $calendly */
 /** @var string $calendly_kleur */
+/** @var string $calendly_title */
+/** @var string $calendly_sub */
 /** @var string $form_title */
 /** @var string $form_sub */
 /** @var bool $form_heading  kop ook boven een formulier zonder stappen */
@@ -135,6 +138,14 @@ foreach ((array) ($wikkel_attr ?? []) as $attribuut => $waarde) {
 }
 
 $heeft_agenda = $calendly !== '';
+
+// Het venster van een AFSPRAAKLINK (Mymmo_Forms_Shortcodes::render_agenda()):
+// enkel de agenda, met in de kop een plek voor de foto van de collega en in de
+// zijkolom een subtekst en vinkjes die mymmo-forms-booking.js per link invult.
+// De server schrijft die plekken ALTIJD uit, ook leeg: de pagina hangt niet af
+// van ?afspraak= (paginacache, zie class-booking.php), dus het script moet ze
+// kunnen vinden zonder ze zelf te bouwen.
+$afspraak_modus = !empty($afspraak_modus) && $heeft_agenda;
 
 // Een callout die de AGENDA uitlicht, krijgt haar eigen kalender in het kaartje.
 // Ze verhuist NIET mee naar het venster zoals een stap dat doet: een iframe dat
@@ -233,7 +244,7 @@ $actief = in_array($active_tab, $ids, true) ? $active_tab : $ids[0];
 // Heeft de zijkolom iets te zeggen? Enkel een titel is geen zijkolom waard --
 // dan wordt het een gewone kopbalk, zoals voorheen. Een leeg gekleurd vlak van
 // 300px naast een formulier van vier velden ziet eruit als een fout.
-$heeft_zijkolom = $heeft_tabs || $image !== '' || $lead !== '' || $points !== [];
+$heeft_zijkolom = $heeft_tabs || $image !== '' || $lead !== '' || $points !== [] || $afspraak_modus;
 
 $titel_id = $modal_id . '-titel';
 
@@ -288,6 +299,7 @@ if ($wikkel_class !== '') {
 
 $panel_class = 'mymmo-modal-panel';
 $panel_class .= $heeft_zijkolom ? ' mymmo-modal-panel--zijkolom' : ' mymmo-modal-panel--kaal';
+$panel_class .= $afspraak_modus ? ' mymmo-modal-panel--afspraak' : '';
 // Met een agenda erbij moet het venster breed genoeg zijn voor de kalender van
 // Calendly IN de rechterkolom. Onder ~640px schakelt Calendly zelf naar zijn
 // smalle weergave, en dan staat de maand onder de uren in plaats van ernaast.
@@ -345,12 +357,22 @@ if ($panel_extra !== '') {
         // De achtergrond is een echte link, zodat wegklikken ook zonder
         // JavaScript sluit. aria-hidden + tabindex -1: met toetsenbord hoort de
         // sluitknop de weg naar buiten te zijn, niet dit vlak.
+        //
+        // BEHALVE bij een afspraaklink (1.18.3): die persoonlijke agenda kan de
+        // bezoeker niet zelf terug openen -- ze kwam uit een link in een mail.
+        // Een klik naast het venster en ze is weg. Daar is de achtergrond dus
+        // een gewoon vlak zonder link en zonder data-mymmo-modal-close; sluiten
+        // kan met het kruisje (en Escape, dat is een bewuste toets).
         ?>
+        <?php if ($afspraak_modus) : ?>
+        <div class="mymmo-modal-backdrop mymmo-modal-backdrop--vast" aria-hidden="true"></div>
+        <?php else : ?>
         <a class="mymmo-modal-backdrop"
            href="<?php echo esc_url($terug); ?>"
            tabindex="-1"
            aria-hidden="true"
            data-mymmo-modal-close></a>
+        <?php endif; ?>
 
         <div class="<?php echo esc_attr($panel_class); ?>"
              role="dialog"
@@ -377,9 +399,16 @@ if ($panel_extra !== '') {
             // zegt waar je bent; dat hoort niet in een van de twee kolommen
             // thuis maar erboven.
             ?>
-            <?php if ($heading !== '') : ?>
+            <?php if ($heading !== '' || $afspraak_modus) : ?>
                 <div class="mymmo-modal-kop">
-                    <h2 class="mymmo-modal-title" id="<?php echo esc_attr($titel_id); ?>"><?php echo esc_html($heading); ?></h2>
+                    <?php if ($afspraak_modus) : ?>
+                        <?php // Leeg en verborgen; het script zet de avatar van de collega erin. ?>
+                        <img class="mymmo-modal-persoon" data-mymmo-afspraak="foto" alt="" hidden>
+                    <?php endif; ?>
+                    <h2 class="mymmo-modal-title" id="<?php echo esc_attr($titel_id); ?>"<?php
+                        echo $afspraak_modus ? ' data-mymmo-afspraak="titel"' : '';
+                        echo $heading === '' ? ' hidden' : '';
+                    ?>><?php echo esc_html($heading); ?></h2>
                 </div>
             <?php endif; ?>
 
@@ -392,8 +421,11 @@ if ($panel_extra !== '') {
             <?php if ($heeft_zijkolom) : ?>
             <aside class="mymmo-modal-aside">
 
-                <?php if ($lead !== '') : ?>
-                    <p class="mymmo-modal-lead"><?php echo esc_html($lead); ?></p>
+                <?php if ($lead !== '' || $afspraak_modus) : ?>
+                    <p class="mymmo-modal-lead"<?php
+                        echo $afspraak_modus ? ' data-mymmo-afspraak="intro"' : '';
+                        echo $lead === '' ? ' hidden' : '';
+                    ?>><?php echo esc_html($lead); ?></p>
                 <?php endif; ?>
 
                 <?php if ($heeft_tabs) : ?>
@@ -430,8 +462,11 @@ if ($panel_extra !== '') {
                     </div>
                 <?php endif; ?>
 
-                <?php if ($points !== []) : ?>
-                    <ul class="mymmo-modal-punten">
+                <?php if ($points !== [] || $afspraak_modus) : ?>
+                    <ul class="mymmo-modal-punten"<?php
+                        echo $afspraak_modus ? ' data-mymmo-afspraak="punten"' : '';
+                        echo $points === [] ? ' hidden' : '';
+                    ?>>
                         <?php foreach ($points as $punt) : ?>
                             <li class="mymmo-modal-punt">
                                 <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true" focusable="false">
@@ -566,6 +601,22 @@ if ($panel_extra !== '') {
                             // gewoon een afspraak, aan de verkeerde persoon gehangen.
                             // Om diezelfde reden leest de inzending haar cookies
                             // server-side op het moment van versturen.
+                            ?>
+                            <?php
+                            // Een eigen kop boven de agenda, als de shortcode
+                            // er een meegeeft. Dezelfde functie en dezelfde
+                            // klassen als de kop boven het formulier: een
+                            // tweede stijl zou hier uit de pas gaan lopen.
+                            // Dit staat BINNEN het paneel en niet in de
+                            // agenda-div zelf -- die wordt door
+                            // mymmo-forms-modal.js leeggemaakt en met het
+                            // iframe gevuld, dus een kop daarin verdwijnt
+                            // zodra de kalender laadt.
+                            echo mymmo_forms_kop_blok(
+                                (string) ($calendly_title ?? ''),
+                                (string) ($calendly_sub ?? ''),
+                                'calendly'
+                            ); // phpcs:ignore WordPress.Security.EscapeOutput
                             ?>
                             <div class="mymmo-modal-agenda"
                                  data-mymmo-calendly="<?php echo esc_url($calendly); ?>"<?php echo $calendly_kleur !== '' ? ' data-mymmo-calendly-kleur="' . esc_attr($calendly_kleur) . '"' : ''; ?>

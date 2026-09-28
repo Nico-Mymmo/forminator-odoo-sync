@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Afspraaklinks - Operations Manager</title>
+  <script>
+    (function () {
+      var t = localStorage.getItem('selectedTheme') || 'light';
+      document.documentElement.setAttribute('data-theme', t);
+    })();
+  </script>
+  <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet" type="text/css" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script src="/shared-navbar.js"></script>
+</head>
+<body class="bg-base-200 min-h-screen">
+
+  <div id="navbar"></div>
+
+  <main class="max-w-5xl mx-auto px-4 py-6" style="padding-top: calc(48px + 1.5rem);">
+
+    <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
+      <div>
+        <h1 class="text-2xl font-bold">Afspraaklinks</h1>
+        <p class="text-sm opacity-70">
+          Een link naar onze website die meteen jouw agenda opent in het venster "Plan een gesprek".
+        </p>
+      </div>
+      <button class="btn btn-sm btn-primary" data-action="new-link">
+        <i data-lucide="plus" class="w-4 h-4"></i> Nieuwe afspraaklink
+      </button>
+    </div>
+
+    <div id="tabBar" role="tablist" class="tabs tabs-boxed mb-5 w-fit hidden">
+      <button role="tab" class="tab tab-active" data-links-tab="mine">Mijn links</button>
+      <button role="tab" class="tab" data-links-tab="all">Alle links</button>
+    </div>
+
+    <div id="setupWarning" class="alert alert-warning mb-4 hidden">
+      <i data-lucide="alert-triangle" class="w-5 h-5"></i>
+      <span id="setupWarningText"></span>
+    </div>
+
+    <div id="linkList" class="grid gap-3"></div>
+
+    <details class="collapse collapse-arrow bg-base-100 mt-6">
+      <summary class="collapse-title font-medium">Zo gebruik je dit in een koppeling</summary>
+      <div class="collapse-content text-sm space-y-2">
+        <p>
+          In een mailstap kies je <strong>Afspraaklink afzender</strong> bij "Veld invoegen", of
+          je selecteert een woord, klikt op het linkicoon en plakt als adres:
+        </p>
+        <pre class="bg-base-200 rounded p-2 text-xs overflow-x-auto">{{afspraak.sender.standaard}}   de agenda van wie de mail verstuurt
+{{afspraak.2.standaard}}        de agenda van de verantwoordelijke van stap 2
+{afspraak.2.standaard}          idem, in een notitiestap</pre>
+        <p>
+          Het laatste woord is de <strong>soort</strong> van de link. Heeft iemand maar één link,
+          dan maakt de soort niet uit: dan wordt het altijd die ene. De soort doet pas iets als
+          iemand er meerdere heeft, bv. een kennismaking én een demo: <code>{{afspraak.sender.demo}}</code>
+          pakt dan zijn demo.
+        </p>
+        <p><strong>Welke link wordt het?</strong> In deze volgorde:</p>
+        <ol class="list-decimal pl-5 space-y-1">
+          <li>zijn link van de gevraagde soort;</li>
+          <li>anders zijn <strong>terugvallink</strong> (het vinkje bij een link);</li>
+          <li>anders, als hij maar één link heeft, die ene;</li>
+          <li>anders de algemene agenda (<code id="generalUrl"></code>). Dat gebeurt als iemand
+            <em>geen enkele</em> link heeft, als een mail van een vast adres komt, of als hij
+            meerdere links heeft zonder terugvallink en de gevraagde soort er niet bij is.</li>
+        </ol>
+      </div>
+    </details>
+  </main>
+
+  <!-- Nieuwe / bewerken -->
+  <dialog id="linkDialog" class="modal">
+    <div class="modal-box max-w-2xl">
+      <h3 class="font-bold text-lg mb-4" id="dialogTitle">Nieuwe afspraaklink</h3>
+
+      <div class="grid gap-3">
+        <label class="form-control hidden" id="ownerRow">
+          <div class="label py-1"><span class="label-text">Voor wie</span></div>
+          <select id="fOwner" class="select select-bordered select-sm"></select>
+        </label>
+
+        <label class="form-control">
+          <div class="label py-1">
+            <span class="label-text">Afspraaktype in Calendly</span>
+            <button type="button" class="label-text-alt link" data-action="refresh-event-types">Lijst verversen</button>
+          </div>
+          <select id="fEventType" class="select select-bordered select-sm" data-action-change="event-type"></select>
+          <div class="label py-1"><span class="label-text-alt opacity-70" id="eventTypeInfo"></span></div>
+        </label>
+
+        <div class="grid sm:grid-cols-2 gap-3">
+          <label class="form-control">
+            <div class="label py-1"><span class="label-text">Soort</span></div>
+            <input id="fKind" class="input input-bordered input-sm" list="kindSuggesties" placeholder="demo" data-action-input="kind">
+            <datalist id="kindSuggesties">
+              <option value="standaard"></option>
+              <option value="demo"></option>
+              <option value="kennismaking"></option>
+              <option value="opvolging"></option>
+            </datalist>
+            <div class="label py-1"><span class="label-text-alt opacity-70">Doet enkel iets als je meerdere links hebt: een mail vraagt dan een soort, bv. {{afspraak.sender.<b>demo</b>}}</span></div>
+          </label>
+          <label class="form-control">
+            <div class="label py-1"><span class="label-text">Sleutel in de link</span></div>
+            <input id="fSlug" class="input input-bordered input-sm" placeholder="rob-demo" data-action-input="slug">
+            <div class="label py-1"><span class="label-text-alt opacity-70" id="slugPreview"></span></div>
+          </label>
+        </div>
+
+        <div class="grid sm:grid-cols-2 gap-3">
+          <label class="form-control">
+            <div class="label py-1"><span class="label-text">Naam (voor jezelf)</span></div>
+            <input id="fLabel" class="input input-bordered input-sm" placeholder="Demo van 30 minuten">
+          </label>
+          <label class="form-control">
+            <div class="label py-1"><span class="label-text">Titel van het venster</span></div>
+            <input id="fTabTitle" class="input input-bordered input-sm" placeholder="Plan een gesprek met Rob">
+            <div class="label py-1"><span class="label-text-alt opacity-70">Leeg = de titel van de website</span></div>
+          </label>
+        </div>
+
+        <div class="rounded-box border border-base-300 p-3 grid gap-3">
+          <p class="text-xs opacity-70">
+            Wat de bezoeker links naast de agenda ziet. Leeg laten = de tekst van de website blijft staan.
+          </p>
+          <label class="form-control">
+            <div class="label py-1"><span class="label-text">Subtekst</span></div>
+            <textarea id="fIntro" class="textarea textarea-bordered textarea-sm" rows="2" maxlength="300"></textarea>
+            <div class="label py-1"><span class="label-text-alt opacity-70" id="introHint">Leeg = de omschrijving van het afspraaktype in Calendly</span></div>
+          </label>
+          <label class="form-control">
+            <div class="label py-1"><span class="label-text">Vinkjes</span><span class="label-text-alt opacity-70">één per regel, hoogstens 6</span></div>
+            <textarea id="fPoints" class="textarea textarea-bordered textarea-sm" rows="3" placeholder="Een demo op maat van jouw gebouw&#10;Vrijblijvend, 30 minuten"></textarea>
+          </label>
+          <label class="label cursor-pointer gap-2 justify-start">
+            <input type="checkbox" id="fShowPhoto" class="checkbox checkbox-sm" checked>
+            <span class="label-text">Foto tonen (de avatar van deze persoon in Odoo)</span>
+          </label>
+        </div>
+
+        <label class="form-control" id="siteRow">
+          <div class="label py-1"><span class="label-text">Website in mails</span><span class="label-text-alt opacity-70">de link werkt op alle sites</span></div>
+          <select id="fSite" class="select select-bordered select-sm"></select>
+        </label>
+
+        <div class="flex flex-wrap gap-6">
+          <label class="label cursor-pointer gap-2 justify-start">
+            <input type="checkbox" id="fDefault" class="checkbox checkbox-sm">
+            <span class="label-text">Terugvallink <span class="opacity-60">(als een mail een soort vraagt die ik niet heb)</span></span>
+          </label>
+          <label class="label cursor-pointer gap-2 justify-start">
+            <input type="checkbox" id="fActive" class="checkbox checkbox-sm" checked>
+            <span class="label-text">Actief</span>
+          </label>
+        </div>
+
+        <div id="dialogError" class="alert alert-error text-sm hidden"></div>
+      </div>
+
+      <div class="modal-action">
+        <button class="btn btn-sm" data-action="close-dialog">Annuleren</button>
+        <button class="btn btn-sm btn-primary" data-action="save-link" id="saveBtn">Bewaren</button>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>sluiten</button></form>
+  </dialog>
+
+  <div id="toastHost" class="toast toast-end z-50"></div>
+
+  <script src="/booking-links.js"></script>
+</body>
+</html>

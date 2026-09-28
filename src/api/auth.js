@@ -5,7 +5,7 @@
  */
 
 import { getSupabaseClient } from '../lib/database.js';
-import { createSession, invalidateSession } from '../lib/auth/session.js';
+import { createSession, invalidateSession, SESSION_DAYS } from '../lib/auth/session.js';
 import { verifyPassword } from '../lib/auth/password.js';
 import { navbar } from '../lib/components/navbar.js';
 
@@ -14,6 +14,25 @@ import { navbar } from '../lib/components/navbar.js';
  * 
  * Login with email and password
  */
+/**
+ * De sessiecookie.
+ *
+ * `SameSite=Lax`, NIET `Strict`. Met Strict stuurt de browser de cookie niet
+ * mee als je vanuit een ANDERE site binnenkomt -- en dat is precies hoe de OM
+ * gebruikt wordt: een offerte aanklikken in de chatter van Odoo. Je was dan
+ * gewoon ingelogd en kreeg toch het loginscherm. Lax stuurt haar mee bij het
+ * volgen van een link (een GET op het hoogste niveau), en nog altijd niet bij
+ * een POST of fetch vanaf een andere site; daar zit de CSRF-bescherming.
+ *
+ * Max-Age volgt de sessie (SESSION_DAYS); /api/auth/me zet haar bij elk
+ * bezoek opnieuw, zodat de cookie meeglijdt met de sessie in de database.
+ *
+ * @param {string} token @returns {string}
+ */
+export function sessionCookie(token) {
+  return `session=${token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${SESSION_DAYS * 24 * 60 * 60}`;
+}
+
 export async function handleLogin({ request, env }) {
   try {
     const { email, password } = await request.json();
@@ -120,7 +139,7 @@ export async function handleLogin({ request, env }) {
       status: 200,
       headers: { 
         'Content-Type': 'application/json',
-        'Set-Cookie': `session=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=86400`
+        'Set-Cookie': sessionCookie(token)
       }
     });
     
@@ -171,7 +190,7 @@ export async function handleLogout({ request, env }) {
       status: 200,
       headers: { 
         'Content-Type': 'application/json',
-        'Set-Cookie': 'session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0'
+        'Set-Cookie': 'session=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0'
       }
     });
     
@@ -192,7 +211,7 @@ export async function handleLogout({ request, env }) {
  * 
  * Get current user info (requires auth)
  */
-export async function handleMe({ user }) {
+export async function handleMe({ user, token = null }) {
   return new Response(JSON.stringify({
     success: true,
     user: {
@@ -208,7 +227,11 @@ export async function handleMe({ user }) {
     navbarHtml: navbar(user)
   }), {
     status: 200,
-    headers: { 'Content-Type': 'application/json' }
+    headers: {
+      'Content-Type': 'application/json',
+      // Laat de cookie meeglijden met de sessie (zie sessionCookie()).
+      ...(token ? { 'Set-Cookie': sessionCookie(token) } : {})
+    }
   });
 }
 

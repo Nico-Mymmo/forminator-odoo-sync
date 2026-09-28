@@ -144,6 +144,11 @@ $venster = Mymmo_Forms_Shortcodes::render_button([
     'tab_calendly'  => 'Plan een gesprek',
     'tab_calendly_sub' => $kaal ? '' : 'Liever zelf een plekje kiezen? Boek dit meteen in onze agenda',
     'tab_order'     => 'extra,form,calendly',
+    // De eigen kop boven de kalender (calendly_title / calendly_sub). In de
+    // kale stand blijft ze leeg, zodat het voorbeeld ook toont hoe het
+    // paneel eruitziet zonder kop.
+    'calendly_title' => $kaal ? '' : 'Kies een moment dat jou past',
+    'calendly_sub'   => $kaal ? '' : 'Het gesprek duurt ongeveer een half uur.',
     'goal_form'     => '/bedankt/offerte',
     'thanks_form_title' => 'Bedankt!',
     'points'        => 'Meteen een offerte|Syndicoach helder uitgelegd|Jouw gebouw staat centraal',

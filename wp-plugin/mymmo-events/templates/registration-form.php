@@ -74,8 +74,8 @@ if (is_array($flash) && $flash['status'] === 'success') {
         <h2 class="mymmo-ev-register__title">Schrijf je in</h2>
         <p class="mymmo-ev-register__intro">
             Je krijgt de deelnamelink en een herinnering per e-mail.
-            <?php if (is_int($seats_left) && $seats_left <= 5) : ?>
-                <strong><?php echo esc_html(sprintf('Nog %d plaats%s vrij.', $seats_left, $seats_left === 1 ? '' : 'en')); ?></strong>
+            <?php if (is_int($seats_left) && $seats_left > 0 && $seats_left < MYMMO_EVENTS_ALMOST_FULL) : ?>
+                <strong>Bijna volzet, schrijf je snel in.</strong>
             <?php endif; ?>
         </p>
 

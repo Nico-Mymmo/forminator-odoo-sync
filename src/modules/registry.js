@@ -24,6 +24,8 @@ import miniAppsModule from './mini-apps/module.js';
 import campaignFunnelsModule from './campaign-funnels/module.js';
 import dashboardsModule from './dashboards/module.js';
 import gmailChatterModule from './gmail-chatter/module.js';
+import contentFeedModule from './content-feed/module.js';
+import bookingLinksModule from './booking-links/module.js';
 
 /**
  * All registered modules
@@ -46,6 +48,8 @@ export const MODULES = [
   xpathConverterModule,
   miniAppsModule,
   gmailChatterModule,
+  contentFeedModule,
+  bookingLinksModule,
   campaignFunnelsModule,
   dashboardsModule,
 ];

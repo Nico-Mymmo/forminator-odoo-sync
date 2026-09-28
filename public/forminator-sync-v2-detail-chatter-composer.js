@@ -122,6 +122,20 @@
           label: 'Unieke identifier (stap ' + (i + 1) + ')',
         });
       });
+      // De afspraaklink van de EIGENAAR van het record uit deze stap (zie
+      // src/modules/booking-links/lib/placeholders.js). Bruikbaar als link in
+      // het bericht of als knoplink; een andere soort dan `standaard` typ je
+      // zelf: {afspraak.<stap>.demo}.
+      var model = String(t.odoo_model || '');
+      var handeling = ['send_mail', 'chatter_message', 'create_activity', 'generate_pdf', 'mailing_list']
+        .indexOf(String(t.operation_type || '')) !== -1;
+      if (!handeling && /lead|partner|employee/.test(model)) {
+        res.push({
+          fid:   'afspraak.' + stapVolgorde(t) + '.standaard',
+          label: 'Afspraaklink eigenaar (stap ' + (i + 1) + ')',
+          link:  true,
+        });
+      }
     });
     return res;
   }
@@ -244,6 +258,9 @@
       flatFields.map(function (f) {
         var fid = f.field_id || f.fieldId || f.id || f.name || '';
         return fid ? '<option value="{' + esc(fid) + '}">' + esc(f.label || fid) + '</option>' : '';
+      }).join('') +
+      stapChips.filter(function (c) { return c.link; }).map(function (c) {
+        return '<option value="{' + esc(c.fid) + '}">' + esc(c.label) + '</option>';
       }).join('') +
       '</datalist>';
     html += '<div id="chatterButtonList-' + esc(tid) + '" class="flex flex-col gap-1.5">' +
@@ -451,7 +468,7 @@
         if (_rawPayload && typeof _rawPayload === 'object' && !Array.isArray(_rawPayload)) {
           realPayload = {};
           Object.keys(_rawPayload).forEach(function (k) {
-            if (CHATTER_CONTAINERS.indexOf(k) === -1) realPayload[k] = _rawPayload[k];
+            if (CHATTER_CONTAINERS.indexOf(k) === -1 && k !== 'value_labels') realPayload[k] = _rawPayload[k];
           });
           CHATTER_CONTAINERS.forEach(function (naam) {
             var binnenin = _rawPayload[naam];
@@ -460,6 +477,17 @@
               if (realPayload[k] === undefined) realPayload[k] = binnenin[k];
             });
           });
+          // De LEESBARE waarden die de server meestuurt (labels in plaats van
+          // optiesleutels, tijdstippen in Brussel). De pipeline vult de notitie
+          // met precies die waarden (displayForm in worker-handler.js), dus
+          // zonder dit belooft het voorbeeld `water_verwarming` waar Odoo
+          // "Water en verwarming" krijgt.
+          var _lees = _previewSub.display_values;
+          if (_lees && typeof _lees === 'object') {
+            Object.keys(_lees).forEach(function (k) {
+              if (realPayload[k] !== undefined && typeof realPayload[k] !== 'object') realPayload[k] = _lees[k];
+            });
+          }
         }
       } catch (e) {}
     }

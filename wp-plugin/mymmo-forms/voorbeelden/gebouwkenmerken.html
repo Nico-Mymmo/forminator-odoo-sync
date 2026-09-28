@@ -1,9 +1,20 @@
 <!--
-  STAP - "Wat is er allemaal in jullie gebouw?"
+  STAP - "Welke voorzieningen zijn er aanwezig in de gemeenschap?"
 
   Meerkeuze met de tekeningen uit brand/thingies. Levert EEN waarde af:
 
       gebouw_kenmerken     komma-gescheiden, bv. "lift,garages,Zwembad"
+
+  De lijst is in 1.17.15 ingekort tot de VOORZIENINGEN die er zijn -- geen
+  problemen meer. Waarom iemand met ons praat, vraagt de stap erna
+  (waarom-syndicoach). Vijf waarden zijn daarbij weggevallen:
+  verouderde_installaties, moeilijke_sfeer, ontbrekende_verzekeringen,
+  geen_reserverekening en sleutels_badges. Ze staan nog in oude inzendingen,
+  dus hergebruik die namen nooit voor iets anders. `water_verwarming` is nieuw
+  (in 1.17.15 heette die waarde nog `gemeenschappelijke_verwarming`, hernoemd
+  in 1.17.17 omdat dat label niet netjes afbrak onder een kei -- staan er al
+  inzendingen met de oude naam, zet ze dan terug); `garages` bleef als waarde
+  staan en kreeg alleen een breder label.
 
   Zet in de Operations Manager een VERBORGEN VELD met die sleutel op het
   formulier. Laat "Levert deze sleutels" bij de stap LEEG: niets aanduiden is een
@@ -77,14 +88,14 @@
   flex-wrap: wrap;
   justify-content: center;
   align-items: center;
-  gap: 50px 12px;
-  padding: 10px 0 46px;
+  gap: 52px 8px;
+  padding: 10px 0 48px;
 }
 
 .mf-kenmerken .mf-kei {
   position: relative;
-  width: 96px;
-  height: 80px;
+  width: 104px;
+  height: 96px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -104,8 +115,8 @@
    beweging de andere overschrijft. */
 .mf-kenmerken .mf-blob {
   position: relative;
-  width: 76px;
-  height: 76px;
+  width: 92px;
+  height: 92px;
   display: grid;
   place-items: center;
   background: var(--k-vlak);
@@ -146,8 +157,8 @@
 
 .mf-kenmerken .mf-blob img {
   display: block;
-  width: 58px;
-  height: 58px;
+  width: 78px;
+  height: 78px;
   object-fit: contain;
   pointer-events: none;
 }
@@ -212,13 +223,18 @@
   position: absolute;
   top: calc(100% + 10px);
   left: 50%;
-  /* Zo smal dat een label van twee woorden op twee regels valt ("Meerdere" /
-     "ingangen"), zodat keien naast elkaar even hoge labels hebben. Waar de breuk
-     op een vaste plek moet ("Garages" / "of parkings"), staat in de HTML een
-     vaste spatie tussen de woorden die bij elkaar horen. `balance` verdeelt de
-     rest gelijk over de twee regels. */
-  width: 100px;
+  /* Breed genoeg voor het langste woord dat we hebben ("fietsenstalling"), en
+     smal genoeg dat een label van twee woorden op twee regels valt ("Meerdere"
+     / "ingangen") -- dan hebben keien naast elkaar even hoge labels. `balance`
+     verdeelt de regels gelijk; `break-word` is enkel een vangnet voor een label
+     dat iemand later langer maakt. Een label dat breder is dan een kei plus de
+     kolomruimte eromheen raakt dat van zijn buur: hier 102 tegen 104 + 8, dus
+     dat zit goed. Dit ging mis met "Gemeenschappelijke verwarming" -- dat ene
+     woord was breder dan de kei zelf, en de oplossing is een korter label, niet
+     een breder vak. */
+  width: 102px;
   text-wrap: balance;
+  overflow-wrap: break-word;
   translate: -50% 6px;
   font-size: .78rem;
   line-height: 1.25;
@@ -340,50 +356,26 @@
 }
 
 @media (max-width: 420px) {
-  .mf-kenmerken .mf-wolk { gap: 46px 6px; }
-  .mf-kenmerken .mf-kei { width: 88px; height: 72px; }
-  .mf-kenmerken .mf-blob { width: 66px; height: 66px; }
-  .mf-kenmerken .mf-blob img { width: 50px; height: 50px; }
+  .mf-kenmerken .mf-wolk { gap: 48px 6px; }
+  .mf-kenmerken .mf-kei { width: 88px; height: 80px; }
+  .mf-kenmerken .mf-kei-label { width: 92px; font-size: .7rem; }
+  .mf-kenmerken .mf-blob { width: 78px; height: 78px; }
+  .mf-kenmerken .mf-blob img { width: 66px; height: 66px; }
 }
 </style>
 
 <div class="mf-kenmerken" data-sleutel="gebouw_kenmerken">
   <div class="mf-veld">
-    <div class="mf-wolk" data-rol="wolk" role="group" aria-label="Kenmerken van het gebouw">
+    <div class="mf-wolk" data-rol="wolk" role="group" aria-label="Voorzieningen in het gebouw">
 
       <button type="button" class="mf-kei" data-waarde="lift" aria-pressed="false">
         <span class="mf-blob"><img class="skip-lazy no-lazyload" data-no-lazy="1" data-skip-lazy="1" src="https://link.openvme.be/assets/brand/thingies/thingies_lift.svg" alt="" width="400" height="400" loading="eager" decoding="async"></span>
         <span class="mf-kei-label">Lift</span>
       </button>
 
-      <button type="button" class="mf-kei" data-waarde="garages" aria-pressed="false">
-        <span class="mf-blob"><img class="skip-lazy no-lazyload" data-no-lazy="1" data-skip-lazy="1" src="https://link.openvme.be/assets/brand/thingies/thingies_parkeermeter.svg" alt="" width="400" height="400" loading="eager" decoding="async"></span>
-        <span class="mf-kei-label">Garages of parkings</span>
-      </button>
-
-      <button type="button" class="mf-kei" data-waarde="onderhoud_tuin" aria-pressed="false">
-        <span class="mf-blob"><img class="skip-lazy no-lazyload" data-no-lazy="1" data-skip-lazy="1" src="https://link.openvme.be/assets/brand/thingies/thingies_tuin.svg" alt="" width="400" height="400" loading="eager" decoding="async"></span>
-        <span class="mf-kei-label">Onderhoud tuin</span>
-      </button>
-
-      <button type="button" class="mf-kei" data-waarde="meerdere_ingangen" aria-pressed="false">
-        <span class="mf-blob"><img class="skip-lazy no-lazyload" data-no-lazy="1" data-skip-lazy="1" src="https://link.openvme.be/assets/brand/thingies/thingies_traphal.svg" alt="" width="400" height="400" loading="eager" decoding="async"></span>
-        <span class="mf-kei-label">Meerdere ingangen</span>
-      </button>
-
-      <button type="button" class="mf-kei" data-waarde="verouderde_installaties" aria-pressed="false">
+      <button type="button" class="mf-kei" data-waarde="water_verwarming" aria-pressed="false">
         <span class="mf-blob"><img class="skip-lazy no-lazyload" data-no-lazy="1" data-skip-lazy="1" src="https://link.openvme.be/assets/brand/thingies/thingies_verwarming.svg" alt="" width="400" height="400" loading="eager" decoding="async"></span>
-        <span class="mf-kei-label">Verouderde installaties</span>
-      </button>
-
-      <button type="button" class="mf-kei" data-waarde="moeilijke_sfeer" aria-pressed="false">
-        <span class="mf-blob"><img class="skip-lazy no-lazyload" data-no-lazy="1" data-skip-lazy="1" src="https://link.openvme.be/assets/brand/thingies/thingies_sfeer.svg" alt="" width="400" height="400" loading="eager" decoding="async"></span>
-        <span class="mf-kei-label">Moeilijke sfeer</span>
-      </button>
-
-      <button type="button" class="mf-kei" data-waarde="laadpalen" aria-pressed="false">
-        <span class="mf-blob"><img class="skip-lazy no-lazyload" data-no-lazy="1" data-skip-lazy="1" src="https://link.openvme.be/assets/brand/thingies/thingies_laadpaal.svg" alt="" width="400" height="400" loading="eager" decoding="async"></span>
-        <span class="mf-kei-label">Laadpalen</span>
+        <span class="mf-kei-label">Water en verwarming</span>
       </button>
 
       <button type="button" class="mf-kei" data-waarde="zonnepanelen" aria-pressed="false">
@@ -391,9 +383,19 @@
         <span class="mf-kei-label">Zonnepanelen</span>
       </button>
 
-      <button type="button" class="mf-kei" data-waarde="fietsenstalling" aria-pressed="false">
+      <button type="button" class="mf-kei" data-waarde="laadpalen" aria-pressed="false">
+        <span class="mf-blob"><img class="skip-lazy no-lazyload" data-no-lazy="1" data-skip-lazy="1" src="https://link.openvme.be/assets/brand/thingies/thingies_laadpaal.svg" alt="" width="400" height="400" loading="eager" decoding="async"></span>
+        <span class="mf-kei-label">Laadpalen</span>
+      </button>
+
+      <button type="button" class="mf-kei" data-waarde="onderhoud_tuin" aria-pressed="false">
+        <span class="mf-blob"><img class="skip-lazy no-lazyload" data-no-lazy="1" data-skip-lazy="1" src="https://link.openvme.be/assets/brand/thingies/thingies_tuin.svg" alt="" width="400" height="400" loading="eager" decoding="async"></span>
+        <span class="mf-kei-label">Tuin met onderhoud</span>
+      </button>
+
+      <button type="button" class="mf-kei" data-waarde="garages" aria-pressed="false">
         <span class="mf-blob"><img class="skip-lazy no-lazyload" data-no-lazy="1" data-skip-lazy="1" src="https://link.openvme.be/assets/brand/thingies/thingies_fietsenstalling.svg" alt="" width="400" height="400" loading="eager" decoding="async"></span>
-        <span class="mf-kei-label">Fietsenstalling</span>
+        <span class="mf-kei-label">Garages en fietsenstalling</span>
       </button>
 
       <button type="button" class="mf-kei" data-waarde="afvallokaal" aria-pressed="false">
@@ -401,19 +403,9 @@
         <span class="mf-kei-label">Afvallokaal</span>
       </button>
 
-      <button type="button" class="mf-kei" data-waarde="ontbrekende_verzekeringen" aria-pressed="false">
-        <span class="mf-blob"><img class="skip-lazy no-lazyload" data-no-lazy="1" data-skip-lazy="1" src="https://link.openvme.be/assets/brand/thingies/thingies_brandslang.svg" alt="" width="400" height="400" loading="eager" decoding="async"></span>
-        <span class="mf-kei-label">Ontbrekende verzekeringen</span>
-      </button>
-
-      <button type="button" class="mf-kei" data-waarde="geen_reserverekening" aria-pressed="false">
-        <span class="mf-blob"><img class="skip-lazy no-lazyload" data-no-lazy="1" data-skip-lazy="1" src="https://link.openvme.be/assets/brand/thingies/thingies_spaarvarken.svg" alt="" width="400" height="400" loading="eager" decoding="async"></span>
-        <span class="mf-kei-label">Geen reserverekening</span>
-      </button>
-
-      <button type="button" class="mf-kei" data-waarde="sleutels_badges" aria-pressed="false">
-        <span class="mf-blob"><img class="skip-lazy no-lazyload" data-no-lazy="1" data-skip-lazy="1" src="https://link.openvme.be/assets/brand/thingies/thingies_sleutel.svg" alt="" width="400" height="400" loading="eager" decoding="async"></span>
-        <span class="mf-kei-label">Sleutels en badges</span>
+      <button type="button" class="mf-kei" data-waarde="meerdere_ingangen" aria-pressed="false">
+        <span class="mf-blob"><img class="skip-lazy no-lazyload" data-no-lazy="1" data-skip-lazy="1" src="https://link.openvme.be/assets/brand/thingies/thingies_deur.svg" alt="" width="400" height="400" loading="eager" decoding="async"></span>
+        <span class="mf-kei-label">Meerdere ingangen</span>
       </button>
 
       <button type="button" class="mf-kei mf-kei--extra" data-rol="extra" aria-expanded="false">

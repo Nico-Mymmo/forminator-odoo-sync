@@ -14,6 +14,7 @@
 
 import { handleGenericWebhook } from '../worker-handler.js';
 import { validateSubmissionValues, buildPipelinePayload, isLanguage, DEFAULT_LANGUAGE } from './schema.js';
+import { valueLabelsFromFormFields, mergeValueLabels } from '../display-values.js';
 
 /**
  * @param {object}  env
@@ -51,6 +52,23 @@ export async function submitFormEntry(env, { integration, form, fields, body, re
   }
 
   const payload = buildPipelinePayload(form, values, { ...(body?.meta || {}), lang: taal });
+
+  // De LABELS bij de waarden, zodat een notitie of offerte "Water en
+  // verwarming" kan tonen in plaats van `water_verwarming`. Twee bronnen: de
+  // opties van een keuzeveld in dit formulier (die kent de OM zelf), en wat de
+  // plugin meestuurt voor een verborgen veld dat door een HTML-stap in
+  // WordPress gevuld wordt -- die stap kent alleen WordPress. Van de plugin
+  // wordt enkel aangenomen wat bij een bestaand veld ZONDER eigen opties
+  // hoort, en de OM wint: een site mag de labels van een keuzeveld niet
+  // herschrijven. Zie display-values.js.
+  const eigen = valueLabelsFromFormFields(fields);
+  const vanPlugin = {};
+  const bekend = new Set((fields || []).map((f) => String(f.field_key || '')));
+  for (const [veld, kaart] of Object.entries(body?.value_labels || {})) {
+    if (bekend.has(veld) && !eigen[veld]) vanPlugin[veld] = kaart;
+  }
+  const valueLabels = mergeValueLabels(vanPlugin, eigen);
+  if (Object.keys(valueLabels).length) payload.value_labels = valueLabels;
 
   // handleGenericWebhook() leest de body zelf uit het verzoek. In plaats van die
   // functie aan te passen (en daarmee het bestaande Forminator-pad te raken)

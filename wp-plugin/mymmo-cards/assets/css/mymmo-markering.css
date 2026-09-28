@@ -1,0 +1,120 @@
+/**
+ * Mymmo Componenten — de markeerstift.
+ *
+ * Een woord in een kop of alinea krijgt een streep áchter de tekst, alsof er
+ * met een marker overheen gegaan is. De streep is een TEKENING (een SVG) die
+ * als masker gebruikt wordt; de kleur eronder komt uit het palet van het thema.
+ * Zo is er één bestand per vorm, in elke merkkleur.
+ *
+ * WAAROM EEN MASKER EN GEEN GEKLEURDE SVG: dan zou er per vorm en per kleur een
+ * bestand moeten bestaan, en zou een nieuwe merkkleur een nieuwe set bestanden
+ * betekenen. Met een masker bepaalt de SVG alleen de VORM en komt de kleur uit
+ * `background-color` -- dus uit `var(--wp--preset--color--…)`.
+ *
+ * WAAROM EEN PSEUDO-ELEMENT: een masker op het element zelf zou ook de TEKST
+ * wegmaskeren -- je zou alleen de letters zien waar de streep loopt. De streep
+ * staat daarom op `::before`, achter de tekst.
+ *
+ * `isolation: isolate` hoort bij die `z-index: -1`. Zonder die isolatie valt het
+ * pseudo-element niet achter de TEKST maar achter de ACHTERGROND van het blok
+ * eromheen -- en dan is de streep onzichtbaar zodra een kaart of sectie een
+ * eigen kleur heeft. Dat is precies het geval op de pagina's waar dit voor
+ * bedoeld is.
+ */
+
+.mymmo-mark {
+  /*
+   * DE MAAT VAN DE STREEP, op twee plekken bij te stellen en nergens anders.
+   *
+   * `--mk-mark-hoogte` is de hoogte van de streep als deel van de
+   * LETTERGROOTTE, niet van het inline-element. Dat laatste is namelijk zo hoog
+   * als het lettertype toestaat -- van bovenlengte tot onderlengte, ruim 1,2em,
+   * ook bij een woord waarin geen enkele letter onder de basislijn komt. Een
+   * streep die daarop steunt is bij het ene woord te hoog en bij het andere net
+   * niet, zonder dat je ziet waarom.
+   *
+   * `--mk-mark-uitloop` is hoeveel de streep links en rechts voorbij het woord
+   * komt. Een marker stopt niet precies op de letter, maar een halve letter
+   * eroverheen leest als een fout.
+   *
+   * De twee waarden zijn GEMETEN, niet gekozen. Bij 1em blijft de laatste letter
+   * onbedekt -- het rechteruiteinde van de tekening loopt omhoog en breekt daar
+   * in dunne treden, dus daar zit minder inkt dan links. Bij 1,2em wordt het
+   * weer een vlek. Verander je de tekeningen, dan hoort dit opnieuw nagekeken te
+   * worden met een woord dat op een ronde letter eindigt.
+   */
+  --mk-mark-hoogte: 1.15em;
+  --mk-mark-uitloop: 0.15em;
+
+  position: relative;
+  isolation: isolate;
+  /* De browser geeft <mark> standaard een gele achtergrond en zwarte tekst.
+     Allebei weg: de streep is het pseudo-element, de tekstkleur die van de kop. */
+  background: none;
+  color: inherit;
+}
+
+.mymmo-mark::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  /* Links en rechts een klein stukje voorbij het woord; de hoogte staat vast en
+     wordt verticaal gecentreerd. Alles in em, dus het schaalt mee met de
+     lettergrootte. */
+  left: calc(var(--mk-mark-uitloop) * -1);
+  right: calc(var(--mk-mark-uitloop) * -1);
+  top: 50%;
+  height: var(--mk-mark-hoogte);
+  transform: translateY(-50%);
+  background-color: var(--mk-mark-kleur, currentColor);
+  -webkit-mask-image: var(--mk-mark-vorm);
+  mask-image: var(--mk-mark-vorm);
+  -webkit-mask-size: 100% 100%;
+  mask-size: 100% 100%;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  pointer-events: none;
+}
+
+/* Een browser zonder maskers zou een vol blok kleur tonen over de hele regel.
+   Dan liever niets: de tekst blijft leesbaar, alleen de streep ontbreekt. */
+@supports not ((-webkit-mask-image: url("")) or (mask-image: url(""))) {
+  .mymmo-mark::before {
+    display: none;
+  }
+}
+
+/*
+ * EEN MARKERING DIE OVER TWEE REGELS BREEKT, KRIJGT GEEN STREEP.
+ *
+ * Het pseudo-element staat absoluut en hangt aan het inline-element. Breekt dat
+ * over twee regels, dan is zijn referentiedoos niet meer de tekst maar de ruimte
+ * tussen het begin van de eerste regel en het einde van de laatste -- een smalle,
+ * hoge doos, en je ziet een verticaal streepje dwars door twee regels tekst.
+ *
+ * Met CSS is dat niet te repareren: één pseudo-element kan geen twee regels
+ * beslaan, en de fragmenten van een gesplitst inline-element zijn niet apart aan
+ * te wijzen. De klasse wordt door `mymmo-markering-front.js` gezet, die het wel
+ * kan meten. Geen streep is beter dan een verkeerde streep -- de tekst blijft
+ * staan zoals ze is.
+ */
+.mymmo-mark--gebroken::before {
+  display: none;
+}
+
+/*
+ * Een ANDERE VORM mag zijn eigen maat zetten, met dezelfde twee variabelen --
+ * niet met een eigen `inset`, want dan staan er twee manieren om hetzelfde te
+ * zeggen. Een onderstreping is bijvoorbeeld laag en zit onder de basislijn:
+ *
+ *   .mymmo-mark--onderstreep { --mk-mark-hoogte: .3em; --mk-mark-uitloop: .05em; }
+ *   .mymmo-mark--onderstreep::before { top: auto; bottom: -.05em; transform: none; }
+ */
+
+/*
+ * In de EDITOR staat de opmaakknop ook op een kop met een eigen achtergrond;
+ * daar geldt hetzelfde. Verder is er niets editor-specifieks: wat je in het
+ * canvas ziet, is wat er op de pagina komt.
+ */

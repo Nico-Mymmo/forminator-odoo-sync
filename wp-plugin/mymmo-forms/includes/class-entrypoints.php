@@ -76,6 +76,15 @@ final class Mymmo_Forms_Entrypoints {
         // de titel mee laten lopen met de kaarten ernaast mag het witte vlak
         // met het formulier niet smaller maken.
         'text_pad', 'text_pad_mobile',
+        // De LETTER van de titel. Staat een callout tussen de kaarten van een
+        // pagina, dan hoort haar kop dezelfde te zijn als die van die kaarten;
+        // die maten komen uit het thema, dus de plugin kan ze niet raden.
+        'title_size', 'title_weight', 'title_color',
+        // chrome="no": kaal renderen, zonder kaartje eromheen. Hoort bij de
+        // PLAATSING en niet bij de ingang -- dezelfde ingang kan op de ene
+        // pagina een callout zijn en in een kaart op de andere. Daarom staat
+        // hij ook in SHORTCODE_ATTS.
+        'chrome',
         // Welk tabblad opengaat. Bij een KNOP of een KLASSE is dat een keuze:
         // "Plan een gesprek" hoort de agenda te openen, niet het formulier. Bij
         // een callout volgt het al uit wat ze uitlicht.
@@ -90,7 +99,7 @@ final class Mymmo_Forms_Entrypoints {
      * shortcode haalt de reden weg waarom ingangen bestaan -- één plek waar het
      * staat. Dit zijn de drie die echt per plaatsing verschillen.
      */
-    public const SHORTCODE_ATTS = ['bg', 'radius', 'tab'];
+    public const SHORTCODE_ATTS = ['bg', 'radius', 'tab', 'chrome'];
 
     /**
      * De kolomverhoudingen van een callout, als GESLOTEN lijst.

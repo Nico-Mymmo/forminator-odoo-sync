@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Mymmo Forms
  * Description:       Formulieren die in de Operations Manager gebouwd worden, hier gerenderd met een shortcode. Geen formulierdefinities in WordPress.
- * Version:           1.17.10
+ * Version:           1.18.4
  * Requires at least: 6.2
  * Requires PHP:      8.0
  * Author:            Mymmo
@@ -32,7 +32,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('MYMMO_FORMS_VERSION', '1.17.10');
+define('MYMMO_FORMS_VERSION', '1.18.4');
 define('MYMMO_FORMS_FILE', __FILE__);
 define('MYMMO_FORMS_DIR', plugin_dir_path(__FILE__));
 define('MYMMO_FORMS_URL', plugin_dir_url(__FILE__));
@@ -47,7 +47,9 @@ require_once MYMMO_FORMS_DIR . 'includes/class-steps.php';
 require_once MYMMO_FORMS_DIR . 'includes/class-settings.php';
 require_once MYMMO_FORMS_DIR . 'includes/class-shortcodes.php';
 require_once MYMMO_FORMS_DIR . 'includes/class-block.php';
+require_once MYMMO_FORMS_DIR . 'includes/class-entry-block.php';
 require_once MYMMO_FORMS_DIR . 'includes/class-submit.php';
+require_once MYMMO_FORMS_DIR . 'includes/class-booking.php';
 
 function mymmo_forms_bootstrap(): void {
     Mymmo_Forms_Presets::init();
@@ -56,13 +58,16 @@ function mymmo_forms_bootstrap(): void {
     Mymmo_Forms_Settings::init();
     Mymmo_Forms_Shortcodes::init();
     Mymmo_Forms_Block::init();
+    Mymmo_Forms_Entry_Block::init();
     Mymmo_Forms_Submit::init();
+    Mymmo_Forms_Booking::init();
 }
 add_action('plugins_loaded', 'mymmo_forms_bootstrap');
 
 /**
  * Er zijn geen rewrite rules om door te spoelen: de plugin claimt geen enkele
- * URL. Ze rendert alleen waar de shortcode staat en post naar admin-post.php.
+ * URL. Ze rendert waar de shortcode staat, post naar admin-post.php, en
+ * reageert op ?afspraak= (class-booking.php) -- een queryparameter, geen pad.
  */
 function mymmo_forms_deactivate(): void {
     Mymmo_Forms_Cache::purge_all();

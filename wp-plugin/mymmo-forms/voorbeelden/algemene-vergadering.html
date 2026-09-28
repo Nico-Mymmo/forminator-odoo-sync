@@ -4,7 +4,7 @@
   Een KADER met een breed foutenvenster: de bezoeker schuift een maandlijn onder
   een vast kader door (de merktekening `thingies/frame.svg`). Bovenaan staan twee
   kalenderblaadjes (van - tot), de merktekeningen thingies_calendar1.svg en
-  thingies-calendar2.svg: het getal bovenaan, de maand in het mintvlak. Altijd
+  thingies_calendar2.svg: het getal bovenaan, de maand in het mintvlak. Altijd
   even groot; alleen het getal doet een kleine plop als het verspringt.
 
   De lijn is JAARLOOS en loopt rond: een algemene vergadering valt elk jaar rond
@@ -80,7 +80,6 @@
   text-align: center;
   line-height: 1;
   color: var(--av-inkt);
-  transition: opacity .2s ease;
 }
 .mf-av .mf-av-aanloop {
   font-size: .78rem;
@@ -98,12 +97,32 @@
   gap: 14px;
 }
 .mf-av .mf-av-blad {
-  /* De merktekeningen thingies_calendar1.svg en thingies-calendar2.svg (let op:
-     de eerste met underscore, de tweede met streepje). Beide 262,76 x 310,34.
-     Het getal staat in het witte vak bovenaan, de maand in het mintvlak.
-     De vakken zijn opgemeten in procent van de tekening. */
+  /* De merktekeningen thingies_calendar1.svg en thingies_calendar2.svg, beide
+     262,76 x 310,34. Het getal staat in het witte vak bovenaan, de maand in
+     het mintvlak. De vakken zijn opgemeten in procent van de tekening.
+     De blaadjes zijn op 21-09-2026 hertekend: het mintvlak is naar beneden
+     geschoven en dunner geworden, dus getal en maand zijn mee verplaatst.
+     Meet die vlakken opnieuw uit de mintpolygoon zodra er weer getekend
+     wordt -- het is de enige plek in de SVG waar ze exact in staan. */
   position: relative;
-  width: clamp(112px, 30vw, 136px);
+  /* GEEN vw: een stap mag nooit van de VIEWPORT afhangen. In een callout, of in
+     een pop-up naast een zijkolom, staat ze in een kolom die smaller is dan het
+     scherm -- en dan steken de twee blaadjes samen buiten hun vak, wordt de
+     pagina breder dan de viewport en kan je opzij vegen. Ze delen nu gewoon de
+     rij: 136px als het past, kleiner als het moet. De verhouding en de tekst
+     (cqw) schalen mee.
+     MAAR: de breedte moet een ECHTE width blijven, geen kale flex-basis. Door
+     `container-type: inline-size` hieronder is de max-content-bijdrage van dit
+     blaadje NUL -- de inhoud mag de inline-maat immers niet bepalen. De rij
+     eromboven krijgt haar breedte van haar inhoud (fit-content), werd daardoor
+     zo breed als alleen het woordje "en", en de twee blaadjes krompen tot 0x0.
+     Beide blaadjes waren dan letterlijk weg, zonder foutmelding. Een definitieve
+     `width` geeft wel een max-content-bijdrage; `flex-shrink: 1` met
+     `min-width: 0` houdt het krimpen in een smalle kolom overeind. */
+  width: 136px;
+  max-width: 100%;
+  flex: 0 1 auto;
+  min-width: 0;
   aspect-ratio: 262.76 / 310.34;
   /* Tekst schaalt mee met het blaadje (cqw), zodat "september" altijd in het
      mintvlak past, hoe breed het blaadje ook is. */
@@ -128,14 +147,21 @@
   white-space: nowrap;
   color: var(--av-inkt);
 }
-/* Wit vak: binnen het kader, boven het mintvlak. */
+/* Wit vak: het vak loopt tot aan het hoogste punt van het mint (y 200,16 =
+   64,5%) en begint op 22% in plaats van vlak onder de kaderlijn (12%). Het
+   getal staat gecentreerd in dat vak, dus het zakt daarmee in de ONDERSTE helft
+   van het witte veld -- optisch beter, want de scheurrand en de ringetjes
+   bovenaan vragen zelf al aandacht.
+   Dat vak is door de hertekening een derde hoger geworden, dus het getal mag
+   mee groter: 40cqw is 105px op een tekening van 262 breed, twee cijfers
+   samen ongeveer 118px in een vak van 194px. */
 .mf-av .mf-av-blad-dag {
-  top: 12%;
-  height: 39%;
+  top: 22%;
+  height: 42.5%;
   left: 15%;
   right: 11%;
-  font-size: 2.6rem;
-  font-size: 36cqw;
+  font-size: 2.9rem;
+  font-size: 40cqw;
   font-weight: 600;
   line-height: 1;
   letter-spacing: -.03em;
@@ -152,15 +178,21 @@
 @media (prefers-reduced-motion: reduce) {
   .mf-av .mf-av-blad-dag.is-plop { animation: none; }
 }
-/* Mintvlak, opgemeten uit de SVG's (viewBox 262,76 x 310,34). Het mint loopt
-   rechts onder de kaderlijn door, dus het ZICHTBARE deel telt:
+/* Mintvlak, opgemeten uit de mintpolygoon van de SVG's (viewBox 262,76 x
+   310,34). Het mint loopt rechts onder de kaderlijn door, dus horizontaal
+   telt het ZICHTBARE deel; die x-maten zijn bij de hertekening niet gewijzigd:
      blad 1: x 20,7% tot 87%   (mint 54,5-241,4, kaderlijn rechts rond 229)
      blad 2: x 18% tot 85%     (mint 47,2-234,3, kaderlijn rechts rond 224)
-     beide:  y 53,5% tot 87%   (mint vanaf 162-170, onderkant 270-274)
-   De maand staat in het midden van dat zichtbare deel. */
+   Verticaal wel. Allebei de banden lopen SCHUIN (gescheurd papier), dus je
+   neemt de LAAGSTE bovenhoek en de HOOGSTE onderhoek -- anders steekt de tekst
+   aan een kant boven het mint uit:
+     blad 1: boven 205,61 (links) / 200,16 (rechts), onder 271,04 vlak
+     blad 2: boven 202,85 (links) / 205,47 (rechts), onder 273,73 / 270,97
+     veilig: y 66,3% tot 87,3%
+   De maand staat in het midden van dat vak. */
 .mf-av .mf-av-blad-maand {
-  top: 53.5%;
-  height: 33.5%;
+  top: 66.3%;
+  height: 21%;
   font-size: .8rem;
   /* "september" is gemeten 4,9 keer zo breed als de lettergrootte in dit gewicht;
      11,5cqw maakt het 56% van het blaadje, in een zichtbaar mintvlak van 66%. */
@@ -175,8 +207,16 @@
   opacity: .6;
 }
 
-/* Nog niets gekozen: de lijn toont een voorstel, geen antwoord. */
-.mf-av.is-open .mf-av-kop { opacity: .38; }
+/* De blaadjes worden NOOIT gedimd, ook niet zolang er nog niets gekozen is.
+   Hier stond `.mf-av.is-open .mf-av-kop { opacity: .38 }`, met als gedachte
+   "dit is nog maar een voorstel". Maar een tekening op 38% leest als
+   uitgeschakeld, niet als voorlopig -- en er valt niets uit te schakelen: de
+   lijn staat er en je mag schuiven. De klasse `is-open` blijft bestaan (de JS
+   zet en haalt ze), ze stuurt alleen geen stijl meer aan. Zet hier geen
+   opacity terug, en ook geen grijstint op de tekening: de blaadjes horen in
+   hun eigen kleuren te staan.
+   "Nog geen idee" verbergt de blaadjes wel volledig -- dat is iets anders dan
+   dimmen: er valt op dat moment niets te tonen. */
 .mf-av.is-onbekend .mf-av-blaadjes { visibility: hidden; }
 .mf-av .mf-av-hint {
   display: block;
@@ -312,7 +352,7 @@
       <div class="mf-av-blaadjes">
         <div class="mf-av-blad mf-av-blad--van" data-rol="blad-van"><img class="mf-av-blad-beeld skip-lazy no-lazyload" data-no-lazy="1" data-skip-lazy="1" src="https://link.openvme.be/assets/brand/thingies/thingies_calendar1.svg" alt="" width="263" height="310" loading="eager" decoding="async"><span class="mf-av-blad-dag">25</span><span class="mf-av-blad-maand">september</span></div>
         <span class="mf-av-tot">en</span>
-        <div class="mf-av-blad mf-av-blad--tot" data-rol="blad-tot"><img class="mf-av-blad-beeld skip-lazy no-lazyload" data-no-lazy="1" data-skip-lazy="1" src="https://link.openvme.be/assets/brand/thingies/thingies-calendar2.svg" alt="" width="263" height="310" loading="eager" decoding="async"><span class="mf-av-blad-dag">10</span><span class="mf-av-blad-maand">oktober</span></div>
+        <div class="mf-av-blad mf-av-blad--tot" data-rol="blad-tot"><img class="mf-av-blad-beeld skip-lazy no-lazyload" data-no-lazy="1" data-skip-lazy="1" src="https://link.openvme.be/assets/brand/thingies/thingies_calendar2.svg" alt="" width="263" height="310" loading="eager" decoding="async"><span class="mf-av-blad-dag">10</span><span class="mf-av-blad-maand">oktober</span></div>
       </div>
     </div>
     <span class="mf-av-hint" data-rol="hint">Schuif of tik op de lijn om te kiezen</span>

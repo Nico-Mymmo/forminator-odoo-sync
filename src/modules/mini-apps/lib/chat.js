@@ -146,6 +146,102 @@ async function logMessage(env, { appId, channelId, senderUserId, status, errorMe
   if (error) console.error('[mini-apps] chat audit-log insert failed:', error.message);
 }
 
+const UUID_VORM = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Een kanaal opzoeken op id OF op naam.
+ *
+ * Een mini-app verwijst altijd met een id -- die heeft ze uit de lijst. Maar
+ * een WORKER-SECRET met een UUID erin is voor een mens niet na te kijken: je
+ * ziet niet of er het juiste kanaal staat, en het id staat nergens op het
+ * scherm. De naam wel, en `mini_app_chat_channels.name` heeft een
+ * UNIQUE-constraint -- dus die is even eenduidig als het id.
+ *
+ * Alleen wat er ECHT als UUID uitziet gaat naar de id-kolom: een naam die
+ * toevallig op een id lijkt bestaat niet, maar een zoekopdracht op een
+ * UUID-kolom met vrije tekst geeft in Postgres een typefout in plaats van
+ * nul rijen.
+ */
+async function resolveChannelRef(env, ref) {
+  const sleutel = String(ref || '').trim();
+  if (sleutel === '') {
+    throw chatError('channelId is verplicht.', 'INVALID_CHANNEL');
+  }
+  if (UUID_VORM.test(sleutel)) {
+    return getChannel(env, sleutel);
+  }
+
+  /* HoofdletterONgevoelig: deze waarde wordt met de hand in een Worker-secret
+     getypt en daarna nooit meer bekeken. "marketing core" niet laten matchen
+     met "Marketing Core" betekent dat de waarschuwing stil nergens aankomt --
+     je ziet het enkel in de log, en alleen op het moment dat je hem net nodig
+     had. `%` en `_` zijn jokers in LIKE en worden dus ontsnapt; een kanaalnaam
+     met een underscore erin zou anders op het verkeerde kanaal uitkomen. */
+  const supabase = getSupabaseClient(env);
+  const patroon = sleutel.replace(/[\\%_]/g, (teken) => `\\${teken}`);
+  const { data, error } = await supabase
+    .from('mini_app_chat_channels')
+    .select('id, name, webhook_url')
+    .ilike('name', patroon)
+    .maybeSingle();
+
+  if (error) throw new Error(error.message);
+  if (!data) {
+    throw chatError(`Kanaal "${sleutel}" niet gevonden.`, 'CHANNEL_NOT_FOUND');
+  }
+  return data;
+}
+
+/**
+ * Verstuurt een bericht namens de Operations Manager zelf, ZONDER mini-app.
+ *
+ * Zelfde afweging als `askAI()` met `{ id: null, source }` (Regel 7 in
+ * CLAUDE.md): een module die iets te melden heeft, hoort dat via dezelfde weg
+ * te doen als een mini-app -- hetzelfde kanaalregister, dezelfde webhook,
+ * dezelfde audit-regel. Een eigen fetch naar een webhook-URL ernaast zou
+ * betekenen dat er berichten vertrekken die in geen enkel logboek staan.
+ *
+ * Wat hier bewust NIET gebeurt: de grens per mini-app tellen. Die telt op
+ * `app.id`, en die is er niet. De aanroeper is een cron die hoogstens elk
+ * kwartier draait; het volume is dus van een andere orde dan een mini-app die
+ * een knop heeft.
+ *
+ * @param {Object} env
+ * @param {string} channelId
+ * @param {string} message
+ * @param {{ bron?: string }} [opties]  waar het bericht vandaan komt, voor de voettekst
+ */
+export async function sendSystemChannelMessage(env, channelId, message, opties = {}) {
+  const bron = String(opties.bron || 'Operations Manager');
+
+  if (typeof message !== 'string' || !message.trim() || message.length > MAX_MESSAGE_LENGTH) {
+    throw chatError(`Bericht is verplicht en max ${MAX_MESSAGE_LENGTH} tekens.`, 'INVALID_MESSAGE');
+  }
+  const channel = await resolveChannelRef(env, channelId);
+  const text = `${message.trim()}\n\n_Automatisch bericht van de Operations Manager (${bron})._`;
+
+  try {
+    const resp = await fetch(channel.webhook_url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json; charset=UTF-8' },
+      body: JSON.stringify({ text })
+    });
+    if (!resp.ok) {
+      const body = await resp.text();
+      throw new Error(`Chat webhook failed (${resp.status}): ${body}`);
+    }
+  } catch (err) {
+    await logMessage(env, {
+      appId: null, channelId: channel.id, senderUserId: null,
+      status: 'failed', errorMessage: err.message
+    });
+    throw err;
+  }
+
+  await logMessage(env, { appId: null, channelId: channel.id, senderUserId: null, status: 'sent' });
+  return { channelName: channel.name };
+}
+
 /**
  * Verstuurt een bericht naar een geregistreerd kanaal.
  *

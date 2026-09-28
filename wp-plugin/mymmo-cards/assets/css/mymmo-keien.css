@@ -1,0 +1,299 @@
+/**
+ * De KEIENWOLK -- grote zwevende keien, kleine keitjes die voorbijschuiven.
+ *
+ * Zelfde regel als de rest van deze plugin: GEOMETRIE EN GEDRAG, NOOIT
+ * TYPOGRAFIE. Geen font-family, font-size, font-weight of tekstkleur. Wat er in
+ * een kei staat, zijn gewone core-blokken en die volgen het thema.
+ *
+ * DRIE BEWEGINGEN, DRIE EIGENSCHAPPEN.
+ *   - `rotate`    : de kei staat scheef (vast, per kei ingesteld)
+ *   - `translate` : de kei zweeft (animatie)
+ *   - `transform` : de parallax (gezet door mymmo-keien.js, op de WIKKEL)
+ * `rotate`/`translate`/`scale` zijn losse CSS-eigenschappen: zo overschrijft
+ * de ene beweging de andere niet. En de parallax zit een laag hoger, op de
+ * wikkel, zodat het script nooit aan de animatie komt.
+ *
+ * GEEN SCHUIFBALK. Keitjes mogen over de rand hangen; de wolk knipt ze
+ * HORIZONTAAL af met `overflow-x: clip`. Niet `hidden`: dat zou ook verticaal
+ * een schuifvlak maken, en dan snijdt de wolk de afbeelding af die bovenaan uit
+ * een kei steekt.
+ *
+ * DE KERN. Binnen de wolk (volle breedte, opvulling, afknippen) staat een
+ * tweede vlak dat precies zo breed is als de keien samen. Keitjes staan
+ * daarin, dus x/y van een keitje is een plaats RAKEND AAN DE KEIEN, ongeacht
+ * hoe breed het scherm is.
+ *
+ * Breekpunt 640px, zoals de kaartenstapel.
+ */
+
+.mymmo-keien {
+  --mk-kei-bg: #fce7f3;
+  --mk-kei-rand: transparent;
+  --mk-kei-rand-dikte: 0px;
+  --mk-keitje-bg: #ffffff;
+  --mk-keitje-rand: rgba(15, 23, 42, 0.12);
+
+  position: relative;
+  isolation: isolate;
+  overflow-x: clip;
+  padding: var(--mk-ruimte, 100px) 16px;
+  box-sizing: border-box;
+}
+
+.mymmo-keien .mymmo-keien-kern {
+  position: relative;
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  row-gap: 48px;
+  column-gap: 0;
+  width: fit-content;
+  max-width: min(100%, var(--mk-max, 1200px));
+  margin: 0 auto;
+  /* De overlap is een negatieve marge per kei; deze opvulling vangt die op
+     aan beide uiteinden, zodat de kern precies van rand tot rand loopt. */
+  padding: 0 calc(var(--mk-overlap, 60px) / 2);
+  box-sizing: border-box;
+}
+
+/* ── De grote kei ─────────────────────────────────────────────────────────── */
+
+.mymmo-keien .mymmo-kei {
+  position: relative;
+  z-index: 2;
+  top: var(--mk-hoogte, 0px);
+  flex: 0 0 auto;
+  width: calc(var(--mk-kei-breedte, 380px) * var(--mk-schaal, 1));
+  max-width: 100%;
+  margin: 0 calc(var(--mk-overlap, 60px) / -2);
+  box-sizing: border-box;
+}
+
+/* BEWUST GEEN z-index bij hover: een kei die dan naar voren springt, knipt
+   in een klap door zijn buur heen -- wat erachter lag staat plots erop. De
+   stapelvolgorde ligt vast; hover vergroot enkel een tikje (zie hieronder). */
+
+.mymmo-keien .mymmo-kei[data-snelheid] {
+  transform: translate3d(0, var(--mk-p, 0px), 0);
+  will-change: transform;
+}
+
+.mymmo-keien .mymmo-kei-vorm {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 12px;
+  aspect-ratio: 1 / 0.94;
+  box-sizing: border-box;
+  padding: 15% 13%;
+  text-align: center;
+  /* De vorm zelf is het SVG-vlak hieronder, niet deze doos: border-radius kan
+     geen hoeken van 85 of 95 graden maken. isolation zorgt dat het vlak met
+     z-index:-1 achter de inhoud komt en niet achter de hele pagina. */
+  isolation: isolate;
+  /* --mk-d en niet rechtstreeks --mk-draai: op een telefoon wordt het
+     --mk-draai-m, en een variabele kan zichzelf niet overschrijven. */
+  --mk-d: var(--mk-draai, 0deg);
+  rotate: var(--mk-d);
+  scale: 1;
+  transition: scale 0.5s cubic-bezier(0.34, 1.4, 0.64, 1);
+  animation: mk-zweef var(--mk-zweef-duur, 7s) ease-in-out infinite;
+  animation-delay: var(--mk-vertraging, 0s);
+}
+
+/* Het organische vierkant. Twee klassen: een thema zet graag iets op `svg`
+   (max-width, height:auto) en dat mag hier niet winnen. */
+.mymmo-keien .mymmo-kei-vlak {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  overflow: visible;
+  pointer-events: none;
+}
+.mymmo-keien .mymmo-kei-vlak path {
+  fill: var(--mk-kei-bg);
+  stroke: var(--mk-kei-rand);
+  stroke-width: var(--mk-kei-rand-dikte);
+  stroke-linejoin: round;
+}
+
+.mymmo-keien .mymmo-kei:hover .mymmo-kei-vorm {
+  scale: 1.035;
+}
+
+.mymmo-keien .mymmo-kei--pad-krap .mymmo-kei-vorm { padding: 11% 9%; }
+.mymmo-keien .mymmo-kei--pad-ruim .mymmo-kei-vorm { padding: 19% 17%; }
+
+/* Geen marge boven het eerste en onder het laatste blok: de opvulling van de
+   kei doet dat al, en een thema zet er graag nog een alinea-marge bij. */
+.mymmo-keien .mymmo-kei-vorm > * {
+  margin-top: 0;
+  margin-bottom: 0;
+  max-width: 100%;
+}
+.mymmo-keien .mymmo-kei-vorm > figure,
+.mymmo-keien .mymmo-kei-vorm > .wp-block-image {
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* ── Het kleine keitje ────────────────────────────────────────────────────── */
+
+.mymmo-keien .mymmo-keitje {
+  position: absolute;
+  z-index: 1;
+  left: var(--mk-x, 50%);
+  top: var(--mk-y, 10%);
+  width: var(--mk-maat, 80px);
+  margin: 0;
+  transform: translate3d(-50%, calc(-50% + var(--mk-p, 0px)), 0);
+  pointer-events: none;
+}
+.mymmo-keien .mymmo-keitje[data-snelheid] {
+  will-change: transform;
+}
+.mymmo-keien .mymmo-keitje--voor {
+  z-index: 3;
+}
+
+.mymmo-keien .mymmo-keitje-vorm {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+  box-sizing: border-box;
+  background-color: var(--mk-keitje-bg);
+  border: 1.5px solid var(--mk-keitje-rand);
+  border-radius: var(--mk-r1);
+  --mk-d: var(--mk-draai, 0deg);
+  rotate: var(--mk-d);
+  animation: mk-dobber var(--mk-tempo, 5.5s) ease-in-out infinite;
+  animation-delay: var(--mk-vertraging, 0s);
+}
+.mymmo-keien .mymmo-keitje--kaal .mymmo-keitje-vorm {
+  border-color: transparent;
+}
+
+.mymmo-keien .mymmo-keitje-vorm img {
+  display: block;
+  width: 84%;
+  height: 84%;
+  max-width: none;
+  margin: 0;
+  object-fit: contain;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+/* ── De vier vormen ─────────────────────────────────────────────────────────
+   Twee randen per vorm: de kei ademt van de ene naar de andere. Allemaal
+   rond 40-60%: daaronder wordt het een afgeronde rechthoek, en dat is net
+   wat dit component NIET wil zijn. */
+
+.mymmo-keien .mymmo-kei--vorm-1, .mymmo-keien .mymmo-keitje--vorm-1 {
+  --mk-r1: 58% 42% 55% 45% / 46% 54% 46% 54%;
+  --mk-r2: 46% 54% 42% 58% / 55% 45% 58% 42%;
+}
+.mymmo-keien .mymmo-kei--vorm-2, .mymmo-keien .mymmo-keitje--vorm-2 {
+  --mk-r1: 42% 58% 63% 37% / 54% 40% 60% 46%;
+  --mk-r2: 55% 45% 50% 50% / 42% 58% 44% 56%;
+}
+.mymmo-keien .mymmo-kei--vorm-3, .mymmo-keien .mymmo-keitje--vorm-3 {
+  --mk-r1: 54% 46% 38% 62% / 40% 60% 42% 58%;
+  --mk-r2: 44% 56% 52% 48% / 56% 44% 58% 42%;
+}
+.mymmo-keien .mymmo-kei--vorm-4, .mymmo-keien .mymmo-keitje--vorm-4 {
+  --mk-r1: 38% 62% 56% 44% / 60% 42% 58% 40%;
+  --mk-r2: 52% 48% 44% 56% / 46% 56% 42% 54%;
+}
+
+/* ── Beweging ────────────────────────────────────────────────────────────── */
+
+/* Rond het MIDDEN, niet van 0 naar boven: anders ligt elke kei gemiddeld hoger
+   dan zijn plek. Zelfde les als mf-zweef in de stappen van Mymmo Forms. */
+@keyframes mk-zweef {
+  0%, 100% { translate: 0 calc(var(--mk-zweef, 7px) * -1); }
+  50%      { translate: 0 var(--mk-zweef, 7px); }
+}
+@keyframes mk-adem {
+  from { border-radius: var(--mk-r1); }
+  to   { border-radius: var(--mk-r2); }
+}
+@keyframes mk-dobber {
+  0%, 100% { translate: 0 -3px; rotate: calc(var(--mk-d, 0deg) - 1.5deg); }
+  50%      { translate: 0 3px;  rotate: calc(var(--mk-d, 0deg) + 1.5deg); }
+}
+
+.mymmo-keien--stil .mymmo-kei-vorm,
+.mymmo-keien .mymmo-kei--stil .mymmo-kei-vorm {
+  animation: none;
+}
+/* Een kei met een venster van Mymmo Forms erin: geen translate, dus ook geen
+   referentiekader voor position:fixed. Zie class-keien.php. */
+.mymmo-keien .mymmo-kei--stil .mymmo-kei-vorm {
+  rotate: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mymmo-keien .mymmo-kei-vorm,
+  .mymmo-keien .mymmo-keitje-vorm {
+    animation: none;
+    transition: none;
+  }
+  .mymmo-keien .mymmo-kei,
+  .mymmo-keien .mymmo-keitje {
+    --mk-p: 0px;
+  }
+}
+
+/* ── Telefoon ────────────────────────────────────────────────────────────────
+   De keien onder elkaar, om de beurt wat naar links en naar rechts: een rij
+   die recht onder elkaar staat is precies het corporate lijstje dat dit niet
+   mag worden. De overlap wordt verticaal.
+
+   Elke waarde hieronder is een `var(--...-m, <computer of automatisch>)`: wat
+   in de editor voor de telefoon is ingevuld wint, de rest volgt de computer. */
+
+@media (max-width: 640px) {
+  .mymmo-keien {
+    padding: var(--mk-ruimte-m, 90px) 16px;
+  }
+  .mymmo-keien .mymmo-keien-kern {
+    flex-direction: column;
+    flex-wrap: nowrap;
+    row-gap: 0;
+    width: 100%;
+    padding: 0;
+  }
+
+  .mymmo-keien .mymmo-kei {
+    top: var(--mk-hoogte-m, 0px);
+    width: min(100%, calc(var(--mk-kei-breedte-m, 300px) * var(--mk-schaal-m, var(--mk-schaal, 1))));
+    margin: calc(var(--mk-overlap-m, 30px) / -2) 0;
+  }
+  .mymmo-keien .mymmo-kei--oneven { left: var(--mk-x-m, -5%); }
+  .mymmo-keien .mymmo-kei--even   { left: var(--mk-x-m, 5%); }
+  .mymmo-keien .mymmo-kei-vorm {
+    --mk-d: var(--mk-draai-m, var(--mk-draai, 0deg));
+  }
+
+  .mymmo-keien .mymmo-keitje {
+    left: var(--mk-x-m, var(--mk-x, 50%));
+    top: var(--mk-y-m, var(--mk-y, 10%));
+    width: var(--mk-maat-m, calc(var(--mk-maat, 80px) * var(--mk-keitje-m, 0.7)));
+  }
+  .mymmo-keien .mymmo-keitje-vorm {
+    --mk-d: var(--mk-draai-m, var(--mk-draai, 0deg));
+  }
+  .mymmo-keien .mymmo-keitje--niet-mobiel {
+    display: none;
+  }
+}

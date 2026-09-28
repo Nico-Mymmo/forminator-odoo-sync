@@ -26,8 +26,10 @@ import { classifyFailureType, computeNextRetryAt, getMaxAttemptsTotal } from './
 import { findRecordByIdentifier, upsertRecordStrict, createRecordOnly, updateOnlyRecord, postChatterMessage, createActivity, readRecordField } from './odoo-client.js';
 import { executeKw, searchRead } from '../../lib/odoo.js';
 import { buildHtmlFormSummary } from './html-utils.js';
+import { buildDisplayForm } from './display-values.js';
 import { runSendMailStep } from './mail-step.js';
 import { runGeneratePdfStep } from './pdf-step.js';
+import { enrichAfspraakContext } from '../booking-links/lib/placeholders.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Slug -> technisch Odoo-model
@@ -324,6 +326,10 @@ function resolveContextValue(contextObject, key) {
 // (bestaand gedrag), en pas als dat niets oplevert een blik in contextObject --
 // zo kan {step.1.generated_id} de unieke identifier van een vorige stap tonen.
 function lookupChatterPlaceholder(normalizedForm, contextObject, key) {
+  // {afspraak.<stap>.<soort>} is nooit een formulierveld: eerst het formulier
+  // proberen zou de subsequence-heuristiek van lookupFormValue een kans geven
+  // om er toch een veld in te zien. Zie booking-links/lib/placeholders.js.
+  if (String(key).startsWith('afspraak.')) return resolveContextValue(contextObject, key);
   const formValue = lookupFormValue(normalizedForm, key);
   if (formValue !== null && formValue !== undefined && formValue !== '') return formValue;
   return resolveContextValue(contextObject, key);
@@ -1139,7 +1145,7 @@ function resolveMappingValue(mapping, normalizedForm, contextObject, fieldTransf
         fieldIds = null; // parse error → all fields
       }
     }
-    return buildHtmlFormSummary(fieldIds, normalizedForm);
+    return buildHtmlFormSummary(fieldIds, normalizedForm.__display || normalizedForm);
   }
 
   // Round robin (poule medewerkers): al vooraf opgelost door
@@ -1399,6 +1405,16 @@ async function runSubmissionAttempt(env, {
   const isRetryAttempt = mode === 'retry';
   const now = new Date().toISOString();
   const normalizedForm = normalizeFormValues(rawPayload);
+  // Dezelfde waarden LEESBAAR: labels in plaats van optiesleutels, ", " als
+  // scheiding, tijdstippen in Europe/Brussels (zie display-values.js). ALLEEN
+  // voor tekst die een mens leest -- chatter, activiteit, mail, pdf, de
+  // HTML-samenvatting. Odoo-velden, voorwaarden en zoekdomeinen blijven op
+  // normalizedForm: daar horen de vaste sleutels, niet een label dat morgen
+  // anders geformuleerd kan zijn.
+  const displayForm = buildDisplayForm(normalizedForm, rawPayload && rawPayload.value_labels);
+  // Niet-opsombaar, zodat Object.entries(normalizedForm) er niets van merkt;
+  // enkel de html_form_summary-tak in resolveMappingValue() leest het.
+  Object.defineProperty(normalizedForm, '__display', { value: displayForm, enumerable: false });
 
   const contextObject = {};
   const resolverLogs = [];
@@ -1712,7 +1728,7 @@ async function runSubmissionAttempt(env, {
           const rawTemplate = (target.activity_summary_template || '').trim();
           const summary = rawTemplate
             ? rawTemplate.replace(/\{([^}]+)\}/g, function(_, key) {
-                return String(lookupFormValue(normalizedForm, key.trim()) || '');
+                return String(lookupFormValue(displayForm, key.trim()) || '');
               })
             : null;
 
@@ -1801,7 +1817,7 @@ async function runSubmissionAttempt(env, {
           const pdfResult = await runGeneratePdfStep(env, {
             target,
             submissionId: submission.id,
-            form:         normalizedForm,
+            form:         displayForm,
             contextObject,
             mappings,
             resolveMapping: resolveMappingValue
@@ -1848,6 +1864,22 @@ async function runSubmissionAttempt(env, {
         continue;
       }
 
+      // Afspraaklinks ({{afspraak.<stap>.<soort>}}): de eigenaar van het record
+      // uit die stap opzoeken en zijn link in contextObject zetten, vóór de
+      // mail- of notitiestap zijn placeholders invult. Nooit fataal -- zonder
+      // persoonlijke link wordt het de algemene agenda.
+      if (opType === 'send_mail' || opType === 'chatter_message') {
+        try {
+          await enrichAfspraakContext(env, {
+            tekst: JSON.stringify([target, faseContentOverride || null]),
+            contextObject,
+            log: (m) => console.log(attemptTag, '[afspraak]', m)
+          });
+        } catch (afspraakError) {
+          console.warn(attemptTag, '[afspraak] opzoeken mislukt (non-fatal):', afspraakError.message);
+        }
+      }
+
       if (opType === 'send_mail') {
         try {
           // Fase-override (zie hierboven): een eigen onderwerp/tekst voor
@@ -1864,7 +1896,7 @@ async function runSubmissionAttempt(env, {
             target: mailTarget,
             integration:  { id: submission.integration_id },
             submissionId: submission.id,
-            form:         normalizedForm,
+            form:         displayForm,
             lookupForm:   lookupFormValue,
             contextObject
           });
@@ -1955,9 +1987,12 @@ async function runSubmissionAttempt(env, {
               }
               return { recordId: recId, model: recModel };
             })
-            .filter(Boolean);
+            .filter(Boolean)
+            // Nooit een notitie bij een medewerker -- ook niet voor een stap
+            // die nog van voor deze regel aan een hr.employee-stap hangt.
+            .filter(function(r) { return r.model !== 'hr.employee'; });
           if (!chatterRecords.length) {
-            throw createPermanentError('chatter_message: geen geldig record-ID van de gelinkte stappen.');
+            throw createPermanentError('chatter_message: geen geldig record-ID van de gelinkte stappen (een notitie bij hr.employee wordt nooit geplaatst -- koppel de stap aan bv. de lead).');
           }
 
           // Fase-override (zie hierboven bij "Calendly: gedrag per fase"): een
@@ -2001,7 +2036,7 @@ async function runSubmissionAttempt(env, {
               const isHtml = combinedMsg.trimStart().startsWith('<');
               if (isHtml) {
                 const msgHtml = combinedMsg.replace(/\{([^}]+)\}/g, function(_, key) {
-                  const v = String(lookupChatterPlaceholder(normalizedForm, contextObject, key) || '');
+                  const v = String(lookupChatterPlaceholder(displayForm, contextObject, key) || '');
                   return v.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
                 });
                 parts.push(msgHtml);
@@ -2010,7 +2045,7 @@ async function runSubmissionAttempt(env, {
                 const msgHtml = combinedMsg
                   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
                   .replace(/\{([^}]+)\}/g, function(_, key) {
-                    const v = String(lookupChatterPlaceholder(normalizedForm, contextObject, key) || '');
+                    const v = String(lookupChatterPlaceholder(displayForm, contextObject, key) || '');
                     return v.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
                   })
                   .replace(/\n/g, '<br>');
@@ -2019,12 +2054,12 @@ async function runSubmissionAttempt(env, {
             }
             const knoppenHtml = buildChatterButtonsHtml(knoppen, function (ruweTekst) {
               return ruweTekst.replace(/\{([^}]+)\}/g, function (_, key) {
-                return String(lookupChatterPlaceholder(normalizedForm, contextObject, key) || '');
+                return String(lookupChatterPlaceholder(displayForm, contextObject, key) || '');
               });
             });
             if (knoppenHtml) parts.push(knoppenHtml);
             if (wilSamenvatting) {
-              const summaryHtml = buildChatterSummaryHtml(summaryFieldIds, normalizedForm, summaryLabelMap, summaryWidthMap);
+              const summaryHtml = buildChatterSummaryHtml(summaryFieldIds, displayForm, summaryLabelMap, summaryWidthMap);
               if (summaryHtml) parts.push(summaryHtml);
             }
             body = parts.join('');
@@ -2040,7 +2075,7 @@ async function runSubmissionAttempt(env, {
                 summaryLabelMap = (parsed.labels && typeof parsed.labels === 'object') ? parsed.labels : null;
               }
             } catch (_e) {}
-            body = buildChatterSummaryHtml(summaryFieldIds, normalizedForm, summaryLabelMap);
+            body = buildChatterSummaryHtml(summaryFieldIds, displayForm, summaryLabelMap);
           } else if (rawTemplate && rawTemplate.trimStart().startsWith('<')) {
             // Al HTML: Quill-uitvoer die zonder __COMBINED__-omhulsel bewaard
             // is, wat de editor tot 2026-09-15 deed zodra de samenvatting uit
@@ -2049,7 +2084,7 @@ async function runSubmissionAttempt(env, {
             // zien was. Alleen de INGEVULDE waarden worden geescapet, de opmaak
             // niet.
             body = rawTemplate.replace(/\{([^}]+)\}/g, function (_, key) {
-              const v = String(lookupChatterPlaceholder(normalizedForm, contextObject, key) || '');
+              const v = String(lookupChatterPlaceholder(displayForm, contextObject, key) || '');
               return v.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
             });
           } else if (rawTemplate) {
@@ -2057,13 +2092,13 @@ async function runSubmissionAttempt(env, {
             const escapedTpl = rawTemplate
               .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
               .replace(/\{([^}]+)\}/g, function(_, key) {
-                const v = String(lookupChatterPlaceholder(normalizedForm, contextObject, key) || '');
+                const v = String(lookupChatterPlaceholder(displayForm, contextObject, key) || '');
                 return v.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
               })
               .replace(/\n/g, '<br>');
             body = '<p>' + escapedTpl + '</p>';
           } else {
-            body = buildHtmlFormSummary(null, normalizedForm);
+            body = buildHtmlFormSummary(null, displayForm);
           }
 
           // Post to each linked record (multi-step chatter), using the model resolved

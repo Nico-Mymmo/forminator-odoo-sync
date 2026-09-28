@@ -62,6 +62,42 @@ export const EVENT_FIELDS = {
   // Optioneel (boolean): "Hoge prioriteit" in Odoo. Gebruikt door de
   // aankondiging-shortcode om een event vooraan te tonen.
   HIGHLIGHTED: 'x_studio_priority',
+
+  /*
+   * NIEUWSFEED -- vier optionele Studio-velden, zelfde patroon als BRAND en
+   * HIGHLIGHTED: ze staan in `optionalFieldMap()` en de module werkt gewoon
+   * door zolang ze niet bestaan (dan komt er simpelweg geen enkel event in
+   * de feed, in plaats van een harde fout).
+   *
+   * Waarom dit op het EVENT staat en niet in de content-feed: een event is
+   * al een record in Odoo, en Odoo is voor beide modules de enige database.
+   * Een tweede tabel met "welke events tonen we" zou een kopie zijn die
+   * veroudert zodra iemand het event archiveert.
+   */
+  NEWS_IN_FEED: 'x_studio_in_news_feed',
+  NEWS_FROM: 'x_studio_news_from',
+  NEWS_UNTIL: 'x_studio_news_until',
+  NEWS_CTA: 'x_studio_news_cta',
+
+  /*
+   * HANDTEKENINGEN -- ook optioneel, zelfde patroon. Meerdere events mogen dit
+   * vinkje aan hebben; de signature designer toont er altijd maar EEN, het
+   * eerstvolgende dat nog aan de beurt is.
+   */
+  IN_SIGNATURE: 'x_studio_in_signature',
+  /*
+   * Hoeveel dagen VOOR de start het event uit de handtekening valt (Integer,
+   * leeg/0 = tot de start zelf). Bedoeld voor een event waarvoor inschrijven
+   * eerder sluit dan het begint: blijven staan tot de dag zelf betekent dan
+   * dat honderden mails naar een gesloten pagina verwijzen.
+   *
+   * Bewust een AANTAL DAGEN en geen tweede datumveld: het moment hangt vast
+   * aan de startdatum, dus een losse datum ernaast zou stil verkeerd komen te
+   * staan zodra het event verplaatst wordt -- twee waarheden over hetzelfde
+   * moment. Zodra deze grens gepasseerd is, schuift de rotatie door naar het
+   * volgende aangevinkte event.
+   */
+  SIGNATURE_UNTIL_DAYS: 'x_studio_signature_until_days',
   LOCATION: 'x_studio_live_event_location',
   ONLINE_URL: 'x_studio_webinar_link',
   CAPACITY: 'x_studio_capacity',
@@ -711,6 +747,34 @@ export function toEventDto(record, extra = {}) {
     highlighted: EVENT_FIELDS.HIGHLIGHTED in record
       ? record[EVENT_FIELDS.HIGHLIGHTED] === true
       : false,
+    /*
+     * Wat de nieuwsfeed van dit event moet weten. Ontbreken de Studio-velden,
+     * dan is `in_feed` false en komt het event nergens in -- de veilige kant:
+     * een event dat stil op een publieke feed verschijnt is erger dan een dat
+     * er niet op staat.
+     *
+     * `from`/`until` zijn DATUMS zonder tijd, en dat is bewust: een venster
+     * van "13 tot 20 oktober" is wat een marketeer bedoelt, en een uur erbij
+     * zou betekenen dat je op de grensdag moet nadenken over tijdzones.
+     */
+    news: {
+      in_feed: EVENT_FIELDS.NEWS_IN_FEED in record
+        ? record[EVENT_FIELDS.NEWS_IN_FEED] === true
+        : false,
+      from: str(record[EVENT_FIELDS.NEWS_FROM]) || null,
+      until: str(record[EVENT_FIELDS.NEWS_UNTIL]) || null,
+      cta: str(record[EVENT_FIELDS.NEWS_CTA])
+    },
+    // Ontbreekt het veld, dan false: een event dat stil in ieders
+    // e-mailhandtekening opduikt is erger dan een dat er niet in staat.
+    in_signature: EVENT_FIELDS.IN_SIGNATURE in record
+      ? record[EVENT_FIELDS.IN_SIGNATURE] === true
+      : false,
+    // Ontbreekt het veld, dan 0: tot de start zelf -- het gedrag van voordat
+    // dit instelbaar was.
+    signature_until_days: EVENT_FIELDS.SIGNATURE_UNTIL_DAYS in record
+      ? Math.max(0, int(record[EVENT_FIELDS.SIGNATURE_UNTIL_DAYS], 0) || 0)
+      : 0,
     registration: {
       enabled: bool(record[EVENT_FIELDS.REGISTRATION_ENABLED]),
       opens_at: fromOdooDatetime(record[EVENT_FIELDS.REGISTRATION_OPENS_AT]),
@@ -918,6 +982,37 @@ export function toOdooEventValues(input = {}) {
   if (has('host_id')) values[EVENT_FIELDS.HOST] = input.host_id || false;
   if (has('co_host_id')) values[EVENT_FIELDS.CO_HOST] = input.co_host_id || false;
   if (has('highlighted')) values[EVENT_FIELDS.HIGHLIGHTED] = Boolean(input.highlighted);
+
+  /*
+   * De nieuwsfeed-instellingen gaan als EEN blok mee, niet als vier losse
+   * sleutels. Zo kan het scherm ze in een keer bewaren en kan een half
+   * ingevuld venster niet ontstaan doordat er toevallig maar een van de vier
+   * in de payload zat. Velden die Odoo (nog) niet kent, haalt
+   * stripUnavailableOptionalFields() er daarna weer uit.
+   */
+  if (has('news')) {
+    const nieuws = input.news && typeof input.news === 'object' ? input.news : {};
+    values[EVENT_FIELDS.NEWS_IN_FEED] = Boolean(nieuws.in_feed);
+    values[EVENT_FIELDS.NEWS_FROM] = nieuws.from || false;
+    values[EVENT_FIELDS.NEWS_UNTIL] = nieuws.until || false;
+    values[EVENT_FIELDS.NEWS_CTA] = nieuws.cta || false;
+  }
+
+  if (has('in_signature')) {
+    values[EVENT_FIELDS.IN_SIGNATURE] = Boolean(input.in_signature);
+  }
+
+  /*
+   * Een negatieve waarde wordt 0 en niet doorgegeven: "tot -3 dagen voor het
+   * event" zou betekenen dat het event NA zijn start nog in de handtekening
+   * hoort te staan, en dat kan de rotatie niet -- die kijkt alleen vooruit.
+   * Stil 0 ervan maken is hier beter dan weigeren: het is de betekenis die
+   * iemand bedoelde toen hij het veld leegmaakte.
+   */
+  if (has('signature_until_days')) {
+    const dagen = int(input.signature_until_days, 0) || 0;
+    values[EVENT_FIELDS.SIGNATURE_UNTIL_DAYS] = dagen > 0 ? dagen : 0;
+  }
 
   if (has('location_name')) values[EVENT_FIELDS.LOCATION] = input.location_name || false;
   if (has('online_url')) values[EVENT_FIELDS.ONLINE_URL] = input.online_url || false;

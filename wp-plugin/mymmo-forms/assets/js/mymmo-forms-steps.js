@@ -179,11 +179,50 @@
       : -1;
     this.vensterOpen = false;
 
+    // Vensters BINNEN deze wikkel (een callout: de wikkel ligt om het kaartje
+    // en het venster heen). mymmo-forms-modal.js hangt een venster zolang het
+    // openstaat onder <body>, zodat het nooit in een blok van het thema
+    // gevangen zit -- en dan borrelt niets wat erin gebeurt nog op tot de
+    // wikkel. Daarom luistert de reeks ook op die vensters zelf (luister()).
+    // Vastgelegd bij het opstarten, voor er iets verhuisd is.
+    this.vensters = [].slice.call(wikkel.querySelectorAll('[data-mymmo-modal]'));
+
     this.koppelKnoppen();
     this.koppelVelden();
     this.koppelVenster();
     this.toon(this.nu, true);
   }
+
+  /**
+   * Luisteren op de wikkel EN op de vensters erin (zie this.vensters).
+   *
+   * Staat het venster op zijn plek, dan komt dezelfde gebeurtenis bij beide
+   * langs; het merkteken op de gebeurtenis zorgt dat deze reeks ze maar één
+   * keer afhandelt. Een lijst en geen vlag: een geneste reeks mag dezelfde
+   * gebeurtenis óók zien.
+   */
+  Reeks.prototype.luister = function (type, fn) {
+    var zelf = this;
+    var handler = function (e) {
+      var gezien = e.__mymmoReeksen || (e.__mymmoReeksen = []);
+      if (gezien.indexOf(zelf) !== -1) return;
+      gezien.push(zelf);
+      fn(e);
+    };
+    this.wikkel.addEventListener(type, handler);
+    for (var i = 0; i < this.vensters.length; i += 1) {
+      this.vensters[i].addEventListener(type, handler);
+    }
+  };
+
+  /** Hoort dit element bij deze reeks, ook als zijn venster verhuisd is? */
+  Reeks.prototype.bevat = function (el) {
+    if (this.wikkel.contains(el)) return true;
+    for (var i = 0; i < this.vensters.length; i += 1) {
+      if (this.vensters[i].contains(el)) return true;
+    }
+    return false;
+  };
 
   /**
    * Meeluisteren of het venster in deze wikkel open- of dichtgaat.
@@ -196,7 +235,7 @@
     if (this.dokIndex < 0) return;
     var zelf = this;
 
-    this.wikkel.addEventListener('mymmo:venster', function (e) {
+    this.luister('mymmo:venster', function (e) {
       var open = !!(e.detail && e.detail.open);
       if (open === zelf.vensterOpen) return;
       zelf.vensterOpen = open;
@@ -242,15 +281,15 @@
   Reeks.prototype.koppelKnoppen = function () {
     var zelf = this;
 
-    this.wikkel.addEventListener('click', function (e) {
+    this.luister('click', function (e) {
       var verder = e.target.closest ? e.target.closest('[data-mymmo-volgende]') : null;
-      if (verder && zelf.wikkel.contains(verder)) {
+      if (verder && zelf.bevat(verder)) {
         e.preventDefault();
         zelf.volgende();
         return;
       }
       var terug = e.target.closest ? e.target.closest('[data-mymmo-vorige]') : null;
-      if (terug && zelf.wikkel.contains(terug)) {
+      if (terug && zelf.bevat(terug)) {
         e.preventDefault();
         zelf.vorige();
       }
@@ -259,7 +298,7 @@
     // Enter in een stap betekent "volgende", niet "niets". Zonder dit voelt een
     // stap met één invoerveld kapot: je typt, drukt Enter, en er gebeurt niets.
     // Alleen buiten een textarea, waar Enter een nieuwe regel is.
-    this.wikkel.addEventListener('keydown', function (e) {
+    this.luister('keydown', function (e) {
       if (e.key !== 'Enter' || e.shiftKey) return;
       var stap = zelf.stapEl(zelf.nu);
       if (!stap || stap.classList.contains('mymmo-stap--formulier')) return;
@@ -292,8 +331,8 @@
       zelf.hertekenNav();
     }
 
-    this.wikkel.addEventListener('input', oogst);
-    this.wikkel.addEventListener('change', oogst);
+    this.luister('input', oogst);
+    this.luister('change', oogst);
   };
 
   /** De waarden die een stap bij het laden al in zijn HTML had. */
@@ -468,7 +507,7 @@
    * -- zo blijft dit werken als die indeling ooit verandert.
    */
   Reeks.prototype.scrollVensterNaarBoven = function () {
-    var el = this.wikkel.parentElement;
+    var el = (this.stapEl(this.nu) || this.wikkel).parentElement;
     while (el) {
       if (el.scrollHeight > el.clientHeight + 1) {
         var overflowY = window.getComputedStyle(el).overflowY;

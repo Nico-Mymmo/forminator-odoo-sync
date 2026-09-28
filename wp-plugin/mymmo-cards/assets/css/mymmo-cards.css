@@ -1,0 +1,820 @@
+/**
+ * Mymmo Cards — de kaartenstapel.
+ *
+ * WAT HIER NIET IN STAAT, EN NOOIT IN MAG: typografie. Geen font-family, geen
+ * font-size, geen font-weight, geen kleur voor tekst. De inhoud van een kaart
+ * zijn gewone core-blokken, dus de letter komt uit het thema — net als in elke
+ * andere kaart op de pagina. Dat is de reden dat deze plugin bestaat: de vorige
+ * opzet had één kaart die haar eigen kop meebracht (22,4px/700) tussen kaarten
+ * met de kop van het thema (30px/400), en dat gelijk krijgen kostte een
+ * instelling per eigenschap.
+ *
+ * WAT HIER WEL IN STAAT: waar een kaart blijft kleven, hoe hoog ze is, hoeveel
+ * er voor haar gescrold wordt, hoe twee kolommen zich verdelen en wat er op een
+ * telefoon gebeurt.
+ *
+ * DE WISKUNDE, in één blok:
+ *
+ *   --mk-kop      de hoogte van de kop boven de stapel      (door JS gemeten)
+ *   --mk-hoogte   de hoogte van de hoogste kaart            (door JS gemeten)
+ *   --mk-stap     de zichtbare rand van elke kaart eronder
+ *   --mk-gap      de lucht tussen twee kaarten bij het scrollen
+ *   --mk-aantal   hoeveel kaarten er zijn                   (door PHP geteld)
+ *   --mk-index    de plaats van deze kaart in de rij        (door PHP geteld)
+ *
+ *   --mk-kleef    waar de bovenkant van kaart 1 blijft staan
+ *   --mk-slot     hoeveel hoogte één kaart in de pagina inneemt (= scrollduur)
+ *
+ * De twee gemeten waarden hebben een terugval die zonder JavaScript een
+ * werkende stapel geeft. Dat is met opzet: het script maakt het exact, het is
+ * geen voorwaarde.
+ *
+ * INVOER EN GEBRUIK ZIJN GESCHEIDEN, en dat is geen netheid maar noodzaak.
+ * Wat een redacteur instelt, komt als inline `style` op het blok te staan — en
+ * een inline waarde wint van ELKE selector, ook van een media query op datzelfde
+ * element. Zou `--mk-stap` rechtstreeks gebruikt worden, dan kon een telefoon
+ * de ingestelde waarde nooit meer verkleinen. Daarom zet de inline-stijl alleen
+ * `--mk-stap` / `--mk-gap`, en rekent de CSS daaruit per breekpunt
+ * `--mk-stap-nu` / `--mk-gap-nu` uit. Om dezelfde reden is de OPVULLING een
+ * klasse en geen variabele: die verschilt per breekpunt.
+ *
+ * GEEN SCHUIFBALKEN. In dit bestand staat één `overflow`, en die is `hidden` op
+ * een kaart die een beeld tot in haar hoek laat doorlopen — nooit `auto`.
+ *
+ * GEEN `!important`, en geen enkele regel die alleen op een elementnaam mikt.
+ * Een blokthema drukt zijn stijlen inline in de <head> af, dus ná deze
+ * stylesheet, en wint bij gelijk gewicht. Alles wat een `img`, `figure`, `ul`
+ * of `button` van binnen een kaart raakt, draagt daarom twee klassen.
+ */
+
+.mymmo-kaarten {
+  /* Invoer: dit zet de redacteur. */
+  --mk-stap: 16px;
+  --mk-gap: 40px;
+  --mk-hoeken: 28px;
+  --mk-max: 1200px;
+  --mk-aantal: 1;
+  --mk-pagina: #ffffff;
+
+  /* Gebruik: hieruit rekent de rest. Zie de uitleg hierboven. */
+  --mk-stap-nu: var(--mk-stap);
+  --mk-gap-nu: var(--mk-gap);
+  --mk-marge: clamp(16px, 5vw, 72px);
+  --mk-pad: clamp(20px, 3vw, 40px);
+
+  /* De terugval als er geen JavaScript draait. Geen magisch getal dat met de
+     hand gelijk moet blijven aan de hoogste kaart — het script meet en
+     overschrijft dit — maar een waarde waarmee de stapel ook zonder script
+     leesbaar blijft. */
+  --mk-kop: 0px;
+  --mk-hoogte: 560px;
+
+  /* Midden in beeld, maar nooit zo hoog dat de kop eruit valt. */
+  --mk-kleef: max(var(--mk-kop), calc(50vh - var(--mk-hoogte) / 2));
+  --mk-slot: calc(
+    var(--mk-kleef) + (var(--mk-aantal) - 1) * var(--mk-stap-nu) + var(--mk-hoogte) + var(--mk-gap-nu)
+  );
+
+  display: flex;
+  /* Noem de richting zelf: `display:flex` zonder `flex-direction` is een gat
+     waar een blokthema in stapt. */
+  flex-direction: column;
+  gap: 0;
+}
+
+.mymmo-kaarten *,
+.mymmo-kaarten *::before,
+.mymmo-kaarten *::after {
+  box-sizing: border-box;
+}
+
+/* ── De opvulling: een gesloten lijst, als klasse ────────────────────────── */
+
+/*
+ * Drie maten, en de waarden staan ALLEEN hier. De stapel zet de maat voor al
+ * haar kaarten; een kaart mag afwijken en wint dan, want twee klassen.
+ *
+ * Dat de opvulling op de stapel staat is het hele punt: in de vorige opzet had
+ * elke kaart haar eigen inline-opvulling (de ene `right:0`, de andere `sm`
+ * rondom), en dan bestaat er geen "de opvulling van de kaarten" meer om iets
+ * mee gelijk te zetten.
+ */
+.mymmo-kaarten--pad-krap { --mk-pad: clamp(16px, 2vw, 24px); }
+.mymmo-kaarten--pad-normaal { --mk-pad: clamp(20px, 3vw, 40px); }
+.mymmo-kaarten--pad-ruim { --mk-pad: clamp(24px, 4vw, 62px); }
+
+.mymmo-kaarten .mymmo-kaart--pad-krap { --mk-pad: clamp(16px, 2vw, 24px); }
+.mymmo-kaarten .mymmo-kaart--pad-normaal { --mk-pad: clamp(20px, 3vw, 40px); }
+.mymmo-kaarten .mymmo-kaart--pad-ruim { --mk-pad: clamp(24px, 4vw, 62px); }
+
+/* ── De kop boven de stapel ──────────────────────────────────────────────── */
+
+/*
+ * De kop stopt samen met kaart 1 en blijft staan tot het einde. De marge
+ * eronder maakt de scrollruimte waarin ze kleeft; de eerste kaart heft die
+ * marge weer op (zie hieronder), zodat er visueel geen gat valt.
+ *
+ * De achtergrond is die van de PAGINA: de kaarten schuiven eronder door, en
+ * met een doorzichtige kop zie je de tekst van een kaart dwars door de titel.
+ */
+.mymmo-kaarten > .mymmo-kaarten-kop {
+  position: sticky;
+  top: calc(var(--mk-kleef) - var(--mk-kop));
+  z-index: 5;
+  min-height: var(--mk-kop);
+  margin: 0 0 calc(var(--mk-slot) - var(--mk-kleef));
+  padding: 0 var(--mk-marge);
+  background: var(--mk-pagina);
+}
+
+/* De tekst van de kop begint op dezelfde lijn als de kaarten. De KLEUR van de
+   kop loopt wel over de volle breedte -- zie render_kop(). */
+.mymmo-kaarten-kop-binnen {
+  max-width: var(--mk-max);
+  margin: 0 auto;
+}
+
+/*
+ * Zolang er een venster van Mymmo Forms openstaat, mag de kop er niet over
+ * vallen. Dit is de enige regel in deze plugin die een klasse van een andere
+ * plugin noemt — een klassenaam, geen code: de twee plugins blijven los van
+ * elkaar te installeren, en staat Mymmo Forms er niet, dan doet deze regel
+ * gewoon niets.
+ */
+html.mymmo-modal-actief .mymmo-kaarten > .mymmo-kaarten-kop {
+  z-index: 0;
+}
+
+/* ── Het lijf en de uitloop ──────────────────────────────────────────────── */
+
+/*
+ * HET LIJF is de ouder van alle kaarten, en bepaalt daarmee wanneer ze
+ * loslaten: zodra de onderrand ervan het gedeelde kleefpunt raakt. Het eindigt
+ * bij de laatste kaart, dus dat is precies het moment waarop het hoopje af is.
+ *
+ * Een ECHTE doos, nooit `display: contents`: zonder doos is er geen ouder om
+ * het kleven in te begrenzen, en dan laat niets meer los.
+ */
+.mymmo-kaarten-lijf {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+/*
+ * DE UITLOOP zet de hoogte van de laatste kaart in de pagina, en verder niets.
+ *
+ * De kaarten hangen buiten de flow (in ankers van 0px); hun hoogte zit in de
+ * lege vlakken ertussen. Achter de laatste kaart staat zo'n vlak niet -- dat
+ * zou dode scroll geven -- dus zonder deze uitloop begint de sectie onder de
+ * stapel bovenaan die kaart in plaats van eronder.
+ *
+ * Ze staat BUITEN het lijf, en raakt het loslaten dus niet. Dat is het hele
+ * punt van die twee dozen.
+ *
+ * De maat: de hoogte van de hoogste kaart (en dat IS de laatste, want elke
+ * kaart is minstens zo hoog als haar voorgangers) plus de randjes die er
+ * bovenuit steken, plus de lucht tot wat volgt.
+ */
+.mymmo-kaarten-uitloop {
+  height: calc(
+    var(--mk-hoogte)
+    + (var(--mk-aantal) - 1) * var(--mk-stap-nu)
+    + var(--mk-gap-nu)
+  );
+  flex: none;
+  margin: 0;
+  padding: 0;
+  pointer-events: none;
+}
+
+/* ── Het slot: onzichtbaar, bepaalt plaats en scrollafstand ──────────────── */
+
+/*
+ * HET ANKER: het element dat kleeft, en dat is precies zo hoog als de kaart.
+ *
+ * Waarom dat uitmaakt: een kleefelement wordt weggeduwd zodra de onderrand van
+ * zijn OUDER op `top + de eigen hoogte van het element` komt. Droeg dit element
+ * ook de scrollruimte (zoals het oude "slot"), dan telde die ruimte mee en
+ * begon het wegduwen een volle kaarthoogte te vroeg -- en dan lijkt het alsof
+ * de VOORLAATSTE kaart het dek wegduwt in plaats van de laatste.
+ *
+ * De scrollruimte staat daarom als een apart, leeg vlak achter elke kaart
+ * (`.mymmo-kaart-ruimte`). Samen zijn ze even lang als het oude slot, dus het
+ * ritme van de stapel verandert niet.
+ *
+ * Geen directe kindselector: een anker staat in het dek, of rechtstreeks in de
+ * stapel als het de laatste is.
+ */
+.mymmo-kaarten .mymmo-kaart-anker {
+  --mk-index: 0;
+
+  /*
+   * ELK ANKER HEEFT HETZELFDE KLEEFPUNT. Dat is de kern.
+   *
+   * Een kleefelement laat los zodra `onderrand van de ouder - scroll = top`.
+   * Stond de staffeling in `top` (167, 183, 199, ...), dan laat elke kaart op
+   * een ANDER moment los: eerst de bovenste, 16px later de volgende, enzovoort.
+   * Op het scherm ziet dat eruit als "de bovenste kaart schuift weg over een
+   * hoopje dat blijft liggen" -- precies wat er niet mag gebeuren.
+   *
+   * Met een gedeeld kleefpunt laten ze per definitie op hetzelfde moment los en
+   * schuift het hoopje als geheel omhoog, met de randjes zoals ze liggen. De
+   * staffeling zit daarom in de KAART (zie `.mymmo-kaart-anker > .mymmo-kaart`)
+   * en niet in het anker.
+   */
+  --mk-top: var(--mk-kleef);
+
+  /*
+   * HET ANKER HEEFT GEEN HOOGTE, en dat is de hele reden dat het bestaat.
+   *
+   * Het loslaatmoment van een kleefelement hangt af van zijn EIGEN hoogte:
+   * `onderrand van de ouder - scroll = top + eigen hoogte`. Had elk anker de
+   * hoogte van zijn kaart, dan liet elke kaart op een ander moment los -- en
+   * zag je er een meegaan terwijl de rest bleef staan.
+   *
+   * Met hoogte 0 valt die vergelijking terug op `onderrand - scroll = top`, en
+   * die is voor alle kaarten (op de randjes van een paar pixels na) hetzelfde.
+   * Ze laten dus samen los en schuiven als geheel omhoog, zoals ze liggen. En
+   * omdat het dek ophoudt waar de laatste kaart begint, valt dat moment samen
+   * met het aankomen van die kaart.
+   *
+   * De kaart hangt er absoluut in; de scrollafstand zit in het lege vlak
+   * erachter (.mymmo-kaart-ruimte).
+   */
+  height: 0;
+  /*
+   * `--mk-kaart-hoogte` wordt per kaart door het script gezet: het oplopende
+   * maximum tot en met deze kaart. Een korte kaart vooraan blijft dus kort --
+   * ook als er verderop een kaart met een formulier in staat. Zonder script
+   * geldt de terugval van de stapel, en dan is alles even hoog.
+   */
+  --mk-eigen: var(--mk-kaart-hoogte, var(--mk-hoogte));
+
+  position: sticky;
+  top: var(--mk-top);
+  z-index: calc(var(--mk-index) + 1);
+  margin: 0;
+  padding: 0;
+}
+
+/*
+ * DE SCROLLRUIMTE: hoeveel je scrolt voor de volgende kaart aankomt.
+ *
+ * Leeg en onzichtbaar. De hoogte is wat vroeger bovenop de kaart in het slot
+ * zat: de resterende randjes plus de lucht tussen twee kaarten.
+ */
+.mymmo-kaarten .mymmo-kaart-ruimte {
+  /* De kaart staat buiten de flow, dus haar hoogte zit hier: de kaart zelf,
+     plus de randjes die nog onder haar uitkomen, plus de lucht tot de volgende.
+     Samen even lang als vroeger -- het ritme van de stapel verandert niet. */
+  /* Hoeveel je scrolt tussen twee aankomsten. De correctie voor de staffeling
+     is weg: alle ankers delen nu hetzelfde kleefpunt, dus die verschuiving
+     bestaat niet meer. */
+  height: calc(var(--mk-kaart-hoogte, var(--mk-hoogte)) + var(--mk-gap-nu));
+  flex: none;
+  margin: 0;
+  padding: 0;
+  pointer-events: none;
+}
+
+
+/* De eerste kaart heft de marge van de kop op. Enkel MET een kop: zonder zou
+   deze negatieve marge de hele stapel omhoog trekken, de pagina in.
+   Twee selectors, want bij meer dan een kaart staat de eerste in het dek. */
+/*
+ * Bewust een EIGEN KLASSE uit PHP en geen `:first-of-type`. Dat laatste
+ * betekent "het eerste kind van hetzelfde elementtype", en de kop is ook een
+ * `div` -- die was dus altijd de eerste, waardoor deze regel nooit een kaart
+ * raakte en de marge onder de kop nooit opgeheven werd.
+ */
+.mymmo-kaarten--met-kop > .mymmo-kaarten-lijf {
+  margin-top: calc(var(--mk-kleef) - var(--mk-slot));
+}
+
+/* "Gewoon onder elkaar": geen kleefgedrag, geen slot-hoogte. Voor een pagina
+   waar de stapel niet past, en als eerlijke terugval. */
+.mymmo-kaarten--los .mymmo-kaart-anker,
+.mymmo-kaarten--los > .mymmo-kaarten-kop {
+  position: static;
+  min-height: 0;
+  margin-top: 0;
+  margin-bottom: var(--mk-gap-nu);
+}
+
+/* Onder elkaar is er niets te overbruggen; de lucht komt van de marge
+   hierboven. */
+.mymmo-kaarten--los .mymmo-kaart-ruimte,
+.mymmo-kaarten--los .mymmo-kaarten-uitloop {
+  display: none;
+}
+
+/* Onder elkaar staat de kaart gewoon in de flow; het anker krijgt haar hoogte
+   weer terug. */
+.mymmo-kaarten--los .mymmo-kaart-anker {
+  height: auto;
+  padding: 0 var(--mk-marge);
+}
+
+.mymmo-kaarten--los .mymmo-kaart-anker > .mymmo-kaart {
+  position: static;
+  width: 100%;
+}
+
+/* ── De meetstand ────────────────────────────────────────────────────────── */
+
+/*
+ * Even alles op zijn natuurlijke maat, zodat het script kan meten hoe hoog de
+ * kaarten en de kop ECHT zijn. Zonder deze stand meet het zijn eigen vorige
+ * antwoord: de kaarten dragen op dat moment al `min-height: var(--mk-hoogte)`
+ * en de kop `min-height: var(--mk-kop)`, dus de waarde kan alleen maar groeien.
+ *
+ * De klasse staat er maar voor de duur van twee leesbewerkingen; er is geen
+ * frame waarin een bezoeker dit ziet.
+ */
+.mymmo-kaarten--meten > .mymmo-kaarten-kop,
+.mymmo-kaarten--meten .mymmo-kaart-anker {
+  position: static;
+  height: auto;
+  min-height: 0;
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+/* Tijdens het meten staat de kaart even in de flow: een element dat absoluut
+   hangt, heeft geen invloed op wat eromheen staat, maar het meten zelf gaat
+   over haar eigen hoogte en die klopt in beide standen. Static houdt het
+   voorspelbaar. */
+.mymmo-kaarten--meten .mymmo-kaart-anker > .mymmo-kaart {
+  position: static;
+  width: 100%;
+}
+
+.mymmo-kaarten--meten .mymmo-kaart {
+  min-height: 0;
+  transform: none;
+}
+
+/* ── De kaart ────────────────────────────────────────────────────────────── */
+
+/*
+ * De kaart hangt in haar anker: het anker heeft geen hoogte, dus zij staat
+ * buiten de flow. Links en rechts de marge van de stapel, en daarbinnen
+ * gecentreerd tot de maximale breedte.
+ *
+ * Alleen BINNEN een anker -- in de editor staat een kaart er niet in, en daar
+ * hoort ze gewoon in de flow te staan.
+ */
+.mymmo-kaarten .mymmo-kaart-anker > .mymmo-kaart {
+  position: absolute;
+  /*
+   * HIER staat het trapje: elke kaart hangt `index * stap` lager dan haar
+   * anker. Het resultaat op het scherm is hetzelfde als vroeger -- kaart 2 ligt
+   * een randje onder kaart 1 -- maar het kleefpunt van alle ankers blijft
+   * gelijk, en dus laten ze samen los.
+   *
+   * Bewust `top` en geen `transform: translateY()`: een transform maakt van de
+   * kaart het referentiekader voor `position: fixed`, en dan zit het venster
+   * van Mymmo Forms in de kaart gevangen.
+   */
+  top: calc(var(--mk-index) * var(--mk-stap-nu));
+  left: var(--mk-marge);
+  right: var(--mk-marge);
+  width: auto;
+}
+
+.mymmo-kaarten .mymmo-kaart {
+  min-height: var(--mk-kaart-hoogte, var(--mk-hoogte));
+  /*
+   * Zo breed als ingesteld (standaard 1200px), en daaronder gewoon de ruimte
+   * die er is. De STAPEL loopt over de volle breedte -- de kop moet de kaarten
+   * kunnen afdekken terwijl ze eronder doorschuiven -- de KAART niet.
+   */
+  max-width: var(--mk-max);
+  width: 100%;
+  margin-inline: auto;
+  background: var(--mk-bg, #f3f4f6);
+  border-radius: var(--mk-hoeken);
+  padding: var(--mk-pad);
+  /*
+   * GEEN `container-type` EN GEEN `contain` OP EEN KAART. NOOIT.
+   *
+   * Het zou mooi zijn: de kolommen laten omslaan op de breedte van de KAART in
+   * plaats van die van het scherm. Maar layout-containment maakt van de kaart
+   * het referentiekader voor alles wat er met `position: fixed` in staat -- en
+   * dat is precies wat het venster van Mymmo Forms is. Dat venster zou dan niet
+   * meer over de pagina liggen maar in de kaart gevangen zitten, met een
+   * schuifbalk en al. Je ziet dat niet tot iemand op de knop drukt.
+   *
+   * Vandaar een gewone media query onderaan. Dat is in de editor geen probleem:
+   * het canvas staat daar sinds WordPress 6.3 in een iframe, dus een media
+   * query meet daar de breedte van het canvas -- wat een redacteur ziet, klopt
+   * dus met wat er op de pagina komt.
+   *
+   * `position: relative` staat er wel: de sierafbeelding hieronder hangt
+   * hieraan. Dat is geen containment en raakt `position: fixed` niet.
+   */
+  position: relative;
+  /* Het script schaalt de kaart terwijl de volgende eroverheen schuift; het
+     krimpen hoort vanaf de BOVENRAND te gebeuren, want die blijft zichtbaar. */
+  transform-origin: top center;
+  box-shadow: 0 18px 40px -24px rgba(0, 0, 0, 0.25);
+  /*
+   * EEN FLEXKOLOM, en dat is nodig om te kunnen centreren.
+   *
+   * De kaart heeft een `min-height`, geen vaste hoogte. Een `min-height: 100%`
+   * op het raster daarbinnen leverde daardoor niets op -- een percentage tegen
+   * een onbepaalde hoogte is nul -- dus het raster was precies zo hoog als zijn
+   * inhoud en stond de rest van de kaart leeg onderaan. Er viel dan ook niets
+   * te centreren: `align-items` verdeelt ruimte die er niet is.
+   *
+   * Met een flexkolom krijgt het raster de VRIJE hoogte van de kaart
+   * (`flex: 1`), en pas daarna betekent "gecentreerd" iets.
+   */
+  display: flex;
+  flex-direction: column;
+}
+
+/* In de natuurlijke stand is een kaart zo hoog als haar inhoud. De stapel
+   rekent voor de scrollafstand nog steeds met de hoogste kaart — anders scrolt
+   een korte kaart sneller voorbij dan een lange en verspringt het ritme. */
+.mymmo-kaarten--natuurlijk .mymmo-kaart {
+  min-height: 0;
+}
+
+/*
+ * DE SIERAFBEELDING: een vorm die achter de inhoud doorloopt.
+ *
+ * HET IS EEN VLAK MET EEN ACHTERGROND, GEEN <img>. En dat is geen smaakkwestie:
+ * het is de enige vorm die niets van het BESTAND vraagt.
+ *
+ * Twee eerdere pogingen gingen daarop stuk. `height: auto` laat de browser de
+ * hoogte uit het beeld afleiden, en de merk-SVG's op link.openvme.be hebben
+ * alleen een `viewBox` -- geen `width`, geen `height`. Zo'n bestand heeft geen
+ * eigen afmetingen: de browser valt terug op 150px hoog, het tekenen wordt
+ * daarbinnen passend gemaakt, en de breedte opdraaien maakt de doos wel breder
+ * maar de tekening niet groter. `aspect-ratio: auto 1` moest die terugval
+ * regelen, maar ook dat hangt af van wat de browser uit het bestand haalt (en
+ * van of hij die tweewaardige schrijfwijze kent).
+ *
+ * Nu: een procentuele OPVULLING maakt de hoogte. Een percentage in `padding`
+ * rekent ALTIJD tegen de breedte van het omliggende blok -- ook voor
+ * `padding-top`. De doos is dus vierkant in echte pixels, even groot als de
+ * ingestelde breedte, en dat is zo in elke browser en voor elk bestand. De
+ * tekening zelf past erin met `background-size: contain` en houdt daarbij haar
+ * eigen hoogte-breedteverhouding.
+ *
+ * `box-sizing: content-box` staat er expliciet bij: deze plugin zet overal
+ * `border-box`, en dan rekent de opvulling anders.
+ */
+.mymmo-kaarten .mymmo-kaart-sier {
+  display: block;
+  box-sizing: content-box;
+  position: absolute;
+  left: var(--mk-sier-x, 50%);
+  top: var(--mk-sier-y, 50%);
+  z-index: 0;
+  width: var(--mk-sier-breedte, 70%);
+  height: 0;
+  padding-top: var(--mk-sier-breedte, 70%);
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: contain;
+  transform: translate(-50%, -50%) rotate(var(--mk-sier-draai, 0deg));
+  opacity: var(--mk-sier-dekking, 1);
+  pointer-events: none;
+  user-select: none;
+}
+
+/* De inhoud ligt erboven. Zonder eigen stapelcontext zou de sier over de tekst
+   heen kunnen komen zodra er ergens anders een z-index opduikt. */
+.mymmo-kaarten .mymmo-kaart-raster {
+  position: relative;
+  z-index: 1;
+}
+
+/* Alleen bijsnijden als er echt iets tot de rand loopt; zie render_kaart(). */
+.mymmo-kaarten .mymmo-kaart--bijgesneden {
+  overflow: hidden;
+}
+
+.mymmo-kaart-raster {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--mk-kolomgap, clamp(16px, 3vw, 40px));
+  /*
+   * DE RIJ VULT DE HOOGTE, DE ITEMS KIEZEN HUN PLEK DAARIN.
+   *
+   * Vandaar `align-content: stretch` (de rij rekt op) en `align-items` voor
+   * waar de inhoud binnen die hoogte staat. Dat is ook precies wat een KOLOM
+   * nodig heeft om zelf te kunnen afwijken met `align-self`: bij een rij die
+   * zo hoog is als haar inhoud valt er per kolom niets meer uit te lijnen.
+   *
+   * Gestapeld ligt het anders -- daar gaat het over waar het BLOK hangt, en
+   * dan is `align-content` het juiste gereedschap. Zie de mobiele query.
+   */
+  align-items: center;
+  align-content: stretch;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/*
+ * DE UITLIJNING STAAT TWEE KEER, EN DAT IS HET PUNT.
+ *
+ * Naast elkaar en onder elkaar zijn twee verschillende vragen. Bij twee
+ * kolommen gaat het over waar de tekst staat ten opzichte van het beeld
+ * ernaast; gestapeld gaat het over waar het blok inhoud in de kaart hangt.
+ * Hetzelfde antwoord voor allebei klopt zelden.
+ *
+ * Deze regels staan daarom IN de media queries onderaan. Stond de
+ * desktopuitlijning erbuiten -- zoals tot 1.2.0 -- dan won ze met haar twee
+ * klassen ook op een telefoon van de mobiele regel met er een, en deed die
+ * laatste niets.
+ */
+
+/*
+ * DE BINNENMARGE VAN EEN KOLOM.
+ *
+ * Bovenop de opvulling van de kaart. Waarvoor: tekst die naast een beeld staat
+ * dat tot de rand loopt, heeft aan de kant van dat beeld meer lucht nodig dan
+ * aan de buitenkant -- en dat is een keuze per kolom, geen maat die de plugin
+ * kan raden.
+ *
+ * Invoer en gebruik gescheiden, zoals overal hier: het blok zet
+ * `--mk-kolom-pad` (en eventueel `--mk-kolom-pad-m`) als inline stijl, en de
+ * CSS kiest per breekpunt welke van de twee geldt. Zou de mobiele maat
+ * rechtstreeks inline staan, dan kon geen enkele media query er nog aan
+ * beginnen -- een inline waarde wint van elke selector.
+ */
+.mymmo-kaart-kolom {
+  min-width: 0;
+  padding: var(--mk-kolom-pad, 0);
+}
+
+/*
+ * Een VOLLE kolom: de inhoud raakt de rand van de kaart. De negatieve marges
+ * heffen de opvulling van de kaart op, maar enkel aan de kanten die de kolom
+ * ook echt raakt — vandaar :first-child / :last-child. Boven en onder raakt ze
+ * altijd, want in een kaart met twee kolommen loopt elke kolom van boven naar
+ * beneden.
+ */
+.mymmo-kaart-kolom--vol {
+  margin-top: calc(-1 * var(--mk-pad));
+  margin-bottom: calc(-1 * var(--mk-pad));
+  /* Van boven tot onder, ook als de andere kolom korter is: het raster
+     centreert zijn kolommen, en een beeld dat tot de rand loopt hoort dat aan
+     alle vier de kanten te doen. */
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Het beeld vult die kolom. `object-fit: cover` doet pas iets als er een hoogte
+   is -- vandaar de ketting hieronder; zonder dat blijft het beeld op zijn eigen
+   verhouding staan met wit erboven en eronder. */
+.mymmo-kaarten .mymmo-kaart-kolom--vol > *,
+.mymmo-kaarten .mymmo-kaart-kolom--vol figure {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.mymmo-kaart-kolom--vol:first-child {
+  margin-left: calc(-1 * var(--mk-pad));
+}
+
+.mymmo-kaart-kolom--vol:last-child {
+  margin-right: calc(-1 * var(--mk-pad));
+}
+
+/* Eén kolom die vol is, raakt beide zijkanten. */
+.mymmo-kaart--k1 .mymmo-kaart-kolom--vol {
+  margin-left: calc(-1 * var(--mk-pad));
+  margin-right: calc(-1 * var(--mk-pad));
+}
+
+/*
+ * Beeld en video. Twee klassen, want een blokthema zet hier van alles op.
+ *
+ * `:not(.mymmo-kaart-sier)` is geen franje: deze selector is (0,2,1) en die van
+ * de sierafbeelding (0,2,0), dus zonder die uitzondering wint de `max-width:
+ * 100%` hier van de `max-width: none` daar -- en dan kan een vorm nooit groter
+ * zijn dan de kaart, hoe hoog je de breedte ook zet. Precies wat een
+ * sierafbeelding WEL moet kunnen. Een regel op een elementnaam raakt altijd
+ * meer dan je bedoelt; benoem de uitzondering liever dan hem te verstoppen in
+ * een specificiteitstruc.
+ */
+.mymmo-kaarten .mymmo-kaart img:not(.mymmo-kaart-sier),
+.mymmo-kaarten .mymmo-kaart video,
+.mymmo-kaarten .mymmo-kaart iframe {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+.mymmo-kaarten .mymmo-kaart video,
+.mymmo-kaarten .mymmo-kaart iframe {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border: 0;
+  border-radius: var(--mk-beeldhoeken, 14px);
+}
+
+.mymmo-kaarten .mymmo-kaart figure {
+  margin: 0;
+}
+
+/* Een beeld in een volle kolom loopt door tot in de hoek van de kaart, dus
+   zonder eigen hoeken — de kaart snijdt het bij. */
+.mymmo-kaarten .mymmo-kaart-kolom--vol img,
+.mymmo-kaarten .mymmo-kaart-kolom--vol video,
+.mymmo-kaarten .mymmo-kaart-kolom--vol iframe {
+  border-radius: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* ── Twee kolommen ───────────────────────────────────────────────────────── */
+
+/*
+ * DE DREMPEL IS 640px.
+ *
+ * Twee kolommen zodra er plaats voor is. Bewust niet de 782px van WordPress:
+ * daar begint bij hen een "telefoon", maar een venster van 700px is dat niet --
+ * bij 640px en de normale opvulling houd je ongeveer 240 en 360 pixels over
+ * voor de twee kolommen, en dat werkt.
+ *
+ * Een MEDIA query en geen container query, hoe verleidelijk dat laatste ook is:
+ * een container vraagt `container-type`, dat is layout-containment, en dan
+ * wordt de kaart het referentiekader voor `position: fixed` -- waarmee het
+ * venster van Mymmo Forms in de kaart gevangen zou zitten. Zie de uitleg bij
+ * `.mymmo-kaarten .mymmo-kaart` hierboven.
+ *
+ * In de EDITOR klopt dit ook: het canvas staat daar sinds WordPress 6.3 in een
+ * iframe, dus een media query meet de breedte van dat canvas en niet die van
+ * het scherm. Wat een redacteur ziet, is dus wat er op de pagina komt.
+ */
+@media (min-width: 640px) {
+  /* De uitlijning van de KAART: waar de inhoud hangt als de kaart hoger is dan
+     wat erin staat. `midden` is de standaard en staat in de basisregel. */
+  .mymmo-kaart--boven .mymmo-kaart-raster {
+    align-items: start;
+  }
+
+  .mymmo-kaart--onder .mymmo-kaart-raster {
+    align-items: end;
+  }
+
+  /*
+   * En per KOLOM, want twee kolommen naast elkaar hebben zelden dezelfde wens:
+   * de tekst gecentreerd naast een beeld dat van boven tot onder loopt, of een
+   * knop die onderaan blijft staan terwijl de tekst bovenaan begint.
+   * `align-self` wint van de `align-items` van het raster.
+   *
+   * Alleen hier, niet in de mobiele query: gestapeld is elke rij zo hoog als
+   * haar inhoud, dus daar valt niets uit te lijnen. Wat daar telt is waar het
+   * hele blok hangt, en dat is de uitlijning van de kaart.
+   */
+  .mymmo-kaart-kolom--boven { align-self: start; }
+  .mymmo-kaart-kolom--midden { align-self: center; }
+  .mymmo-kaart-kolom--onder { align-self: end; }
+
+  .mymmo-kaart--k2 .mymmo-kaart-raster {
+    grid-template-columns: var(--mk-verhouding, minmax(0, 2fr) minmax(0, 3fr));
+  }
+
+  .mymmo-kaart--k3 .mymmo-kaart-raster {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/*
+ * Onder de omslag staan de kolommen onder elkaar. Ook dit hangt aan de KAART:
+ * de volgorde en de uitlijning horen te wisselen op hetzelfde moment als de
+ * kolommen, niet op een ander.
+ */
+@media (max-width: 639.98px) {
+  /*
+   * De volgorde is een KEUZE, geen gevolg van waar iets in de editor stond.
+   * Bij een kaart met tekst links en een beeld rechts wil je meestal de tekst
+   * eerst — maar niet altijd, en dat hoort niet van CSS op de pagina af te
+   * hangen.
+   */
+  .mymmo-kaart--rechts-eerst .mymmo-kaart-kolom:last-child {
+    order: -1;
+  }
+
+  /* Gestapeld is bovenaan de standaard: anders varieert de bovenmarge per
+     kaart met hoeveel tekst erin staat, en dat leest als slordig. De twee
+     andere standen zijn een keuze per kaart. */
+  .mymmo-kaart-raster {
+    align-items: start;
+    align-content: start;
+  }
+
+  .mymmo-kaart--mob-midden .mymmo-kaart-raster {
+    align-items: center;
+    align-content: center;
+  }
+
+  .mymmo-kaart--mob-onder .mymmo-kaart-raster {
+    align-items: end;
+    align-content: end;
+  }
+
+  /* Een eigen binnenmarge op een smal scherm; leeg = dezelfde als hierboven. */
+  .mymmo-kaarten .mymmo-kaart-kolom {
+    padding: var(--mk-kolom-pad-m, var(--mk-kolom-pad, 0));
+  }
+
+  /*
+   * DE VORM, met eigen maat en plaats op een smal scherm.
+   *
+   * Nodig omdat de kaart daar een heel andere vorm heeft: wat op 1200px een
+   * hoek vult, ligt op 375px over de halve tekst. De klasse staat er alleen als
+   * er ook echt eigen waarden ingesteld zijn -- anders geldt gewoon wat er voor
+   * breed stond.
+   */
+  .mymmo-kaart--sier-m .mymmo-kaart-sier {
+    width: var(--mk-sier-breedte-m, var(--mk-sier-breedte, 70%));
+    padding-top: var(--mk-sier-breedte-m, var(--mk-sier-breedte, 70%));
+    left: var(--mk-sier-x-m, var(--mk-sier-x, 50%));
+    top: var(--mk-sier-y-m, var(--mk-sier-y, 50%));
+    transform: translate(-50%, -50%) rotate(var(--mk-sier-draai-m, var(--mk-sier-draai, 0deg)));
+    opacity: var(--mk-sier-dekking-m, var(--mk-sier-dekking, 1));
+  }
+}
+
+/* ── Telefoon ────────────────────────────────────────────────────────────── */
+
+@media (max-width: 781px) {
+  .mymmo-kaarten {
+    /* Afgeleid van wat er ingesteld staat, niet vast: zet iemand de stap op
+       32px omdat zijn kaarten veel randen tonen, dan hoort die verhouding op
+       een telefoon te blijven kloppen. */
+    --mk-stap-nu: calc(var(--mk-stap) * 0.6);
+    --mk-gap-nu: calc(var(--mk-gap) * 0.5);
+    --mk-marge: 16px;
+    /* De kop kleeft hier niet meer, dus de kaarten beginnen bovenaan het
+       scherm te kleven in plaats van onder de kop. */
+    --mk-kleef: 16px;
+  }
+
+  .mymmo-kaarten--pad-krap { --mk-pad: 16px; }
+  .mymmo-kaarten--pad-normaal { --mk-pad: 20px; }
+  .mymmo-kaarten--pad-ruim { --mk-pad: 24px; }
+
+  .mymmo-kaarten .mymmo-kaart--pad-krap { --mk-pad: 16px; }
+  .mymmo-kaarten .mymmo-kaart--pad-normaal { --mk-pad: 20px; }
+  .mymmo-kaarten .mymmo-kaart--pad-ruim { --mk-pad: 24px; }
+
+  /* Alles onder elkaar; de kop scrolt gewoon mee. Een kleverige kop van twee
+     regels plus een kaart van 80% schermhoogte laat niets over om naar te
+     kijken. */
+  .mymmo-kaarten > .mymmo-kaarten-kop {
+    position: static;
+    min-height: 0;
+    margin-bottom: 0;
+  }
+
+  .mymmo-kaarten--met-kop > .mymmo-kaarten-lijf {
+    margin-top: 0;
+  }
+
+  .mymmo-kaarten--los-mobiel .mymmo-kaart-anker {
+    position: static;
+    min-height: 0;
+    margin-bottom: var(--mk-gap-nu);
+  }
+
+  .mymmo-kaarten--los-mobiel .mymmo-kaart-ruimte,
+  .mymmo-kaarten--los-mobiel .mymmo-kaarten-uitloop {
+    display: none;
+  }
+
+  .mymmo-kaarten--los-mobiel .mymmo-kaart-anker {
+    height: auto;
+    padding: 0 var(--mk-marge);
+  }
+
+  .mymmo-kaarten--los-mobiel .mymmo-kaart-anker > .mymmo-kaart {
+    position: static;
+    width: 100%;
+  }
+}
+
+/* ── Beweging ────────────────────────────────────────────────────────────── */
+
+/*
+ * De schaal zelf wordt per frame door het script gezet (transform op de kaart).
+ * Hier staat enkel wat er gebeurt als iemand beweging afwijst: dan blijft de
+ * kaart op ware grootte staan. Het script kijkt naar dezelfde voorkeur; deze
+ * regel is het vangnet voor een kaart die al geschaald was toen de voorkeur
+ * wijzigde.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .mymmo-kaarten .mymmo-kaart {
+    transform: none;
+  }
+}

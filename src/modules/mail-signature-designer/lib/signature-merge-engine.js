@@ -119,13 +119,17 @@ export function mergeSignatureLayers(
   const showPhoto     = resolveToggle('showPhoto',      u.show_photo,      true);
   const showGreeting  = resolveToggle('showGreeting',   u.show_greeting,  true);
   const showCompany   = resolveToggle('showCompany',    u.show_company,   true);
-  // Per-event opt-out: hidden only when the user explicitly hid this specific event ID.
-  // When marketing activates a new event (different ID), the stored hidden_event_id
-  // no longer matches and the event block is shown again automatically.
-  // NOTE: hidden_event_id is a TEXT column but m.eventId is a number from JSONB — normalise
-  // both to strings before comparing to avoid a type mismatch with strict equality.
-  const showEventPromo = !(u.hidden_event_id && m.eventId &&
-    String(u.hidden_event_id) === String(m.eventId));
+  /* BLIJVENDE voorkeur van de gebruiker, geen per-event opt-out.
+
+     Tot 2026-09-21 werd hier op `hidden_event_id` gekeken: je verborg EEN
+     event, en zodra marketing een ander klaarzette kwam het blok vanzelf
+     terug. Dat is een wijziging aan de handtekening van iemand anders.
+     Marketing bepaalt WELK event klaarstaat; de eigenaar bepaalt OF er
+     events in zijn handtekening staan.
+
+     Standaard aan (`!== false`), zodat een rij zonder waarde events toont.
+     Zie de migratie 20260921140000. */
+  const showEventPromo = u.show_event_promo !== false;
 
   const fullName = resolve('fullName', [
     { layer: 'user',      value: u.full_name_override },

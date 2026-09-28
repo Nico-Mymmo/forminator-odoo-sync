@@ -173,6 +173,7 @@ async function verzamelEventTypes(env, query, opgehaald, viaLid = null) {
         kind: r.kind || '',
         pooling_type: r.pooling_type || null,
         scheduling_url: r.scheduling_url || '',
+        description: String(r.description_plain || '').trim(),
         color: r.color || '',
         locale: r.locale || '',
         secret: r.secret === true,

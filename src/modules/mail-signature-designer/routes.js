@@ -55,6 +55,20 @@ import { mergeSignatureLayers, mergeForPreview } from './lib/signature-merge-eng
 import { listUsers, getUserByEmail } from './lib/directory-client.js';
 import { getPrimarySendAs, updateSignature, listSendAs, pushSignatureToAlias } from './lib/gmail-signature-client.js';
 import { pushSignatureToOdoo } from './lib/odoo-signature.js';
+import { stuurTestBericht } from './lib/event-rotation.js';
+
+/**
+ * De sleutels in de marketingconfig die AFGELEID zijn uit Eventbeheer.
+ *
+ * Ze worden uitsluitend door de event-rotatie geschreven. Elke route die de
+ * config van een client aanneemt, moet ze uit de BESTAANDE config overnemen --
+ * het scherm stuurt ze niet meer mee, dus zonder dat zou het opslaan van een
+ * bannerkleur het event uit ieders handtekening wissen.
+ */
+const MARKETING_EVENT_SLEUTELS = [
+  'eventPromoEnabled', 'eventId', 'eventTitle', 'eventDate',
+  'eventImageUrl', 'eventImageMaxHeight', 'eventEyebrow', 'eventRegUrl'
+];
 import { mailSignatureDesignerUI } from './ui.js';
 import { searchRead } from '../../lib/odoo.js';
 
@@ -399,7 +413,7 @@ async function fetchPushDataSources(env) {
  * Fire-and-forget: push all directory users' signatures in the background.
  * Called via ctx.waitUntil() when marketing activates a new event.
  */
-async function triggerPushAllBackground({ env, actorEmail }) {
+export async function triggerPushAllBackground({ env, actorEmail }) {
   try {
     const [{ marketingConfig, directoryUsers, directoryMap, odooMap, userSettingsMap, aliasAssignmentsMap, variantMap }, excluded] =
       await Promise.all([fetchPushDataSources(env), getExcludedEmails(env)]);
@@ -472,41 +486,56 @@ export const routes = {
         return jsonError('Request body must contain a config object', 400);
       }
 
-      // Detect event change before overwriting
-      const existing    = await getMarketingSettings(context.env);
-      const oldEventId  = existing?.config?.eventId  || null;
-      const oldActive   = !!(existing?.config?.eventPromoEnabled && oldEventId);
-      const newEventId  = body.config.eventId || null;
-      const newActive   = !!(body.config.eventPromoEnabled && newEventId);
-      // Reset all users' hidden_event_id when event changes (new ID) or is cleared/disabled
-      const eventReset = (oldActive && !newActive) ||
-        (newActive && String(oldEventId) !== String(newEventId));
-      // Only auto-push when a genuinely new event is activated
-      const eventChanged = newActive && String(oldEventId) !== String(newEventId);
+      const existing = await getMarketingSettings(context.env);
+
+      /*
+       * De EVENT-sleutels komen niet meer uit dit scherm -- ze worden afgeleid
+       * uit Eventbeheer en door de rotatie geschreven. De marketeer beheert
+       * hier enkel nog branding en disclaimer.
+       *
+       * Ze hier hard overnemen uit de bestaande config is geen nettigheid maar
+       * noodzaak: het formulier stuurt die velden niet meer mee, dus zonder
+       * deze regel zou het opslaan van een bannerkleur het event wissen uit
+       * ieders handtekening. Stil, en pas zichtbaar in de volgende mail die
+       * iemand verstuurt.
+       */
+      const config = { ...body.config };
+      for (const sleutel of MARKETING_EVENT_SLEUTELS) {
+        config[sleutel] = existing?.config?.[sleutel] ?? null;
+      }
 
       const result = await upsertMarketingSettings(
         context.env,
-        body.config,
+        config,
         context.user?.id ?? null
       );
 
-      // Clear all users' event opt-outs when the event changes or is removed
-      if (eventReset) {
-        try { await clearAllHiddenEventIds(context.env); } catch (e) {
-          console.warn(`${LOG_PREFIX} clearAllHiddenEventIds warning:`, e.message);
-        }
-      }
-
-      // When a new event is activated, push to all users in the background
-      if (eventChanged && context.ctx?.waitUntil) {
-        context.ctx.waitUntil(
-          triggerPushAllBackground({ env: context.env, actorEmail: context.user?.email || 'marketing-auto' })
-        );
-      }
-
-      return jsonOk({ ...result, eventPushTriggered: eventChanged });
+      return jsonOk(result);
     } catch (err) {
       console.error(`${LOG_PREFIX} PUT /api/marketing-config failed:`, err);
+      return jsonError(err.message);
+    }
+  },
+
+  /**
+   * POST /mail-signatures/api/event-rotation/test
+   * Stuurt een testbericht over het huidige handtekening-event naar het
+   * waarschuwingskanaal. WIJZIGT NIETS -- geen config, geen push: een
+   * testknop die onderweg iets verzet is geen testknop.
+   */
+  'POST /api/event-rotation/test': async (context) => {
+    const deny = guardAuth(context) || guardMarketingRole(context);
+    if (deny) return deny;
+    try {
+      const result = await stuurTestBericht(context.env, {
+        actorEmail: context.user?.email || null
+      });
+      return jsonOk(result);
+    } catch (err) {
+      console.error(`${LOG_PREFIX} POST /api/event-rotation/test failed:`, err.message);
+      // De melding van stuurTestBericht is voor een mens geschreven (welk
+      // secret ontbreekt, welk kanaal niet gevonden werd) -- die hoort dus
+      // door te komen in plaats van vervangen te worden door "er ging iets mis".
       return jsonError(err.message);
     }
   },
@@ -1224,26 +1253,22 @@ export const routes = {
         return jsonError('Request body must contain a config object', 400);
       }
 
-      // Detect event change to reset all users' hidden_event_id
-      const existing  = await getMarketingSettings(context.env);
-      const oldEventId = existing?.config?.eventId || null;
-      const oldActive  = !!(existing?.config?.eventPromoEnabled && oldEventId);
-      const newEventId = body.config.eventId || null;
-      const newActive  = !!(body.config.eventPromoEnabled && newEventId);
-      const eventReset = (oldActive && !newActive) ||
-        (newActive && String(oldEventId) !== String(newEventId));
+      // Zelfde bescherming als op /api/marketing-config: de event-sleutels
+      // worden afgeleid uit Eventbeheer en horen niet uit een request te
+      // komen. Deze route is deprecated maar wel bereikbaar -- en een oude
+      // client die hier nog op post, zou anders het event uit ieders
+      // handtekening wissen.
+      const existing = await getMarketingSettings(context.env);
+      const config = { ...body.config };
+      for (const sleutel of MARKETING_EVENT_SLEUTELS) {
+        config[sleutel] = existing?.config?.[sleutel] ?? null;
+      }
 
       const result = await upsertMarketingSettings(
         context.env,
-        body.config,
+        config,
         context.user?.id ?? null
       );
-
-      if (eventReset) {
-        try { await clearAllHiddenEventIds(context.env); } catch (e) {
-          console.warn(`${LOG_PREFIX} clearAllHiddenEventIds (legacy) warning:`, e.message);
-        }
-      }
 
       return jsonOk(result);
     } catch (err) {

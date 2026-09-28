@@ -30,9 +30,11 @@
 
 import { searchRead, create } from '../../lib/odoo.js';
 import { renderPlainMailHtml, renderPlainSubject, nietPlatteOpmaak } from '../../lib/mail/render-plain.js';
-import { renderMailHtml, renderSubject } from '../../lib/mail/render-blocks.js';
+import { renderMailHtml, renderSubject, fillPlaceholders } from '../../lib/mail/render-blocks.js';
 import { resolveMailAttachments } from './mail-attachments.js';
 import { resolveMailSignatureHtml } from './mail-signature.js';
+import { collectAfspraakRefs, SENDER as AFSPRAAK_SENDER } from '../booking-links/lib/placeholders.js';
+import { findLinkForOwner, bookingUrl, generalBookingUrl, STANDAARD } from '../booking-links/lib/links.js';
 
 /** Puur een identifier, geen adres. Zelfde domein als events gebruikt. */
 const MESSAGE_ID_DOMAIN = 'om.mymmo.com';
@@ -254,34 +256,120 @@ export async function isBlacklisted(env, email) {
  * adres uit de stapconfiguratie. Nooit leeg: een mail zonder afzender is een
  * mail waarvan niemand weet wie hem stuurde.
  *
- * @returns {Promise<{ name: string, email: string, jobTitle: string }>}
+ * `userId` (res.users) is er zodra de afzender een Odoo-gebruiker is; zijn
+ * afspraaklink komt daaruit. Bij een vast adres is hij null.
+ *
+ * @returns {Promise<{ name: string, email: string, jobTitle: string, firstName: string, userId: number|null }>}
  */
-export async function resolveSender(env, { target, model, recordId }) {
+export async function resolveSender(env, { target, model, recordId, signatureUserId = null }) {
   const vast = {
     name: String(target.mail_from_name || '').trim(),
     email: String(target.mail_from_email || '').trim(),
-    jobTitle: ''
+    jobTitle: '',
+    firstName: '',
+    userId: null
   };
 
   if (String(target.mail_from_source || 'record_user') !== 'record_user') return vast;
-  if (!model || !recordId) return vast;
 
-  const record = await readRecordFields(env, { model, recordId, fields: ['user_id'] });
-  const userId = m2oId(record && record.user_id);
+  // DE HANDTEKENING WINT VAN DE EIGENAAR. Een mail van Thomas met de
+  // handtekening van Jiri is altijd fout, en de handtekening is een bewuste
+  // keuze op de stap. Bovendien hangt de mail vaak aan het CONTACT
+  // (res.partner), en dat heeft zelden een eigenaar: de coach staat op de
+  // LEAD van een vorige stap -- precies de stap die de handtekening al noemt.
+  let userId = signatureUserId || null;
+  if (!userId) {
+    if (!model || !recordId) return vast;
+    const record = await readRecordFields(env, { model, recordId, fields: ['user_id'] });
+    userId = m2oId(record && record.user_id);
+  }
   if (!userId) return vast;
 
   const user = await readRecordFields(env, {
     model: 'res.users',
     recordId: userId,
-    fields: ['name', 'email', 'job_title']
+    fields: ['name', 'email', 'job_title', 'partner_id']
   });
   if (!user || !lijktOpEmail(user.email)) return vast;
 
   return {
     name: String(user.name || vast.name || '').trim(),
     email: String(user.email).trim(),
-    jobTitle: String(user.job_title || '').trim()
+    jobTitle: String(user.job_title || '').trim(),
+    firstName: await leesVoornaam(env, m2oId(user.partner_id)),
+    userId
   };
+}
+
+/**
+ * `x_studio_first_name` van een res.partner, of '' als het er niet is.
+ *
+ * Gooit NOOIT: een ontbrekend Studio-veld of een partner zonder voornaam is
+ * geen reden om een mail niet te versturen. De aanroeper valt dan terug op
+ * het eerste woord van de naam.
+ *
+ * @returns {Promise<string>}
+ */
+export async function leesVoornaam(env, partnerId) {
+  if (!partnerId) return '';
+  try {
+    const rec = await readRecordFields(env, { model: 'res.partner', recordId: partnerId, fields: ['x_studio_first_name'] });
+    return rec && typeof rec.x_studio_first_name === 'string' ? rec.x_studio_first_name.trim() : '';
+  } catch (_) {
+    return '';
+  }
+}
+
+/**
+ * De naam die de ontvanger in zijn inbox ziet staan, voor het adres.
+ *
+ * `mail_from_display_name` is een sjabloon met dezelfde placeholders als de
+ * mail (`{{sender.first_name}} van Syndicoach`). Leeg, of leeg na het
+ * invullen, = de naam van de afzender zelf -- nooit een afzender zonder naam
+ * omdat een placeholder toevallig niets opleverde. Een aanhalingsteken gaat
+ * eruit: het adres wordt `"naam" <adres>`, en een `"` in de naam breekt dat.
+ *
+ * @returns {string}
+ */
+export function renderAfzenderNaam(sjabloon, context, afzender) {
+  const ingevuld = fillPlaceholders(String(sjabloon || ''), context).replace(/\s+/g, ' ').trim();
+  const naam = ingevuld !== '' && ingevuld.replace(/[^\p{L}\p{N}]/gu, '') !== ''
+    ? ingevuld
+    : String((afzender && afzender.name) || '').trim();
+  return naam.replace(/"/g, '');
+}
+
+/**
+ * De naam voor `{{contact.name}}`.
+ *
+ * Eerst het RECORD waar de mail aan hangt: dat is de naam zoals ze in Odoo
+ * staat, na alle mappings. Het formulier heeft zelden een veld dat letterlijk
+ * `name` heet (een OM-formulier heeft `naam`, `voornaam`, ...), en dan bleef
+ * de aanhef stil leeg: "Hoi ,". Het formulierveld blijft de terugval voor een
+ * mail die aan geen record hangt.
+ *
+ * @returns {Promise<string>}
+ */
+export async function resolveContactNaam(env, { model, recordId, form, lookupForm }) {
+  if (model && recordId) {
+    const velden = model === 'crm.lead' ? ['contact_name', 'partner_name', 'name'] : ['name'];
+    try {
+      const rec = await readRecordFields(env, { model, recordId, fields: velden });
+      for (const veld of velden) {
+        const waarde = rec && typeof rec[veld] === 'string' ? rec[veld].trim() : '';
+        if (waarde !== '') {
+          // Hangt de mail aan een contact, dan staat de echte voornaam op
+          // x_studio_first_name; "het eerste woord" gaat mis bij "Van Damme".
+          const firstName = model === 'res.partner' ? await leesVoornaam(env, recordId) : '';
+          return { name: waarde, firstName };
+        }
+      }
+    } catch (_) {
+      // Een model zonder `name` (of zonder leesrecht) is geen reden om de mail
+      // niet te versturen; dan valt het terug op het formulier.
+    }
+  }
+  return { name: String((lookupForm && lookupForm(form, 'name')) || '').trim(), firstName: '' };
 }
 
 // ─── Placeholders ────────────────────────────────────────────────────────────
@@ -299,7 +387,10 @@ export async function resolveSender(env, { target, model, recordId }) {
  */
 export function buildKoppelingContext({ form = {}, ontvanger = {}, afzender = {}, now = new Date(), contextObject = {} }) {
   const naam = String(ontvanger.name || '').trim();
-  const voornaam = naam === '' ? '' : naam.split(/\s+/)[0];
+  const voornaam = String(ontvanger.firstName || '').trim() || (naam === '' ? '' : naam.split(/\s+/)[0]);
+  const afzenderNaam = String(afzender.name || '').trim();
+  const afzenderVoornaam = String(afzender.firstName || '').trim()
+    || (afzenderNaam === '' ? '' : afzenderNaam.split(/\s+/)[0]);
 
   // Uitvoer van VOORGAANDE stappen (bv. de unieke identifier die een eerdere
   // koppelingsstap genereerde, of het record-ID) beschikbaar maken als
@@ -318,6 +409,17 @@ export function buildKoppelingContext({ form = {}, ontvanger = {}, afzender = {}
     step[stapId][veld] = value == null ? '' : String(value);
   }
 
+  // Afspraaklinks: `afspraak.<stap>.<soort>` → {{afspraak.<stap>.<soort>}}.
+  // Ingevuld door enrichAfspraakContext() in worker-handler.js, vlak voor
+  // deze stap (booking-links/lib/placeholders.js).
+  const afspraak = {};
+  for (const [key, value] of Object.entries(contextObject || {})) {
+    const m = key.match(/^afspraak\.([^.]+)\.([^.]+)$/);
+    if (!m) continue;
+    if (!afspraak[m[1]]) afspraak[m[1]] = {};
+    afspraak[m[1]][m[2]] = value == null ? '' : String(value);
+  }
+
   return {
     form: { ...form },
     contact: {
@@ -326,13 +428,41 @@ export function buildKoppelingContext({ form = {}, ontvanger = {}, afzender = {}
       email: String(ontvanger.email || '').trim()
     },
     sender: {
-      name: String(afzender.name || '').trim(),
+      name: afzenderNaam,
+      first_name: afzenderVoornaam,
       email: String(afzender.email || '').trim(),
       job_title: String(afzender.jobTitle || '').trim()
     },
     now: { year: String(now.getFullYear()) },
-    step
+    step,
+    afspraak
   };
+}
+
+/**
+ * De afspraaklinks van de AFZENDER die in de tekst staan, als
+ * `{ 'afspraak.sender.<soort>': url }`.
+ *
+ * Zelfde terugval als bij de andere afspraaklinks (findLinkForOwner): de
+ * gevraagde soort, anders de standaardlink van die persoon, anders zijn enige
+ * link, anders de algemene agenda. Nooit fataal en nooit een lege href.
+ */
+export async function resolveSenderAfspraak(env, { tekst, userId }) {
+  const refs = collectAfspraakRefs(tekst).filter((r) => r.stap === AFSPRAAK_SENDER);
+  const uit = {};
+  for (const { soort } of refs) {
+    let url = null;
+    if (userId) {
+      try {
+        const link = await findLinkForOwner(env, userId, soort === STANDAARD ? null : soort);
+        if (link) url = bookingUrl(env, link);
+      } catch (_) {
+        // Supabase onbereikbaar: dan de algemene agenda, geen mislukte mail.
+      }
+    }
+    uit[`afspraak.${AFSPRAAK_SENDER}.${soort}`] = url || generalBookingUrl(env) || '';
+  }
+  return uit;
 }
 
 // ─── De stap ─────────────────────────────────────────────────────────────────
@@ -417,18 +547,33 @@ export async function runSendMailStep(env, {
              detail: `mail.mail ${bestaand[0].id} bestaat al (state: ${bestaand[0].state}).` };
   }
 
-  // ── 5. Afzender en inhoud ──────────────────────────────────────────────────
-  const afzender = await resolveSender(env, { target, model, recordId });
+  // ── 5. Handtekening, afzender en inhoud ────────────────────────────────────
+  //
+  // De handtekening wordt VOOR de afzender opgezocht: haar medewerker is ook
+  // de afzender (zie resolveSender). Toegevoegd aan de body pas na de
+  // lege-body-check hieronder.
+  let signature = { html: null, userId: null, reden: null };
+  if (target.mail_signature_source) {
+    signature = await resolveMailSignatureHtml(env, target, contextObject);
+  }
+  const afzender = await resolveSender(env, { target, model, recordId, signatureUserId: signature.userId });
   if (!lijktOpEmail(afzender.email)) {
     throw new MailStepError('send_mail: geen afzenderadres. Zet mail_from_email als terugval.');
   }
 
+  // {{afspraak.sender.<soort>}}: de agenda van de afzender. Op een KOPIE van
+  // contextObject -- een volgende mailstap kan een andere afzender hebben.
+  const afzenderAfspraak = await resolveSenderAfspraak(env, {
+    tekst: `${target.mail_subject_template || ''}\n${target.mail_body_html || ''}`,
+    userId: afzender.userId
+  });
+
   const context = buildKoppelingContext({
     form,
-    ontvanger: { email: adres, name: String(lookupForm(form, 'name') || '').trim() },
+    ontvanger: { email: adres, ...(await resolveContactNaam(env, { model, recordId, form, lookupForm })) },
     afzender,
     now,
-    contextObject
+    contextObject: { ...contextObject, ...afzenderAfspraak }
   });
 
   const layout = String(target.mail_layout || 'plain');
@@ -460,12 +605,8 @@ export async function runSendMailStep(env, {
   // handtekening (nog niet gepusht, of geen Odoo-koppeling) is GEEN fout --
   // zie het doc-blok in mail-signature.js -- de mail vertrekt dan gewoon met
   // enkel de tekst, en de reden komt in `detail` terecht.
-  let signatureReden = null;
-  if (target.mail_signature_source) {
-    const signature = await resolveMailSignatureHtml(env, target, contextObject);
-    signatureReden = signature.reden;
-    if (signature.html) bodyHtml = bodyHtml + '<br><br>' + signature.html;
-  }
+  const signatureReden = signature.reden;
+  if (signature.html) bodyHtml = bodyHtml + '<br><br>' + signature.html;
 
   // ── 6. Bijlagen ───────────────────────────────────────────────────────────
   //
@@ -491,7 +632,10 @@ export async function runSendMailStep(env, {
     subject,
     body_html: bodyHtml,
     email_to: adres,
-    email_from: afzender.name ? `"${afzender.name.replace(/"/g, '')}" <${afzender.email}>` : afzender.email,
+    email_from: (() => {
+      const naam = renderAfzenderNaam(target.mail_from_display_name, context, afzender);
+      return naam ? `"${naam}" <${afzender.email}>` : afzender.email;
+    })(),
     reply_to: String(target.mail_reply_to || '').trim() || afzender.email,
     message_id: messageId,
     // Het bewijs moet blijven staan; Odoo's templates zetten dit op true.

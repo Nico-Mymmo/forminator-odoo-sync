@@ -167,16 +167,32 @@
   gap: var(--mf-callout-kop-gap, 10px);
 }
 
+/*
+ * DE LETTER VAN DE TITEL.
+ *
+ * Drie variabelen plus de regelhoogte, met de bestaande waarden als standaard
+ * -- zonder instelling verandert er dus niets. Ze bestaan om dezelfde reden als
+ * --mf-callout-pad: staat een callout tussen de kaarten van een pagina, dan
+ * hoort haar kop dezelfde te zijn als die van die kaarten. Op syndicoach.be zet
+ * het thema daar 30px/400 in neutral-950 op en de plugin standaard 22-32px/700
+ * -- dan is de callout de enige die anders oogt, en los je dat op met CSS op de
+ * pagina die bij een volgende plugin-versie weer wringt.
+ *
+ * Grootte, dikte en kleur staan in het beheerscherm (Ingangen); de REGELHOOGTE
+ * niet, want die volgt in de praktijk de grootte. Moet ze toch mee, dan is
+ * --mf-callout-titel-lijn de plek -- een veld erbij in het scherm dat niemand
+ * gebruikt, is een veld dat verkeerd ingevuld kan worden.
+ */
 .mymmo-callout-titel {
   margin: 0;
-  font-size: clamp(1.4rem, 1.1rem + 1.2vw, 2rem);
-  line-height: 1.2;
+  font-size: var(--mf-callout-titel-maat, clamp(1.4rem, 1.1rem + 1.2vw, 2rem));
+  line-height: var(--mf-callout-titel-lijn, 1.2);
 }
 
 /* Twee klassen tegen het thema, dat elke h2 een eigen maat en kleur geeft. */
 .mymmo-callout .mymmo-callout-titel {
-  color: var(--mf-text, #1f2430);
-  font-weight: 700;
+  color: var(--mf-callout-titel-kleur, var(--mf-text, #1f2430));
+  font-weight: var(--mf-callout-titel-dikte, 700);
 }
 
 /*
@@ -333,7 +349,7 @@
   flex-direction: column;
 }
 
-.mymmo-callout .mymmo-callout-knop {
+.mymmo-callout-actie .mymmo-callout-knop {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -352,14 +368,14 @@
   transition: filter 0.15s ease, transform 0.15s ease;
 }
 
-.mymmo-callout .mymmo-callout-knop:hover,
-.mymmo-callout .mymmo-callout-knop:focus-visible {
+.mymmo-callout-actie .mymmo-callout-knop:hover,
+.mymmo-callout-actie .mymmo-callout-knop:focus-visible {
   filter: brightness(0.95);
   color: var(--mf-accent-text, #ffffff);
   text-decoration: none;
 }
 
-.mymmo-callout .mymmo-callout-knop:active {
+.mymmo-callout-actie .mymmo-callout-knop:active {
   transform: translateY(1px);
 }
 
@@ -368,15 +384,41 @@
   transition: transform 0.15s ease;
 }
 
-.mymmo-callout .mymmo-callout-knop:hover .mymmo-callout-pijl {
+.mymmo-callout-actie .mymmo-callout-knop:hover .mymmo-callout-pijl {
   transform: translateX(3px);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .mymmo-callout .mymmo-callout-knop,
+  .mymmo-callout-actie .mymmo-callout-knop,
   .mymmo-callout-pijl {
     transition: none;
   }
+}
+
+/* ── De kale modus ───────────────────────────────────────────────────────── */
+
+/*
+ * `chrome="no"`: enkel het uitgelichte onderdeel en de knop, zonder kaartje.
+ *
+ * Voor een ingang die IN iets staat dat zelf al een kaart is -- een kaart van
+ * Mymmo Cards bijvoorbeeld. Daar is de kaart de vorm: de titel is een gewoon
+ * kopblok van de pagina (en heeft dus vanzelf de letter van het thema), de
+ * achtergrond en de opvulling zijn die van de kaart. Bracht de ingang dat
+ * allemaal zelf mee, dan moest elk van die eigenschappen met de hand
+ * gelijkgezet worden aan iets dat uit het thema komt -- en dat is precies waar
+ * deze modus een eind aan maakt.
+ *
+ * Deze wikkel heeft daarom GEEN eigen vorm: geen achtergrond, geen rand, geen
+ * opvulling, geen hoeken. Enkel de twee onder elkaar. Zet hier nooit iets van
+ * dat alles bij -- dan is het geen kale modus meer.
+ */
+.mymmo-ingang-kaal {
+  display: flex;
+  /* Noem de richting zelf; een blokthema zet `display:flex` op van alles. */
+  flex-direction: column;
+  gap: 18px;
+  width: 100%;
+  min-width: 0;
 }
 
 /* ── De brede indeling ───────────────────────────────────────────────────── */

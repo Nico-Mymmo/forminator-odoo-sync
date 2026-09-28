@@ -49,6 +49,9 @@
   var odooEventTypes = null;
   var koppelingConfig = null;
   var bezig = false;
+  // Afspraaklinks op het eventtype van deze koppeling (module booking-links).
+  // null = nog niet geladen of niet op te halen.
+  var boekingsLinks = null;
 
   function isCalendly() {
     var i = S().detail && S().detail.integration;
@@ -91,6 +94,17 @@
       koppelingConfig = cRes.data || null;
     } catch (err) {
       koppelingConfig = null;
+    }
+
+    await laadAfspraaklinks(integrationId);
+  }
+
+  async function laadAfspraaklinks(integrationId) {
+    try {
+      var lRes = await window.FSV2.api('/integrations/' + integrationId + '/calendly/booking-links');
+      boekingsLinks = lRes.data || null;
+    } catch (err) {
+      boekingsLinks = null;
     }
   }
 
@@ -202,6 +216,149 @@
         <div class="text-xs text-base-content/50 mt-1.5">Hosts <span class="opacity-60">(afgeleid uit wie dit eventtype kan inplannen — Calendly geeft geen hostlijst)</span></div>
         ${hostHtml}
       </div>`;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // AFSPRAAKLINKS — een link naar ONZE site die dit eventtype opent
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Wie hoort bij dit eventtype? De eigenaar, anders de eerste host -- enkel
+   * als VOORSTEL in de keuzelijst. Calendly en Odoo delen geen id, dus dit gaat
+   * op naam; klopt het niet, dan kies je gewoon iemand anders.
+   */
+  function voorgesteldeEigenaar(users) {
+    var uri = (koppelingConfig && koppelingConfig.event_type_uri) || '';
+    var t = (eventTypes || []).find(function (e) { return e.uri === uri; });
+    if (!t) return null;
+    var namen = [t.owner_name].concat((t.hosts || []).map(function (h) { return h.name; }))
+      .map(function (n) { return String(n || '').trim().toLowerCase(); }).filter(Boolean);
+    for (var i = 0; i < namen.length; i += 1) {
+      var naam = namen[i];
+      var hit = users.find(function (u) { return String(u.name || '').trim().toLowerCase() === naam; });
+      if (hit) return hit.id;
+    }
+    return null;
+  }
+
+  function afspraaklinksHtml() {
+    var d = boekingsLinks;
+    if (d === null) {
+      return `<p class="text-xs text-base-content/50">De afspraaklinks zijn niet op te halen.</p>`;
+    }
+    if (!d.scheduling_url) {
+      return `<p class="text-xs text-base-content/50">Kies hierboven een eventtype en sla op; daarna kan je hier een link maken die deze agenda op onze website opent.</p>`;
+    }
+
+    var lijst = (d.links || []).map(function (l) {
+      // Eén link werkt op ELKE site (de sleutel wordt bij de OM opgezocht);
+      // per site een eigen adres om te kopiëren. "In mails" is de site die
+      // {{afspraak.*}} in een koppeling gebruikt.
+      var adressen = l.public_urls || [];
+      var adresHtml = adressen.length
+        ? adressen.map(function (a) {
+            return `
+              <div class="flex items-center gap-1.5 min-w-0">
+                <span class="text-xs font-mono text-base-content/60 truncate" title="${esc(a.url)}">${esc(a.url)}</span>
+                ${a.in_mail ? '<span class="badge badge-info badge-xs shrink-0">in mails</span>' : ''}
+                <button type="button" class="btn btn-xs btn-ghost shrink-0" data-action="calendly-link-copy" data-url="${esc(a.url)}" title="Kopiëren"><i data-lucide="copy" class="w-3 h-3"></i></button>
+                <a class="btn btn-xs btn-ghost shrink-0" href="${esc(a.url)}" target="_blank" rel="noopener" title="Openen"><i data-lucide="external-link" class="w-3 h-3"></i></a>
+                ${adressen.length > 1 && !a.in_mail ? `<button type="button" class="btn btn-xs btn-ghost shrink-0" data-action="calendly-link-mailsite" data-link-id="${esc(l.id)}" data-site="${esc(a.site)}" title="Deze site gebruiken in mails">in mails zetten</button>` : ''}
+              </div>`;
+          }).join('')
+        : `<div class="text-xs text-warning">geen website ingesteld</div>`;
+      return `
+        <div class="flex flex-wrap items-start gap-2 py-1.5 border-b border-base-200 last:border-0 ${l.is_active ? '' : 'opacity-60'}">
+          <div class="min-w-0 flex-1">
+            <div class="text-sm font-medium">${esc(l.odoo_user_name || '?')}
+              <span class="badge badge-ghost badge-xs">${esc(l.kind)}</span>
+              ${l.is_default ? '<span class="badge badge-primary badge-xs">standaard</span>' : ''}
+              ${l.is_active ? '' : '<span class="badge badge-warning badge-xs">gepauzeerd</span>'}
+            </div>
+            ${adresHtml}
+          </div>
+          <a class="btn btn-xs btn-ghost" href="/afspraaklinks?link=${encodeURIComponent(l.id)}" target="_blank" rel="noopener"
+             title="Bewerken: titel, subtekst, vinkjes en foto in het venster op de website">
+            <i data-lucide="pencil" class="w-3 h-3"></i></a>
+          <button type="button" class="btn btn-xs btn-ghost" data-action="calendly-link-toggle" data-link-id="${esc(l.id)}" data-active="${l.is_active ? '1' : '0'}"
+                  title="${l.is_active ? 'Pauzeren: de link opent dan de algemene agenda' : 'Weer activeren'}">
+            <i data-lucide="${l.is_active ? 'pause' : 'play'}" class="w-3 h-3"></i></button>
+          <button type="button" class="btn btn-xs btn-ghost text-error" data-action="calendly-link-delete" data-link-id="${esc(l.id)}" title="Verwijderen">
+            <i data-lucide="trash-2" class="w-3 h-3"></i></button>
+        </div>`;
+    }).join('');
+
+    var users = d.odoo_users;
+    var formulier;
+    if (!users) {
+      formulier = `<p class="text-xs text-warning">De Odoo-gebruikers zijn niet op te halen, dus er kan nu geen link aangemaakt worden.</p>`;
+    } else {
+      var voorstel = voorgesteldeEigenaar(users);
+      var sites = d.sites || [];
+      formulier = `
+        <div class="grid sm:grid-cols-4 gap-2 items-end mt-2">
+          <label class="form-control sm:col-span-2">
+            <span class="label py-0.5"><span class="label-text text-xs">Voor wie</span></span>
+            <select id="calendlyLinkOwner" class="select select-bordered select-sm">
+              <option value="">Kies een collega…</option>
+              ${users.map(function (u) {
+                return `<option value="${esc(String(u.id))}" ${u.id === voorstel ? 'selected' : ''}>${esc(u.name)}</option>`;
+              }).join('')}
+            </select>
+          </label>
+          <label class="form-control">
+            <span class="label py-0.5"><span class="label-text text-xs">Soort</span></span>
+            <input id="calendlyLinkKind" class="input input-bordered input-sm" list="calendlyLinkKinds" value="standaard">
+            <datalist id="calendlyLinkKinds">
+              <option value="standaard"></option><option value="demo"></option>
+              <option value="kennismaking"></option><option value="opvolging"></option>
+            </datalist>
+          </label>
+          <label class="form-control">
+            <span class="label py-0.5"><span class="label-text text-xs">Sleutel <span class="opacity-60">(leeg = automatisch)</span></span></span>
+            <input id="calendlyLinkSlug" class="input input-bordered input-sm" placeholder="rob-demo">
+          </label>
+          <label class="form-control sm:col-span-2">
+            <span class="label py-0.5"><span class="label-text text-xs">Titel van het tabblad <span class="opacity-60">(leeg = die van de website)</span></span></span>
+            <input id="calendlyLinkTabTitle" class="input input-bordered input-sm" placeholder="Plan een gesprek met Rob">
+          </label>
+          ${sites.length > 1 ? `<label class="form-control">
+            <span class="label py-0.5"><span class="label-text text-xs">Website in mails <span class="opacity-60">(werkt op alle)</span></span></span>
+            <select id="calendlyLinkSite" class="select select-bordered select-sm">
+              ${sites.map(function (st) { return `<option value="${esc(st.key)}">${esc(st.origin.replace(/^https:\/\//, ''))}</option>`; }).join('')}
+            </select>
+          </label>` : ''}
+          <label class="label cursor-pointer justify-start gap-2">
+            <input type="checkbox" id="calendlyLinkDefault" class="checkbox checkbox-xs">
+            <span class="label-text text-xs">Standaardlink van die persoon</span>
+          </label>
+        </div>
+        <div class="mt-2">
+          <button type="button" class="btn btn-sm btn-outline" data-action="calendly-link-create">
+            <i data-lucide="link" class="w-4 h-4"></i> Link genereren
+          </button>
+        </div>`;
+    }
+
+    var poelWaarschuwing = (d.pooling_type === 'round_robin' || d.pooling_type === 'collective')
+      ? `<p class="text-xs text-warning mt-1">Dit is een ${d.pooling_type === 'round_robin' ? 'round-robin' : 'collectief'} eventtype: wie via deze link boekt, komt niet noodzakelijk bij de gekozen persoon terecht. Voor een persoonlijke link kies je een eigen eventtype van die collega.</p>`
+      : '';
+
+    return `
+      <div class="text-xs text-base-content/60 mb-1">
+        Een link naar onze website die het venster meteen op “Plan een gesprek” opent, met deze agenda.
+        In een mail- of notitiestap zet <code>{{afspraak.&lt;stap&gt;.&lt;soort&gt;}}</code> automatisch de link van de eigenaar van de lead.
+      </div>
+      ${poelWaarschuwing}
+      ${lijst ? `<div class="mt-2">${lijst}</div>` : `<p class="text-xs text-base-content/40 italic mt-2">Nog geen afspraaklinks op dit eventtype.</p>`}
+      ${formulier}`;
+  }
+
+  function hertekenAfspraaklinks() {
+    var doel = document.getElementById('calendlyBookingLinks');
+    if (!doel) return;
+    doel.innerHTML = afspraaklinksHtml();
+    if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons({ context: doel });
   }
 
   /** De keuzelijst is gewijzigd: alleen het infokadertje hertekenen. */
@@ -316,6 +473,13 @@
               </button>
             </div>
 
+            <div class="rounded-lg border border-base-200 px-3 py-3 mt-4">
+              <div class="text-sm font-semibold mb-1 flex items-center gap-1.5">
+                <i data-lucide="calendar-clock" class="w-4 h-4"></i>Afspraaklinks
+              </div>
+              <div id="calendlyBookingLinks">${afspraaklinksHtml()}</div>
+            </div>
+
             <div class="rounded-lg border border-warning/30 bg-warning/5 px-3 py-2.5 mt-4">
               <div class="text-xs font-semibold mb-1 flex items-center gap-1.5">
                 <i data-lucide="git-branch" class="w-3.5 h-3.5"></i>Verplaatsen en annuleren zijn eigen flows
@@ -377,6 +541,81 @@
       return;
     }
 
+    if (action === 'calendly-link-copy') {
+      try {
+        await navigator.clipboard.writeText(btn.dataset.url || '');
+        window.FSV2.showAlert('Link gekopieerd.', 'success');
+      } catch (err) {
+        window.FSV2.showAlert('Kopiëren lukte niet.', 'error');
+      }
+      return;
+    }
+
+    if (action === 'calendly-link-create') {
+      var waarde = function (id) { var el = document.getElementById(id); return el ? el.value.trim() : ''; };
+      var standaard = document.getElementById('calendlyLinkDefault');
+      if (!waarde('calendlyLinkOwner')) {
+        window.FSV2.showAlert('Kies voor wie de afspraaklink is.', 'error');
+        return;
+      }
+      await metKnop(btn, 'Aanmaken…', async function () {
+        var res = await window.FSV2.api('/integrations/' + S().activeId + '/calendly/booking-links', {
+          method: 'POST',
+          body: JSON.stringify({
+            odoo_user_id: Number(waarde('calendlyLinkOwner')),
+            kind: waarde('calendlyLinkKind') || 'standaard',
+            slug: waarde('calendlyLinkSlug'),
+            tab_title: waarde('calendlyLinkTabTitle'),
+            site: waarde('calendlyLinkSite'),
+            is_default: !!(standaard && standaard.checked),
+          }),
+        });
+        await laadAfspraaklinks(S().activeId);
+        hertekenAfspraaklinks();
+        var url = res && res.data && res.data.public_url;
+        if (url && navigator.clipboard) {
+          try { await navigator.clipboard.writeText(url); } catch (_) { /* niet erg */ }
+          window.FSV2.showAlert('Afspraaklink gemaakt en gekopieerd: ' + url, 'success');
+        } else {
+          window.FSV2.showAlert('Afspraaklink gemaakt.', 'success');
+        }
+      });
+      return;
+    }
+
+    if (action === 'calendly-link-mailsite') {
+      await metKnop(btn, '…', async function () {
+        await window.FSV2.api('/calendly/booking-links/' + encodeURIComponent(btn.dataset.linkId), {
+          method: 'PUT',
+          body: JSON.stringify({ site: btn.dataset.site }),
+        });
+        await laadAfspraaklinks(S().activeId);
+        hertekenAfspraaklinks();
+      });
+      return;
+    }
+
+    if (action === 'calendly-link-toggle' || action === 'calendly-link-delete') {
+      var linkId = btn.dataset.linkId;
+      if (action === 'calendly-link-delete'
+          && !window.confirm('Deze afspraaklink verwijderen?\n\nLinks die al verstuurd zijn, openen daarna de algemene agenda. Tijdelijk uitzetten kan met pauzeren.')) {
+        return;
+      }
+      await metKnop(btn, '…', async function () {
+        if (action === 'calendly-link-delete') {
+          await window.FSV2.api('/calendly/booking-links/' + encodeURIComponent(linkId), { method: 'DELETE' });
+        } else {
+          await window.FSV2.api('/calendly/booking-links/' + encodeURIComponent(linkId), {
+            method: 'PUT',
+            body: JSON.stringify({ is_active: btn.dataset.active !== '1' }),
+          });
+        }
+        await laadAfspraaklinks(S().activeId);
+        hertekenAfspraaklinks();
+      });
+      return;
+    }
+
     if (action === 'calendly-rebuild') {
       await metKnop(btn, 'Bezig…', async function () {
         await window.FSV2.api('/integrations/' + S().activeId + '/calendly/rebuild', { method: 'POST' });
@@ -406,6 +645,7 @@
     eventTypes = null;
     odooEventTypes = null;
     koppelingConfig = null;
+    boekingsLinks = null;
   }
 
   Object.assign(window.FSV2, {

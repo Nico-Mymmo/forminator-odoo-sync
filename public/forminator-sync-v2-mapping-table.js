@@ -844,6 +844,38 @@
       if (newC2) newC2.dispatchEvent(new Event('change', { bubbles: true }));
     }
 
+    // Een badge (round robin / unieke identifier) wordt via refreshCol2() alleen
+    // in de LIVE DOM gezet -- niet in S().detail._extraRowsByTarget[tid], de
+    // array waaruit renderOpenTargetCard() bij een HERTEKENING (bv. een
+    // voorwaarde wijzigen, een andere stap-instelling) de hele tabel opnieuw
+    // opbouwt (col2Input(r.odooField, r.staticValue)). Zonder deze sync overleeft
+    // een net aangepaste round-robin-poule (of een net toegevoegde vrije rij) zo'n
+    // hertekening niet: de tabel valt terug op de oude/lege waarde uit de array,
+    // stil, ruim voor de gebruiker op "Opslaan" klikt. Bugmelding: "als ik
+    // gebruikers aanpas bij round robin worden ze niet meer opgeslagen."
+    function syncExtraRowState(odooFieldVal, staticVal, sourceTypeVal) {
+      var st = window.FSV2 && window.FSV2.S;
+      if (!st || !st.detail || !st.detail._extraRowsByTarget || !tid) return;
+      var arr = st.detail._extraRowsByTarget[tid];
+      if (!arr) return;
+      var existing = arr.find(function (r) { return r.odooField === odooFieldVal; });
+      if (existing) {
+        existing.staticValue = staticVal;
+        existing.sourceType  = sourceTypeVal;
+      } else {
+        arr.push({
+          odooField:     odooFieldVal,
+          odooLabel:     odooFieldVal,
+          staticValue:   staticVal,
+          sourceType:    sourceTypeVal,
+          isRequired:    false,
+          isDefault:     false,
+          isIdentifier:  false,
+          isUpdateField: true,
+        });
+      }
+    }
+
     inner.addEventListener('click', function(e) {
       var onBtn  = e.target.closest('.set-generated-id-toggle');
       var offBtn = e.target.closest('[data-action="unset-generated-id"]');
@@ -863,8 +895,10 @@
         var c1 = row.querySelector('[data-map-col="1"]');
         if (c1 && c1.value) return; // col1 (formulierveld) al ingevuld -- niet overschrijven
         refreshCol2(td, odooField, GENERATED_ID_SENTINEL);
+        syncExtraRowState(odooField, GENERATED_ID_SENTINEL, 'generated_unique_id');
       } else {
         refreshCol2(td, odooField, '');
+        syncExtraRowState(odooField, '', 'static');
       }
     });
 
@@ -885,6 +919,7 @@
 
       if (rrUnset) {
         refreshCol2(td, odooField, '');
+        syncExtraRowState(odooField, '', 'static');
         return;
       }
 
@@ -904,7 +939,9 @@
         odooField: odooField,
         current:   current,
         onSave:    function (cfg) {
-          refreshCol2(td, odooField, ROUND_ROBIN_SENTINEL_PREFIX + JSON.stringify(cfg));
+          var sentinel = ROUND_ROBIN_SENTINEL_PREFIX + JSON.stringify(cfg);
+          refreshCol2(td, odooField, sentinel);
+          syncExtraRowState(odooField, sentinel, 'round_robin_pool');
         }
       });
     });

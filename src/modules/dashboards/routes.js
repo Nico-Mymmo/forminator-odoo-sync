@@ -7,14 +7,14 @@
  *    GET  /                     → Full-page UI (public/dashboards.html)
  *
  *  API (authenticated — iedereen met module-toegang)
- *    GET  /api/leads-instroom   → Instroom-widget data (?period=30d|6m&scope=all|syndicoach|openvme|onbekend)
+ *    GET  /api/leads-instroom   → Instroom-widget data (?period=30d|3m|6m|12m&scope=all|syndicoach|openvme|onbekend)
  *    GET  /api/targets          → Instelbaar maand-venster (?monthsBack=5&monthsAhead=6&scope=...)
  *    POST /api/targets/batch    → Meerdere maand-targets in één keer opslaan (body: {scope, items: [{periodMonth, targetValue}]})
  *
  * @module modules/dashboards/routes
  */
-import { getInstroomData, getDailyTotalsSeries, addDays, addMonths } from './lib/leads-instroom.js';
-import { listTargetWindow, getTargetsForMonths, buildTargetTrend, buildRollingBenchmarkSeries, upsertTargets } from './lib/targets.js';
+import { getInstroomData, normalizePeriod, buildBuckets } from './lib/leads-instroom.js';
+import { listTargetWindow, getTargetsForMonths, buildTargetTrend, upsertTargets } from './lib/targets.js';
 
 const VALID_SCOPES = ['all', 'syndicoach', 'openvme', 'onbekend'];
 
@@ -66,8 +66,7 @@ export const routes = {
   // ── Instroom-widget ──────────────────────────────────────────────────────
   'GET /api/leads-instroom': async ({ env, request }) => {
     const url = new URL(request.url);
-    const periodParam = url.searchParams.get('period');
-    const period = periodParam === '6m' ? '6m' : '30d';
+    const period = normalizePeriod(url.searchParams.get('period'));
     const scope = readScope(url);
 
     try {
@@ -91,36 +90,19 @@ export const routes = {
         .map((key, idx) => (idx === 0 ? shiftMonthKey(key, -1) : idx === monthKeys.length + 1 ? shiftMonthKey(key, 1) : key));
       const targetsByMonth = await getTargetsForMonths(env, { scope, periodMonths: [...new Set(paddedMonthKeys)] });
       data.target = buildTargetTrend(targetsByMonth, rangeStart, rangeEnd, monthKeys);
-      delete data.target.dailySeries; // enkel voor de trendlijn hieronder nodig, niet voor de front-end
 
-      // Benchmarklijntje: ALTIJD de volledige voorbije 2 jaar, los van de
-      // 30d/6m-periodetoggle van de widget zelf (Nico, 2026-09-08). Voor elke
-      // dag in die 2 jaar vergelijken we een rollend venster van 30 dagen
-      // realisatie met hetzelfde venster op de (vloeiende) target-lijn -- dus
-      // GEEN cumulatieve som sinds een startpunt (die kan alleen maar
-      // stijgen), maar een percentage dat effectief op en neer kan gaan.
-      const trailingDays = 30;
-      const trendDisplayEnd = addDays(new Date(Date.UTC(
-        new Date().getUTCFullYear(), new Date().getUTCMonth(), new Date().getUTCDate()
-      )), 1); // vandaag zelf nog meetellen (domain-eind is exclusief)
-      const trendDisplayStart = addMonths(trendDisplayEnd, -24);
-      const trendFetchStart = addDays(trendDisplayStart, -trailingDays); // padding voor het eerste rollend venster
-
-      const trendMonthKeys = monthKeysInRange(trendFetchStart, trendDisplayEnd);
-      const paddedTrendMonthKeys = [...new Set([
-        shiftMonthKey(trendMonthKeys[0], -1),
-        ...trendMonthKeys,
-        shiftMonthKey(trendMonthKeys[trendMonthKeys.length - 1], 1)
-      ])];
-
-      const [dailyActualSeries, trendTargetsByMonth] = await Promise.all([
-        getDailyTotalsSeries(env, { scope, start: trendFetchStart, end: trendDisplayEnd }),
-        getTargetsForMonths(env, { scope, periodMonths: paddedTrendMonthKeys })
-      ]);
-
-      data.target.trend = buildRollingBenchmarkSeries(
-        dailyActualSeries, trendTargetsByMonth, trendDisplayStart, trendDisplayEnd, trailingDays
+      // De grafieken VOLGEN de periodetoggle (Nico, 2026-09-28) -- dat
+      // vervangt het vaste rollende venster over de voorbije 2 jaar. Per
+      // bucket (dag/week/maand, zie PERIOD_GRANULARITY) realisatie per kanaal
+      // en de target over diezelfde dagen; de front-end rekent niets meer zelf.
+      data.series = buildBuckets(
+        data.daily,
+        data.target.value === null ? null : data.target.dailySeries,
+        data.granularity,
+        Object.keys(data.brandLabels)
       );
+      delete data.target.dailySeries;
+      delete data.daily; // zit volledig in data.series
 
       return json({ success: true, data });
     } catch (error) {

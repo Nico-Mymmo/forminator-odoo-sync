@@ -384,7 +384,7 @@ export function mailSignatureDesignerUI(user) {
                         <input type="checkbox" name="show_event_promo" class="checkbox checkbox-sm checkbox-primary" checked />
                         <span class="text-sm font-medium">Event tonen in mijn handtekening</span>
                       </label>
-                      <p class="text-xs text-base-content/40 mt-1 pl-9">Vinkje uitzetten verbergt alleen <em>dit</em> event. Bij een nieuw event wordt het automatisch weer getoond &mdash; en worden alle handtekeningen hernieuwd door marketing.</p>
+                      <p class="text-xs text-base-content/40 mt-1 pl-9">Deze keuze is van jou en blijft staan. Zet je het uit, dan komt er ook geen ander event in je handtekening &mdash; tot je het hier zelf weer aanzet.</p>
                     </div>
                     <div id="my-event-none" class="hidden text-xs text-base-content/40 italic">
                       Geen actief marketing event op dit moment.
@@ -571,134 +571,36 @@ export function mailSignatureDesignerUI(user) {
 
               <form id="config-form">
 
-                <!-- Hidden event metadata fields (populated by JS on dropdown change) -->
-                <input type="hidden" name="eventTitle" id="event-hidden-title" />
-                <input type="hidden" name="eventDate"  id="event-hidden-date" />
-
-                <!-- ══ SECTIE 1: Event Promotie ══ -->
-                <details id="section-event" open class="mb-4">
-                  <summary class="flex items-center justify-between py-1.5 select-none">
-                    <div class="flex items-center gap-2">
-                      <i data-lucide="calendar" class="w-4 h-4 text-primary"></i>
-                      <span class="text-sm font-semibold">Event</span>
-                      <span class="badge badge-primary badge-xs">Prioriteit</span>
-                    </div>
-                    <i data-lucide="chevron-right" class="w-4 h-4 summary-chevron text-base-content/40"></i>
-                  </summary>
-
-                  <div class="pt-3 space-y-3">
-
-                    <!-- Toggle -->
-                    <label class="flex items-center gap-3 cursor-pointer">
-                      <input type="checkbox" name="eventPromoEnabled" id="event-promo-toggle"
-                             class="toggle toggle-primary toggle-sm"
-                             checked
-                             onchange="onEventPromoToggle(this.checked)" />
-                      <span class="text-sm font-medium">Promoot event in handtekening</span>
-                    </label>
-
-                    <!-- Event select + meta (visible when toggle on) -->
-                    <div id="event-promo-fields" class="cond-field visible space-y-3">
-
-                      <div class="form-control">
-                        <div class="label py-0.5">
-                          <span class="label-text text-xs font-medium">Aankomend event</span>
-                          <button type="button" onclick="loadEvents()"
-                                  class="label-text-alt btn btn-ghost btn-xs gap-1">
-                            <i data-lucide="refresh-cw" class="w-3 h-3"></i> Vernieuwen
-                          </button>
-                        </div>
-                        <select name="eventId" id="event-select"
-                                class="select select-bordered select-sm"
-                                onchange="onEventSelect(this.value)">
-                          <option value="">&#8212; Laden&#8230; &#8212;</option>
-                        </select>
-                      </div>
-
-                      <!-- Event metadata badge -->
-                      <div id="event-meta" class="hidden rounded-lg bg-base-200 px-3 py-2.5 space-y-1">
-                        <div class="flex items-start justify-between gap-2">
-                          <span id="event-meta-title" class="text-sm font-semibold leading-snug"></span>
-                          <span id="event-meta-badge" class="badge badge-outline badge-sm shrink-0"></span>
-                        </div>
-                        <span id="event-meta-date" class="text-xs text-base-content/50"></span>
-                      </div>
-
-                      <!-- Event banner image URL + display options -->
-                      <label class="form-control">
-                        <div class="label py-0.5"><span class="label-text text-xs">Event afbeelding URL</span></div>
-                        <input type="url" name="eventImageUrl" id="event-image-url-input"
-                               placeholder="https://&#8230;/event-banner.png"
-                               class="input input-bordered input-xs" />
-                      </label>
-
-                      <label class="form-control">
-                        <div class="label py-0.5">
-                          <span class="label-text text-xs">Max. hoogte (px)</span>
-                          <span class="label-text-alt text-base-content/40 text-xs">leeg = volledige breedte</span>
-                        </div>
-                        <input type="number" name="eventImageMaxHeight" id="event-image-max-height"
-                               placeholder="200" min="40" max="600" step="1"
-                               class="input input-bordered input-xs w-36" />
-                      </label>
-
-                      <!-- Eyebrow label -->
-                      <label class="form-control">
-                        <div class="label py-0.5">
-                          <span class="label-text text-xs">Eyebrow tekst</span>
-                          <span class="label-text-alt text-base-content/40 text-xs">bv. &ldquo;Aankomend event&rdquo;</span>
-                        </div>
-                        <input type="text" name="eventEyebrow" id="event-eyebrow-input"
-                               value="Schrijf je in"
-                               placeholder="Kom je ook? &bull; Aankomend event &bull; Mis het niet"
-                               class="input input-bordered input-xs" />
-                      </label>
-
-                      <!-- Registration URL -->
-                      <label class="form-control">
-                        <div class="label py-0.5"><span class="label-text text-xs">Registratie URL</span></div>
-                        <input type="url" name="eventRegUrl" id="event-reg-url-input"
-                               placeholder="https://openvme.be/events/&#8230;"
-                               class="input input-bordered input-xs" />
-                      </label>
-
-                    </div>
-
-                    <!-- When event toggle is OFF: choose fallback or nothing -->
-                    <div id="fallback-banner-section" class="cond-field space-y-2">
-
-                      <!-- "Nothing" info note (always visible in this section) -->
-                      <div class="flex items-start gap-2 rounded-lg bg-base-200 px-3 py-2">
-                        <i data-lucide="info" class="w-3.5 h-3.5 mt-0.5 shrink-0 text-base-content/40"></i>
-                        <p class="text-xs text-base-content/50 leading-snug">
-                          Event-promotie staat uit. Sla op en push naar gebruikers om het marketing-blok uit alle handtekeningen te verwijderen.<br />
-                          <span class="text-base-content/40">Optioneel: vervang het door een vaste bannerafbeelding.</span>
-                        </p>
-                      </div>
-
-                      <label class="flex items-start gap-3 cursor-pointer py-0.5">
-                        <input type="checkbox" name="showBanner" class="checkbox checkbox-sm mt-0.5"
-                               onchange="toggleCond('fallback-banner-fields', this.checked)" />
-                        <div>
-                          <span class="text-sm font-medium">Vervang door bannerafbeelding</span>
-                        </div>
-                      </label>
-                      <div id="fallback-banner-fields" class="cond-field pl-7 space-y-2">
-                        <label class="form-control">
-                          <div class="label py-0.5"><span class="label-text text-xs">Afbeelding URL</span></div>
-                          <input type="url" name="bannerImageUrl" placeholder="https://&#8230;/banner.png"
-                                 class="input input-bordered input-xs" />
-                        </label>
-                        <label class="form-control">
-                          <div class="label py-0.5"><span class="label-text text-xs">Link URL (optioneel)</span></div>
-                          <input type="url" name="bannerLinkUrl" placeholder="https://openvme.be"
-                                 class="input input-bordered input-xs" />
-                        </label>
-                      </div>
-                    </div>
-
+                <!-- ══ SECTIE 1: Event in de handtekening (alleen-lezen) ══ -->
+                <!-- Hier wordt NIETS meer beheerd. Welk event in de handtekening
+                     staat, volgt uit Eventbeheer: het eerstvolgende met "Toon in
+                     de e-mailhandtekeningen" aan. Beeld, registratielink, titel
+                     en datum staan al op dat event; opschrift en maximale hoogte
+                     liggen vast. Ze hier ook nog eens laten instellen betekende
+                     twee plekken die iets anders kunnen beweren over hetzelfde
+                     event -- en de rotatie zou de handmatige keuze toch binnen
+                     het kwartier overschrijven. Wat blijft, is ZIEN wat erin
+                     staat. -->
+                <div id="section-event" class="mb-4 rounded-lg border border-base-200 p-3">
+                  <div class="flex items-center gap-2 mb-2">
+                    <i data-lucide="calendar" class="w-4 h-4 text-primary"></i>
+                    <span class="text-sm font-semibold">Event in de handtekening</span>
                   </div>
-                </details>
+
+                  <div id="event-status" class="text-sm text-base-content/70">
+                    Laden&#8230;
+                  </div>
+
+                  <div class="flex flex-wrap items-center gap-2 mt-3">
+                    <a href="/events" class="btn btn-ghost btn-xs gap-1">
+                      <i data-lucide="external-link" class="w-3 h-3"></i> Naar Eventbeheer
+                    </a>
+                    <button type="button" onclick="testEventChat(this)"
+                            class="btn btn-ghost btn-xs gap-1">
+                      <i data-lucide="send" class="w-3 h-3"></i> Testbericht naar de chat
+                    </button>
+                  </div>
+                </div>
 
                 <div class="divider my-0"></div>
 

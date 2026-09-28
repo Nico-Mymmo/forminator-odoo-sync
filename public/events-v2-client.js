@@ -523,6 +523,13 @@
      kalender-event en er zit geen window.lucide.createIcons()-aanroep na
      elke FullCalendar-render (zie PERSON_SVG hierboven, zelfde reden).
      Gevuld (fill) i.p.v. gestroked: leesbaarder op zo'n klein formaat. */
+  // Pen: dit event staat in de e-mailhandtekeningen. Bewust een ANDER
+  // silhouet dan het sterretje -- twee badges die alleen in kleur
+  // verschillen, zijn op 12 pixels niet uit elkaar te houden.
+  var SIGN_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8" viewBox="0 0 24 24"'
+    + ' fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">'
+    + '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
+
   var STAR_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8" viewBox="0 0 24 24" fill="currentColor">'
     + '<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>';
 
@@ -547,14 +554,31 @@
     var wrap = document.createElement('div');
     wrap.className = 'fc-event-card';
     wrap.title = (event.title || '') + ' — ' + format.label
-      + (event.location.name ? ' (' + event.location.name + ')' : '');
+      + (event.location.name ? ' (' + event.location.name + ')' : '')
+      + (event.highlighted ? ' • gehighlight' : '')
+      + (event.in_signature ? ' • in de e-mailhandtekeningen' : '');
+
+    /* De badges staan IN de titelregel, niet erbovenop. Ze hingen als
+       absoluut gepositioneerde bolletjes over de kaart, waardoor het
+       sterretje pal over de eerste letters van het type viel -- met twee
+       badges wordt dat alleen maar erger. Nu schuift de tekst gewoon op en
+       kapt hij af waar hij niet past. */
+    var badges =
+      (event.highlighted
+        ? '<span class="event-badge is-highlight" title="Gehighlight in de aankondiging-widget">'
+          + STAR_SVG + '</span>'
+        : '') +
+      (event.in_signature
+        ? '<span class="event-badge is-signature" title="Staat in de e-mailhandtekeningen">'
+          + SIGN_SVG + '</span>'
+        : '');
 
     wrap.innerHTML =
       '<span class="status-dot"></span>' +
-      (event.highlighted
-        ? '<span class="highlight-badge" title="Gehighlight in de aankondiging-widget">' + STAR_SVG + '</span>'
-        : '') +
-      '<div class="event-type-label">' + esc(label) + '</div>' +
+      '<div class="event-type-label">' +
+        (badges ? '<span class="event-badges">' + badges + '</span>' : '') +
+        '<span class="event-type-text">' + esc(label) + '</span>' +
+      '</div>' +
       '<div class="event-detail-row">' +
         '<span class="event-time">' + esc(formatTime(event.starts_at)) + '</span>' +
         (count > 0 || event.registration.capacity !== null
@@ -763,6 +787,10 @@
             (event.highlighted
               ? '<span class="badge badge-xs badge-warning gap-1" title="Gehighlight in de aankondiging-widget">' +
                   '<i data-lucide="star" class="w-2.5 h-2.5"></i></span>'
+              : '') +
+            (event.in_signature
+              ? '<span class="badge badge-xs badge-info gap-1" title="Staat in de e-mailhandtekeningen">' +
+                  '<i data-lucide="pen-line" class="w-2.5 h-2.5"></i></span>'
               : '') +
             (legacyPage
               ? '<span class="badge badge-xs badge-outline gap-1" title="Er bestaat nog een oude WP-pagina (' +
@@ -1029,6 +1057,13 @@
       '<p class="text-xs opacity-50 mt-2">De online link komt nooit op de website; die gaat alleen per mail.</p>';
 
     // ── 3. Website ───────────────────────────────────────────────────────
+    // De promotievelden staan hier bij elkaar: "waar duikt dit event nog op".
+    // Ze leven alle vijf op het event in Odoo, dus dit scherm is de enige
+    // plek waar ze gezet worden -- niet in de nieuwsfeed-module en niet in de
+    // handtekening-designer, want dan zouden er twee plekken zijn die
+    // hetzelfde beweren.
+    var nieuws = event.news || {};
+
     var website =
       '<label class="label justify-start cursor-pointer gap-2 mb-3">' +
         '<input type="checkbox" class="checkbox checkbox-sm" data-field="highlighted"' +
@@ -1037,6 +1072,60 @@
           '<span class="opacity-60"> — dit event wordt vooraan getoond in de aankondiging-widget op de website</span>' +
         '</span>' +
       '</label>' +
+
+      '<div class="rounded border border-base-200 p-3 mb-3">' +
+        '<label class="label justify-start cursor-pointer gap-2 py-1">' +
+          '<input type="checkbox" class="checkbox checkbox-sm" data-field="news.in_feed"' +
+          (nieuws.in_feed ? ' checked' : '') + ' />' +
+          '<span class="label-text text-sm">Toon in de nieuwsfeed' +
+            '<span class="opacity-60"> — dit event komt tussen de nieuwsberichten te staan</span>' +
+          '</span>' +
+        '</label>' +
+        '<div class="grid grid-cols-2 gap-2 mt-2">' +
+          '<label class="form-control">' +
+            '<span class="label-text text-xs opacity-70">Vanaf</span>' +
+            '<input type="date" class="input input-bordered input-sm" data-field="news.from"' +
+            ' value="' + esc(nieuws.from || '') + '" />' +
+          '</label>' +
+          '<label class="form-control">' +
+            '<span class="label-text text-xs opacity-70">Tot en met</span>' +
+            '<input type="date" class="input input-bordered input-sm" data-field="news.until"' +
+            ' value="' + esc(nieuws.until || '') + '" />' +
+          '</label>' +
+        '</div>' +
+        '<label class="form-control mt-2">' +
+          '<span class="label-text text-xs opacity-70">Knoptekst in de feed</span>' +
+          '<input type="text" class="input input-bordered input-sm" data-field="news.cta"' +
+          ' placeholder="Schrijf je in" value="' + esc(nieuws.cta || '') + '" />' +
+        '</label>' +
+        '<p class="text-xs opacity-50 mt-2">Laat een datum leeg om die grens niet te zetten — ' +
+          'enkel het vinkje aan betekent dus: vanaf nu, tot je het uitzet. ' +
+          'De knoptekst wordt vanzelf "Schrijf je in" of "Bekijk het event".</p>' +
+      '</div>' +
+
+      '<label class="label justify-start cursor-pointer gap-2 mb-1">' +
+        '<input type="checkbox" class="checkbox checkbox-sm" data-field="in_signature"' +
+        (event.in_signature ? ' checked' : '') + ' />' +
+        '<span class="label-text text-sm">Toon in de e-mailhandtekeningen' +
+          '<span class="opacity-60"> — je mag dit bij meerdere events aanzetten; ' +
+          'in de handtekening staat altijd alleen het eerstvolgende, en zodra dat ' +
+          'niet meer aan de beurt is schuift het vanzelf door naar het volgende</span>' +
+        '</span>' +
+      '</label>' +
+
+      // Hoe lang het blijft staan. Een AANTAL DAGEN voor de start, geen eigen
+      // datum: verzet iemand het event, dan schuift deze grens mee. Vooral
+      // bedoeld voor een event waarvoor inschrijven eerder sluit dan het
+      // begint -- dan verwijst iedereens handtekening anders nog dagenlang
+      // naar een pagina waar je niets meer kan.
+      '<div class="flex flex-wrap items-center gap-2 mb-3 pl-8">' +
+        '<span class="label-text text-xs opacity-70">Verdwijnt</span>' +
+        '<input type="number" min="0" step="1" class="input input-bordered input-xs w-16"' +
+        ' data-field="signature_until_days" value="' + (event.signature_until_days || 0) + '" />' +
+        '<span class="label-text text-xs opacity-70">dagen voor de start ' +
+          '<span class="opacity-70">— 0 betekent: tot het event begint</span>' +
+        '</span>' +
+      '</div>' +
 
       '<div class="mb-3">' +
         '<span class="label-text text-xs opacity-70">Hero-beeld</span>' +
@@ -1117,7 +1206,8 @@
   /** De publieke URL van een event, voor de "bekijk op de site"-knop. */
   function publicEventUrl(event) {
     var base = (window.MYMMO_SITE_URL || 'https://openvme.be').replace(/\/$/, '');
-    return base + '/event/' + encodeURIComponent(event.slug) + '/';
+    // Zelfde pad als PUBLIC_EVENT_PATH in event-operations-v2/constants.js.
+    return base + '/events/' + encodeURIComponent(event.slug) + '/';
   }
 
   // ─── Opmaakvenster ─────────────────────────────────────────────────────────
@@ -1137,7 +1227,7 @@
 
     el('composerSave').setAttribute('data-event-id', String(event.id));
     el('composerTitle').textContent = event.title || '(zonder titel)';
-    el('composerUrl').textContent = event.slug ? '/event/' + event.slug + '/' : '(nog geen slug)';
+    el('composerUrl').textContent = event.slug ? '/events/' + event.slug + '/' : '(nog geen slug)';
 
     var host = el('composerEditor');
     host.innerHTML = '';
@@ -1167,7 +1257,10 @@
     });
 
     if (event.body_html) {
-      state.bodyEditor.clipboard.dangerouslyPasteHTML(event.body_html);
+      // Eerst normaliseren: Quill leest bij het plakken het type van de
+      // OUDER (<ol> = nummers), dus een al bewaarde bolletjeslijst in de
+      // oude vorm werd bij elke keer openen genummerd.
+      state.bodyEditor.clipboard.dangerouslyPasteHTML(normalizeQuillLists(event.body_html));
     }
 
     // Live voorbeeld, met een rustige vertraging zodat het niet bij elke
@@ -1190,7 +1283,7 @@
     var format = FORMAT_META[event.format] || FORMAT_META.online;
     var type = event.event_type || {};
     var status = event.registration.status || {};
-    var body = state.bodyEditor ? state.bodyEditor.root.innerHTML : (event.body_html || '');
+    var body = normalizeQuillLists(state.bodyEditor ? state.bodyEditor.root.innerHTML : (event.body_html || ''));
     var isEmpty = body.replace(/<[^>]*>/g, '').trim() === '';
 
     var when = event.starts_at
@@ -1217,11 +1310,13 @@
           '<div><span>Wanneer</span><b>' + esc(when) + '</b><i>' + esc(timeRange) + '</i></div>' +
           '<div><span>Waar</span><b>' + esc(event.location.name || 'Online') + '</b>' +
             (event.location.name ? '' : '<i>Je krijgt de deelnamelink per e-mail</i>') + '</div>' +
-          (event.registration.capacity !== null
-            ? '<div><span>Plaatsen</span><b>' +
-              (event.registration.seats_left === 0 ? 'Volzet' : 'Nog ' + event.registration.seats_left + ' vrij') +
-              '</b><i>van ' + event.registration.capacity + '</i></div>'
-            : '') +
+          // Zelfde regel als de plugin (single.php): geen "x van y" op de
+          // publieke pagina, enkel een melding als het bijna of helemaal vol is.
+          (event.registration.seats_left === 0
+            ? '<div><span>Plaatsen</span><b>Volzet</b></div>'
+            : (typeof event.registration.seats_left === 'number' && event.registration.seats_left < 5
+              ? '<div><span>Plaatsen</span><b>Bijna volzet</b><i>Schrijf je snel in</i></div>'
+              : '')) +
         '</div>' +
         '<div class="prev-body">' +
           (isEmpty
@@ -1246,11 +1341,41 @@
       '</div>';
   }
 
+  /**
+   * Quill 2 schrijft elke lijst als <ol>, ook een bolletjeslijst (het type
+   * staat enkel in <li data-list="bullet">). Buiten de editor werd dat dus
+   * een genummerde lijst. Dit zet het om naar echte <ul>/<ol>, per reeks van
+   * hetzelfde type, en haalt Quill's <span class="ql-ui"> weg.
+   * Zelfde logica als normalizeQuillLists() in event-operations-v2/lib/blocks.js.
+   * getSemanticHTML() van Quill 2.0.2 doet dit ook, maar zet daarbij elke
+   * spatie om in &nbsp; -- vandaar deze eigen versie.
+   */
+  function normalizeQuillLists(html) {
+    if (typeof html !== 'string' || html.indexOf('data-list') === -1) return html;
+    return html.replace(/<ol\b[^>]*>([\s\S]*?)<\/ol\s*>/gi, function (whole, inner) {
+      var runs = [];
+      var re = /<li\b([^>]*)>([\s\S]*?)<\/li\s*>/gi;
+      var m;
+      while ((m = re.exec(inner)) !== null) {
+        var type = /\bdata-list\s*=\s*["']([\w-]+)["']/i.exec(m[1]);
+        var tag = type && type[1].toLowerCase() !== 'ordered' ? 'ul' : 'ol';
+        var attrs = m[1].replace(/\s*\bdata-list\s*=\s*["'][^"']*["']/i, '');
+        var body = m[2].replace(/<span\b[^>]*\bql-ui\b[^>]*>\s*<\/span>/gi, '');
+        var item = '<li' + attrs + '>' + body + '</li>';
+        var last = runs[runs.length - 1];
+        if (last && last.tag === tag) last.items.push(item);
+        else runs.push({ tag: tag, items: [item] });
+      }
+      if (runs.length === 0) return whole;
+      return runs.map(function (r) { return '<' + r.tag + '>' + r.items.join('') + '</' + r.tag + '>'; }).join('');
+    });
+  }
+
   /** De inhoud uit de editor, of undefined als het venster nooit open was. */
   function bodyHtmlFromEditor() {
     if (!state.bodyEditor) return undefined;
 
-    var html = state.bodyEditor.root.innerHTML.trim();
+    var html = normalizeQuillLists(state.bodyEditor.root.innerHTML).trim();
     if (html === '' || html === '<p><br></p>' || html === '<p></p>') return null;
     return html;
   }
@@ -1417,7 +1542,18 @@
       } else {
         value = input.value.trim() === '' ? null : input.value.trim();
       }
-      payload[name] = value;
+      if (name.indexOf('.') !== -1) {
+        // Een GENEST veld ("news.from"). De server verwacht die vier als EEN
+        // blok en niet als vier losse sleutels: zo kan er geen half venster
+        // ontstaan doordat er toevallig maar een van de vier meeging.
+        var delen = name.split('.');
+        if (!payload[delen[0]] || typeof payload[delen[0]] !== 'object') {
+          payload[delen[0]] = {};
+        }
+        payload[delen[0]][delen[1]] = value;
+      } else {
+        payload[name] = value;
+      }
     });
 
     // Datum (+ eventueel uur/kwartier): geen data-field, dus niet meegepikt

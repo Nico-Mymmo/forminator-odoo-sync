@@ -29,6 +29,8 @@
   <a href="/forminator-v2" class="ov-knop" title="Terug naar Koppelingen">← Koppelingen</a>
   <span class="ov-werkbalk-titel">Offerte</span>
   <button type="button" class="ov-knop" id="ovKnopBewerken" data-action="bewerken">Tekst bewerken</button>
+  <button type="button" class="ov-knop" id="ovKnopOpmaak" data-action="opmaak">Opmaak</button>
+  <button type="button" class="ov-knop" id="ovKnopIndelingHerstel" data-action="indeling" data-doe="alles-herstel" hidden>Indeling terugzetten</button>
   <button type="button" class="ov-knop" data-action="gegevens">Gegevens invullen&hellip;</button>
   <button type="button" class="ov-knop" data-action="instellingen">Nummering &amp; geldigheid&hellip;</button>
   <button type="button" class="ov-knop" data-action="bedrijven">Bedrijven&hellip;</button>
@@ -71,8 +73,11 @@
       <input type="text" id="ovSequencePattern" placeholder="{jaar}-OFFSYN-{teller:5}">
     </label>
     <p class="ov-veld-hint">
-      <code>{jaar}</code> = huidig jaar, <code>{teller}</code> of <code>{teller:5}</code> (met N nullen opgevuld) = een
-      doorlopend volgnummer voor DIT sjabloon. Leeg = geen generator; het veld "Offertenummer" blijft dan een
+      <code>{jaar}</code>, <code>{maand}</code>, <code>{dag}</code> = vandaag (Belgische tijd), en
+      <code>{teller}</code> = een doorlopend volgnummer voor DIT sjabloon. Maand en dag zijn altijd twee cijfers
+      (<code>{maand}</code> in september wordt "09"), zodat elk nummer even lang is; wie toch "9" wil, schrijft
+      <code>{maand:getal}</code>. Achter de teller mag een breedte staan: <code>{teller:5}</code> wordt "00007".
+      Leeg = geen generator; het veld "Offertenummer" blijft dan een
       gewone koppeling (Formulierveld/Vaste tekst/...). Om de generator te gebruiken, kies je in de koppeling
       bij het veld "Offertenummer" de bron "Generator (offertenummer)".
     </p>
@@ -101,6 +106,31 @@
     <button type="button" class="ov-knop" data-action="sluiten">Sluiten</button>
   </div>
   <div class="ov-dialoog-body" id="ovBedrijvenBody"></div>
+</dialog>
+
+<!-- Een afbeelding vervangen: kiezen uit de Asset Manager of een link plakken.
+     Opgebouwd door toonBeeldKiezer() in offerte-render.js. -->
+<dialog class="ov-dialoog" id="ovBeeldDialoog">
+  <div class="ov-dialoog-kop">
+    <span id="ovBeeldTitel">Afbeelding vervangen</span>
+    <button type="button" class="ov-knop" data-action="sluiten">Sluiten</button>
+  </div>
+  <div class="ov-dialoog-body">
+    <div class="ov-beeld-voorbeeld" id="ovBeeldVoorbeeld"></div>
+    <label class="ov-veld">
+      <span>Link naar de afbeelding</span>
+      <input type="text" id="ovBeeldUrl" placeholder="https://...">
+    </label>
+    <p class="ov-veld-hint">
+      Of kies hieronder uit de Asset Manager. Een nieuwe afbeelding uploaden doe je in de
+      <a href="/assets" target="_blank" rel="noopener">Asset Manager</a>; kom daarna hier terug.
+    </p>
+    <div id="ovBeeldLijst"></div>
+  </div>
+  <div class="ov-dialoog-voet">
+    <button type="button" class="ov-knop" data-action="sluiten">Annuleren</button>
+    <button type="button" class="ov-knop ov-knop--hoofd" data-action="beeld-toepassen">Toepassen</button>
+  </div>
 </dialog>
 
 <!-- De volledige inhoud als JSON: kopiëren om ergens anders in te hangen, of

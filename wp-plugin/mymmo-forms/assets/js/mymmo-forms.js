@@ -317,10 +317,13 @@
    * toonFoutInVenster hieronder) i.p.v. een vast element in modal.php: dat
    * zou een nieuwe PHP-template + vertaalsleutel vragen voor iets dat puur
    * een voorbijgaande visuele status is, geen door een beheerder getypte
-   * tekst. De tekst hergebruikt bewust t.submitting -- dezelfde boodschap die
-   * al op de knop stond, dus geen tweede vertaalsleutel voor hetzelfde
-   * bericht (MESSAGES blijft de ENIGE bron per veldnaam).
+   * tekst. De tekst komt uit MESSAGES (`busy`), met een terugval hier voor
+   * een Worker die die sleutel nog niet meestuurt. Na een geslaagde inzending
+   * gaat het meteen naar het dankjewelscherm -- geen tussenmelding, anders
+   * staat "verzonden" er twee keer.
    */
+  var VLIEGER = 'https://link.openvme.be/assets/brand/thingies/thingies_vlieger.svg';
+
   function toonBezigInVenster(form, t) {
     var wikkel = form.closest('.mymmo-form-wrap') || form.parentNode;
     if (!wikkel) return;
@@ -329,11 +332,17 @@
       overlay = document.createElement('div');
       overlay.className = 'mymmo-form-bezig';
       overlay.setAttribute('role', 'status');
-      overlay.innerHTML = '<span class="mymmo-form-bezig-spinner" aria-hidden="true"></span>' +
-        '<span class="mymmo-form-bezig-tekst"></span>';
+      overlay.innerHTML = '<img class="mymmo-form-bezig-beeld" src="' + VLIEGER + '" alt="" aria-hidden="true" loading="eager" decoding="async">' +
+        '<span class="mymmo-form-bezig-regel"><span class="mymmo-form-bezig-tekst"></span>' +
+        '<span class="mymmo-form-bezig-puntjes" aria-hidden="true"><span>.</span><span>.</span><span>.</span></span></span>';
       wikkel.appendChild(overlay);
     }
-    overlay.querySelector('.mymmo-form-bezig-tekst').textContent = t.submitting || 'Bezig met versturen…';
+    // De puntjes zijn CSS-animatie, dus de tekst zelf zonder puntjes. De
+    // terugval staat hier voor een Worker die de sleutel `busy` nog niet kent.
+    overlay.querySelector('.mymmo-form-bezig-tekst').textContent = t.busy || 'We maken je offerte op';
+    // De wikkel krijgt een klasse die de inhoud onzichtbaar maakt: het overlay
+    // alleen (half doorzichtig) liet de formuliertekst erdoor schemeren.
+    wikkel.classList.add('mymmo-form-wrap--bezig');
     overlay.hidden = false;
   }
 
@@ -341,6 +350,7 @@
     var wikkel = form.closest('.mymmo-form-wrap') || form.parentNode;
     var overlay = wikkel && wikkel.querySelector('.mymmo-form-bezig');
     if (overlay) overlay.hidden = true;
+    if (wikkel) wikkel.classList.remove('mymmo-form-wrap--bezig');
   }
 
   function toonDankInVenster(form) {

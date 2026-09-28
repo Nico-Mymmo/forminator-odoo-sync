@@ -114,9 +114,9 @@
           var pad = paar[0], label = paar[1];
           var m = mappingByPath[pad];
           var bron = m ? m.source_type : '';
-          // Alleen de zes bronnen die deze stap kent -- een andere source_type
+          // Alleen de bronnen die deze stap kent -- een andere source_type
           // (bv. html_form_summary) hoort hier niet en wordt als "vaste tekst" getoond.
-          if (bron && bron !== 'form' && bron !== 'previous_step_output' && bron !== 'static'
+          if (bron && bron !== 'form' && bron !== 'previous_step_output' && bron !== 'static' && bron !== 'template'
               && bron !== 'generated_unique_id' && bron !== 'offer_sequence' && bron !== 'offer_validity') bron = 'static';
 
           return '<div class="flex items-center gap-2 py-1" data-pdf-row data-path="' + esc(pad) + '">' +
@@ -125,6 +125,7 @@
               '<option value=""' + (bron === '' ? ' selected' : '') + '>Sjabloonwaarde</option>' +
               '<option value="form"' + (bron === 'form' ? ' selected' : '') + '>Formulierveld</option>' +
               '<option value="previous_step_output"' + (bron === 'previous_step_output' ? ' selected' : '') + '>Vorige stap</option>' +
+              '<option value="template"' + (bron === 'template' ? ' selected' : '') + '>Samengesteld (meerdere velden)</option>' +
               '<option value="static"' + (bron === 'static' ? ' selected' : '') + '>Vaste tekst</option>' +
               '<option value="generated_unique_id"' + (bron === 'generated_unique_id' ? ' selected' : '') + '>Generator (uniek nummer)</option>' +
               '<option value="offer_sequence"' + (bron === 'offer_sequence' ? ' selected' : '') + '>Generator (offertenummer)</option>' +
@@ -136,6 +137,23 @@
               ' list="pdfStepSuggest-' + esc(tid) + '" placeholder="step.2.record_id"' +
               ' value="' + esc(bron === 'previous_step_output' ? (m.source_value || '') : '') + '"' +
               (bron === 'previous_step_output' ? '' : ' style="display:none"') + '>' +
+            // Samengesteld: tekst met {veld}-placeholders (source_type 'template',
+            // dezelfde bron als in de gewone veldkoppeling). De keuzelijst ernaast
+            // voegt een veld in op de plaats van de cursor, zodat niemand de
+            // technische veldnamen moet kennen.
+            '<span class="flex flex-1 min-w-0 gap-1" data-pdf-templatevalue data-path="' + esc(pad) + '" data-tid="' + esc(tid) + '"' +
+              (bron === 'template' ? '' : ' style="display:none"') + '>' +
+              '<input type="text" class="input input-bordered input-xs flex-1 min-w-0" data-pdf-templateinput' +
+                ' placeholder="{straat} {huisnummer}, {postcode} {gemeente}"' +
+                ' value="' + esc(bron === 'template' ? (m.source_value || '') : '') + '">' +
+              '<select class="select select-bordered select-xs w-36 shrink-0" data-pdf-insertfield>' +
+                '<option value="">+ veld invoegen</option>' +
+                velden.map(function (f) {
+                  var id = f.field_id || f.fieldId || f.id || f.name || '';
+                  return id ? '<option value="' + esc(id) + '">' + esc(f.label || id) + '</option>' : '';
+                }).join('') +
+              '</select>' +
+            '</span>' +
             '<input type="text" class="input input-bordered input-xs flex-1 min-w-0" data-pdf-staticvalue data-path="' + esc(pad) + '" data-tid="' + esc(tid) + '"' +
               ' value="' + esc(bron === 'static' ? (m.source_value || '') : '') + '"' +
               (bron === 'static' ? '' : ' style="display:none"') + '>' +
@@ -272,16 +290,31 @@
 
     // ── Eén gedelegeerde listener op de composer zelf ───────────────────────
     el.addEventListener('change', function (e) {
+      var invoeg = e.target.closest('[data-pdf-insertfield]');
+      if (invoeg) {
+        var invoer = invoeg.parentNode.querySelector('[data-pdf-templateinput]');
+        if (invoer && invoeg.value) {
+          var stuk = '{' + invoeg.value + '}';
+          var van = invoer.selectionStart != null ? invoer.selectionStart : invoer.value.length;
+          var tot = invoer.selectionEnd != null ? invoer.selectionEnd : invoer.value.length;
+          invoer.value = invoer.value.slice(0, van) + stuk + invoer.value.slice(tot);
+          invoer.focus();
+          invoer.setSelectionRange(van + stuk.length, van + stuk.length);
+        }
+        invoeg.value = '';
+        return;
+      }
       var bronSel = e.target.closest('[data-pdf-bron]');
       if (bronSel) {
         var rij = bronSel.closest('[data-pdf-row]');
         if (!rij) return;
-        rij.querySelectorAll('[data-pdf-formfield],[data-pdf-stepvalue],[data-pdf-staticvalue],[data-pdf-generatorhint],[data-pdf-sequencehint],[data-pdf-validityhint]').forEach(function (ctl) {
+        rij.querySelectorAll('[data-pdf-formfield],[data-pdf-stepvalue],[data-pdf-staticvalue],[data-pdf-templatevalue],[data-pdf-generatorhint],[data-pdf-sequencehint],[data-pdf-validityhint]').forEach(function (ctl) {
           ctl.style.display = 'none';
         });
         var veldNaam = bronSel.value === 'form' ? 'pdf-formfield'
           : bronSel.value === 'previous_step_output' ? 'pdf-stepvalue'
           : bronSel.value === 'static' ? 'pdf-staticvalue'
+          : bronSel.value === 'template' ? 'pdf-templatevalue'
           : bronSel.value === 'generated_unique_id' ? 'pdf-generatorhint'
           : bronSel.value === 'offer_sequence' ? 'pdf-sequencehint'
           : bronSel.value === 'offer_validity' ? 'pdf-validityhint' : null;
@@ -375,7 +408,14 @@
         var tEl = document.querySelector('[data-pdf-staticvalue][data-path="' + pad + '"][data-tid="' + tid + '"]');
         var tVal = tEl ? tEl.value : '';
         if (!tVal) return;
-        rows.push({ odoo_field: pad, source_type: 'static', source_value: tVal, is_required: false, order_index: orderIdx++ });
+        // Zelfde regel als de gewone veldkoppeling: een vaste tekst met een
+        // {veld} erin IS een samengestelde waarde.
+        rows.push({ odoo_field: pad, source_type: /\{[^}]+\}/.test(tVal) ? 'template' : 'static', source_value: tVal, is_required: false, order_index: orderIdx++ });
+      } else if (bron === 'template') {
+        var wEl = document.querySelector('[data-pdf-templatevalue][data-path="' + pad + '"][data-tid="' + tid + '"] [data-pdf-templateinput]');
+        var wVal = wEl ? wEl.value.trim() : '';
+        if (!wVal) return;
+        rows.push({ odoo_field: pad, source_type: 'template', source_value: wVal, is_required: false, order_index: orderIdx++ });
       } else if (bron === 'generated_unique_id') {
         // Zelfde sentinel-afspraak als de gewone mapping-tabel (zie
         // GENERATED_ID_SENTINEL in forminator-sync-v2-detail-mapping-tab.js):

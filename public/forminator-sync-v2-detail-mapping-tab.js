@@ -1218,6 +1218,10 @@
     var compatibleSteps = sortedTargets.filter(function (t, idx) {
       if (idx >= myIdx) return false;
       if (t.operation_type === 'chatter_message' || t.operation_type === 'create_activity') return false;
+      // Nooit een notitie bij een medewerker: hr.employee staat in de meeste
+      // koppelingen enkel als ZOEKstap (host, contactpersoon) en heeft geen
+      // rij in fs_v2_odoo_models, dus allow_chatter vangt het niet op.
+      if (t.odoo_model === 'hr.employee') return false;
       var cache = (S() && S().odooModelsCache) || [];
       // Exacte naam eerst -- zie de uitleg bij getModelCfg() in core.js.
       var mc = cache.find(function (c) { return c.name === t.odoo_model; })

@@ -177,6 +177,22 @@ je *Detailpagina's overnemen* aan hebt staan, maar het kan nooit kwaad.
 
 ## Versies
 
+**1.7.1**
+- De eventpagina toont niet meer hoeveel plaatsen er nog vrij zijn van
+  hoeveel ("Nog 12 vrij / van 40"). Hoeveel mensen er al ingeschreven zijn,
+  gaat een bezoeker niet aan en werkt bij een half leeg event eerder
+  afschrikkend. Enkel bij minder dan 5 vrije plaatsen staat er "Bijna volzet,
+  schrijf je snel in", en bij 0 "Volzet". Geldt voor de eventpagina, het
+  inschrijfformulier en de kaartjes in de lijst (`MYMMO_EVENTS_ALMOST_FULL`).
+- Standaardpad van de eventpagina is nu `events` (was `event`), gelijk aan
+  `PUBLIC_EVENT_PATH` in de OM. De OM bouwde de links in handtekeningen en
+  mails met `/event/`, terwijl de pagina's op `/events/` staan -- die links
+  werkten dus niet. Een site die "Pad eventpagina" zelf ingesteld heeft,
+  houdt die waarde; zet ze dan op `events`.
+- Opsommingen met bolletjes werden genummerd. Oorzaak zat in de OM (de
+  editor bewaart elke lijst als `<ol>`); de OM zet dat nu om voor het naar de
+  site gaat. Aan de plugin veranderde daarvoor niets.
+
 **1.6.35**
 - Mobiel: terugswipen was niet te lezen. De vorige kaart vloog van RECHTS
   binnen -- dezelfde kant waar de vinger net naartoe sleepte -- terwijl de

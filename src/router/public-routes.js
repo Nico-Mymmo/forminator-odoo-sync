@@ -37,6 +37,10 @@ import { handleLogin, handleLogout, handleMe } from '../api/auth.js';
 import { validateSession } from '../lib/auth/session.js';
 import { getModuleByCode, resolveModuleRoute } from '../modules/registry.js';
 import { handleEventsPublicApi, isEventsPublicApiPath } from '../modules/event-operations-v2/public-api.js';
+import {
+  handleContentFeedPublicApi,
+  isContentFeedPublicApiPath
+} from '../modules/content-feed/public-api.js';
 import { validateKey } from '../modules/asset-manager/lib/path-utils.js';
 import { getMimeType } from '../modules/asset-manager/lib/mime-types.js';
 import { extractSessionToken } from './auth-gate.js';
@@ -460,7 +464,9 @@ export async function handlePublicRoutes(request, env, ctx) {
       return json({ success: false, error: 'Unauthorized' }, 401);
     }
 
-    return await handleMe({ user });
+    // Alleen een COOKIE opnieuw zetten; een Bearer-token is geen cookie.
+    const viaCookie = !(request.headers.get('Authorization') || '').startsWith('Bearer ');
+    return await handleMe({ user, token: viaCookie ? token : null });
   }
 
   // Postmark-webhook: afgeleverd/geopend/geklikt/bounce van de send_mail-stap.
@@ -512,6 +518,14 @@ export async function handlePublicRoutes(request, env, ctx) {
 
   if (isEventsPublicApiPath(pathname)) {
     return await handleEventsPublicApi(request, env, ctx, pathname);
+  }
+
+  // Publieke nieuws-API voor de mymmo-news-plugin. Geen sessie: de handler
+  // valideert zelf de sitesleutel (header X-Mymmo-Site-Key) tegen
+  // env.CONTENT_FEED_PUBLIC_SITE_KEYS, doet een rate limit per sleutel en
+  // geeft 401 zonder geldige sleutel. Alleen lezen -- er is geen schrijfpad.
+  if (isContentFeedPublicApiPath(pathname)) {
+    return await handleContentFeedPublicApi(request, env, ctx, pathname);
   }
 
   // Calendly-boeking. Geen token in de URL: de handler kijkt zelf de

@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Mymmo Events
  * Description:       Kalender, eventpagina's en inschrijvingen, rechtstreeks uit de OpenVME Operations Manager. Geen dubbele events in WordPress.
- * Version:           1.7.0
+ * Version:           1.7.1
  * Requires at least: 6.2
  * Requires PHP:      8.0
  * Author:            Mymmo
@@ -27,14 +27,24 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('MYMMO_EVENTS_VERSION', '1.7.0');
+define('MYMMO_EVENTS_VERSION', '1.7.1');
 define('MYMMO_EVENTS_FILE', __FILE__);
 define('MYMMO_EVENTS_DIR', plugin_dir_path(__FILE__));
 define('MYMMO_EVENTS_URL', plugin_dir_url(__FILE__));
 
-/** Basispaden. Enkelvoud voor detail, meervoud voor het archief — zoals nu. */
-define('MYMMO_EVENTS_DEFAULT_EVENT_BASE', 'event');
+/**
+ * Basispaden. Het eventpad moet gelijk zijn aan PUBLIC_EVENT_PATH in de OM
+ * (event-operations-v2/constants.js): de OM bouwt daarmee de links in mails,
+ * handtekeningen en de nieuwsfeed. Tot 1.7.1 stond de standaard op 'event'.
+ */
+define('MYMMO_EVENTS_DEFAULT_EVENT_BASE', 'events');
 define('MYMMO_EVENTS_DEFAULT_ARCHIVE_BASE', 'events');
+
+/**
+ * Onder dit aantal vrije plaatsen zegt de pagina "Bijna volzet". Daarboven
+ * tonen we niets over het aantal inschrijvingen.
+ */
+define('MYMMO_EVENTS_ALMOST_FULL', 5);
 
 require_once MYMMO_EVENTS_DIR . 'includes/helpers.php';
 require_once MYMMO_EVENTS_DIR . 'includes/class-cache.php';

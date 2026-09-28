@@ -1,0 +1,117 @@
+/**
+ * De kiezer van de markeerstift -- ALLEEN in de editor.
+ *
+ * Waarom een eigen bestand en niet bij `mymmo-markering.css`: die stylesheet
+ * gaat via `enqueue_block_assets` mee het CANVAS in (het iframe met de pagina),
+ * en dat is precies waar de streep hoort. De kiezer is een popover en leeft in
+ * het document ERBUITEN, bij de werkbalk. Eén bestand voor allebei zou in het
+ * ene document dode regels zetten en in het andere de nodige missen.
+ */
+
+.mymmo-markering-paneel {
+  width: 240px;
+  padding: 12px;
+}
+
+.mymmo-markering-kop {
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #757575;
+}
+
+.mymmo-markering-vormen {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.mymmo-markering-vorm {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  padding: 6px;
+  background: none;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.mymmo-markering-vorm:hover {
+  border-color: #949494;
+}
+
+.mymmo-markering-vorm.is-gekozen {
+  border-color: var(--wp-admin-theme-color, #3858e9);
+  box-shadow: 0 0 0 1px var(--wp-admin-theme-color, #3858e9);
+}
+
+/* Het voorbeeld is de ECHTE tekening, als masker, net als op de pagina. Een
+   plaatje van de streep zou uit de pas kunnen lopen met wat je krijgt. */
+.mymmo-markering-proef {
+  display: block;
+  height: 16px;
+  background-color: currentColor;
+  -webkit-mask-size: 100% 100%;
+  mask-size: 100% 100%;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+}
+
+.mymmo-markering-vorm-naam {
+  font-size: 11px;
+  line-height: 1.2;
+  color: #1e1e1e;
+}
+
+.mymmo-markering-kleuren {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.mymmo-markering-kleur {
+  padding: 2px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 50%;
+  line-height: 0;
+  cursor: pointer;
+}
+
+.mymmo-markering-kleur.is-gekozen {
+  border-color: var(--wp-admin-theme-color, #3858e9);
+}
+
+.mymmo-markering-staal {
+  display: block;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12);
+}
+
+/* "Zelfde kleur als de tekst": een staal met een schuine streep, zodat het niet
+   leest als een kleur die toevallig wit is. */
+.mymmo-markering-staal--auto {
+  background:
+    linear-gradient(
+      135deg,
+      #fff 0 44%,
+      #949494 44% 56%,
+      #fff 56% 100%
+    );
+}
+
+.mymmo-markering-leeg {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: #757575;
+}

@@ -296,7 +296,7 @@ export async function upsertUserSettings(env, userEmail, settings, updatedBy) {
     'show_name', 'show_role_title', 'show_email', 'show_phone', 'show_photo',
     'greeting_text', 'show_greeting',
     'selected_companies', 'show_company',
-    'hidden_event_id',
+    'show_event_promo',
     'show_disclaimer', 'disclaimer_text',
     'linkedin_promo_enabled', 'linkedin_url', 'linkedin_eyebrow',
     'linkedin_text', 'linkedin_author_name', 'linkedin_author_img', 'linkedin_likes',

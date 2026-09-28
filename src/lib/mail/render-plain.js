@@ -52,8 +52,19 @@ function heeftBlokHtml(tekst) {
   return /<(p|div|br|ul|ol|blockquote|h[1-6])\b/i.test(tekst);
 }
 
-/** De marge tussen alinea's. Eén plek, zodat elke alinea er hetzelfde uitziet. */
-const ALINEA_STIJL = 'margin:0 0 1em;';
+/**
+ * De marge van een alinea: NUL.
+ *
+ * DE COPY GAAT EXACT MEE, DE LAYOUT NIET. In de editor is elke Enter een
+ * nieuwe `<p>` en staat die regel direct onder de vorige; een witregel is een
+ * lege `<p><br></p>`. Gaf elke alinea een marge (dat was `margin:0 0 1em`),
+ * dan kreeg elke Enter in de mail een witregel die niemand typte, en waren
+ * een Enter en een witregel niet meer van elkaar te onderscheiden. Met marge
+ * nul is een `<p>` een regel en een lege `<p>` een witregel -- precies wat je
+ * typte. De stijl staat er expliciet, want zonder zet elke mailclient zijn
+ * eigen marge rond een `<p>`.
+ */
+const ALINEA_STIJL = 'margin:0;';
 
 /**
  * Hoe een link eruitziet.
@@ -67,26 +78,46 @@ const ALINEA_STIJL = 'margin:0 0 1em;';
 const LINK_STIJL = 'color:#2563eb;text-decoration:underline;';
 
 /**
- * De witruimte gelijktrekken, ongeacht waar de HTML uit komt.
+ * De tekst van de editor omzetten naar HTML die in ELKE mailclient hetzelfde
+ * leest als in de editor. Er wordt NIETS weggelaten of samengevoegd: geen
+ * lege regels eruit, geen reeksen enters ingekort, geen spaties samengetrokken.
  *
- * Twee dingen gingen hier mis in de eerste versie, en samen gaven ze dubbel
- * zoveel ruimte als je in de editor zag:
+ * - LEGE ALINEA'S blijven staan; ze zijn een witregel. Een helemaal lege
+ *   `<p></p>` krijgt een `<br>`, anders heeft ze geen hoogte en verdwijnt de
+ *   witregel alsnog.
+ * - REGELEINDES IN DE TEKST worden `<br>`. De editor toont ze als nieuwe regel
+ *   (Quill bewaart geplakte tekst soms met echte regeleindes binnen een `<p>`),
+ *   een mailclient maakt er een spatie van: "Hoi , Bedankt voor je aanvraag".
+ *   Alleen witruimte TUSSEN twee blokken (`</p>\n<p>`) is opmaak van de bron
+ *   en valt weg.
+ * - MEERDERE SPATIES blijven meerdere spaties (`&nbsp;`); HTML trekt ze
+ *   anders samen tot een.
  *
- * 1. LEGE ALINEA'S. Wie in de editor twee keer Enter drukt, krijgt van Quill
- *    een `<p><br></p>`. Dat is geen inhoud maar ruimte, en bovenop de marge
- *    van de volgende alinea wordt dat een gat van twee regels. Ze gaan eruit;
- *    de afstand tussen alinea's komt van de marge, niet van lege elementen.
- *
- * 2. GEEN EIGEN MARGE. Een `<p>` zonder stijl krijgt de standaard van de
- *    mailclient (1em boven EN onder), en die verschilt per client. Elke
- *    alinea krijgt hier dezelfde marge, zodat wat je typt is wat er vertrekt.
+ * Tags en attributen worden niet aangeraakt: enkel de TEKST tussen tags.
  *
  * @param {string} html @returns {string}
  */
 function normaliseerWitruimte(html) {
-  return String(html)
-    // Lege alinea's en lege divs -- ook met &nbsp; of meerdere <br> erin.
-    .replace(/<(p|div)\b[^>]*>(?:\s|&nbsp;|<br\s*\/?>)*<\/\1>/gi, '')
+  const delen = String(html).replace(/\r\n?/g, '\n').split(/(<[^>]*>)/);
+  const isTag = (s) => typeof s === 'string' && s.charAt(0) === '<';
+  const isSluitBlok = (s) => /^<\/(p|div|ul|ol|li|blockquote|h[1-6])\b/i.test(s || '');
+  const isOpenBlok = (s) => /^<(p|div|ul|ol|li|blockquote|h[1-6])\b/i.test(s || '');
+
+  const uit = delen.map((deel, i) => {
+    if (deel === '' || isTag(deel)) return deel;
+    const vorige = delen[i - 1];
+    const volgende = delen[i + 1];
+    if (/^\s*$/.test(deel) && (isSluitBlok(vorige) || isOpenBlok(volgende) && !isOpenBlok(vorige))) {
+      return '';
+    }
+    return deel
+      .replace(/\n/g, '<br>')
+      .replace(/ {2,}/g, (reeks) => ' ' + '&nbsp;'.repeat(reeks.length - 1));
+  }).join('');
+
+  return uit
+    // Een ECHT lege alinea (ook met enkel spaties of &nbsp;) krijgt een <br>.
+    .replace(/<(p|div)(\b[^>]*)>(?:\s|&nbsp;)*<\/\1>/gi, '<$1$2><br></$1>')
     // Een <p> of <div> zonder eigen style krijgt de onze.
     .replace(/<(p|div)(\s(?![^>]*\bstyle=)[^>]*)?>/gi, function (_, tag, rest) {
       return '<' + tag + (rest || '') + ' style="' + ALINEA_STIJL + '">';
@@ -95,27 +126,19 @@ function normaliseerWitruimte(html) {
     .replace(/<a(\s(?![^>]*\bstyle=)[^>]*)?>/gi, function (_, rest) {
       return '<a' + (rest || '') + ' style="' + LINK_STIJL + '">';
     })
-    // Meer dan twee <br> op een rij is ook iemand die op Enter bleef duwen.
-    .replace(/(<br\s*\/?>\s*){3,}/gi, '<br><br>')
     .trim();
 }
 
 /**
- * Kale tekst met witregels omzetten naar alinea's.
- *
- * Zo mag iemand in de editor gewoon typen met enters, zonder dat er HTML aan
- * te pas komt. Staat er al blok-HTML in, dan blijft die ongemoeid -- dan
- * heeft de editor het al gestructureerd.
+ * Kale tekst (zonder blok-HTML) in EEN alinea zetten. De regeleindes worden
+ * daarna door normaliseerWitruimte() elk een `<br>`, dus een witregel blijft
+ * een witregel. Staat er al blok-HTML in, dan blijft die ongemoeid.
  *
  * @param {string} tekst @returns {string}
  */
 function alsAlineas(tekst) {
   if (heeftBlokHtml(tekst)) return tekst;
-  return String(tekst)
-    .trim()
-    .split(/\n{2,}/)
-    .map((deel) => `<p style="${ALINEA_STIJL}">${deel.trim().replace(/\n/g, '<br>')}</p>`)
-    .join('');
+  return `<p>${String(tekst).replace(/^\s*\n|\n\s*$/g, '')}</p>`;
 }
 
 /**

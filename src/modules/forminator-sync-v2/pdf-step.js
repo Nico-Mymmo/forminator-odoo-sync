@@ -48,6 +48,8 @@ function validatieFout(message) {
 
 /** Renderen mag maximaal dit lang duren — de WP-plugin wacht max. 15 s op de hele indiening. */
 const RENDER_TIMEOUT_MS = 9000;
+// Hoe lang een browsersessie na ons blijft staan voor de volgende inzending.
+const KEEP_ALIVE_MS = 5 * 60 * 1000;
 
 // ─── Padjes in de gegevens ───────────────────────────────────────────────────
 
@@ -89,6 +91,50 @@ function toegestaneGegevenspaden(velden) {
   return set;
 }
 
+/**
+ * Een keuze uit het formulier leesbaar maken voor op papier:
+ * "afvallokaal,meerdere_ingangen,laadpalen" → "Afvallokaal, meerdere ingangen, laadpalen".
+ *
+ * Een meerkeuze (de keien in een WordPress-stap, een checkbox-groep) komt
+ * binnen als de SLEUTELS van de keuzes, aan elkaar met een komma. Die
+ * sleutels zijn wat Odoo moet krijgen en liggen vast -- maar op een offerte
+ * leest een klant "meerdere_ingangen,laadpalen" als een fout.
+ *
+ * ENKEL wat eruitziet als sleutels wordt omgezet: elk deel bestaat uit kleine
+ * letters, cijfers en underscores, bevat minstens een letter, en het geheel
+ * heeft een komma of een underscore. Een adres, een naam, "4" of "12,5" blijft
+ * dus exact zoals het binnenkwam. De LABELS uit de stap zelf ("Tuin met
+ * onderhoud") kent de OM niet; wat hier staat is de sleutel, leesbaar gemaakt.
+ *
+ * @param {*} waarde @returns {string}
+ */
+export function leesbareKeuze(waarde) {
+  const tekst = String(waarde).trim();
+  const delen = tekst.split(/\s*,\s*/).filter((d) => d !== '');
+  const isSleutel = (d) => /^[a-z0-9_]+$/.test(d) && /[a-z]/.test(d);
+  if (!delen.length || !delen.every(isSleutel)) return String(waarde);
+  if (delen.length === 1 && !tekst.includes('_')) return String(waarde);
+  const zin = delen.map((d) => d.replace(/_+/g, ' ').trim()).join(', ');
+  return zin.charAt(0).toUpperCase() + zin.slice(1);
+}
+
+/**
+ * Een samengestelde waarde ("{straat} {nummer}, {postcode} {gemeente}") waarin
+ * een veld leeg bleef: geen dubbele spaties, geen komma zonder iets ervoor of
+ * erna. Zonder dit staat er op de offerte "Kerkstraat , 9000 Gent" of
+ * ", 9000 Gent". Blijft er niets over, dan is het leeg -- en houdt het veld de
+ * sjabloonwaarde, zoals elk ander leeg veld.
+ *
+ * @param {*} waarde @returns {string}
+ */
+export function ruimSamengesteldOp(waarde) {
+  return String(waarde == null ? '' : waarde)
+    .replace(/[ \t]+/g, ' ')
+    .replace(/ +,/g, ',')
+    .replace(/,(\s*,)+/g, ',')
+    .replace(/^[\s,]+|[\s,]+$/g, '');
+}
+
 /** {{pad.naar.waarde}} → waarde uit gegevens. Onbekend/leeg = leeg, zelfde regel als offerte-render.js. */
 function vulTekst(tekst, gegevens) {
   return String(tekst == null ? '' : tekst).replace(/\{\{\s*([\w.]+)\s*\}\}/g, (_, pad) => {
@@ -100,18 +146,70 @@ function vulTekst(tekst, gegevens) {
 // ─── Offertenummer-generator, geldigheidstermijn, licentieprijs ──────────────────
 
 /**
- * "{jaar}-OFFSYN-{teller:5}" + teller 7 -> "2026-OFFSYN-00007". Puur: geen
- * datum-object nodig van de aanroeper, enkel het jaartal (makkelijker te
- * testen, en de enige plek die "vandaag" hoeft te kennen is de aanroeper).
+ * Jaar, maand en dag in EUROPE/BRUSSELS.
+ *
+ * Een Worker draait op UTC. `new Date().getDate()` geeft daardoor tussen
+ * middernacht en 02:00 onze tijd nog de VORIGE dag -- en dan staat er een
+ * offertenummer en een geldigheidsdatum van gisteren op een offerte die vandaag
+ * vertrekt. Dat is niet zichtbaar als fout: er komt gewoon een nummer. Zelfde
+ * les als `x_studio_starting_day` bij de events (dat is er echt misgegaan) en de
+ * leesbare datumvelden bij Calendly.
+ *
+ * Blijft puur: de aanroeper geeft het moment mee, deze functie kent geen klok
+ * van zichzelf behalve de standaardwaarde.
+ *
+ * @param {Date} [nu]
+ * @returns {{jaar: number, maand: number, dag: number}}
+ */
+export function datumdelenBrussel(nu = new Date()) {
+  const delen = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Brussels',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(nu).reduce((acc, deel) => {
+    acc[deel.type] = deel.value;
+    return acc;
+  }, {});
+
+  return { jaar: Number(delen.year), maand: Number(delen.month), dag: Number(delen.day) };
+}
+
+/**
+ * "{jaar}-OFFSYN-{teller:5}" + teller 7 -> "2026-OFFSYN-00007".
+ *
+ * Beschikbaar: `{jaar}`, `{maand}`, `{dag}` en `{teller}`. MAAND EN DAG ZIJN
+ * STANDAARD TWEE CIJFERS ("09", "05"): zonder voorloopnul zijn de nummers niet
+ * even lang, en dan sorteert "2026924" voor "20261001" en is 2026-1-11 niet van
+ * 2026-11-1 te onderscheiden. Wie echt geen nul wil, schrijft `{maand:getal}`.
+ * `{dag:2}` en `{dag:leadingzero}` blijven werken en betekenen hetzelfde als
+ * `{dag}`; achter `{teller}` mag een breedte staan (`{teller:5}` -> "00007").
+ * Dit is enkel wat we bij het LEZEN van het patroon aanvaarden.
+ *
+ * Een onbekend woord achter de dubbele punt matcht niet en blijft dus letterlijk
+ * in het nummer staan. Dat is zichtbaar bij de eerste offerte en daarmee te
+ * herstellen -- stil de hele placeholder weglaten zou een nummer opleveren dat
+ * er goed uitziet en niet klopt.
  *
  * @param {string} patroon
  * @param {number} teller
- * @param {number} [jaar] - standaard het huidige jaar
+ * @param {Date} [nu] - het moment waarop het nummer gemaakt wordt
  * @returns {string}
  */
-export function formatSequenceNumber(patroon, teller, jaar = new Date().getFullYear()) {
+export function formatSequenceNumber(patroon, teller, nu = new Date()) {
+  const { jaar, maand, dag } = datumdelenBrussel(nu);
+
+  const vul = (waarde, breedte) => {
+    const n = String(waarde);
+    if (breedte === 'getal') return n;
+    if (!breedte || breedte === 'leadingzero') return n.padStart(2, '0');
+    return n.padStart(Number(breedte), '0');
+  };
+
   return String(patroon || '')
     .replace(/\{jaar\}/g, String(jaar))
+    .replace(/\{maand(?::(\d+|getal|leadingzero))?\}/g, (_, breedte) => vul(maand, breedte))
+    .replace(/\{dag(?::(\d+|getal|leadingzero))?\}/g, (_, breedte) => vul(dag, breedte))
     .replace(/\{teller(?::(\d+))?\}/g, (_, breedte) => {
       const n = String(Math.max(0, Number(teller) || 0));
       return breedte ? n.padStart(Number(breedte), '0') : n;
@@ -128,10 +226,23 @@ export function formatSequenceNumber(patroon, teller, jaar = new Date().getFullY
  * @returns {string}
  */
 export function computeGeldigTot(dagen, nu = new Date()) {
+  // Via datumdelenBrussel en niet via getDate(): zie de uitleg daar. Stond hier
+  // op de UTC-dag van de Worker, dus een offerte die hier om 00:30 gemaakt werd
+  // kreeg een geldigheidsdatum die een dag te vroeg afliep.
   const einde = new Date(nu.getTime() + Number(dagen) * 24 * 60 * 60 * 1000);
-  const dd = String(einde.getDate()).padStart(2, '0');
-  const mm = String(einde.getMonth() + 1).padStart(2, '0');
-  return `${dd}/${mm}/${einde.getFullYear()}`;
+  return formatDatumBrussel(einde);
+}
+
+/**
+ * Een moment als "DD/MM/JJJJ" in Europe/Brussels -- de vorm die het sjabloon
+ * gebruikt voor offerte.datum en offerte.geldig_tot.
+ *
+ * @param {Date} [nu]
+ * @returns {string}
+ */
+export function formatDatumBrussel(nu = new Date()) {
+  const { jaar, maand, dag } = datumdelenBrussel(nu);
+  return `${String(dag).padStart(2, '0')}/${String(maand).padStart(2, '0')}/${jaar}`;
 }
 
 /**
@@ -146,8 +257,13 @@ export function computeGeldigTot(dagen, nu = new Date()) {
  * Bewust GEEN "€" in de teruggegeven waarde: net als bij prijs.licentie zelf
  * voegt de COPY-tekst van het sjabloon dat symbool toe, niet de data.
  *
+ * `basis` is het aantal kavels waarmee GEREKEND is -- boven de 60 dus 60 en
+ * niet het echte aantal. De licentiekaart in de offerte toont die berekening
+ * ("Berekend: 26 x €4 per hoofdkavel"); zonder dit veld zou daar bij een groot
+ * gebouw een som staan die niet uitkomt op het bedrag ernaast.
+ *
  * @param {Object} gegevens
- * @returns {{ totaal: string, vanaf: boolean }|null}
+ * @returns {{ totaal: string, vanaf: boolean, basis: string }|null}
  */
 export function berekenLicentiePrijs(gegevens) {
   const kavelsMatch = String((gegevens && gegevens.gebouw && gegevens.gebouw.kavels) || '').match(/\d+/);
@@ -156,9 +272,10 @@ export function berekenLicentiePrijs(gegevens) {
   if (!Number.isFinite(kavels) || kavels <= 0 || !Number.isFinite(tarief)) return null;
 
   const vanaf = kavels > 60;
-  const totaalGetal = tarief * (vanaf ? 60 : kavels);
+  const basis = vanaf ? 60 : kavels;
+  const totaalGetal = tarief * basis;
   const totaal = Number.isInteger(totaalGetal) ? String(totaalGetal) : totaalGetal.toFixed(2).replace('.', ',');
-  return { totaal, vanaf };
+  return { totaal, vanaf, basis: String(basis) };
 }
 
 function veiligeBestandsnaam(naam) {
@@ -229,12 +346,13 @@ export async function buildPdfGegevens(env, { target, template, mappings, form, 
       continue;
     }
 
-    const waarde = resolveMapping(mapping, form, contextObject);
+    let waarde = resolveMapping(mapping, form, contextObject);
+    if (mapping.source_type === 'template') waarde = ruimSamengesteldOp(waarde);
     if (waarde === null || waarde === undefined || waarde === '') {
       waarschuwingen.push(`Geen waarde voor "${pad}" — sjabloonwaarde behouden.`);
       continue;
     }
-    zetPad(gegevens, pad, String(waarde));
+    zetPad(gegevens, pad, mapping.source_type === 'form' ? leesbareKeuze(waarde) : String(waarde));
   }
 
   // ── Bedrijf ── één gekozen profiel vervangt de hele groep, geen per-veld
@@ -258,6 +376,7 @@ export async function buildPdfGegevens(env, { target, template, mappings, form, 
   if (licentie) {
     gegevens.prijs.licentie_totaal = licentie.totaal;
     gegevens.prijs.licentie_totaal_label = licentie.vanaf ? 'Vanaf ' : '';
+    gegevens.prijs.licentie_basis = licentie.basis;
   }
 
   // ── Contactpersoon — vast of uit een vorige stap ──────────────────
@@ -322,7 +441,7 @@ export async function buildPdfGegevens(env, { target, template, mappings, form, 
     if (!rec) throw new PdfStepError(`generate_pdf: contactpersoon ${contactRef.id} (${contactRef.model}) bestaat niet (meer) in Odoo.`);
 
     gegevens.contact.naam = String(rec.name || '').trim();
-    gegevens.contact.email = String(rec.work_email || '').trim();
+    gegevens.contact.email = emailOpBedrijfsdomein(String(rec.work_email || '').trim(), gegevens.bedrijf);
     if (rec.image_512) {
       gegevens.contact.foto = `data:${gokAfbeeldingMime(rec.image_512)};base64,${rec.image_512}`;
     }
@@ -358,13 +477,46 @@ export function pdfBytesToBase64(bytes) {
  *
  * @returns {Promise<Uint8Array>}
  */
-export async function renderPdf(env, { gegevens, copy }) {
+async function pakBrowser(env, puppeteer) {
+  // Een KOUDE browserstart kost seconden, en die zit een bezoeker uit te kijken
+  // naar een laadbalkje: de pipeline draait synchroon binnen zijn verzoek. Een
+  // sessie die van een vorige inzending nog warm staat, is meteen bruikbaar.
+  //
+  // Alleen sessies ZONDER connectionId: een sessie neemt maar een verbinding
+  // tegelijk aan, en twee inzendingen op dezelfde sessie is geen traagheid maar
+  // een fout. Lukt het aansluiten toch niet (net weggevallen, of een ander
+  // verzoek was sneller), dan gaan we naar de volgende en anders gewoon koud
+  // starten -- deze hele tak is een versnelling, nooit een voorwaarde.
+  try {
+    const sessies = await puppeteer.sessions(env.BROWSER);
+    for (const sessie of (sessies || [])) {
+      if (sessie.connectionId) continue;
+      try {
+        return { browser: await puppeteer.connect(env.BROWSER, sessie.sessionId), warm: true };
+      } catch {
+        // Volgende proberen.
+      }
+    }
+  } catch {
+    // sessions() is een extra aanroep die mag falen.
+  }
+
+  // `keep_alive` houdt de sessie na ons ook nog even open, zodat de VOLGENDE
+  // inzending hierboven iets vindt. Bewust vijf minuten en niet het maximum van
+  // tien: een sessie houdt een concurrent-slot bezet, en offertes komen niet in
+  // treinen van tien.
+  return { browser: await puppeteer.launch(env.BROWSER, { keep_alive: KEEP_ALIVE_MS }), warm: false };
+}
+
+export async function renderPdf(env, { gegevens, copy, meting = null }) {
   if (!env.BROWSER) {
     throw new PdfStepError('generate_pdf: Browser Rendering is niet gekoppeld (binding BROWSER ontbreekt).');
   }
 
+  const t0 = Date.now();
   const { default: puppeteer } = await import('@cloudflare/puppeteer');
-  const browser = await puppeteer.launch(env.BROWSER);
+  const { browser, warm } = await pakBrowser(env, puppeteer);
+  const tBrowser = Date.now();
 
   // EEN sluitpromise, hoe vaak sluitBrowser() ook aangeroepen wordt: bij een
   // timeout sluit de setTimeout-tak meteen, en de buitenste finally wacht
@@ -375,26 +527,57 @@ export async function renderPdf(env, { gegevens, copy }) {
   // sessie zodra de respons al verstuurd is, dus browser.close() moet HIER
   // al aangevraagd zijn, niet pas in een `finally` die misschien nooit meer
   // uitgevoerd wordt.
+  //
+  // Twee manieren om af te ronden, en het verschil doet ertoe:
+  //   disconnect() -- wij laten los, de sessie blijft warm staan voor de
+  //                   volgende inzending. Dat is de hele winst hierboven.
+  //   close()      -- de sessie gaat dicht. Dat hoort bij een TIMEOUT of een
+  //                   fout: een sessie die net vastliep warm doorgeven betekent
+  //                   dat de volgende bezoeker dezelfde storing erft.
   let sluitPromise = null;
-  const sluitBrowser = () => {
-    if (!sluitPromise) sluitPromise = browser.close().catch(() => {});
+  const sluitBrowser = (hard) => {
+    if (!sluitPromise) {
+      sluitPromise = (hard ? browser.close() : browser.disconnect()).catch(() => {});
+    }
     return sluitPromise;
   };
 
   const render = (async () => {
     const page = await browser.newPage();
-    await page.goto(`${env.APP_BASE_URL}/offerte.html?server=1`, { waitUntil: 'networkidle0' });
+    // `load` en niet `networkidle0`. Dat laatste wacht na het laden nog een
+    // halve seconde op netwerkstilte, en blijft hangen op elk verzoek dat
+    // toevallig nog nakomt -- terwijl we hieronder zelf al expliciet op de
+    // lettertypes en de afbeeldingen wachten, en dat is waar het echt om gaat.
+    // De wachtregel op window.OFFERTE vervangt wat networkidle0 impliciet
+    // garandeerde: dat offerte-render.js gedraaid heeft.
+    await page.goto(`${env.APP_BASE_URL}/offerte.html?server=1`, { waitUntil: 'load' });
+    await page.waitForFunction(() => !!(window.OFFERTE && window.OFFERTE.zet));
+    const tGeladen = Date.now();
+
     await page.evaluate((data) => window.OFFERTE.zet(data), { gegevens, copy });
     await page.evaluate(() => Promise.all([
       document.fonts.ready,
       ...Array.from(document.images).map((img) => (img.complete ? null : new Promise((r) => { img.onload = img.onerror = r; })))
     ]));
-    return await page.pdf({ printBackground: true, preferCSSPageSize: true });
+    const tGevuld = Date.now();
+
+    const bytes = await page.pdf({ printBackground: true, preferCSSPageSize: true });
+
+    if (meting) {
+      meting.warm = warm;
+      meting.browserMs = tBrowser - t0;
+      meting.ladenMs = tGeladen - tBrowser;
+      meting.vullenMs = tGevuld - tGeladen;
+      meting.pdfMs = Date.now() - tGevuld;
+      meting.totaalMs = Date.now() - t0;
+    }
+    return bytes;
   })();
   // Late fouten na een timeout (bv. "Target closed" door sluitBrowser()) mogen
   // geen "unhandled rejection" worden.
   render.catch(() => {});
 
+  let hardAfsluiten = false;
   try {
     return await Promise.race([
       render,
@@ -402,15 +585,18 @@ export async function renderPdf(env, { gegevens, copy }) {
         setTimeout(() => {
           // Sluit METEEN, niet pas als de render toch nog vanzelf afloopt --
           // browser.close() breekt een lopende page.goto()/page.pdf() af.
-          sluitBrowser();
+          sluitBrowser(true);
           reject(new PdfStepError('generate_pdf: renderen duurde langer dan 9 s.'));
         }, RENDER_TIMEOUT_MS);
       })
     ]);
+  } catch (err) {
+    hardAfsluiten = true;
+    throw err;
   } finally {
-    // Geslaagde render: hier voor het eerst sluiten. Timeout: sluitBrowser()
-    // is al gestart in de setTimeout hierboven, dit wacht enkel de sluiting af.
-    await sluitBrowser();
+    // Geslaagde render: hier voor het eerst loslaten, en de sessie blijft warm.
+    // Timeout of fout: sluitBrowser(true) is al gestart, dit wacht enkel af.
+    await sluitBrowser(hardAfsluiten);
   }
 }
 
@@ -476,6 +662,82 @@ export async function getPdfTemplate(env, id) {
   if (error) throw new Error(`Sjabloon ophalen mislukt: ${error.message}`);
   if (!data) throw nietGevonden('Sjabloon niet gevonden.');
   return data;
+}
+
+/**
+ * Het VOLGENDE offertenummer voor dit sjabloon, plus de datums die erbij horen.
+ *
+ * Voor de EDITOR (public/offerte.html), waar iemand met de hand een offerte
+ * opmaakt. Bewust dezelfde teller, hetzelfde patroon en dezelfde
+ * geldigheidstermijn als een echte inzending: een tweede nummerreeks ernaast
+ * geeft ooit twee offertes met hetzelfde nummer, en dat merk je pas als een
+ * klant ernaar verwijst.
+ *
+ * De teller wordt ECHT verhoogd. Een nummer opvragen en de offerte dan toch
+ * niet maken laat dus een gat in de reeks -- dat is de goede kant om op te
+ * falen; hergebruiken zou twee documenten hetzelfde nummer geven.
+ *
+ * @param {Object} env
+ * @param {string} templateId
+ * @returns {Promise<{nummer: string, datum: string, geldig_tot: string|null}>}
+ */
+export async function takeNextOfferNumber(env, templateId) {
+  const template = await getPdfTemplate(env, templateId);
+  if (!template.sequence_pattern) {
+    throw validatieFout('Dit sjabloon heeft nog geen offertenummer-patroon. Stel dat eerst in bij "Nummering & geldigheid".');
+  }
+  const nu = new Date();
+  const teller = await nextSequenceNumber(env, template.id);
+  const geldigheid = Number(template.geldigheid_dagen);
+  return {
+    nummer: formatSequenceNumber(template.sequence_pattern, teller, nu),
+    datum: formatDatumBrussel(nu),
+    geldig_tot: Number.isInteger(geldigheid) && geldigheid > 0 ? computeGeldigTot(geldigheid, nu) : null
+  };
+}
+
+/**
+ * De medewerkers die als contactpersoon op een offerte kunnen staan.
+ *
+ * Zonder foto -- die is per medewerker een paar tientallen kB base64, en een
+ * keuzelijst van veertig mensen zou dan megabytes wegen voor een lijst waaruit
+ * er een gekozen wordt. De foto komt pas bij getOfferContact().
+ */
+export async function listOfferContacten(env) {
+  const rijen = await searchRead(env, {
+    model: 'hr.employee',
+    domain: [['active', '=', true]],
+    fields: ['id', 'name', 'work_email'],
+    order: 'name asc'
+  });
+  return (rijen || []).map((r) => ({
+    id: r.id,
+    naam: String(r.name || '').trim(),
+    email: String(r.work_email || '').trim()
+  }));
+}
+
+/**
+ * Een medewerker in de vorm van gegevens.contact: naam, e-mailadres en de
+ * foto als data-URI. Exact wat buildPdfGegevens() bij een echte inzending
+ * invult, zodat de editor niet iets anders oplevert dan de pipeline.
+ */
+export async function getOfferContact(env, id) {
+  const nummer = Number(id);
+  if (!Number.isInteger(nummer) || nummer <= 0) throw validatieFout('Ongeldige medewerker.');
+  const rijen = await searchRead(env, {
+    model: 'hr.employee',
+    domain: [['id', '=', nummer]],
+    fields: ['name', 'work_email', 'image_512'],
+    limit: 1
+  });
+  const rec = Array.isArray(rijen) && rijen.length ? rijen[0] : null;
+  if (!rec) throw nietGevonden('Deze medewerker bestaat niet (meer) in Odoo.');
+  return {
+    naam: String(rec.name || '').trim(),
+    email: String(rec.work_email || '').trim(),
+    foto: rec.image_512 ? `data:${gokAfbeeldingMime(rec.image_512)};base64,${rec.image_512}` : null
+  };
 }
 
 export async function createPdfTemplate(env, { name, data }) {
@@ -629,6 +891,49 @@ async function nextSequenceNumber(env, templateId) {
   const { data, error } = await supabase.rpc('fs_v2_pdf_next_sequence', { p_template_id: templateId });
   if (error) throw new PdfStepError(`generate_pdf: offertenummer ophogen mislukt — ${error.message}`);
   return Number(data);
+}
+
+// ─── E-mailadres van de contactpersoon op het domein van het bedrijf ────────
+
+/** Ons hoofddomein: daar staan de medewerkers mee in Odoo (work_email). */
+const HOOFDDOMEIN = 'mymmo.com';
+
+/**
+ * Het domein van het bedrijf op de offerte: uit `bedrijf.email`
+ * (info@syndicoach.be), en anders uit `bedrijf.website`.
+ *
+ * @param {Object} bedrijf @returns {string|null}
+ */
+export function bedrijfsdomein(bedrijf) {
+  const mail = String((bedrijf && bedrijf.email) || '').trim().toLowerCase();
+  const uitMail = mail.includes('@') ? mail.split('@').pop() : '';
+  if (/^[a-z0-9.-]+\.[a-z]{2,}$/.test(uitMail)) return uitMail;
+
+  const site = String((bedrijf && bedrijf.website) || '').trim().toLowerCase()
+    .replace(/^[a-z]+:\/\//, '').replace(/^www\./, '').split(/[/?#:]/)[0];
+  return /^[a-z0-9.-]+\.[a-z]{2,}$/.test(site) ? site : null;
+}
+
+/**
+ * Het e-mailadres van de contactpersoon, op het domein van het bedrijf dat de
+ * offerte uitbrengt: nico@mymmo.com wordt nico@syndicoach.be op een
+ * Syndicoach-offerte.
+ *
+ * Medewerkers staan in Odoo met hun adres op het HOOFDDOMEIN, maar de klant
+ * kent het merk, en een offerte van Syndicoach met een mymmo.com-adres erop
+ * leest als een ander bedrijf. Enkel een adres op het hoofddomein wordt
+ * omgezet: wie in Odoo bewust een ander adres heeft, houdt dat. Is het domein
+ * van het bedrijf niet te bepalen, dan blijft het adres zoals het is.
+ *
+ * @param {string} email @param {Object} bedrijf @returns {string}
+ */
+export function emailOpBedrijfsdomein(email, bedrijf) {
+  const adres = String(email || '').trim();
+  const m = /^([^@\s]+)@([^@\s]+)$/.exec(adres);
+  if (!m || m[2].toLowerCase() !== HOOFDDOMEIN) return adres;
+  const domein = bedrijfsdomein(bedrijf);
+  if (!domein || domein === HOOFDDOMEIN) return adres;
+  return `${m[1]}@${domein}`;
 }
 
 // ─── Gegenereerde documenten (fs_v2_generated_documents, R2 i.p.v. Odoo) ───
@@ -804,7 +1109,14 @@ export async function runGeneratePdfStep(env, { target, submissionId, form, cont
   const { gegevens, copy, filename, waarschuwingen } = await buildPdfGegevens(env, {
     target, template, mappings, form, contextObject, resolveMapping
   });
-  const bytes = await renderPdf(env, { gegevens, copy });
+  const meting = {};
+  const bytes = await renderPdf(env, { gegevens, copy, meting });
+  // In het spoor EN in de log: zonder cijfers is "het duurt lang" niet op te
+  // lossen, en dit is de enige stap die seconden kan kosten.
+  const timing = `Render ${meting.totaalMs} ms (browser ${meting.browserMs}`
+    + `${meting.warm ? ', warm' : ', koud'}, laden ${meting.ladenMs}, vullen ${meting.vullenMs}`
+    + `, pdf ${meting.pdfMs}).`;
+  console.log(`[pdf-step] target ${target.id} submission ${submissionId}: ${timing}`);
 
   if (!env.R2_ASSETS) throw new PdfStepError('generate_pdf: R2_ASSETS ontbreekt.');
   const r2Key = `${GENERATED_PDF_PREFIX}${target.integration_id}/${submissionId}-${target.id}.pdf`;
@@ -832,6 +1144,6 @@ export async function runGeneratePdfStep(env, { target, submissionId, form, cont
     documentId: document.id,
     r2Key,
     filename,
-    detail: waarschuwingen.length ? waarschuwingen.join(' ') : null
+    detail: [...waarschuwingen, timing].join(' ')
   };
 }

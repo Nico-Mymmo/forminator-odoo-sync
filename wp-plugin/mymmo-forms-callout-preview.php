@@ -88,6 +88,11 @@ $layout     = ($argv[2] ?? '') === 'breed' ? 'breed' : 'kolommen';
 // zijn er om te zien dat dezelfde opstelling ook langs die weg opengaat.
 $soort = in_array($argv[3] ?? '', ['knop', 'klasse'], true) ? $argv[3] : 'callout';
 
+// Vierde argument `kaal`: chrome="no", zoals een ingang die in een kaart van
+// Mymmo Cards staat. Dan hoort er enkel het onderdeel plus de knop uit te
+// komen -- geen kaartje, geen titel, geen achtergrond.
+$kaal = ($argv[4] ?? '') === 'kaal';
+
 // Alle voorbeeldstappen in de opslag zetten, zoals wp-admin dat zou doen.
 $alle = [
     'gebouwgrootte' => [
@@ -214,7 +219,7 @@ $ingang = [
         'cta'       => 'Vraag offerte aan',
         'image'     => 'https://link.openvme.be/assets/brand/thingies/thingies_lift.svg',
         'bg'        => '#a7f3e4',
-    ],
+    ] + ($kaal ? ['chrome' => 'no'] : []),
     'updated' => 0,
 ];
 

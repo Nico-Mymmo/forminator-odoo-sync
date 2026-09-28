@@ -295,9 +295,10 @@ final class Mymmo_Forms_Api_Client {
      *
      * @param array<string,mixed> $values
      * @param array<string,mixed> $meta
+     * @param array<string,array<string,string>> $labels  waarde => label per veld (value_labels)
      * @return array{ok:bool,error:string}
      */
-    public static function submit(string $slug, array $values, array $meta): array {
+    public static function submit(string $slug, array $values, array $meta, array $labels = []): array {
         if (!mymmo_forms_is_configured()) {
             return ['ok' => false, 'error' => 'Dit formulier is nog niet volledig ingesteld. Neem contact met ons op.'];
         }
@@ -311,7 +312,11 @@ final class Mymmo_Forms_Api_Client {
                     'Content-Type'     => 'application/json',
                     'Accept'           => 'application/json',
                 ],
-                'body' => wp_json_encode(['form_data' => $values, 'meta' => $meta]),
+                'body' => wp_json_encode(array_filter([
+                    'form_data'    => $values,
+                    'meta'         => $meta,
+                    'value_labels' => $labels !== [] ? $labels : null,
+                ], static fn ($v) => $v !== null)),
             ]
         );
 

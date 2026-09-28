@@ -220,13 +220,14 @@ async function checkGlobalRateLimit(env) {
 }
 
 async function logCall(env, {
-  appId, userId, provider, model, promptChars, responseChars,
+  appId, userId, source, provider, model, promptChars, responseChars,
   tokensIn, tokensOut, cacheReadTokens, cacheWriteTokens,
   status, errorMessage, errorCode, stopReason, durationMs
 }) {
   const supabase = getSupabaseClient(env);
   const { error } = await supabase.from('mini_app_ai_calls').insert({
-    mini_app_id: appId,
+    mini_app_id: appId || null,
+    source: source || 'mini_app',
     user_id: userId,
     provider,
     model,
@@ -354,6 +355,25 @@ export async function askAI(env, app, user, options = {}) {
   const { name: providerName, generate, DEFAULT_MODEL } = getProvider(env);
   const validated = validateRequest(providerName, options);
 
+  /* Niet elke aanroeper IS een mini-app. Content Feed laat hier bijvoorbeeld
+     een artikel analyseren (src/modules/content-feed/lib/article-ai.js) en
+     heeft geen mini-app om naar te wijzen. Zo'n aanroeper geeft
+     `{ id: null, source: 'content_feed' }` mee.
+
+     Waarom dat hier en niet in een eigen functie: alles wat deze functie doet
+     -- daglimieten, MODEL_ALLOWLIST, het foutcontract, de stall-timeout en de
+     audit-regel -- moet voor élke AI-aanroep gelden. Een tweede implementatie
+     ernaast is precies de twee-motoren-fout die deze repo elders al eens
+     gemaakt heeft; dan mist de ene wat de andere wel doet, en zie je dat pas
+     aan een kostenrapport dat niet klopt.
+
+     Enkel de PER-APP daglimiet valt weg: die telt aanroepen per mini_app_id,
+     en zonder app is er niets te tellen. De PLATFORM-brede limiet blijft
+     gewoon gelden -- dat is de grens die de kosten bewaakt. */
+  const appId = app && app.id ? app.id : null;
+  const source = (app && app.source) || 'mini_app';
+  const bronLabel = appId ? `app ${appId}` : `bron ${source}`;
+
   /* Voortgangslogging (wrangler tail). Deze route kan op drie heel
      verschillende plekken lang stil vallen -- de daglimiet-tellingen in
      Supabase, de aanroep naar Claude zelf, of het wegschrijven van de
@@ -367,7 +387,7 @@ export async function askAI(env, app, user, options = {}) {
      `wrangler tail`; nu staat het gewoon in de diagnose van de mini-app zelf,
      bij de gebruiker die het probleem heeft. */
   const naarClient = typeof options.onStage === 'function' ? options.onStage : null;
-  const stap = (wat) => (naarClient && naarClient(wat, Date.now() - t0), console.log(`[mini-apps ai] ${wat} (t=${Date.now() - t0}ms, app ${app.id}, model ${validated.model || DEFAULT_MODEL}, prompt ${validated.prompt.length} tekens${validated.schema ? ', met schema' : ''})`));
+  const stap = (wat) => (naarClient && naarClient(wat, Date.now() - t0), console.log(`[mini-apps ai] ${wat} (t=${Date.now() - t0}ms, ${bronLabel}, model ${validated.model || DEFAULT_MODEL}, prompt ${validated.prompt.length} tekens${validated.schema ? ', met schema' : ''})`));
 
   stap('daglimieten nakijken');
   /* Samen i.p.v. na elkaar (het waren twee onafhankelijke tellingen die niets
@@ -378,7 +398,12 @@ export async function askAI(env, app, user, options = {}) {
      telling wordt overgeslagen. */
   try {
     await withTimeout(
-      Promise.all([checkGlobalRateLimit(env), checkRateLimit(env, app.id)]),
+      Promise.all([
+        checkGlobalRateLimit(env),
+        // Zonder mini-app is er geen per-app teller; de platform-brede
+        // limiet hierboven blijft wel gelden.
+        appId ? checkRateLimit(env, appId) : Promise.resolve()
+      ]),
       RATE_LIMIT_TIMEOUT_MS,
       'daglimiet-telling'
     );
@@ -408,8 +433,9 @@ export async function askAI(env, app, user, options = {}) {
 
     stap(`antwoord volledig: ${result.text.length} tekens, ${result.tokensOut || '?'} out-tokens, stop_reason ${result.stopReason || '?'} -- audit-regel wegschrijven`);
     await logCall(env, {
-      appId: app.id,
+      appId,
       userId: user.id,
+      source,
       provider: providerName,
       model: result.model || validated.model || DEFAULT_MODEL,
       promptChars: validated.prompt.length,
@@ -443,8 +469,9 @@ export async function askAI(env, app, user, options = {}) {
     // duurste mislukkingen -- precies degene die we onderzochten -- als gratis
     // toonde.
     await logCall(env, {
-      appId: app.id,
+      appId,
       userId: user.id,
+      source,
       provider: providerName,
       model: validated.model || DEFAULT_MODEL,
       promptChars: validated.prompt.length,

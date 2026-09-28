@@ -29,6 +29,34 @@ import {
 import { CALENDLY_WEBHOOK_PATH } from './webhook.js';
 import { CALENDLY_FIELDS, HANDLED_EVENTS } from './payload.js';
 import { ensureCalendlySystemSteps, MEETING_MODEL, HOST_STAP, MEETING_STAP } from './system-step.js';
+import {
+  BookingLinkError,
+  listSites,
+  bookingUrl,
+  bookingUrls,
+  listOdooUsers,
+  listLinksByUrl,
+  getLink,
+  normalizeLinkPayload,
+  createLink,
+  updateLink,
+  deleteLink,
+  toSlug,
+} from '../../booking-links/lib/links.js';
+
+// Afspraaklinks (module booking-links) maken vanuit de Calendly-kaart van een
+// koppeling. Dezelfde tabel en dezelfde validatie als /afspraaklinks; hier
+// komt het eventtype uit de BEWAARDE koppeling, nooit uit de body -- zo kan een
+// link nooit naar een andere boekingspagina wijzen dan wat er op het scherm
+// staat.
+function bookingFout(error) {
+  if (error instanceof BookingLinkError) return json({ success: false, error: error.message }, error.status);
+  return json({ success: false, error: error.message }, status(error));
+}
+
+function metPublicUrl(env, link) {
+  return { ...link, public_url: bookingUrl(env, link), public_urls: bookingUrls(env, link) };
+}
 
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -380,6 +408,97 @@ export const calendlyRoutes = {
       return json({ success: true, data: { integration: bijgewerkt, system_step: stappen } });
     } catch (error) {
       return json({ success: false, error: error.message }, status(error));
+    }
+  },
+
+  /** Afspraaklinks op het eventtype van deze koppeling, plus wat het formulier nodig heeft. */
+  'GET /api/integrations/:id/calendly/booking-links': async (context) => {
+    try {
+      const integration = await getIntegrationById(context.env, context.params?.id);
+      if (!integration) return json({ success: false, error: 'Integration not found' }, 404);
+      const url = String(integration.calendly_scheduling_url || '').trim();
+      const links = url ? await listLinksByUrl(context.env, url) : [];
+      // Een onbereikbaar Odoo mag de lijst niet laten vallen; enkel aanmaken
+      // wordt dan onmogelijk, en dat zegt het scherm.
+      const odooUsers = await listOdooUsers(context.env).catch(() => null);
+      return json({
+        success: true,
+        data: {
+          scheduling_url: url,
+          pooling_type: integration.calendly_pooling_type || '',
+          event_type_name: integration.calendly_event_type_name || '',
+          links: links.map((l) => metPublicUrl(context.env, l)),
+          odoo_users: odooUsers,
+          sites: listSites(context.env),
+        },
+      });
+    } catch (error) {
+      return bookingFout(error);
+    }
+  },
+
+  'POST /api/integrations/:id/calendly/booking-links': async (context) => {
+    try {
+      const integration = await getIntegrationById(context.env, context.params?.id);
+      if (!integration) return json({ success: false, error: 'Integration not found' }, 404);
+      const url = String(integration.calendly_scheduling_url || '').trim();
+      if (!url) {
+        throw new BookingLinkError('Kies eerst een Calendly-eventtype en sla de koppeling op; een afspraaklink wijst naar de boekingspagina van dat eventtype.');
+      }
+
+      const body = await context.request.json().catch(() => ({}));
+      const odooUserId = Number(body.odoo_user_id);
+      const eigenaar = (await listOdooUsers(context.env)).find((u) => u.id === odooUserId);
+      if (!eigenaar) throw new BookingLinkError('Kies voor wie deze afspraaklink is.');
+
+      const kind = toSlug(body.kind || 'standaard') || 'standaard';
+      const slug = String(body.slug || '').trim()
+        || toSlug(`${String(eigenaar.name || '').split(/\s+/)[0]}-${kind}`);
+
+      const rij = normalizeLinkPayload(context.env, { ...body, kind, slug, scheduling_url: url }, { isNieuw: true });
+      const nieuw = await createLink(context.env, {
+        ...rij,
+        label: rij.label || integration.calendly_event_type_name || '',
+        calendly_event_type_uri: integration.calendly_event_type_uri || '',
+        calendly_event_type_name: integration.calendly_event_type_name || '',
+        duration: Number.isInteger(integration.calendly_duration) ? integration.calendly_duration : null,
+        odoo_user_id: eigenaar.id,
+        odoo_user_name: eigenaar.name || '',
+        om_user_id: null,
+        created_by: context.user?.id || null,
+      });
+      return json({ success: true, data: metPublicUrl(context.env, nieuw) }, 201);
+    } catch (error) {
+      return bookingFout(error);
+    }
+  },
+
+  /** Aan/uit, standaard en de site voor mails; de rest bewerk je bij Afspraaklinks. */
+  'PUT /api/calendly/booking-links/:linkId': async (context) => {
+    try {
+      const bestaande = await getLink(context.env, context.params?.linkId);
+      if (!bestaande) throw new BookingLinkError('Afspraaklink niet gevonden', 404);
+      const body = await context.request.json().catch(() => ({}));
+      const wijziging = normalizeLinkPayload(context.env, {
+        is_active: body.is_active,
+        is_default: body.is_default,
+        site: body.site,
+      }, { isNieuw: false });
+      const bijgewerkt = await updateLink(context.env, bestaande.id, bestaande, wijziging);
+      return json({ success: true, data: metPublicUrl(context.env, bijgewerkt) });
+    } catch (error) {
+      return bookingFout(error);
+    }
+  },
+
+  'DELETE /api/calendly/booking-links/:linkId': async (context) => {
+    try {
+      const bestaande = await getLink(context.env, context.params?.linkId);
+      if (!bestaande) throw new BookingLinkError('Afspraaklink niet gevonden', 404);
+      await deleteLink(context.env, bestaande.id);
+      return json({ success: true });
+    } catch (error) {
+      return bookingFout(error);
     }
   },
 

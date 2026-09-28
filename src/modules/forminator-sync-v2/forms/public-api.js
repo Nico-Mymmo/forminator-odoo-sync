@@ -24,8 +24,11 @@ import { getIntegrationById } from '../database.js';
 import { listPublicCalendlyAppointments } from '../calendly/database.js';
 import { toPublicFormPayload, toPublicFormListItem } from './schema.js';
 import { submitFormEntry } from './submit.js';
+import { getLinkBySlug, toPublicBookingLink, fetchOwnerAvatar, ALGEMEEN } from '../../booking-links/lib/links.js';
 
 const PUBLIC_PREFIX = '/forminator-v2/public/v1/forms';
+// Afspraaklinks (module booking-links): zelfde plugin, zelfde sitesleutel.
+const BOOKING_PREFIX = '/forminator-v2/public/v1/booking-links';
 const LOG_PREFIX = '[forms-public]';
 
 // Per isolate, niet globaal. Voor het doel (iemand die de API platlegt) is dat
@@ -153,12 +156,17 @@ function etagForForm(form) {
 
 export function isFormsPublicApiPath(pathname) {
   // Ook het pad zonder slug (met of zonder afsluitende slash): dat is de lijst.
-  return pathname === PUBLIC_PREFIX || pathname.startsWith(`${PUBLIC_PREFIX}/`);
+  return pathname === PUBLIC_PREFIX || pathname.startsWith(`${PUBLIC_PREFIX}/`)
+    || pathname.startsWith(`${BOOKING_PREFIX}/`);
 }
 
 export async function handleFormsPublicApi(request, env, ctx, pathname) {
   if (request.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers: corsHeaders(request, env) });
+  }
+
+  if (pathname.startsWith(`${BOOKING_PREFIX}/`)) {
+    return handleBookingLink(request, env, pathname.slice(BOOKING_PREFIX.length + 1));
   }
 
   const rest = pathname.slice(PUBLIC_PREFIX.length).replace(/^\//, '');
@@ -276,6 +284,57 @@ async function handleLijst(request, env) {
 
   return json({ success: true, data: { forms, calendly: afspraken } }, 200, request, env,
     { ETag: etag, 'Cache-Control': 'public, max-age=60' });
+}
+
+/**
+ * Een afspraaklink opzoeken: `?afspraak=<slug>` op de site.
+ *
+ * Een onbekende, gepauzeerde en de gereserveerde sleutel geven allemaal 404:
+ * de plugin valt dan terug op de algemene agenda van haar opstelling. Er is
+ * bewust GEEN lijst-route -- met de sitesleutel alle namen en agenda's van
+ * collega's kunnen oplijsten is meer dan een site nodig heeft.
+ *
+ * Kort bewaard (60s) en geen ETag-magie: het antwoord is klein, en een link
+ * die net gepauzeerd is, hoort snel te verdwijnen.
+ */
+async function handleBookingLink(request, env, ruweSlug) {
+  if (request.method !== 'GET') {
+    return json({ success: false, error: 'Method not allowed' }, 405, request, env);
+  }
+  const site = validateSiteKey(request, env);
+  if (!site) {
+    return json({ success: false, error: 'Unauthorized' }, 401, request, env);
+  }
+
+  const slug = String(ruweSlug || '').replace(/\/+$/, '').toLowerCase();
+  if (!/^[a-z0-9-]{3,60}$/.test(slug) || slug === ALGEMEEN) {
+    return json({ success: false, error: 'Afspraaklink niet gevonden' }, 404, request, env);
+  }
+
+  const limiet = checkRateLimitLocal(`booking:${site.key}`, RATE_LIMIT_READ);
+  if (!limiet.allowed) {
+    return json(
+      { success: false, error: 'Te veel aanvragen. Probeer het zo meteen opnieuw.' },
+      429, request, env,
+      { 'Retry-After': String(limiet.retryAfter) }
+    );
+  }
+
+  let link;
+  try {
+    link = await getLinkBySlug(env, slug);
+  } catch (err) {
+    console.error(`${LOG_PREFIX} afspraaklink "${slug}" ophalen mislukt:`, err.message);
+    return json({ success: false, error: 'Tijdelijk niet beschikbaar' }, 503, request, env);
+  }
+  if (!link || link.is_active === false) {
+    return json({ success: false, error: 'Afspraaklink niet gevonden' }, 404, request, env);
+  }
+
+  // De foto alleen opvragen als ze getoond wordt: dat is een Odoo-aanroep.
+  const photo = link.show_photo === false ? null : await fetchOwnerAvatar(env, link.odoo_user_id);
+  return json({ success: true, data: toPublicBookingLink(link, { photo }) }, 200, request, env,
+    { 'Cache-Control': 'public, max-age=60' });
 }
 
 function handleSchema(request, env, { form, fields }) {

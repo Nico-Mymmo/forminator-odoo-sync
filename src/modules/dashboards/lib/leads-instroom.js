@@ -184,8 +184,20 @@ export function addMonths(date, months) {
   return d;
 }
 
+// Periodetoggle van de widget. De GRANULARITEIT hoort bij de periode en
+// wordt nergens anders bepaald: 30 dagen per dag, 3 en 6 maanden per week,
+// 12 maanden per maand (Nico, 2026-09-28). Per dag over een half jaar gaf
+// 180 staafjes waar niets meer uit af te lezen viel.
+export const VALID_PERIODS = ['30d', '3m', '6m', '12m'];
+const PERIOD_MONTHS = { '3m': 3, '6m': 6, '12m': 12 };
+export const PERIOD_GRANULARITY = { '30d': 'day', '3m': 'week', '6m': 'week', '12m': 'month' };
+
+export function normalizePeriod(period) {
+  return VALID_PERIODS.includes(period) ? period : '30d';
+}
+
 /**
- * @param {'30d'|'6m'} period
+ * @param {'30d'|'3m'|'6m'|'12m'} period
  * @returns {{start: Date, end: Date, prevStart: Date, prevEnd: Date}}
  */
 function getPeriodRange(period) {
@@ -195,8 +207,9 @@ function getPeriodRange(period) {
     now.getUTCHours(), now.getUTCMinutes(), now.getUTCSeconds()
   ));
 
-  const start = period === '6m' ? addMonths(end, -6) : addDays(end, -30);
-  const prevStart = period === '6m' ? addMonths(start, -6) : addDays(start, -30);
+  const months = PERIOD_MONTHS[period];
+  const start = months ? addMonths(end, -months) : addDays(end, -30);
+  const prevStart = months ? addMonths(start, -months) : addDays(start, -30);
   const prevEnd = start;
 
   return { start, end, prevStart, prevEnd };
@@ -281,7 +294,7 @@ export async function getDailyTotalsSeries(env, { scope, start, end } = {}) {
 }
 
 export async function getInstroomData(env, { period, scope } = {}) {
-  const normalizedPeriod = period === '6m' ? '6m' : '30d';
+  const normalizedPeriod = normalizePeriod(period);
   const normalizedScope = ['syndicoach', 'openvme', 'onbekend'].includes(scope) ? scope : 'all';
   const { start, end, prevStart, prevEnd } = getPeriodRange(normalizedPeriod);
 
@@ -351,6 +364,7 @@ export async function getInstroomData(env, { period, scope } = {}) {
 
   return {
     period: normalizedPeriod,
+    granularity: PERIOD_GRANULARITY[normalizedPeriod],
     scope: normalizedScope,
     range: { start: toOdooDatetime(start), end: toOdooDatetime(end) },
     totals: {
@@ -367,4 +381,110 @@ export async function getInstroomData(env, { period, scope } = {}) {
     daily: scopedDaily,
     brandLabels: scopedBrandLabels
   };
+}
+
+// ─── Buckets (dag / week / maand) ───────────────────────────────────────────
+
+const MONTH_SHORT = ['jan', 'feb', 'mrt', 'apr', 'mei', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec'];
+const MONTH_LONG = [
+  'januari', 'februari', 'maart', 'april', 'mei', 'juni',
+  'juli', 'augustus', 'september', 'oktober', 'november', 'december'
+];
+
+function parseDateKey(dateKey) {
+  return new Date(`${dateKey}T00:00:00Z`);
+}
+
+/** ISO-week (maandag als eerste dag) en het jaar waartoe die week hoort. */
+function isoWeek(date) {
+  const dayNr = (date.getUTCDay() + 6) % 7; // maandag = 0
+  const thursday = addDays(date, 3 - dayNr);
+  const yearStart = new Date(Date.UTC(thursday.getUTCFullYear(), 0, 1));
+  const week = Math.ceil(((thursday.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+  return { week, year: thursday.getUTCFullYear() };
+}
+
+function bucketIdentity(dateKey, granularity) {
+  const d = parseDateKey(dateKey);
+  if (granularity === 'month') {
+    return { key: dateKey.slice(0, 7), label: `${MONTH_SHORT[d.getUTCMonth()]} ${String(d.getUTCFullYear()).slice(2)}` };
+  }
+  if (granularity === 'week') {
+    const { week, year } = isoWeek(d);
+    return { key: `${year}-W${pad2(week)}`, label: `wk ${week}` };
+  }
+  return { key: dateKey, label: dateKey.slice(5) };
+}
+
+function shortDay(dateKey) {
+  const d = parseDateKey(dateKey);
+  return `${d.getUTCDate()} ${MONTH_SHORT[d.getUTCMonth()]}`;
+}
+
+/**
+ * Een bucket aan de rand van de periode is meestal ONVOLLEDIG (de periode
+ * begint zelden op een maandag of op de eerste van de maand). Dat staat erbij
+ * in de tooltip: een halve week met 3 aanvragen leest anders als een dip.
+ */
+function bucketTitle(bucket, granularity) {
+  const from = parseDateKey(bucket.from);
+  if (granularity === 'day') {
+    return `${shortDay(bucket.from)} ${from.getUTCFullYear()}`;
+  }
+  if (granularity === 'week') {
+    const days = Math.round((parseDateKey(bucket.to) - from) / 86400000) + 1;
+    const range = bucket.from === bucket.to ? shortDay(bucket.from) : `${shortDay(bucket.from)} – ${shortDay(bucket.to)}`;
+    return `Week ${bucket.label.slice(3)} (${range})${days < 7 ? ', onvolledig' : ''}`;
+  }
+  const to = parseDateKey(bucket.to);
+  const lastDayOfMonth = new Date(Date.UTC(to.getUTCFullYear(), to.getUTCMonth() + 1, 0)).getUTCDate();
+  const partial = from.getUTCDate() !== 1 || to.getUTCDate() !== lastDayOfMonth;
+  return `${MONTH_LONG[from.getUTCMonth()]} ${from.getUTCFullYear()}${partial ? ' (onvolledig)' : ''}`;
+}
+
+/**
+ * Dagreeks (per kanaal) + dagelijkse target samenvoegen tot buckets van de
+ * gevraagde granulariteit. Realisatie en target worden over EXACT dezelfde
+ * dagen opgeteld, dus ook een onvolledige bucket geeft een eerlijk percentage.
+ *
+ * @param {Array<Object>} daily - rijen { date, <kanaal>: aantal }
+ * @param {Array<{date: string, dailyTarget: number}>|null} dailyTargets - null = geen target ingesteld
+ * @param {'day'|'week'|'month'} granularity
+ * @param {string[]} channelKeys
+ */
+export function buildBuckets(daily, dailyTargets, granularity, channelKeys) {
+  const hasTarget = Array.isArray(dailyTargets) && dailyTargets.length > 0;
+  const targetByDate = new Map((dailyTargets || []).map((row) => [row.date, row.dailyTarget]));
+  const buckets = [];
+  let current = null;
+
+  for (const row of daily) {
+    const identity = bucketIdentity(row.date, granularity);
+    if (!current || current.key !== identity.key) {
+      current = {
+        key: identity.key,
+        label: identity.label,
+        from: row.date,
+        to: row.date,
+        total: 0,
+        target: hasTarget ? 0 : null,
+        byChannel: Object.fromEntries(channelKeys.map((k) => [k, 0]))
+      };
+      buckets.push(current);
+    }
+    current.to = row.date;
+    for (const key of channelKeys) {
+      const count = row[key] || 0;
+      current.byChannel[key] += count;
+      current.total += count;
+    }
+    if (hasTarget) current.target += targetByDate.get(row.date) || 0;
+  }
+
+  return buckets.map((bucket) => ({
+    ...bucket,
+    title: bucketTitle(bucket, granularity),
+    target: bucket.target === null ? null : Math.round(bucket.target * 10) / 10,
+    pct: bucket.target > 0 ? Math.round((bucket.total / bucket.target) * 1000) / 10 : null
+  }));
 }

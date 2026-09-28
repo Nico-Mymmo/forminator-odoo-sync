@@ -55,34 +55,47 @@ export const TIMELINE_COLOR = {
 export const TIMELINE_COLORS = Object.values(TIMELINE_COLOR);
 
 /**
- * Merk. BESTAAT VANDAAG NIET in Odoo -- `x_studio_brand` moet nog in Studio
- * aangemaakt worden. Zelfde patroon als EVENT_BRAND in events-v2: de code
- * werkt door zolang het veld er niet is, zodat de uitrolvolgorde vrij blijft.
+ * WAAR EEN BERICHT HEEN GAAT, staat NIET op het bericht.
  *
- * LEEG betekent BEIDE, niet "geen". De 49 bestaande records hebben het veld
- * niet, en die horen gewoon op beide feeds te blijven staan. Zou leeg
- * "geen merk" betekenen, dan maakt het aanmaken van het Studio-veld in één
- * klap de hele feed leeg -- zonder foutmelding.
+ * Er is geen merk- of kanaalveld in Odoo, en dat is een bewuste keuze. Een
+ * enkelvoudig merk kon het niet (embed.openvme.be is een eigen site, geen
+ * merk), en een many2many vraagt een eigen Odoo-model voor drie waarden
+ * terwijl de TYPES en LABELS die selectie al kunnen maken.
+ *
+ * Elke site bepaalt in haar SHORTCODE wat ze ophaalt:
+ *
+ *     [mymmo_news categories="artikel,release-notes"]
+ *     [mymmo_news tags="technisch-in-orde"]
+ *
+ * Gevolg dat je moet kennen: elke geldige sitesleutel kan elk GEPUBLICEERD
+ * bericht ophalen. De sleutel is authenticatie ("mag deze site ons
+ * bevragen"), geen autorisatie per bericht. Moet een bericht toch echt maar
+ * op één site staan, dan is een LABEL daarvoor het bestaande gereedschap.
  */
-export const BRAND = {
-  OPENVME: 'openvme',
-  SYNDICOACH: 'syndicoach'
-};
-
-export const BRANDS = Object.values(BRAND);
 
 /**
  * Cache. Zelfde drielagenaanpak als events-v2 (caches.default → geheugen van
  * de isolate → KV), en om dezelfde reden: KV is de duurste laag en hoort
  * laatst te komen. Zie de KV-afspraak in CLAUDE.md.
  */
-export const CACHE_NS = 'contentfeed';
+export const CACHE_PREFIX = 'cfeed';
+
+export const CACHE_NS = {
+  ITEMS: 'items',
+  TAXONOMY: 'taxonomy'
+};
 
 export const CACHE_TTL = {
-  LIST_SECONDS: 60,
-  DETAIL_SECONDS: 60,
-  TAGS_SECONDS: 300,
-  TYPES_SECONDS: 300
+  PUBLIC_LIST_SECONDS: 60,
+  PUBLIC_DETAIL_SECONDS: 60,
+  TAXONOMY_SECONDS: 300,
+  ADMIN_LIST_SECONDS: 15,
+  /**
+   * Een afbeelding krijgt een LANGE cache omdat haar URL het versienummer
+   * van het record bevat (zie imageVersion()). Wijzigt het beeld, dan
+   * wijzigt de URL -- dus dit hoeft nooit korter.
+   */
+  IMAGE_SECONDS: 31536000
 };
 
 export const PAGINATION = {
@@ -100,9 +113,17 @@ export const PUBLIC_RATE_LIMIT = {
  * een manier die een oudere plugin niet aankan -- de plugin leest het en kan
  * dan zeggen dat ze bijgewerkt moet worden, in plaats van stil niets te tonen.
  */
-export const PUBLIC_SHAPE_VERSION = 1;
-
-/**
- * Het pad van de publieke API. De WordPress-plugin kent alleen dit.
+/*
+ * 3 sinds events in de feed staan: er is een `kind: 'event'` bijgekomen met
+ * een eigen `event`-blok. De vorm is ADDITIEF, dus een oudere plugin gaat
+ * niet stuk -- die tekent een event als gewoon artikel, zonder de datum en
+ * zonder de inschrijfknop. Daarom hoort ze het wel te MELDEN, en dat doet
+ * ze via dit nummer.
  */
+export const PUBLIC_SHAPE_VERSION = 3;
+
+/** De publieke API. De WordPress-plugin kent alleen dit pad. */
 export const PUBLIC_PREFIX = '/content-feed/public/v1';
+
+/** De beheerroute van de module. */
+export const MODULE_ROUTE = '/content-feed';

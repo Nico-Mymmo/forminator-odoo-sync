@@ -22,7 +22,7 @@
 export function sanitizePublicHtml(html) {
   if (typeof html !== 'string' || html.trim() === '') return '';
 
-  return html
+  return normalizeQuillLists(html)
     // script, style, iframe en form eruit, inclusief inhoud
     .replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, '')
     .replace(/<style\b[^>]*>[\s\S]*?<\/style\s*>/gi, '')
@@ -36,6 +36,47 @@ export function sanitizePublicHtml(html) {
     .replace(/\[([\w-]+)(?:\s+[^\]]*)?\][\s\S]*?\[\/\1\]/g, '')
     .replace(/\[[\w-]+(?:\s+[^\]]*)?\]/g, '')
     .trim();
+}
+
+/**
+ * Quill 2 bewaart ELKE lijst als `<ol>`, ook een lijst met bolletjes: het
+ * type staat enkel in `<li data-list="bullet">`. Buiten de editor (de
+ * eventpagina, het voorbeeld) kent niemand dat attribuut, dus werd elke
+ * opsomming een genummerde lijst. Erger: bij het opnieuw openen leest Quill
+ * de ouder (`<ol>`) en maakte hij er ook in de editor zelf nummers van.
+ *
+ * Deze functie zet zo'n `<ol>` om in echte `<ul>`/`<ol>`-lijsten, per
+ * aaneengesloten reeks van hetzelfde type (Quill zet twee soorten na elkaar
+ * in één `<ol>`), en haalt Quill's eigen `<span class="ql-ui">` weg. HTML
+ * zonder `data-list` blijft ongemoeid. Quill nest geen lijsten (inspringen is
+ * een klasse), dus een niet-gretige match op `<ol>...</ol>` volstaat.
+ *
+ * Dezelfde logica staat in public/events-v2-client.js (bij het opslaan en
+ * het voorbeeld); deze kant repareert wat al in Odoo staat.
+ *
+ * @param {string} html
+ * @returns {string}
+ */
+export function normalizeQuillLists(html) {
+  if (typeof html !== 'string' || html.indexOf('data-list') === -1) return html;
+
+  return html.replace(/<ol\b[^>]*>([\s\S]*?)<\/ol\s*>/gi, (whole, inner) => {
+    const runs = [];
+    const re = /<li\b([^>]*)>([\s\S]*?)<\/li\s*>/gi;
+    let m;
+    while ((m = re.exec(inner)) !== null) {
+      const type = /\bdata-list\s*=\s*["']([\w-]+)["']/i.exec(m[1]);
+      const tag = type && type[1].toLowerCase() !== 'ordered' ? 'ul' : 'ol';
+      const attrs = m[1].replace(/\s*\bdata-list\s*=\s*["'][^"']*["']/i, '');
+      const body = m[2].replace(/<span\b[^>]*\bql-ui\b[^>]*>\s*<\/span>/gi, '');
+      const item = `<li${attrs}>${body}</li>`;
+      const last = runs[runs.length - 1];
+      if (last && last.tag === tag) last.items.push(item);
+      else runs.push({ tag, items: [item] });
+    }
+    if (runs.length === 0) return whole;
+    return runs.map(r => `<${r.tag}>${r.items.join('')}</${r.tag}>`).join('');
+  });
 }
 
 /**

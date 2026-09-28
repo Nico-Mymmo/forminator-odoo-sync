@@ -1,0 +1,72 @@
+/**
+ * Mymmo Cards — enkel wat in de EDITOR anders is dan op de pagina.
+ *
+ * De regel voor dit bestand: hier staat niets dat de vorm van een kaart
+ * bepaalt. Alles wat een marketeer ziet -- kleuren, hoeken, opvulling,
+ * kolommen, het mobiele gedrag -- komt uit mymmo-cards.css, zodat de editor
+ * niet kan liegen over wat er op de pagina komt. Zelfde afweging als het
+ * levende voorbeeld in de bouwer van Mymmo Forms.
+ *
+ * Wat hier WEL in staat: het kleefgedrag uitzetten. Kaarten die over elkaar
+ * heen schuiven zijn niet te bewerken -- je klikt dan op de kaart die erbovenop
+ * ligt -- en de negatieve marges maken van de editor een puzzel. In het canvas
+ * staan de kaarten dus gewoon onder elkaar.
+ *
+ * `.mymmo-kaarten--editor` wordt door de edit-functie gezet, en die klasse komt
+ * nooit op de pagina terecht (de PHP-render schrijft hem niet). De selectors
+ * hieronder hebben daardoor geen `.editor-styles-wrapper` nodig en kunnen ook
+ * niets breken aan de voorkant.
+ */
+
+.mymmo-kaarten--editor > .mymmo-kaarten-kop,
+.mymmo-kaarten--editor .mymmo-kaarten-lijf,
+.mymmo-kaarten--editor .mymmo-kaart-anker {
+  position: static;
+  min-height: 0;
+  margin-top: 0;
+  margin-bottom: 0;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+/*
+ * DE HOOGTE VAN EEN KAART BLIJFT STAAN, ook in de editor.
+ *
+ * Tot 1.2.1 stond hier `min-height: 0`, zodat een kaart in het canvas precies
+ * zo hoog was als haar inhoud -- een lege nieuwe kaart van 560px maakt van de
+ * editor een lift. Maar daarmee was er in de editor ook NOOIT vrije ruimte in
+ * een kaart, en dus viel er niets uit te lijnen: aan "gecentreerd",
+ * "onderaan" of de gestapelde variant kon je draaien zonder dat er iets
+ * bewoog, terwijl het op de pagina wel klopte. Een editor die iets anders
+ * toont dan de pagina is erger dan een lange pagina.
+ *
+ * De hoogte komt hier uit de terugval in de stylesheet (560px): het script dat
+ * op de pagina de hoogste kaart meet, draait in het canvas niet. De verhouding
+ * klopt dus niet tot op de pixel, maar de ruimte IS er -- en daar gaat het om
+ * bij het uitlijnen. Staat de stapel op "elk zo hoog als haar inhoud", dan
+ * geldt dat hier net zo goed (die regel staat in de gewone stylesheet).
+ */
+.mymmo-kaarten--editor .mymmo-kaart {
+  transform: none;
+  margin-bottom: 16px;
+}
+
+.mymmo-kaarten--editor > .mymmo-kaarten-kop {
+  background: transparent;
+}
+
+/* Een lege kolom is op de pagina onzichtbaar (ze wordt niet gerenderd), maar in
+   de editor moet je er wel iets in kunnen zetten. */
+.mymmo-kaarten--editor .mymmo-kaart-kolom:empty {
+  min-height: 60px;
+  border: 1px dashed rgba(0, 0, 0, 0.15);
+  border-radius: 8px;
+}
+
+/* De volle kolom trekt zichzelf met negatieve marges tot de rand van de kaart.
+   Dat werkt in de editor ook, maar de blokgereedschappen (de blauwe rand, het
+   werkbalkje) vallen er dan half buiten. Een streepje toont waar de rand ligt. */
+.mymmo-kaarten--editor .mymmo-kaart-kolom--vol {
+  outline: 1px dashed rgba(0, 0, 0, 0.12);
+  outline-offset: -1px;
+}

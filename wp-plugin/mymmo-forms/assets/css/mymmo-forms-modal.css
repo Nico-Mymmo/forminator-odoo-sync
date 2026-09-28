@@ -141,6 +141,12 @@ html.mymmo-modal-actief body {
   text-decoration: none;
 }
 
+/* Bij een afspraaklink sluit wegklikken niet (zie modal.php): dan ook geen
+   handje, dat belooft een klik die niets doet. */
+.mymmo-modal-backdrop--vast {
+  cursor: default;
+}
+
 /* ── Het venster ─────────────────────────────────────────────────────────── */
 
 /*
@@ -406,6 +412,18 @@ html.mymmo-modal-actief body {
 .mymmo-modal-body {
   flex: 1 1 auto;
   overflow-y: auto;
+  /*
+   * NOOIT ZIJWAARTS. Het venster past zich aan de viewport aan, punt. Steekt er
+   * iets uit -- een stap met een vaste maat, een lange ongebroken tekst, een
+   * absoluut geplaatst element -- dan wordt dat afgekapt en krijg je GEEN
+   * horizontale schuifbeweging over het hele venster. Zonder dit kan je op een
+   * telefoon opzij vegen en staat alles scheef, terwijl je nergens kan zien
+   * waar het aan ligt.
+   *
+   * Een stap die zelf zijwaarts moet kunnen (het jaarwiel) heeft daarvoor haar
+   * eigen scrollvlak binnenin; dat blijft gewoon werken.
+   */
+  overflow-x: hidden;
   /* Vlot scrollen op een telefoon, zonder dat de pagina eronder meegaat. */
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
@@ -502,6 +520,9 @@ html.mymmo-modal-js .mymmo-modal-body--tabs .mymmo-modal-paneel {
   position: absolute;
   inset: 0;
   overflow-y: auto;
+  /* Zie .mymmo-modal-body hierboven: met tabbladen is DIT de scrollcontainer,
+     dus de regel hoort hier ook te staan. */
+  overflow-x: hidden;
   overscroll-behavior: contain;
   visibility: hidden;
   opacity: 0;
@@ -993,6 +1014,11 @@ html.mymmo-modal-js .mymmo-modal-body--tabs .mymmo-modal-paneel.is-actief {
     height: 100vh;
     height: 100dvh;
     border-radius: 0;
+    /* De veilige zone (de streep van de home-indicator) staat op EEN plek: het
+       venster zelf. Ze stond eerst in de knoppenrij EN in de strook eronder,
+       en die telden dus op -- op een iPhone een halve duim wit onder de
+       knoppen. Het paneel is border-box, dus 100dvh blijft kloppen. */
+    padding-bottom: env(safe-area-inset-bottom, 0px);
   }
 
   .mymmo-modal-kop {
@@ -1050,9 +1076,15 @@ html.mymmo-modal-js .mymmo-modal-body--tabs .mymmo-modal-paneel.is-actief {
   }
 
   /* Krapper dan op een groot scherm: 40px aan elke kant laat op 375px nog
-     geen 300px over om in te typen. */
+     geen 300px over om in te typen.
+     ONDERAAN GEEN OPVULLING, en dat is geen uitzondering op "een opvulling":
+     de onderste rij (de knoppen, of het dankjewelscherm) levert haar eigen
+     ruimte, zie hieronder. Die 24px zat namelijk TUSSEN de knoppen en de
+     strook met de overige tabbladen: veel te veel wit, en de inhoud scrolde er
+     ook nog eens doorheen -- de opvulling van een scrollcontainer maakt geen
+     deel uit van wat een sticky rij kan afdekken. */
   .mymmo-modal-paneel {
-    padding: 24px;
+    padding: 24px 24px 0;
   }
 
   .mymmo-modal-agenda-terugval {
@@ -1083,7 +1115,25 @@ html.mymmo-modal-js .mymmo-modal-body--tabs .mymmo-modal-paneel.is-actief {
     z-index: 1;
     background: var(--mf-field-bg, #ffffff);
     border-top: 1px solid var(--mf-border, #d7dbe2);
-    padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  }
+
+  /*
+   * DE ONDERSTE RIJ VAN EEN PANEEL LEVERT ZELF DE RUIMTE TOT DE ONDERRAND.
+   *
+   * 12px, en geen 24px zoals aan de zijkanten: hieronder staat de strook met de
+   * overige tabbladen, en die hoort tegen de knoppen aan te sluiten. Met de
+   * opvulling van het paneel erbij (24) plus deze (12) plus de veilige zone
+   * stond er op een iPhone bijna 70px wit onder de knoppen.
+   *
+   * Drie selectors, want een paneel kan op drie manieren eindigen: een stap met
+   * Vorige/Volgende, een formulier met zijn verzendknop, of het dankjewel-
+   * scherm na een geslaagde inzending. Vergeet je er een, dan plakt die tegen
+   * de rand.
+   */
+  .mymmo-modal-paneel > .mymmo-stappen .mymmo-stap-nav,
+  .mymmo-modal-paneel .mymmo-form-actions,
+  .mymmo-modal-paneel .mymmo-dank {
+    padding-bottom: 12px;
   }
 
   .mymmo-modal-close {
@@ -1248,12 +1298,26 @@ html.mymmo-modal-js .mymmo-modal-body--tabs .mymmo-modal-paneel.is-actief {
     order: 1;
     flex: 1 1 auto;
     min-height: 0;
+    /* .mymmo-modal-main heeft normaal margin-bottom:12px (voor de "los
+       zwevende kaart"-look). Op mobiel, met de extra-acties-strook eronder,
+       gaf dat een zichtbare kier tussen de Vorige/Volgende-rij en die
+       strook -- ze moeten hier tegen elkaar aan sluiten. */
+    margin-bottom: 0;
   }
 
   .mymmo-modal-aside {
     order: 2;
     flex: 0 0 auto;
-    padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+    /* Zelfde zijmarge als .mymmo-modal-paneel (24px op mobiel), zodat deze
+       strook -- de niet-gekozen tabbladen als "extra acties" -- even breed
+       oogt als de Vorige/Volgende-rij erboven. Stond hier eerst op 16px,
+       een eigen (kleinere) maat die niet aansloot.
+       Geen bovenpadding meer: er bleek een TWEEDE, eerdere mobiele regel voor
+       ditzelfde element te bestaan (verderop in dit bestand gewonnen, zie de
+       regel hierboven over specificiteit) die al margin:0 op de kaart zette
+       -- de zichtbare kier zat dus niet in die marge, maar in DEZE 12px
+       bovenpadding, op de eigen (getinte) achtergrond van deze strook. */
+    padding: 0 24px 12px;
   }
 
   /* Het tabblad waar je op staat hoort niet bij "extra acties" -- dat is waar je
@@ -1284,5 +1348,58 @@ html.mymmo-modal-js .mymmo-modal-body--tabs .mymmo-modal-paneel.is-actief {
 
   .mymmo-modal-tab-sub {
     display: none;
+  }
+}
+
+/* ── Het venster van een afspraaklink (1.18.2) ───────────────────────────────
+   Enkel de agenda, met de foto van de collega in de kop. Staat ACHTERAAN: de
+   mobiele regels hierboven zetten de kop weg, en bij gelijke specificiteit wint
+   de laatste. */
+
+/* [hidden] is (0,0,1) en verliest van onze klassen (.mymmo-modal-lead zet op
+   mobiel een display). Een plek die het script nog niet vulde, blijft weg. */
+.mymmo-modal [data-mymmo-afspraak][hidden],
+.mymmo-modal-panel--afspraak .mymmo-modal-aside[hidden] {
+  display: none !important;
+}
+
+.mymmo-modal-panel--afspraak .mymmo-modal-kop {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 14px;
+}
+
+.mymmo-modal-panel--afspraak .mymmo-modal-persoon {
+  flex: 0 0 auto;
+  width: 56px;
+  height: 56px;
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+/* De foto vervangt de tekening van de opstelling. */
+.mymmo-modal-panel--afspraak.is-persoon .mymmo-modal-figuur {
+  display: none;
+}
+
+@media (max-width: 640px) {
+  /* Op een telefoon valt de kop normaal weg (zie hierboven). Hier niet: wie
+     via een persoonlijke link komt, hoort te zien MET WIE hij afspreekt. */
+  .mymmo-modal-panel--afspraak .mymmo-modal-kop {
+    display: flex;
+  }
+
+  .mymmo-modal-panel--afspraak .mymmo-modal-persoon {
+    width: 44px;
+    height: 44px;
+  }
+
+  .mymmo-modal-panel--afspraak .mymmo-modal-title {
+    font-size: 1.1rem;
   }
 }

@@ -56,9 +56,9 @@ $past = mymmo_events_is_past($event);
                 <span class="mymmo-ev-tag mymmo-ev-tag--muted"><?php echo esc_html((string) $event['location']['name']); ?></span>
             <?php endif; ?>
 
-            <?php if (is_int($seats_left) && $seats_left <= 5 && !$past) : ?>
+            <?php if (is_int($seats_left) && $seats_left < MYMMO_EVENTS_ALMOST_FULL && !$past) : ?>
                 <span class="mymmo-ev-tag mymmo-ev-tag--urgent">
-                    <?php echo $seats_left === 0 ? 'Volzet' : esc_html(sprintf('Nog %d plaats%s', $seats_left, $seats_left === 1 ? '' : 'en')); ?>
+                    <?php echo $seats_left === 0 ? 'Volzet' : 'Bijna volzet'; ?>
                 </span>
             <?php endif; ?>
         </p>

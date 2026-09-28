@@ -1,8 +1,16 @@
 # Nieuws & updates naar de OM — kernonderzoek en grondwerk
 
-Status: **onderzoek af, ontwerp voorgesteld, nog niets gebouwd.**
-Datum: 2026-09-17. Alle cijfers hieronder zijn gemeten, niet geschat — de
-meetopdrachten staan erbij zodat je ze kan herhalen.
+Status: **OM-module gebouwd (2026-09-20), WordPress-plugin nog niet. Er is nog
+niets aan de bestaande feed gewijzigd.**
+Onderzoek: 2026-09-17. Alle cijfers hieronder zijn gemeten, niet geschat — de
+meetopdrachten staan in §10 zodat je ze kan herhalen.
+
+Wat er intussen staat: `src/modules/content-feed/` (contract, service, cache,
+publieke API, beheerroutes), `public/content-feed.html` + `.js`, en de
+moduleregistratie in `supabase/migrations/20260920120000_content_feed_module.sql`.
+`x_studio_brand` is op 2026-09-20 in Studio aangemaakt met de waarden
+`syndicoach` / `openvme` / `both`. De AI-samenvatting is op verzoek NIET
+meegenomen — zie §7c voor de gecorrigeerde meting daarover.
 
 Doel: `x_content_snippet` ("contentsnippets" / "nieuws en updates") krijgt
 hetzelfde model als events en formulieren. **Odoo blijft de database**, het
@@ -275,8 +283,25 @@ volgorde kan voorspellen. `x_studio_sequence` gebruiken we niet.
 ### (c) De AI-samenvatting
 
 Automation 27 vuurt bij `x_studio_generate_ai_content = True` naar een Zapier-
-hook. `x_studio_ai_last_generated` was leeg op elk record dat ik bekeek, dus
-waarschijnlijk werkt dit al een tijd niet.
+hook.
+
+**GECORRIGEERD 2026-09-20.** In een eerdere versie stond hier dat dit "leeg was
+op elk record dat ik bekeek" -- dat was een steekproef van drie records, geen
+meting. Over alle 49 gemeten:
+
+| | |
+|---|---|
+| `ai_last_generated` gevuld | **34 records**, nieuwste 2026-07-14 |
+| `generate_ai_content = true` met `ai_last_generated` leeg | **10 records**: 57, 67, 68, 81, 82, 92, 94, 95, 96, 97 |
+
+De twee sluiten elkaar uit: de vlag blijft `true` staan tot Zapier terugschrijft.
+Die tien records hebben dus een samenvatting GEVRAAGD en nooit gekregen -- vijf
+ervan (92, 94, 95, 96, 97) dateren van augustus en september 2026.
+
+**De AI-samenvatting is rond half juli 2026 gestopt**, dezelfde periode waarin de
+Calendly-Zap stilviel (24-07-2026). Waarschijnlijk dezelfde oorzaak aan
+Zapier-kant. Dat is geen detail: het betekent dat de twee bekende Zapier-storingen
+in deze omgeving samenvallen, en dat niemand het van beide gemerkt heeft.
 
 **Voorkeur: niet meenemen in de eerste versie.** De OM heeft een eigen
 AI-koppeling met een foutcontract (`lib/ai.js`, zie CLAUDE.md); de samenvatting

@@ -88,6 +88,8 @@ const supabase = getSupabaseClient(env); // per-isolate singleton, persistSessio
 
 **NOOIT** `createClient()` uit `@supabase/supabase-js` direct aanroepen in modules. Geen module-eigen supabaseClient.js-bestanden. Migraties in `supabase/migrations/` met timestamp-prefix `YYYYMMDDHHMMSS_naam.sql`.
 
+**Elke nieuwe tabel in `public` krijgt RLS aan** (`alter table ... enable row level security;` direct na de `create table`), zonder policies. De Worker gebruikt enkel de service-role-key (BYPASSRLS), dus er breekt niets; zonder RLS is de tabel via PostgREST open voor iedereen met de anon-key. Supabase meldde dit op 2026-09-19 (`rls_disabled_in_public`); rechtgezet in `20260925100000_enable_rls_all_public_tables.sql`, die ook een event trigger `om_rls_auto_enable` als vangnet zet.
+
 ## Endpoint-tracking
 
 Elke succesvolle module-route-aanroep wordt geregistreerd in de tabel `endpoint_log` (`endpoint`, `last_called_at`, `call_count`) via `src/lib/endpoint-tracker.js` → SQL-functie `upsert_endpoint_log(p_endpoint)`. De module-router doet dit automatisch (fire-and-forget, route-patroon zoals `GET /admin/api/users/:id` — nooit raw paths met IDs). Publieke en auth-routes worden niet getrackt. Nieuwe modules hoeven hier niets voor te doen.
@@ -192,6 +194,7 @@ document.addEventListener('click', e => {
 | wp-form-schemas | `/wp-sites` | — | in `routes.js` | ⚠️ Legacy |
 | claude-integration | `/api/claude` | — | onderdeel van `/insights` | ⚠️ Legacy |
 | mini-apps | `/mini-apps` | `mini_apps` | `public/mini-apps.html` + dedicated JS | ✅ Correct (zie hieronder) |
+| booking-links | `/afspraaklinks` | `booking_links` | `public/booking-links.html` + `.js` | ✅ Correct (zie "Afspraaklinks") |
 
 **Legacy modules NIET aanraken tenzij expliciet gevraagd.** Bij aanpassingen aan legacy `ui.js`: string-concatenatie (+), geen geneste template literals, geen variabelen in inline event handlers. `src/lib/components/navbar.js` is de legacy server-rendered navbar voor deze ui.js-bestanden.
 
@@ -307,6 +310,7 @@ kent. Volledige onderbouwing: `docs/ontwerp-om-formulieren.md`.
 | Komen de OM-velden in het koppelingsscherm? | `node src/modules/forminator-sync-v2/tests/om-form-fields-test.mjs` |
 | Toont de indieningenlijst de waarden? | `node src/modules/forminator-sync-v2/tests/submissions-list-test.mjs` (playwright) |
 | Belooft het scherm dezelfde replay als de server? | `node src/modules/forminator-sync-v2/tests/replay-status-parity-test.mjs` |
+| Waarden leesbaar maken (labels, tijdstippen) | `src/modules/forminator-sync-v2/display-values.js` |
 
 Afspraken die bewust zo zijn:
 
@@ -423,6 +427,25 @@ Afspraken die bewust zo zijn:
   Na het opslaan in de bouwer wordt die lijst meteen ververst: anders moet je de
   koppeling sluiten en heropenen voor een net toegevoegd veld verschijnt, en
   niets op het scherm vertelt je dat.
+- **Er zijn TWEE vormen van de formulierwaarden, en ze blijven gescheiden.**
+  `normalizedForm` (ruw: `lift,water_verwarming`, `2026-09-27T11:39:39+00:00`)
+  gaat naar Odoo-velden, voorwaarden, zoekdomeinen en de Calendly-fase.
+  `displayForm` (`buildDisplayForm()` in `display-values.js`: labels i.p.v.
+  optiesleutels, `, ` als scheiding, tijdstippen als "27 september 2026 om
+  13:39" in Europe/Brussels) is ALLEEN voor tekst: chatter, activiteit, mail,
+  pdf, de HTML-samenvatting. Zet nooit een label in een Odoo-veld: de sleutel
+  ligt vast, het label mag morgen anders geformuleerd zijn.
+  De labels reizen als `value_labels` (`{veld: {waarde: label}}`) op het
+  hoogste niveau van de payload, NIET in `form_data` -- anders wordt elk label
+  een mapbaar veld. Twee bronnen: de opties van een OM-keuzeveld (vult
+  `forms/submit.js` zelf, en die winnen) en de HTML-stappen in WordPress
+  (`Mymmo_Forms_Steps::waarde_labels()`, per `data-waarde` de tekst van het
+  `-label`/`-titel`-kind). Een inzending zonder `value_labels` (van vóór plugin
+  1.18.4) krijgt een terugval: `teveel_fouten` wordt "teveel fouten".
+  De indieningenlijst en het chatter-voorbeeld krijgen dezelfde omzetting van
+  de server mee (`display_values` op `GET /api/integrations/:id/submissions`),
+  zodat er geen tweede kopie in de browser bestaat. Gebruik ze enkel voor
+  WEERGAVE (`leesbarePayload()`), nooit voor de ketens of de afspraakstand.
 - **De indieningenlijst SLAAT DE PAYLOAD PLAT voor ze erin zoekt.** Een
   Forminator-inzending heeft haar velden bovenaan in `source_payload`; een
   inzending van een OM-formulier heeft ze een niveau dieper, onder `form_data`.
@@ -1147,8 +1170,391 @@ Afspraken die bewust zo zijn:
   staat er altijd maar één open) en de CONFIGURATIE staat nog steeds op één plek,
   wat het punt is. Delen kan niet zomaar: een callout herordent de stappen, dus
   haar venster is niet hetzelfde als dat van een knop ernaast.
+- **Een OPEN venster hangt onder `<body>`** (`naarBoven()`/`terugZetten()` in
+  mymmo-forms-modal.js, sinds 1.17.25). Een voorouder met transform/filter/
+  contain of een eigen z-index ving het anders in dat blok, achter de footer.
+  Gevolg: wat in het venster gebeurt, borrelt NIET meer op tot de wikkel rond
+  kaartje + venster. De reeks luistert daarom via `Reeks.luister()` ook op de
+  vensters in haar wikkel, en test met `bevat()` in plaats van
+  `wikkel.contains()`. Voeg je een luisteraar toe aan de reeks, gebruik
+  `luister()`.
 - **Nog niet gebouwd, bewust:** een voorbeeld van een ingang in het beheerscherm.
   Je ziet hem pas op een (concept)pagina. De bouwer toont wel het venster zelf.
+
+---
+
+## Componenten — mymmo-cards (2026-09)
+
+**Regel: elk component in deze plugin bezit geometrie en gedrag — nooit
+typografie. De inhoud komt uit gewone core-blokken, dus kop, tekst en kleur
+komen uit het thema; kleur die het component zelf zet, komt uit het palet van
+het thema.**
+
+Sinds 1.5.0 zit er meer in dan de kaartenstapel: het is een bibliotheek waaruit
+een marketeer een pagina zet. De componenten horen in één plugin omdat ze
+dezelfde uitgangspunten delen; een tweede plugin zou betekenen dat iemand er een
+moet activeren die hij niet kent.
+
+**De MAPNAAM blijft `mymmo-cards`, ook al heet de plugin "Mymmo Componenten".**
+WordPress herkent een plugin aan haar pad: hernoemen levert op de site een
+TWEEDE plugin op naast de bestaande, en dan draait dezelfde code twee keer tot
+iemand het merkt. Om dezelfde reden blijven `MYMMO_CARDS_VERSION`, het
+build-script en de zipnaam zoals ze zijn.
+
+Waarom dit bestaat: de stapel op syndicoach.be was met de hand gebouwd uit
+core-Groepen met per kaart een eigen inline-opvulling, plus CSS in "Extra CSS"
+van één site, plus een los script voor de beweging. Daartussen stond één kaart
+die uit Mymmo Forms kwam (de callout) met haar eigen titel, opvulling en
+achtergrond. Die gelijk krijgen betekende: eigenschap per eigenschap overtypen
+via een instellingenscherm, met een plugin-release per eigenschap. Dat
+convergeert niet — de kaarten waarmee je vergelijkt zijn zelf niet gelijk
+(gemeten: kaart 1 `padding-right:0` met een kolom op `sm/xl/sm/sm`, kaart 2 `sm`
+rondom; thema-`h3` 30px/400 in `neutral-950` tegenover de callout-`h2` op
+22,4px/700 in `#1f2430`).
+
+| Wat | Waar |
+|---|---|
+| Blokken, registratie, render (index tellen) | `wp-plugin/mymmo-cards/includes/class-blocks.php` |
+| Vormcontrole + gesloten lijsten | `wp-plugin/mymmo-cards/includes/helpers.php` |
+| Geometrie, mobiel, kleefwiskunde | `assets/css/mymmo-cards.css` |
+| Meten + krimpen | `assets/js/mymmo-cards.js` |
+| De editor (geen bouwstap, `wp.element.createElement`) | `assets/js/mymmo-cards-editor.js` |
+| Enkel wat in de editor anders is | `assets/css/mymmo-cards-editor.css` |
+| Zonder WordPress bekijken | `php wp-plugin/mymmo-cards-preview.php > proef.html` |
+| Bouwen | `bash wp-plugin/build-mymmo-cards.sh <versie>` |
+| De ingang van Mymmo Forms erin | blok "Mymmo ingang" met **Kaal tonen** aan (`chrome="no"`) |
+| **Markeerstift**: vormen, palet, gegenereerde regels | `includes/class-markering.php` |
+| De streep zelf (voorkant én canvas) | `assets/css/mymmo-markering.css` |
+| De opmaakknop en de kiezer | `assets/js/mymmo-markering.js` |
+| De lengte kiezen per woord | `assets/js/mymmo-markering-front.js` |
+| Alleen de kiezer (popover, buiten het canvas) | `assets/css/mymmo-markering-editor.css` |
+| De tekeningen | `assets/vormen/markering-*.svg` |
+| Zonder WordPress bekijken | `php wp-plugin/mymmo-markering-preview.php > proef.html` |
+| **Knop die een venster opent**: attribuut, brug, tabblad | `includes/class-knop.php` |
+| Het paneeltje + de variant in de inserter | `assets/js/mymmo-knop-editor.js` |
+
+Afspraken die bewust zo zijn:
+
+- **GEEN typografie in `mymmo-cards.css`.** Geen `font-family`, `font-size`,
+  `font-weight` of tekstkleur. Zet je er ooit één bij, dan is het probleem terug
+  waarvoor deze plugin gemaakt is.
+- **De OPVULLING staat op de STAPEL**, in drie maten, als KLASSE. Niet als
+  inline variabele: een inline waarde wint van élke selector, ook van een media
+  query op datzelfde element, en dan kan een telefoon de desktopmaat nooit
+  verkleinen. Om diezelfde reden zetten de blokken alleen `--mk-stap` /
+  `--mk-gap` inline en rekent de CSS daaruit per breekpunt `--mk-stap-nu` /
+  `--mk-gap-nu`.
+- **De gelijke hoogte wordt GEMETEN**, niet ingetypt (`--mk-hoogte`). Het
+  vorige `--card: 560px` moest met de hand gelijk blijven aan de hoogste kaart.
+  Er staat bewust GEEN plafond meer op (tot 1.2.2 was dat 88vh): met een plafond
+  werden de kaarten onderling ongelijk zodra er een hoge kaart bij zat, en dan
+  gaapte er op een telefoon een kier tussen twee kaarten. Elke kaart is minstens
+  zo hoog als haar voorgangers (een lopend maximum), dus de stapel sluit. Meten gebeurt met de klasse `--meten`, die de kaarten even op
+  hun natuurlijke hoogte zet: zonder dat meet het script zijn eigen vorige
+  antwoord, want de kaarten dragen dan al `min-height`.
+- **De INDEX van een kaart wordt in PHP geteld**, niet in CSS. `nth-child`
+  levert geen getal voor `calc()`, en met de hand uitschrijven is precies wat er
+  stond (`.stack-1 {} .stack-2 {}` tot het toevallige aantal). Daarom rendert
+  `render_stapel()` haar kinderen zelf.
+- **NOOIT `container-type`, `contain` OF EEN TRANSFORM OP EEN KAART MET EEN
+  VENSTER ERIN.** Alle drie maken ze van de kaart het referentiekader voor
+  `position: fixed` van alles wat erin staat -- en dat is precies wat het
+  venster van Mymmo Forms is. Dat venster zou dan niet meer over de pagina
+  liggen maar in de kaart gevangen zitten, en je ziet het pas als iemand op de
+  knop drukt. Gevolgen: de kolommen slaan om met een gewone MEDIA query op
+  640px (geen container query), en het script slaat elke kaart met een
+  `.mymmo-modal` erin over -- ook voor `scale(1)`, want ook dat telt.
+  In de editor klopt die media query ook: het canvas staat daar sinds WordPress
+  6.3 in een iframe, dus ze meet de breedte van het canvas.
+- **De KRIMP TELT OP.** Een kaart wordt kleiner voor élke kaart die er nog
+  overheen komt (`STAP` per kaart), niet alleen voor de eerstvolgende; de
+  voortgang wordt gemeten aan de KLEEFPOSITIE (de laatste `AANLOOP` pixels voor
+  ze aankomt), niet aan de overlap. Zo lopen de zichtbare randen als een waaier
+  uit elkaar. Met alleen de volgende kaart zijn alle randen even breed en ziet
+  de stapel er plat uit -- dat was de eerste versie, en het verschil is meteen
+  te zien.
+- **De editor gebruikt `useInnerBlocksProps`, niet `<InnerBlocks>`.** Dat laatste
+  zet twee eigen wikkels tussen het element en de blokken erin
+  (`.block-editor-inner-blocks` + `.block-editor-block-list__layout`), waardoor
+  `.mymmo-kaart-raster` als grid nog maar ÉÉN kind heeft: twee kolommen stonden
+  in de editor onder elkaar en op de pagina naast elkaar.
+- **De sierafbeelding is een `<span>` met een `background-image`, geen `<img>`.**
+  Ze moet GROTER dan de kaart kunnen zijn (de kaart snijdt ze af, dat is het
+  effect) en onbeperkt schaalbaar. Met een `<img>` ging dat twee keer mis: een
+  SVG die alleen een `viewBox` heeft, heeft geen eigen afmetingen, en elke
+  `img`-regel van het thema (`max-width: 100%`) is specifieker dan een klasse
+  van ons. Een doos met een achtergrond heeft die twee problemen geen van beide:
+  de maat is EEN getal (een percentage van de kaartbreedte) en de hoogte volgt
+  uit een `padding-top` in procenten -- dat rekent altijd tegen de BREEDTE, dus
+  de verhouding blijft staan.
+- **Geen `ResizeObserver` in het script.** Die ziet onze eigen `min-height`
+  veranderen en meet zichzelf in een kringetje. In de plaats: `load` van de
+  afbeeldingen, `fonts.ready`, `resize`, en `mymmo:venster` (Mymmo Forms haalt
+  een stap uit een kaart en zet hem er weer in).
+- **Eén kolom is een brede kaart.** Er is geen `indeling`-attribuut: het AANTAL
+  kolommen bepaalt de indeling, en een lege kolom wordt niet gerenderd. Twee
+  velden die hetzelfde zeggen lopen ooit uiteen.
+- **De KAARTENSTAPEL kent Mymmo Forms niet.** De enige verwijzing is de
+  CSS-regel op `html.mymmo-modal-actief` (een klassenaam, geen code) zodat de
+  kleefkop niet over een open venster valt. Sinds 1.6.0 heeft de KNOP wél een
+  koppeling, maar optioneel en éénrichting -- zie hieronder.
+- **`chrome="no"` in Mymmo Forms (1.17.23)** rendert een ingang KAAL: enkel het
+  dok en de knop, in `.mymmo-ingang-kaal`. Dat attribuut hoort bij de PLAATSING
+  (`SHORTCODE_ATTS`), niet bij de ingang — dezelfde ingang kan elders wél haar
+  eigen kaartje meebrengen. Het dok en de knop worden in `templates/callout.php`
+  één keer in een buffer opgebouwd en door beide standen gebruikt; twee kopieën
+  zouden uit elkaar lopen zodra iemand er een attribuut bij zet.
+**De markeerstift (1.5.0)** — een woord in een kop uitlichten, zoals *anders* in
+"Hoe wij het anders aanpakken". Wat het vervangt: een afbeelding die met de hand
+achter dat ene woord geduwd stond, per woord opnieuw, niet te herkleuren, scheef
+zodra de tekst wijzigde.
+
+- **Het is een OPMAAK (`registerFormatType`), geen blok.** Een blok zou betekenen
+  dat een marketeer zijn kop in stukken knipt om er één woord uit te lichten.
+- **De streep is een SVG als MASKER, met de kleur eronder.** Een gekleurde SVG
+  zou een bestand per vorm ÉN per kleur betekenen, en een nieuwe merkkleur een
+  nieuwe set bestanden. Het masker staat op een `::before` ACHTER de tekst: op
+  het element zelf zou het ook de letters wegmaskeren. `isolation: isolate` hoort
+  bij die `z-index: -1` — zonder die isolatie valt de streep achter de
+  ACHTERGROND van de kaart of sectie eromheen, en dat is precies waar dit voor
+  bedoeld is.
+- **De keuzes staan als KLASSEN op de `<mark>`, nooit als inline stijl.** Wie
+  geen `unfiltered_html` heeft (een auteur, een redacteur op een multisite) ziet
+  zijn `style`-attribuut bij het bewaren gefilterd worden. `className` bepaalt
+  wanneer de editor de opmaak HERKENT (`mymmo-mark`), het `class`-attribuut
+  draagt de keuzes — exact het patroon van core's eigen `core/text-color`.
+- **De VALREGEL (`.mymmo-mark`) staat VOORAAN in de gegenereerde CSS.** Zij en
+  `.mymmo-mark--stift` zijn even zwaar (0,1,0), dus wie achteraan staat wint.
+  Stond ze achteraan, dan kreeg elke markering de eerste streep, ongeacht de
+  keuze — en dat ziet er niet uit als een fout.
+- **De stylesheet hangt aan `enqueue_block_assets` en NIET ook aan
+  `wp_enqueue_scripts`.** Die eerste vuurt op de voorkant én in het canvas van de
+  editor; allebei zou het gegenereerde blok op de voorkant verdubbelen. De
+  KIEZER is een popover en leeft BUITEN het canvas-iframe: die stylesheet gaat
+  daarom via `enqueue_block_editor_assets`.
+- **Het palet komt uit `theme.json`** (`wp_get_global_settings`), niet uit een
+  eigen lijstje dat stil veroudert. De standaardkleuren van WordPress blijven
+  eruit: dat zijn er tientallen en ze horen niet bij de huisstijl. Geen kleur
+  gekozen = `currentColor`. Hetzelfde geldt voor de LETTERTYPES
+  (`typography.fontFamilies`): de plugin kent geen enkele lettertypenaam en zet
+  enkel een klasse die naar `var(--wp--preset--font-family--<slug>)` wijst. Dat
+  is de reden dat dit de regel "geen typografie in deze plugin" niet breekt --
+  er wordt niets bepaald, er wordt aangeboden wat het thema al heeft.
+- **DE DIKTE IS EEN ABSOLUTE WAARDE, en daarom bestaat die keuze.** `<strong>`
+  is `font-weight: bolder`, en dat is RELATIEF: in een kop die al op 700 staat
+  betekent bolder 900, en heeft het lettertype geen 900, dan verandert er niets.
+  Zo leek de knop "vet" op een kop stuk terwijl er niets stuk was. `GEWICHTEN`
+  in class-markering.php is een gesloten lijst (400-800); een vrij getal zou
+  stil terugvallen op de dichtstbijzijnde die het lettertype wel heeft.
+- **De regels voor lettertype en dikte gebruiken TWEE klassen**
+  (`.mymmo-mark.mymmo-mark--font-x`). Een blokthema drukt zijn stijlen inline in
+  de `<head>` af, dus ná onze stylesheet; `.wp-block-heading { font-family }` is
+  (0,1,0) en zou bij gelijk gewicht gewonnen hebben. Zelfde les als mymmo-forms
+  1.15.5.
+- **Elk voorvoegsel naast de vorm hoort in `ANDERE_PREFIXEN`**
+  (mymmo-markering.js): `--kleur-`, `--font-`, `--gewicht-`. `isVormklasse()`
+  beschouwt anders zo'n klasse als een VORM, en dan gooit `bouwKlasse()` haar bij
+  de eerstvolgende wijziging weg -- zichtbaar als een instelling die zichzelf
+  terugzet.
+- **DE VORMEN ZIJN DE BESTANDEN in `assets/vormen/`.** Er is geen array die je
+  ernaast moet bijhouden: een tekening toevoegen is een bestand neerzetten.
+  `LABELS` in class-markering.php bepaalt enkel de volgorde en een nette naam;
+  wat daar niet in staat komt achteraan met een naam uit de bestandsnaam. Geen
+  URL-veld in de editor: die waarde zou in de pagina van een bezoeker belanden,
+  en een streep hoort bij de huisstijl, niet bij het bericht.
+- **Een eigen streep:** zwarte vulling op transparant, één `<path>` met een
+  `fill` (geen `stroke`, geen `<use>`), `preserveAspectRatio="none"`, en een
+  viewBox die STRAK om de tekening zit. Lege ruimte in de viewBox duwt de streep
+  opzij: de vier tekeningen van de huisstijl stonden alle vier rechts uitgelijnd
+  in één canvas van 500×100, en zonder bijsnijden liep de streep enkel over het
+  laatste stuk van het woord. De maten kwamen uit `getBBox()` in een echte
+  browser -- een schatting op de CONTROLEPUNTEN van de bezierkrommen is te ruim,
+  want die liggen buiten de kromme.
+- **EEN STREEP HEEFT LENGTES, en dat is wat het eindcijfer in de bestandsnaam
+  betekent.** `markering-stift-1.svg` tot `-4.svg` zijn vier tekeningen van
+  DEZELFDE stift; alles wat enkel in dat cijfer verschilt, wordt één keuze in de
+  kiezer. Reden: `preserveAspectRatio="none"` rekt ook de TEXTUUR uit, dus een
+  tekening voor drie letters wordt over een lange woordgroep een uitgesmeerde
+  balk waarin de trapjes aan het einde even breed worden als een letter.
+  `mymmo-markering-front.js` meet elk woord en zet de dichtstbijzijnde erop, met
+  een LOGARITMISCHE vergelijking: lineair meten laat de langste tekening altijd
+  winnen zodra een woord lang wordt, ook als ze dan dubbel zo ver mis zit als de
+  op een na langste. De verhouding komt uit de `viewBox` van het bestand, niet
+  uit de naam -- zo kan een tekening nooit een andere lengte blijken te hebben
+  dan waarvoor ze wordt ingezet. Zonder JavaScript staat de MIDDELSTE lengte er
+  (gezet in de gegenereerde CSS), dus er is altijd een streep.
+- **Het keuzescript zet een INLINE CSS-variabele, geen klasse.** Een klasse per
+  lengte zou in de opgeslagen inhoud belanden, en dan staat er in de database een
+  lengte die hoorde bij de schermbreedte van de redacteur op het moment van
+  typen. De MutationObserver in dat script luistert bewust NIET op `attributes`:
+  het script zet zelf een style-attribuut en zou zichzelf aan de gang houden.
+- **De maat van de streep staat in twee variabelen** (`--mk-mark-hoogte` 1,15em,
+  `--mk-mark-uitloop` 0,15em) en is GEMETEN, niet gekozen: bij 1em blijft de
+  laatste letter onbedekt (het rechteruiteinde van de tekening loopt omhoog en
+  breekt in dunne treden, dus daar zit minder inkt dan links), bij 1,2em wordt
+  het een vlek. De hoogte hangt bewust aan de LETTERGROOTTE en niet aan het
+  inline-element: dat laatste is zo hoog als het lettertype toestaat (van boven-
+  tot onderlengte, ruim 1,2em), ook bij een woord zonder staartletters -- een
+  streep die daarop steunt is bij het ene woord te hoog en bij het andere net
+  niet, zonder dat je ziet waarom. Het keuzescript meet daarom het
+  PSEUDO-ELEMENT (`getComputedStyle(el, '::before')`) en niet het woord plus een
+  kopie van die marges; twee plekken met dezelfde getallen lopen ooit uiteen.
+- **Een markering die over TWEE REGELS breekt krijgt geen streep** (klasse
+  `mymmo-mark--gebroken`). Het pseudo-element staat absoluut en zou dan de ruimte
+  beslaan van het begin van de eerste regel tot het einde van de laatste: een
+  smalle, hoge doos, zichtbaar als een verticaal streepje dwars door twee regels.
+  Met CSS is dat niet te repareren -- één pseudo-element kan geen twee regels
+  beslaan en de fragmenten van een gesplitst inline-element zijn niet apart aan
+  te wijzen. Geen streep leest als een keuze, een verkeerde streep als een fout.
+
+**De knop die een venster opent (1.6.0, herzien in 1.7.0)** — een gewone
+WordPress-knop met één keuze erbij: welk TABBLAD van welke opstelling van Mymmo
+Forms hij opent.
+
+- **DE KEUZE KOMT UIT DE OPSTELLING, NIET UIT DE INGANGEN.** Dat was 1.6.0, en
+  het klopte niet: een ingang zegt HOE een venster opengaat (knop, klasse,
+  callout), niet WAT de bezoeker te zien krijgt. De keuzelijst stond daardoor vol
+  ingangen die enkel bestonden om ergens een knop te kunnen zetten, en het
+  tabblad dat je wilde openen stond er niet eens in. `Mymmo_Forms_Presets::all()`
+  levert nu de opstellingen en `tabbladen_van()` leidt per opstelling af welke
+  tabbladen ze écht heeft (form altijd; extra zodra `extra_slug` of
+  `extra_steps` gevuld is; calendly zodra er een boekingslink staat -- exact de
+  voorwaarden die Mymmo Forms zelf gebruikt). De ingangen blijven waarvoor ze
+  bedoeld zijn: callouts.
+- **De waarde is ÉÉN attribuut `mymmoVenster` met de vorm `<opstelling>|<tab>`.**
+  Twee attributen zouden ongeldige tussenstanden mogelijk maken -- een opstelling
+  zonder tabblad opent niets voorspelbaars, een tabblad zonder opstelling bestaat
+  niet -- en dan moet elke lezer die afvangen.
+- **Het attribuut van 1.6.0 (`mymmoIngang`) blijft geregistreerd en levert een
+  MELDING.** Registreer je het niet meer, dan gooit de editor het bij de eerste
+  bewaaractie weg en kan niemand nog zeggen dat die knop opnieuw ingesteld moet
+  worden. Stil laten vallen zou een knop opleveren die niets doet en er goed
+  uitziet -- de ergste uitkomst.
+
+- **Het is GEEN eigen knopblok, maar een uitbreiding van `core/button`.** Een
+  eigen blok zou zijn eigen vorm meebrengen (kleuren, randen, opvulling) en dan
+  staat er een knop die nét niet is zoals de rest -- precies het probleem
+  waarvoor deze plugin bestaat. Door de kern-knop uit te breiden krijg je elke
+  eigenschap die WordPress kent en stijlt het thema hem. Er komt één attribuut
+  bij (`mymmoIngang`), meer niet.
+- **De variant staat op `core/BUTTONS`, niet op `core/button`.** Dat laatste blok
+  heeft `parent: ['core/buttons']` en verschijnt dus alleen in de inserter als je
+  al in een knoppenrij staat. De variant zet zelf niets in -- ze is een
+  wegwijzer, want zonder haar bestaat de mogelijkheid alleen voor wie toevallig
+  in de zijbalk van een knop kijkt.
+- **DE KOPPELING MET MYMMO FORMS IS OPTIONEEL EN ÉÉNRICHTING.** Dit is een
+  bewuste herziening van "de twee plugins zijn niet gekoppeld": mymmo-cards
+  importeert nog steeds niets, maar gebruikt achter een `class_exists()` twee
+  publieke klassen. Staat Mymmo Forms niet aan, dan is het gewoon een knop en
+  zegt het paneel dat -- een lege keuzelijst zonder uitleg leest als een storing.
+- **De brug is de KLASSE-INGANG, en er wordt geen venster-logica overgeschreven.**
+  Een klasse-ingang tekent zelf niets: ze rendert het venster met `button="no"`
+  en een trigger-selector, waarna elk element met die klasse het opent
+  (`bindTriggers()` in mymmo-forms-modal.js zoekt in het HELE document).
+  `class-knop.php` stelt zo'n klasse-ingang TER PLEKKE samen (opstelling +
+  tabblad + eigen trigger) en geeft die aan
+  `Mymmo_Forms_Shortcodes::render_ingang()`. Welk formulier, welke agenda, welke
+  stappen, welke teksten: allemaal onveranderd van die plugin. Er wordt NIETS
+  bewaard -- dat object leeft alleen tijdens dat ene verzoek, en de
+  ingangenlijst in wp-admin blijft onaangeroerd.
+- **De trigger-klasse is uit de KEUZE afgeleid**
+  (`mymmo-opent-<opstelling>-<tab>`), niet willekeurig: twee knoppen met dezelfde
+  keuze delen dan één venster. Een tweede exemplaar zou hetzelfde formulier nog
+  eens in de DOM zetten, met zijn veld-id's en verborgen velden erbij. Twee
+  VERSCHILLENDE tabbladen krijgen wél elk hun venster -- een venster opent op het
+  tabblad dat bij het renderen is meegegeven, dus dat kan niet gedeeld worden.
+  `modal_id()` telt per pagina door, dus die twee botsen niet op hun id.
+  **Dat delen gebeurt in de BROWSER, niet in PHP** (`ontdubbel()` in
+  mymmo-forms-modal.js, sinds cards 1.7.1 / forms 1.17.26). Tot dan hield
+  `class-knop.php` een statische vlag per verzoek bij en schreef het venster
+  maar één keer uit. Dat liet knoppen niets doen: WordPress rendert dezelfde
+  inhoud vaak meer dan eens per verzoek en gooit de eerste uitvoer weg (SEO-
+  plugin, excerpt, menu), en dan stond de vlag al op "gedaan" bij de render die
+  wel op de pagina kwam. Zet zo'n vlag nooit terug: de server kan niet weten
+  welke render op de pagina belandt.
+- **Het venster wordt INLINE achter de knop geschreven**, niet in `wp_footer`.
+  Dat is wat de shortcode van Mymmo Forms ook doet, op hetzelfde moment in de
+  paginaopbouw, dus de stylesheets en scripts komen op dezelfde manier mee. In de
+  indeling kost het niets: de wikkel staat bij `button="no"` op
+  `display:contents` en het venster zelf op `display:none; position:fixed`.
+- **De opschriften komen uit de opstelling, niet uit een eigen lijstje.**
+  `tab_form` / `tab_calendly` / `tab_extra`, met de standaardteksten van Mymmo
+  Forms als terugval. Voor het derde tabblad bestaat die terugval daar niet (de
+  plugin neemt dan de naam van het formulier, en dat kan hier niet zonder de
+  formulier-API): dan wordt het "Derde tabblad (<slug>)". Liever de slug erbij
+  dan een naam verzinnen -- een verzonnen naam doet een marketeer twijfelen of
+  hij wel het juiste kiest.
+- **`tab_order` wordt gelezen zodat de keuzelijst dezelfde volgorde heeft als het
+  venster.** Het BESLIST hier niets; dat blijft van Mymmo Forms.
+- **De knop opent op een TABBLAD, niet op een stap.** Een stap vooraan zetten kan
+  alleen een callout, want die haalt de stap uit het venster en zet hem in de
+  pagina (`steps_met_eerst()` + `dok_index`). Dat is bewust niet nagebouwd voor
+  een knop.
+- **Een knop zonder link krijgt er bij het renderen een** (`href="#"`): zonder
+  `href` is een `<a>` niet met het toetsenbord te bereiken en zou de knop alleen
+  met de muis werken. Dat de klik niet naar boven springt, regelt
+  mymmo-forms-modal.js met `preventDefault()`. De klasse gaat erop met
+  `WP_HTML_Tag_Processor` (de parser van WordPress zelf), nooit met een reguliere
+  expressie.
+- **Het attribuut heeft bewust GEEN `source`**, dus WordPress bewaart het in het
+  blok-commentaar en niet in de markup. De trigger-klasse komt pas bij het
+  RENDEREN op de knop; stond ze in de opgeslagen inhoud, dan bleef ze staan op
+  elke pagina waar iemand de ingang later loskoppelde.
+
+**De keienwolk (1.8.0)** — grote zwevende keien met eigen inhoud, omringd door
+kleine keitjes die parallax voorbijschuiven. Voor alles wat vanuit de KLANT
+spreekt: organisch, overlappend, bewegend. Code: `includes/class-keien.php`,
+`assets/css/mymmo-keien.css`, `assets/js/mymmo-keien.js` (enkel `view_script`)
+en `assets/js/mymmo-keien-editor.js`. Proef: `php wp-plugin/mymmo-keien-preview.php`.
+
+- **Drie bewegingen, drie eigenschappen.** `rotate` = scheef (vast), `translate`
+  = zweven (animatie op `.mymmo-kei-vorm`), `transform` = parallax (op de
+  WIKKEL, via `--mk-p` dat het script zet). Het script schrijft nooit zelf een
+  transform: twee plekken die dat doen overschrijven elkaar.
+- **Een kei met een `.mymmo-modal` erin krijgt `mymmo-kei--stil`**: geen
+  zweven, geen parallax, geen rotate. Zelfde regel als bij de kaartenstapel --
+  een translate maakt de kei het referentiekader van `position: fixed`.
+- **In de editor beweegt niets** (view_script, en de animaties staan uit in
+  mymmo-keien-editor.css). Wat je ziet, is de stand als de wolk midden op het
+  scherm staat; daar is de parallax-verschuiving 0.
+- **x/y van een keitje is zijn MIDDEN, in % van de wolk.** Daarom
+  `translate(-50%, -50%)` in de CSS, en daarom rekent het slepen in de editor
+  vanaf het middelpunt.
+- **x/y rekent tegen `.mymmo-keien-kern`** (de keien samen, max `--mk-max`
+  = 1200px), niet tegen de volle breedte: anders ligt een keitje op een breed
+  scherm ver van de keien. "Rondom schikken" meet de omtrek van de keien in het
+  canvas en is bewust willekeurig -- een formule gaf een regelmatige ring.
+- **Alle keitjes schuiven dezelfde kant op**, en hun tempo is AFGELEID uit
+  maat en laag in `render_keitje()` (groot + vooraan = sneller) -- niet
+  instelbaar, zodat de diepte altijd klopt met wat je ziet. De uitslag is
+  begrensd (`MAX_PX`, tanh) met een rustzone rond het midden van het scherm
+  (`RUST` in mymmo-keien.js): daar liggen de keitjes op hun plek. Geen schaduw, en GEEN
+  z-index bij hover: een kei die naar voren springt knipt door zijn buur heen.
+- **`overflow-x: clip`, niet `hidden`**: keitjes mogen over de rand hangen
+  zonder horizontale schuifbalk, en een afbeelding die bovenaan uit een kei
+  steekt wordt niet afgesneden.
+- **Een grote kei is een SVG-pad, geen border-radius** (1.8.3): border-radius
+  kan geen hoeken van 85 of 95 graden maken. De paden staan EENMAAL in
+  `Mymmo_Cards_Keien::kei_paden()` en gaan via `wp_localize_script` naar de
+  editor. Twee standen per vorm met identieke commando's (M + 4x C/Q), anders
+  springt het ademen. Geen `<use>`/`<defs>` in dat SVG (zie de beschadigde
+  markup bij de stappen van Mymmo Forms); SMIL wordt bij reduced-motion door
+  mymmo-keien.js weggehaald.
+- **De telefoonstand (1.8.4) zijn attributen ZONDER standaard** (`schaalM`,
+  `xM`, `yM`, `maatM`, `draaiM`, `hoogteM`): niet ingevuld = volgt de computer
+  via `var(--mk-...-m, <computer>)` in de media query. Geef ze nooit een
+  default -- dan neemt een wijziging aan de computerstand de telefoon stil niet
+  meer mee. De editor schrijft ze wanneer het voorbeeld op Mobiel staat
+  (`useTelefoon()`); rotatie loopt via `--mk-d`, omdat een variabele zichzelf
+  niet kan overschrijven.
+- **Keitjes laden meteen** (`skip-lazy`, `no-lazyload`, `data-no-lazy`): Smush
+  op syndicoach.be herschrijft `src` anders naar `data-src`.
+- De tekeningenlijst staat in `Mymmo_Cards_Keien::tekeningen()`; dezelfde
+  bestandsnamen als de stappen van Mymmo Forms (let op `vuilniishok`).
+
+- **Nog niet gebouwd, bewust:** een voorbeeld van een stapel in het
+  beheerscherm, en het migreren van de bestaande handgemaakte stapel — die
+  blijft werken op haar eigen "Extra CSS" tot de pagina opnieuw opgebouwd is.
 
 ---
 
@@ -2255,6 +2661,30 @@ Prompt-caching (`cacheSystem: true`) is beschikbaar maar loont alleen bij een **
 `node src/modules/mini-apps/tests/build-prompt-test.mjs` (BUILD_PROMPT vs. wat het platform werkelijk kan — zie Regel 6).
 Breid deze uit bij elke wijziging aan de brug, een provider, het digest-ontwerp of de bouw-prompt.
 
+**Regel 7 — een module zonder mini-app logt evengoed. Gebruik `askAI()`, bouw geen tweede pad.**
+
+`askAI(env, app, user, options)` aanvaardt sinds 2026-09-20 een aanroeper ZONDER
+mini-app: `{ id: null, source: '<module>' }`. Alleen de PER-APP daglimiet valt
+dan weg (die telt op `mini_app_id`, en er is er geen); de platform-brede limiet,
+`MODEL_ALLOWLIST`, het foutcontract, de stall-timeout en de audit-regel blijven
+allemaal gelden.
+
+`mini_app_ai_calls.mini_app_id` mag daarvoor NULL zijn en er is een
+`source`-kolom bij gekomen (migratie `20260920140000_ai_calls_source.sql`,
+DEFAULT `'mini_app'` zodat de historiek meteen klopt). Het label in het rapport
+komt uit `SOURCE_LABELS` in `mini-apps/routes.js`; een source die daar nog niet
+in staat toont zijn eigen naam in plaats van te verdwijnen, zodat een nieuwe
+module meteen zichtbaar is.
+
+Er staat bewust GEEN CHECK-constraint op `source`: dan zou elke nieuwe module
+een migratie nodig hebben om zichzelf te mogen loggen, en de kans is reëel dat
+iemand dan het loggen overslaat in plaats van de migratie te schrijven.
+
+**Schrijf dus nooit een eigen aanroep rechtstreeks naar
+`ai-providers/*.js`.** Dat was de eerste versie van de artikel-analyse in
+content-feed, en het gevolg was AI-kosten die in geen enkel rapport stonden --
+precies de stille faalmodus waar deze repo al twee keer last van had.
+
 **Regel 6 — wijzig je iets aan `window.platform.ai`, dan wijzig je `BUILD_PROMPT` mee.**
 
 `BUILD_PROMPT` in `public/mini-apps-list.js` is wat een collega kopieert om een AI een nieuwe mini-app te laten bouwen. Alles wat daar niet in staat, wordt in élke nieuwe app fout gedaan — die prompt is dus geen documentatie achteraf maar onderdeel van de API. Bij de herziening van 2026-08 stond er nog het oude contract in (`ask()` met alleen `system`/`maxOutputTokens`), waardoor elke gegenereerde app opnieuw JSON uit tekst zou vissen en op foutteksten zou matchen.
@@ -2690,6 +3120,608 @@ bleken drie dingen niet te kloppen. Alle drie zijn gefixt in `lib/sync.js`,
   nu via `gmail_captured_message_targets` de VOLLEDIGE, gededupliceerde doellijst van elk
   eerder bericht in die draad op. Zonder die aanpassing zou een antwoord op een mail die
   destijds naar twee leads ging, alsnog maar bij één van de twee terechtkomen.
+
+## Nieuws & updates — content-feed (2026-09)
+
+**Regel: `x_content_snippet` wordt beheerd in de OM en de WordPress-plugin HAALT
+op. Er wordt nergens meer naar WordPress geduwd.** Dat is geen betere sync -- het
+is er geen: een bericht dat in Odoo staat, staat daarmee per definitie op de site.
+Volledige onderbouwing en de meetcijfers: `docs/ontwerp-om-nieuws.md`.
+
+Wat de oude duw-keten kostte, gemeten op 2026-09-17: 43 gepubliceerde records in
+Odoo tegenover 46 posts op embed.openvme.be, waarvan er **4 geen Odoo-record meer
+hadden** (1684, 1682, 807, 509 -- de eerste twee zijn hetzelfde bericht, twee keer
+aangemaakt) en **2 records om dezelfde post vochten** (57 en 67 wijzen allebei naar
+WP-post 1245; de laatste schrijver won, de andere is stil weg).
+
+| Wat | Waar |
+|---|---|
+| Veldnamen, DTO's, verboden velden (puur, geen env/fetch/db) | `src/modules/content-feed/odoo-contract.js` |
+| Odoo-toegang (lezen, schrijven, beeld, taxonomie) | `lib/content-service.js` |
+| Wegwerpcache (eigen kopie, bewust) | `lib/cache.js` |
+| Publieke API (sitesleutel, ETag, edge-cache) | `public-api.js` + een blok in `src/router/public-routes.js` |
+| Beheerroutes | `routes.js` |
+| Beheerscherm | `public/content-feed.html` + `public/content-feed.js` |
+| Moduleregistratie | `supabase/migrations/20260920120000_content_feed_module.sql` |
+
+**Nieuwe secrets:** `CONTENT_FEED_PUBLIC_SITE_KEYS` (verplicht -- zonder is de
+publieke API dicht, niet open) en optioneel `CONTENT_FEED_PUBLIC_ORIGINS` voor CORS.
+
+De vorm is `naam:sleutel`, komma-gescheiden:
+`openvme:aaa,syndicoach:bbb,embed:ccc`. Het voorvoegsel is de NAAM van de site
+en FILTERT NIET -- het komt in `meta.site` en in de logs, zodat je kan zien wie
+er bevraagt. Elke site heeft wel een EIGEN sleutel, zodat je er één kan
+intrekken zonder de andere te raken.
+
+Afspraken die bewust zo zijn:
+
+- **Odoo is de enige database. Er komt GEEN tabel bij.** De migratie doet alleen
+  de moduleregistratie. KV is wegwerpbaar en altijd herbouwbaar uit Odoo.
+- **WAAR een bericht heen gaat, staat NIET op het bericht. De SHORTCODE
+  bepaalt wat een site ophaalt.** Er is geen merk- of kanaalveld in Odoo, en
+  dat is een bewuste keuze na twee verworpen alternatieven:
+  `x_studio_brand` (openvme/syndicoach/both) kon het niet, want
+  embed.openvme.be is een eigen SITE en geen merk, en met één waarde kan een
+  bericht niet tegelijk "openvme én embed, niet syndicoach" zijn. Een
+  many2many kon het wel, maar vraagt een eigen Odoo-model voor drie waarden
+  terwijl de TYPES en LABELS die selectie al kunnen maken.
+  `x_studio_brand` stond op NUL records ingevuld en is daarom gewoon geschrapt
+  -- dat veld mag in Studio weg.
+  **Gevolg dat je moet kennen: elke geldige sitesleutel kan elk GEPUBLICEERD
+  bericht ophalen.** De sleutel is AUTHENTICATIE ("mag deze site ons
+  bevragen"), geen autorisatie per bericht. De scheiding tussen sites zit
+  volledig in de shortcode (`categories=`/`tags=`). Moet een bericht toch echt
+  maar op één site staan, dan is een LABEL daarvoor het bestaande gereedschap.
+  Zet hier dus nooit een filter op de sitesleutel terug zonder er een veld bij
+  te bouwen -- dan zou een site stil minder tonen dan haar shortcode vraagt.
+- **De publicatiedatum is de ENIGE sorteersleutel** (`SORT_ORDER`, met `id desc`
+  puur als tiebreak). `x_studio_sequence` staat op 10 bij álle 49 records en doet
+  dus niets; een tijdlijn met twee sorteervelden is een tijdlijn waarvan niemand
+  de volgorde kan voorspellen. Publiceren zonder datum wordt geweigerd, en het
+  beheerscherm toont een waarschuwingsbalk voor de zes bestaande records die
+  gepubliceerd zijn zonder datum.
+- **Het beeldveld is `x_studio_content_image` (23 records), niet
+  `x_studio_image` (1 record).** Het is BINAIR en mag daarom NOOIT in een
+  lijstquery mee -- dan gaat elke afbeelding als base64 door de JSON-RPC-respons.
+  De lijst vraagt met `IMAGE_ID_DOMAIN` enkel WELKE id's een beeld hebben; de
+  bytes komen pas bij `GET .../items/:id/image`. De URL draagt een versiedeel uit
+  `write_date`, dus een gewijzigd beeld krijgt een andere URL en mag de cache een
+  jaar staan.
+- **`toPublicSnippetDto()` is de enige vorm die de plugin ooit ziet.** De
+  verantwoordelijke, de status en het merk zitten er bewust niet in: de
+  sitesleutel is niet persoonsgebonden, dus alles wat eruit komt geeft het aan
+  iedereen die de sleutel van één site heeft. Zelfde regel als
+  `toPublicEventDto()` en `toPublicFormListItem()`.
+- **Een onbekende tag- of type-slug geeft een LEGE lijst, geen volledige lijst.**
+  Stil alles tonen bij een typefout is hoe een pagina er goed uitziet terwijl ze
+  het verkeerde toont.
+- **`meta.generated_at` telt niet mee voor de ETag.** Zelfde les als bij
+  events-v2: een tijdstip in de ETag betekent dat `If-None-Match` nooit matcht en
+  elke verversing de volledige body ophaalt.
+- **Verwijderen is ARCHIVEREN** (`x_active = false`), zelfde regel als bij de
+  inschrijvingen van events-v2. Een bericht stond op de site en zat mogelijk in
+  een nieuwsbrief; er is geen situatie waarin het echt weg moet.
+- **`lib/cache.js` is een EIGEN kopie en geen import uit event-operations-v2.**
+  Die versie hangt aan de constants van díé module (`CACHE_PREFIX 'evtv2'`,
+  `invalidateEvents`). Zelfde afweging als de twee `renderTemplate()`-kopieën bij
+  mini-apps: een gedeelde util zou van beide modules één ding maken dat niemand
+  meer los kan wijzigen.
+- **De AI-samenvatting is bewust NIET meegenomen** (beslist 2026-09-20).
+  Automation 27 vuurde naar een Zapier-hook. Gemeten over alle 49 records:
+  34 hebben `x_studio_ai_last_generated` gevuld (nieuwste 2026-07-14) en 10
+  staan met `x_studio_generate_ai_content = true` te wachten op een
+  samenvatting die nooit kwam (57, 67, 68, 81, 82, 92, 94, 95, 96, 97). De
+  generatie is dus rond half juli 2026 gestopt -- dezelfde periode als de
+  Calendly-Zap (24-07-2026). Komt dit terug, dan binnen de OM, op `lib/ai.js`
+  met zijn foutcontract -- niet op Zapier.
+
+**Opruimen mag pas ná de cutover, en in deze volgorde:** publieke API met `curl`
+testen → plugin op één testpagina NAAST de bestaande feed → de shortcode op
+`/content-feed/` wisselen → minstens twee weken wachten → pas dan de serveracties
+1010/1011/1014/952 archiveren, de twee Zaps uitzetten, de `odoo-proxy`-Worker
+opruimen en Cool Timeline Pro deactiveren. Het `news_article`-CPT en de
+ACF-velden gaan als ALLERLAATSTE -- dat is de enige onomkeerbare stap.
+
+### Een artikel toevoegen met AI (2026-09-20)
+
+**Regel: "+ Nieuw bericht" vraagt EERST wat je toevoegt. Bij "Artikel" geef je
+alleen een link; de AI stelt de rest voor en een mens keurt het goed. Er wordt
+nooit automatisch gepubliceerd.**
+
+| Wat | Waar |
+|---|---|
+| Pagina ophalen + metagegevens en tekst eruit halen | `lib/article-fetch.js` |
+| Schema, prompt, providerkeuze | `lib/article-ai.js` |
+| Route | `POST /content-feed/api/analyze` |
+| Beeld van de bron naar het binaire Odoo-veld | `importImageFromUrl()` in `lib/content-service.js` |
+| Keuzedialoog + artikelstap | `public/content-feed.html` + `.js` |
+
+- **Parsen gebeurt met `HTMLRewriter`, nooit met een regex op HTML.** Dat is de
+  parser van het platform zelf: hij streamt en gaat niet onderuit op een
+  attribuut met een `>` erin of een niet-gesloten tag. Een regex doet dat wel,
+  en dan krijg je een half artikel zonder dat iets zegt dat er iets mist.
+- **`validateArticleUrl()` is een SSRF-grens, geen netheidscontrole.** Deze
+  functie haalt server-side op wat een gebruiker intypt. Alleen http(s), en
+  geen localhost, `.internal` of kale IPv4-adressen. Haal die controle nooit
+  weg "omdat de gebruiker toch ingelogd is".
+- **Een pagina zonder leesbare tekst geeft een FOUT, geen analyse.** Bij een
+  betaalmuur of een pagina die haar inhoud pas met JavaScript opbouwt, zou de
+  AI anders een samenvatting verzinnen uit niets. `NO_CONTENT` zegt dat er geen
+  tekst stond en waarom dat waarschijnlijk zo is.
+- **De aanroep gaat via `askAI()` uit mini-apps**, met
+  `{ id: null, source: 'content_feed' }` als aanroeper. Niet omdat een bericht
+  een mini-app is, maar omdat alles wat askAI() doet -- platform-daglimiet,
+  MODEL_ALLOWLIST, foutcontract, stall-timeout, audit-regel -- voor élke
+  AI-aanroep moet gelden. Een eigen kopie ernaast is de twee-motoren-fout.
+  De aanroep staat daardoor gewoon in het AI-gebruiksrapport van Beheer, onder
+  "Nieuws & updates". Zie "AI-aanroepen van buiten mini-apps" hieronder.
+- **De `system`-prompt is een CONSTANTE onder de 2000 tekens; de taakregels
+  staan in de prompt.** `askAI()` weigert een system-prompt boven
+  `MAX_SYSTEM_LENGTH` (2000) met "system is optioneel maar max 2000 tekens." --
+  de eerste versie zat daar met 2600 tekens ruim over en elke analyse faalde.
+  Wat in `SYSTEM` hoort: wie we zijn en hoe we klinken. Wat in `bouwPrompt()`
+  hoort: wat er in elk veld moet komen, bij het artikel waarop dat slaat (grens
+  25000).
+  De DOELGROEP staat daarom ook in de prompt en niet in `SYSTEM`: dat is een
+  LABEL uit Odoo Studio, en iemand kan daar morgen drie regels van maken. Stond
+  het in de system-prompt, dan kon een wijziging in Studio de analyse breken met
+  een foutmelding die niets met Studio te maken lijkt te hebben.
+  Een ONTBREKEND optioneel gegeven in `bouwPrompt()` is `null`, geen lege
+  string: `filter(Boolean)` gooide anders ook de bewuste witregels weg en dan
+  plakken de secties van de prompt aan elkaar.
+- **Het schema bevat geen `maxLength`/`maxItems`.** Anthropic's constrained
+  decoding ondersteunt die niet (harde 400). Grenzen staan als richtlijn in de
+  `description` en worden in JS afgeklemd met `knip()`; gesloten keuzes
+  (kleur, relevantie) staan als `enum`. Labels gaan als INDEX in de
+  aangeleverde lijst, niet als tekst -- die zou wegdrijven qua spelling.
+- **De afbeelding wordt pas bij het BEWAREN opgehaald**, niet bij de analyse.
+  Anders betaal je de download van elk artikel dat iemand toch niet plaatst.
+  `importImageFromUrl()` is best-effort: mislukt het, dan komt het bericht er
+  gewoon zonder beeld -- een ontbrekende illustratie is geen reden om niet te
+  kunnen bewaren. De base64-omzetting gaat in blokken van 8192; `String.
+  fromCharCode(...bytes)` in één keer blaast de call-stack op.
+- **`relevance: 'laag'` toont een waarschuwing, het blokkeert niets.** De
+  redacteur beslist. Let op bij het bewerken van die code: dat vak is hetzelfde
+  `#dialogError` dat ook opslagfouten toont, dus de kleur moet bij het openen
+  teruggezet worden -- anders leest een echte fout daarna als een tip.
+- **Er zijn DRIE optionele Studio-velden**, alle drie volgens het
+  BRAND-patroon: ze staan in `OPTIONELE_VELDEN` (content-service.js), NIET in
+  `SNIPPET_LIST_FIELDS` (een onbekend veld in `fields` laat een searchRead
+  volledig falen), en `stripOnbekendeVelden()` haalt ze uit een schrijfactie
+  als Odoo ze niet kent -- met in de log welk veldtype je moet aanmaken.
+
+  | Veld | Type | Waarvoor | Stand 2026-09-20 |
+  |---|---|---|---|
+  | `x_studio_quote` | Char of Text | Het citaat | bestaat (Char -- prima, `knip()` kapt op 400 tekens) |
+  | `x_studio_audience` | Selection | De doelgroep | bestaat, 5 waarden |
+  | `x_studio_curator_note` | Text | Waarom wij dit delen (subkop) | **bestaat nog niet** |
+
+- **De DOELGROEP stuurt de samenvatting én het citaat, en wordt gekozen VÓÓR
+  de analyse.** Daarom staat die keuze in het link-scherm en niet pas in de
+  editor: achteraf kiezen zou betekenen dat de tekst al geschreven is voor
+  iemand anders. Het LABEL gaat naar de AI, niet de technische waarde --
+  "Syndici en vastgoedbeheerders" stuurt een samenvatting, `syndicus_pro` niet.
+  De WAARDEN komen uit Odoo via `fields_get` (`listAudiences()`), dus wat een
+  marketeer in Studio toevoegt verschijnt vanzelf in het menu en in de prompt.
+  Zet die lijst nooit als kopie in de Worker: die loopt achter op Studio en dat
+  zie je niet -- je ziet enkel een doelgroep die ontbreekt in het menu.
+  Bestaat het veld nog niet, dan blijft de keuze VERBORGEN in plaats van leeg:
+  een leeg keuzemenu suggereert dat er iets stuk is.
+
+  **Het LABEL in Studio is wat de AI stuurt, dus dat label doet er echt toe.**
+  Gemeten op 2026-09-20 staan de vijf waarden er met een label dat gelijk is
+  aan de technische waarde (`geen-formeel-beheer`, `eigenaar-syndicus`, ...).
+  `leesbaarDoelgroepLabel()` maakt daar "Geen formeel beheer" van -- puur
+  cosmetisch, er wordt geen betekenis verzonnen en er komt geen doelgroep bij.
+  Staat er in Studio een ECHT label ("Mede-eigenaars zonder formeel beheer"),
+  dan wint dat altijd en doet die functie niets. Een beschrijvend label in
+  Studio is dus de beste plek om de samenvatting bij te sturen: één bron, en
+  het werkt meteen in het keuzemenu én in de prompt.
+- **Het CITAAT wordt nagerekend tegen de opgehaalde tekst** (`citaatKomtVoor()`
+  in article-ai.js). "Verzin geen citaat" in de prompt zetten is een verzoek,
+  geen garantie, en een verzonnen citaat is hier de ergste fout die dit scherm
+  kan maken: het komt tussen aanhalingstekens op een publieke pagina te staan,
+  toegeschreven aan een bron, en de lezer kan het niet narekenen. Klopt het
+  niet, dan VALT het weg en zegt het scherm waarom (`quoteRejected`) -- stil
+  niets tonen zou lezen als "de AI vond geen citaat", terwijl ze er wel een
+  gaf, alleen geen echt. Cosmetische verschillen (krulletjes, witruimte,
+  hoofdletters, soorten streepjes) worden gelijkgeschakeld; andere woorden
+  niet. Een citaat korter dan 25 tekens wordt geweigerd: drie woorden staan
+  bijna altijd wel ergens, en dan is de controle waardeloos zonder dat iemand
+  het merkt.
+- **Een duidelijke KOP van het artikel wordt letterlijk overgenomen.** Alleen
+  herschrijven als er geen kop is, als hij enkel de sitenaam bevat, of als hij
+  niets over de inhoud zegt. Een eigen kop verzinnen naast een goede kop maakt
+  de kaart minder betrouwbaar, niet aantrekkelijker.
+- **De CURATORSNOOT is onze stem, de samenvatting is die van het artikel.**
+  Houd die twee gescheiden: `summary` zegt wat er staat, `curatorNote` zegt
+  waarom wij het de moeite vonden. Dat onderscheid is het hele verschil tussen
+  een lijst links en een gecureerd overzicht. De samenvatting mag vlot en
+  wervend klinken, maar blijft eerlijk -- geen superlatieven, geen "must read",
+  geen uitroeptekens, en nooit iets achterhouden om een klik af te dwingen: de
+  lezer klikt door uit interesse, niet uit onduidelijkheid.
+
+### De WordPress-plugin: mymmo-news (2026-09-20)
+
+**Regel: de plugin bewaart niets en rendert de EERSTE PAGINA server-side. Nieuwe
+soorten inhoud haken in op het renderer-register, nooit met een `if` in een
+template.**
+
+| Wat | Waar |
+|---|---|
+| Bootstrap, versieconstante | `wp-plugin/mymmo-news/mymmo-news.php` |
+| HTTP naar de OM (timeout, ETag, terugval) | `includes/class-api-client.php` |
+| Cache: transient + last-known-good | `includes/class-cache.php` |
+| **Renderer-register (hier haakt nieuwe inhoud in)** | `includes/class-renderers.php` |
+| Shortcode `[mymmo_news]` | `includes/class-shortcodes.php` |
+| REST-proxy voor filteren/bijladen | `includes/class-rest.php` |
+| Verbinding + shortcode-hulp in wp-admin | `includes/class-settings.php` |
+| De kaart | `templates/partials/card.php` |
+| Stijl | `assets/css/mymmo-news.css` |
+| Gedrag | `assets/js/mymmo-news.js` |
+| Zonder WordPress bekijken | `php wp-plugin/mymmo-news-preview.php [grid] > feed.html` |
+| Bouwen | `bash wp-plugin/build-mymmo-news.sh <versie>` |
+
+Afspraken die bewust zo zijn:
+
+- **`kind` is niet `type`.** `type` (Artikel, Release Notes, Podcast, ...) is
+  waarop je FILTERT en komt uit Odoo; `kind` is WAARMEE de plugin tekent.
+  `kindForTypeSlug()` in `odoo-contract.js` legt de brug, en een ONBEKEND type
+  wordt een artikel -- de vorm die altijd werkt. Zonder dat onderscheid moet de
+  plugin raden hoe ze een podcast toont, en kan er later geen poll of video bij.
+  Komt er een Odoo-categorie bij die eruitziet als een artikel, dan hoeft er in
+  de plugin niets te gebeuren.
+- **De eerste pagina wordt SERVER-SIDE gerenderd.** Zoekmachines zien inhoud en
+  een bezoeker zonder werkende JS krijgt een volwaardige lijst. Cool Timeline
+  Pro zette een leeg vlak neer en vulde dat achteraf; dat is het grootste
+  verschil, en het is de reden dat de shortcode zelf rendert.
+- **De REST-route geeft KLAARGEMAAKTE HTML terug, geen ruwe items.** Anders
+  bestaat er een tweede renderer in JavaScript naast die in PHP, en die lopen
+  uit elkaar zodra er een soort bijkomt -- precies wat het register voorkomt.
+- **De sitesleutel blijft serverside.** Browser -> WordPress REST -> PHP -> OM.
+  Zelfde opzet als mymmo-forms.
+- **De BEELDROUTE is de enige publieke route ZONDER sitesleutel**, en dat moet
+  zo. `items/:id/image` staat in een `<img src>` op een publieke pagina, en een
+  browser stuurt daar geen `X-Mymmo-Site-Key`-header bij mee: met de sleutel
+  erop gaf elke afbeelding 401, en een beeld dat niet laadt ziet er in een feed
+  uit als een bericht zonder foto -- niet als een fout. Prijsgeven doet het
+  niets: `publiekZichtbaar()` blijft ervoor staan, dus enkel het beeld van een
+  GEPUBLICEERD bericht komt eruit, en dat staat per definitie al op een
+  publieke pagina; een concept geeft 404. De grens per seconde telt daar op het
+  IP in plaats van op de sitesleutel. Zet hier nooit de sleutelcontrole terug
+  zonder de URL's tegelijk door WordPress te laten proxyen.
+- **`[hidden]` verliest van onze eigen klassen.** `[hidden]` is (0,0,1) en elke
+  regel in de stylesheet is (0,2,0), dus `.mymmo-news [hidden]{display:none
+  !important}` staat bovenaan `mymmo-news.css`. Zonder die regel bleef de knop
+  "Meer berichten" staan bij een lege feed. Dezelfde specificiteitsles als
+  hieronder, maar dan tegen onszelf in plaats van tegen een blokthema -- kijk
+  er dus naar zodra iets `hidden` krijgt en toch zichtbaar blijft.
+- **De knop "Meer berichten" is de echte besturing**, autoload zit er alleen
+  bovenop. Een lijst die enkel met scrollen groeit is niet bedienbaar met een
+  toetsenbord en niet bereikbaar als de observer niet afgaat. Bijladen dat
+  mislukt wist NOOIT wat er al staat; de knop wordt "Opnieuw proberen".
+- **Specificiteit: elke regel die een `ul`, `li`, `button`, `blockquote`, `img`
+  of `h3` raakt, krijgt een eigen wikkelklasse** (`.mymmo-news .mymmo-news-list`
+  = (0,2,0)). Een blokthema drukt zijn stijlen inline in de `<head>` af, dus NA
+  onze stylesheet, en `ul:not(.wp-block-list)` is (0,1,1). Dezelfde les als
+  mymmo-forms 1.15.5. En: noem wat je bedoelt -- `display:flex` zonder
+  `flex-direction`, of een `padding` die je niet zet, is een gat waar een thema
+  in stapt.
+- **Geen `mbstring` VEREISEN.** WordPress polyfilt `mb_substr` en `mb_strlen`
+  (wp-includes/compat.php) maar NIET `mb_strtolower`/`mb_strtoupper`. Die gaan
+  door `mymmo_news_upper()`/`-_lower()` met een terugval; zonder dat geeft een
+  host zonder de extensie een witte pagina voor een letter in een avatar.
+- **De afbeelding linkt naar het ARTIKEL, geen lightbox.** Cool Timeline
+  vergrootte de foto bij een klik, en dat is niet waarvoor iemand op een
+  nieuwskaart klikt.
+- **De avatarkleur is afgeleid van de bronnaam** (`mymmo_news_bron_hue()`), niet
+  willekeurig: anders krijgt dezelfde bron bij elke paginaweergave een andere
+  tint en oogt de feed onrustig.
+- **Een onbekende slug in een shortcode geeft een MELDING aan redacteuren**
+  (`current_user_can('edit_posts')`), geen stille volledige lijst. Is de API
+  onbereikbaar, dan melden we niets -- anders krijgt iemand een foutmelding over
+  zijn shortcode terwijl de verbinding het probleem is.
+- **De shape-versie wordt gecontroleerd, maar stopt niets.** Stuurt de OM een
+  hogere `meta.shape_version` dan de plugin kent, dan staat dat als waarschuwing
+  in wp-admin. De vorm is additief, dus stilvallen zou erger zijn dan een
+  verouderde weergave.
+- **Nog niet gebouwd, bewust:** reacties, polls, video's en events in dezelfde
+  feed. Het register, `mymmo_news_card_actions` en `mymmo_news_kind_meta` zijn
+  de plekken waar die inhaken; er is bewust nog geen half werkende aanzet.
+
+**Nog niet gebouwd, bewust:** reacties en polls, en beeld uploaden vanuit de OM
+(dat kan voorlopig alleen in Odoo zelf).
+
+### Events in de feed, en in de handtekeningen (2026-09-21)
+
+**Regel: wat een event buiten Eventbeheer doet, staat OP het event in Odoo.
+Zes optionele Studio-velden op `x_webinar`, gezet in een scherm: het
+eventpaneel. Niet in de nieuwsfeed-module, niet in de signature designer.**
+
+| Veld | Type | Waarvoor |
+|---|---|---|
+| `x_studio_in_news_feed` | Boolean | staat dit event in de nieuwsfeed |
+| `x_studio_news_from` / `_until` | Date | het venster; leeg = geen grens aan die kant |
+| `x_studio_news_cta` | Char | knoptekst; leeg = afgeleid (zie hieronder) |
+| `x_studio_in_signature` | Boolean | mag dit event in de e-mailhandtekeningen |
+| `x_studio_signature_until_days` | Integer | hoeveel dagen VOOR de start het uit de handtekening valt; leeg/0 = tot de start |
+
+Alle zes volgen het patroon van `x_studio_priority`: ze staan in
+`optionalFieldMap()` (events-service.js) en de modules werken door zolang ze
+niet bestaan. Ontbreekt het vinkje-veld, dan komt er GEEN enkel event in de
+feed of de handtekening -- de veilige kant, want de uitkomst is publiek.
+
+| Wat | Waar |
+|---|---|
+| Event -> feed-item, het synthetische type, het venster | `src/modules/content-feed/lib/events-in-feed.js` |
+| Samenvoegen en pagineren over twee bronnen | `handleList()` + `vergelijkFeedItems()` in `content-feed/public-api.js` |
+| `news_window` / `signature`-filter op het domein | `buildEventDomain()` in `event-operations-v2/lib/events-service.js` |
+| Het paneel | sectie "Website" in `public/events-v2-client.js` |
+| Doorschuiven van het handtekening-event | `mail-signature-designer/lib/event-rotation.js`, `*/15`-tak in `index.js` |
+| Chatbericht zonder mini-app | `sendSystemChannelMessage()` in `mini-apps/lib/chat.js` |
+| Kaart met wanneer/waar/plaatsen | `kind: 'event'` in het renderer-register van mymmo-news |
+
+Afspraken die bewust zo zijn:
+
+- **De VELDENLIJST zit in de cachesleutel van `optionalFieldMap()`, en de TTL
+  is een minuut.** Dat is geen afronding maar een bug die echt gebeurd is
+  (2026-09-21): `IN_SIGNATURE` werd aan `wanted` toegevoegd terwijl de sleutel
+  gelijk bleef, dus de OUDE map bleef geserveerd -- zonder dat veld. Het werd
+  daardoor niet opgevraagd, het vinkje kwam leeg terug, de save schreef `true`,
+  het scherm las opnieuw en toonde weer leeg, en de volgende save schreef
+  `false` terug. **Een vinkje dat zichzelf uitzet, zonder foutmelding.**
+  De lange TTL (een uur) hoorde er ook niet: deze map beslist welke velden
+  gelezen EN bewaard worden, en het moment waarop ze fout staat is precies het
+  moment waarop iemand net een Studio-veld heeft aangemaakt en het uitprobeert.
+  De aanroep is een `fields_get` op een handvol namen, achter het geheugen van
+  de isolate -- hoogstens een verzoekje per minuut.
+- **`listEvents()` is de enige motor.** De content-feed schrijft GEEN eigen
+  Odoo-query voor events: die module kent haar eigen eigenaardigheden (de
+  stage IS de publicatiestatus, welke velden optioneel zijn, hoe
+  inschrijvingen geteld worden). Zelfde regel als de cascade-motor.
+- **`evenement` is een SYNTHETISCH type**, geen rij in `x_content_snippet_type`.
+  Zo kiest de shortcode of events meetellen (`categories="artikel,evenement"`,
+  leeg = alles) zonder dat iemand dat type kan hernoemen of weghalen. Het mag
+  daarom nooit als snippet-slug opgezocht worden -- dan zou het als onbekend
+  gelden en de hele lijst leegmaken.
+- **Een LABELfilter sluit events uit.** Een event draagt de labels van de
+  nieuwsberichten niet en kan er dus nooit aan voldoen; ze toch tonen zou
+  betekenen dat een filter meer teruggeeft dan het label belooft.
+- **Twee bronnen samenvoegen vraagt OVER-ophalen.** Elke bron levert
+  `offset + limit` rijen, want in het slechtste geval komt de hele pagina uit
+  een bron. Minder ophalen laat pagina 2 items overslaan die pagina 1 al
+  voorbij was. `has_more` kan daardoor een keer een lege volgende pagina
+  beloven -- dat is de goede kant om op te falen.
+- **De sorteersleutel van een event is "vanaf", en anders zijn startdatum.**
+  Dat is het moment waarop het bericht verschijnt, net als de publicatiedatum
+  bij een snippet. Gevolg dat je moet willen: een aankomend event zonder
+  vanaf-datum staat bovenaan tot het geweest is.
+- **`done` mag in de feed, `draft` en `cancelled` nooit.** Of een afgelopen
+  event nog zichtbaar is, hoort het VENSTER te beslissen en niet de stage --
+  anders verdwijnt het op de dag zelf terwijl iemand het bewust tot volgende
+  week wou tonen. In de HANDTEKENING geldt het omgekeerde: daar enkel
+  `published` en enkel wat nog moet komen.
+- **De knoptekst wordt afgeleid als er niets staat**: "Schrijf je in" zolang
+  inschrijven openstaat, anders "Bekijk het event". Een inschrijfknop op een
+  gesloten event belooft iets wat de volgende pagina niet waarmaakt.
+- **Vandaag is Europe/Brussels, niet UTC.** `vandaagInBrussel()` -- met
+  `toISOString()` gaat een venster dat "vanaf vandaag" heet tussen middernacht
+  en 02:00 een dag te laat open, precies op de dag dat iemand het instelt.
+- **Het handtekening-event is AFGELEID, niet gekozen.** Er mogen er meerdere
+  aangevinkt zijn; `resolveSignatureEvent()` neemt het eerstvolgende dat nog
+  AAN DE BEURT is, en `syncSignatureEvent()` schuift door zodra dat verandert.
+- **"Aan de beurt" is niet "moet nog komen": `x_studio_signature_until_days`
+  haalt het event X dagen VOOR de start weg.** Bedoeld voor een event waarvoor
+  inschrijven eerder sluit dan het begint -- zonder die grens blijft iedereens
+  handtekening dagenlang naar een gesloten pagina verwijzen, en dat is niet
+  zichtbaar als fout. Bewust een AANTAL DAGEN en geen tweede datumveld: het
+  moment hangt vast aan de startdatum, dus een losse datum ernaast zou stil
+  verkeerd komen te staan zodra het event verplaatst wordt -- twee waarheden
+  over hetzelfde moment.
+  Die grens verschilt per event en kan dus NIET in het Odoo-domein. Het domein
+  (`from: nu`) levert een superset -- elke grens ligt op of vóór de start --
+  en `resolveSignatureEvent()` haalt `KANDIDATEN_LIMIET` (25) events op
+  volgorde op en neemt de eerste die zijn grens nog niet gepasseerd is. Haal
+  die limiet nooit terug naar 1: dan valt de rotatie stil zodra het
+  eerstvolgende event zijn eigen grens voorbij is -- er staat dan geen event
+  meer in de handtekening terwijl er wel degelijk een klaarstaat.
+  Een event waarvan de startdatum onleesbaar is, wordt WEL doorgelaten
+  (`signatureCutoff()` geeft `null`): tegenhouden op een datum die we niet
+  konden lezen, is een lege handtekening om een reden die niemand ziet.
+  Zelfde keuze als `reminderTooLate()`.
+- **De rotatie schrijft GEEN eigen push.** `triggerPushAllBackground()` doet
+  dat al, inclusief uitsluitingen en de voorkeur per gebruiker. Een tweede pad
+  zou betekenen dat een handtekening langs deze weg anders is dan een die
+  marketing zelf pusht.
+- **MARKETING bepaalt WELK event; de EIGENAAR bepaalt OF er events in zijn
+  handtekening staan.** Die tweede keuze is blijvend en wordt NOOIT
+  automatisch teruggezet: `show_event_promo` op `user_signature_settings`
+  (migratie `20260921140000`), standaard aan.
+  Tot dan stond er `hidden_event_id`: je verborg EEN event, en zodra marketing
+  een ander klaarzette kwam het blok vanzelf terug -- en de rotatie wiste bij
+  elke wissel ook nog alle opt-outs. Dat is een wijziging aan de handtekening
+  van iemand anders. Wie het vinkje uitzet zegt "ik wil hier geen events", niet
+  "ik wil dit ene event niet". De kolom `hidden_event_id` blijft bestaan maar
+  wordt niet meer gelezen of geschreven.
+- **De config wordt vergeleken op het HELE blok, niet op het event-id.** Anders
+  blijft een verkeerde waarde eeuwig staan zodra het event niet meer wisselt --
+  een hernoemd event, een nieuw hero-beeld, of een datum die een oudere versie
+  als ruwe ISO-tekst had weggeschreven. De config is een afgeleide kopie, dus
+  elke afwijking hoort weggewerkt te worden.
+- **De datum in de handtekening is `22 oktober 2026 om 19.00u`, in
+  Europe/Brussels.** Odoo bewaart in UTC: dat event staat er als 17:00 maar
+  begint hier om 19:00. Niet omrekenen laat elke lezer twee uur te vroeg komen,
+  en dat meldt niemand -- het ziet eruit als een gewone datum. Opgebouwd met
+  `formatToParts`, want de scheidingstekens van een locale zijn niet wat we
+  hier willen.
+- **Zonder opvolger wordt er ook gepusht.** Dan moet het oude event juist uit
+  iedereens handtekening verdwijnen.
+- **ELKE wissel gaat naar de chat, niet alleen "er staat niets meer klaar".**
+  `meldWissel()` stuurt naar `SIGNATURE_EVENT_WARNING_CHANNEL` (de NAAM of het
+  id van een kanaal uit Mini-apps -> Chat-kanalen; de webhook-URL hoort daar
+  en nergens anders, want die is de facto een bearer-secret). Een handtekening
+  vertrekt namens iedereen; dat die stilzwijgend van inhoud verandert, hoort
+  marketing niet pas achteraf uit een verstuurde mail af te leiden.
+  Drie gevallen, met bewust verschillende tekst: doorgeschoven naar een ander
+  event (met de grens erbij -- dat is het enige wat je niet zonder rekenen uit
+  Eventbeheer afleest), ZELFDE event met gewijzigde gegevens (titel, datum,
+  beeld of link aangepast -- dat als doorschuif melden zou betekenen dat
+  niemand nog gelooft wat er staat), en geen opvolger meer.
+  Het bericht gaat pas NA de push en na het bijwerken van de config: een
+  mislukte melding draait de rotatie niet terug, want de handtekeningen
+  kloppen op dat moment al.
+- **In de signature designer beheert de marketeer GEEN events meer.** Het hele
+  blok is weg: geen keuzelijst, geen aan/uit, geen beeld-URL, geen opschrift,
+  geen registratielink, geen maximale hoogte. Wat overblijft is een
+  alleen-lezen kaartje dat toont wat er nu in de handtekening staat, met een
+  link naar Eventbeheer en de testknop.
+  Een tussenstadium met een melding boven de oude bediening was ERGER dan het
+  oude gedrag: het scherm zei dat de keuze elders gemaakt werd terwijl het blok
+  nog alles bepaalde, en de rotatie overschreef het een kwartier later. Half
+  verplaatsen is geen verplaatsen.
+- **De marketingconfig is voor deze acht sleutels een KOPIE, geen invoer.**
+  `eventPromoEnabled`, `eventId`, `eventTitle`, `eventDate`, `eventImageUrl`,
+  `eventImageMaxHeight`, `eventEyebrow` en `eventRegUrl` worden uitsluitend
+  door `syncSignatureEvent()` geschreven, afgeleid uit het event. Dat is
+  bewust: de merge-engine en de compiler lezen nog precies dezelfde sleutels,
+  dus aan het BOUWEN van een handtekening verandert niets -- alleen bepaalt
+  niemand ze nog met de hand.
+  Elke route die een config van een client aanneemt, neemt die acht over uit de
+  BESTAANDE config (`MARKETING_EVENT_SLEUTELS` in routes.js, ook op de
+  deprecated `PUT /api/config`). Zonder dat zou het opslaan van een bannerkleur
+  het event uit ieders handtekening wissen -- stil, en pas zichtbaar in de
+  volgende mail die iemand verstuurt.
+- **Opschrift en maximale beeldhoogte liggen VAST** (`EYEBROW`,
+  `BEELD_MAX_HOOGTE` in event-rotation.js). Dat zijn geen eventgegevens maar de
+  VORM van het blok, en die hoort voor elk event gelijk te zijn; per event
+  instelbaar betekende dat een handtekening er anders uitzag naargelang wie het
+  event had aangemaakt. Beeld, titel, datum en registratielink komen wel van
+  het event -- de link als `<site>/event/<slug>/?owid=<id>`, met de site uit
+  het MERK van het event, zodat een syndicoach-event geen openvme-link krijgt.
+- **`sendSystemChannelMessage()` telt de grens per mini-app NIET**, want er is
+  geen app. De aanroeper is een cron die hoogstens elk kwartier draait. Zelfde
+  afweging als `askAI()` met `{ id: null, source }` (Regel 7).
+- **Payloadvorm 3.** Er is een `kind: 'event'` bijgekomen met een eigen
+  `event`-blok. Additief, dus een oudere plugin tekent een event als gewoon
+  artikel (zonder datum, zonder knop) in plaats van stuk te gaan -- maar meldt
+  het wel in wp-admin.
+- **Nog niet gebouwd, bewust:** een event in de feed een eigen tijdlijnkleur
+  geven (er is geen veld voor), en de event-kiezer echt uit de signature
+  designer halen.
+
+---
+
+## Afspraaklinks — persoonlijke Calendly-links die op ONZE site openen (2026-09)
+
+**Regel: een link naar iemands agenda is `<site>/?afspraak=<sleutel>`, nooit de
+Calendly-link zelf. De sleutel wordt server-side opgezocht; de plugin opent dan
+op elke pagina het venster van één vaste opstelling, op "Plan een gesprek", met
+die agenda.**
+
+| Wat | Waar |
+|---|---|
+| Tabel + moduleregistratie | `supabase/migrations/20260924130000_booking_links.sql` (`booking_links`) |
+| Opslag, validatie, URL, opzoeken per eigenaar | `src/modules/booking-links/lib/links.js` |
+| De placeholder in de koppelingen | `src/modules/booking-links/lib/placeholders.js` |
+| Aansluiting in de pipeline | `worker-handler.js`, blok vóór `opType === 'send_mail'` |
+| `{{afspraak.*}}` in de mail-context | `buildKoppelingContext()` in `mail-step.js` |
+| Beheerscherm (elke collega eigen links, admin alles) | `public/booking-links.html` + `.js`, routes in `booking-links/routes.js` |
+| Publieke opzoeking (sitesleutel) | `GET /forminator-v2/public/v1/booking-links/:slug` in `forms/public-api.js` |
+| WordPress-kant | `wp-plugin/mymmo-forms/includes/class-booking.php` (+ instelling op het tabblad Verbinding) |
+
+Afspraken die bewust zo zijn:
+
+- **Placeholder: `{{afspraak.<stap>.<soort>}}` (mail) / `{afspraak.<stap>.<soort>}`
+  (notitie).** De EIGENAAR (`user_id`) van het record uit die stap bepaalt wiens
+  agenda het wordt. `enrichAfspraakContext()` leest die eigenaar ZELF uit Odoo en
+  zet de URL in `contextObject` onder `afspraak.<stap>.<soort>`, vóór de stap zijn
+  placeholders invult -- zo werken beide bestaande placeholder-motoren zonder een
+  derde. Niet steunen op `step.N.user_id`: dat bestaat alleen als een
+  veldkoppeling erom vraagt (`collectRequestedStepFields`).
+- **Terugval, in deze volgorde:** die soort → de standaardlink van die persoon →
+  zijn enige link → `<eerste site>/?afspraak=algemeen` (de agenda van de
+  opstelling). Nooit fataal en nooit een lege href: een mail zonder persoonlijke
+  agenda is beter dan een mail die niet vertrekt of een knop die nergens heen gaat.
+- **`lookupChatterPlaceholder()` kijkt voor `afspraak.*` NIET eerst naar het
+  formulier**: de subsequence-heuristiek van `lookupFormValue()` zou er anders een
+  veld in kunnen zien.
+- **De Odoo-gebruiker van een collega** komt uit `users.odoo_uid`, anders uit
+  `res.users` op login/e-mail. Zonder match kan een collega geen eigen link maken
+  (een admin wel voor hem) -- de placeholder zoekt op `odoo_user_id`, dus een link
+  zonder die id zou nooit gevonden worden.
+- **De afspraaktypes komen uit de Calendly-API**, niet overgetypt: Calendly en
+  Odoo delen geen id, dus het scherm zet de eigen types bovenaan op NAAM
+  (eigenaar/hosts), maar alles blijft kiesbaar (round robin, team).
+- **`algemeen` is gereserveerd** (CHECK-constraint + beide kanten van de API) en
+  hoogstens één standaardlink per eigenaar (unieke index); een nieuwe standaard
+  zet de vorige eerst uit.
+- **Geen lijst-route in de publieke API.** Met de sitesleutel alle collega's en
+  agenda's kunnen oplijsten is meer dan een site nodig heeft. Wat eruit gaat:
+  `toPublicBookingLink()` -- geen Odoo-id, geen OM-id, geen eventtype-URI.
+- **Sites:** `BOOKING_LINK_SITES` (`openvme:https://openvme.be,...`), anders de
+  origins van `FORMS_PUBLIC_ORIGINS`. De eerste is de standaard én de terugval.
+- **In WordPress hangt de HTML NIET af van `?afspraak=`** (sinds 1.18.1): de site
+  heeft een paginacache die moet blijven, en een cache die de query negeert zou
+  anders Robs agenda op ieders homepage zetten. `Mymmo_Forms_Booking::render()`
+  zet op ELKE pagina hetzelfde dichte venster van de opstelling (via
+  `render_button()`, met de algemene agenda); `assets/js/mymmo-forms-booking.js`
+  leest de parameter, haalt de agenda op via `/wp-json/mymmo-forms/v1/afspraak/<sleutel>`
+  (sleutel in het PAD, dus cachebaar), zet `data-mymmo-calendly` en opent het
+  venster. Nooit terug naar server-side invullen. Wat terugkomt moet met
+  `https://calendly.com/` beginnen, aan beide kanten.
+- **Aanmaken kan op twee plekken, met dezelfde tabel en validatie:** het scherm
+  Afspraaklinks (elke collega zijn eigen) en de Calendly-kaart van een koppeling
+  (`afspraaklinksHtml()` in `forminator-sync-v2-detail-calendly-tab.js`, routes
+  `/api/integrations/:id/calendly/booking-links` in `calendly/routes.js`). Daar
+  komt de boekingspagina uit de BEWAARDE koppeling, nooit uit de body.
+- **Een boeking op iemands EIGEN afspraaktype komt alleen in Odoo** als er een
+  Calendly-koppeling op dat type staat of het vangnet (koppeling zonder
+  eventtype) het opvangt. Anders wordt er geboekt en weet de OM van niets.
+- **Het venster van een afspraaklink heeft ENKEL de agenda** (sinds plugin
+  1.18.2): `Mymmo_Forms_Shortcodes::render_agenda()`, geen shortcode en geen
+  attribuut op `[mymmo_form_button]`. De copy staat PER LINK in de OM
+  (`booking_links.tab_title` = titel, `intro`, `points` (jsonb-lijst, max 6),
+  `show_photo`; migratie `20260924150000_booking_links_copy.sql`) en komt via
+  `toPublicBookingLink()` mee. Een lege `intro` wordt `calendly_description` --
+  een KOPIE van `description_plain` van het afspraaktype, gezet bij het bewaren
+  in het scherm Afspraaklinks (niet live opgevraagd, zelfde regel als
+  `scheduling_url`). Is ook die leeg, dan blijft de copy van de opstelling.
+  Een link die vóór deze wijziging bewaard is, heeft die kopie pas na één keer
+  opnieuw bewaren.
+- **De foto is `res.users.avatar_256` van de eigenaar, als data-URI in dezelfde
+  JSON** (`fetchOwnerAvatar()`), niet via een eigen beeldroute: een `<img src>`
+  kan geen sitesleutel meesturen, en zo komt er geen publieke route zonder
+  sleutel bij. `avatar_256` en niet `image_256`: die laatste is leeg voor wie
+  nooit een foto zette. Met een foto valt de tekening van de opstelling weg
+  (`is-persoon`). De server schrijft de plekken voor titel/foto/subtekst/vinkjes
+  LEEG en `hidden` uit (`data-mymmo-afspraak`); `mymmo-forms-booking.js` vult ze
+  -- de pagina mag niet van `?afspraak=` afhangen (paginacache).
+- **"Gecreëerd door Calendly" in de agenda** komt van het Calendly-ACCOUNT van
+  de eigenaar van het afspraaktype, niet van ons: uit te zetten in Calendly
+  (Branding), alleen op een betaald abonnement. Geen URL-parameter voor.
+- **`{{afspraak.sender.<soort>}}` is de agenda van de AFZENDER van een mail**,
+  ingevuld in `resolveSenderAfspraak()` (mail-step.js) met de `userId` uit
+  `resolveSender()` -- niet in `enrichAfspraakContext()`, dat `sender` overslaat,
+  want pas de mailstap kent de afzender. Op een KOPIE van contextObject: een
+  volgende mailstap kan een andere afzender hebben. Vast adres = geen persoon =
+  de algemene agenda.
+- **De mailstap heeft EEN afzenderkeuze** (stap / vaste medewerker / vast adres),
+  en daaruit komen afzender, handtekening, `{{sender.*}}` en die afspraaklink.
+  Opgeslagen blijft het in twee velden: stap = `mail_from_source 'record_user'` +
+  `mail_signature_source 'dynamic'`; vaste medewerker = `'record_user'` +
+  `'fixed'`; vast adres = `mail_from_source 'fixed'` zonder handtekening
+  (`afzenderStand()` in de composer). `step.N.owner` (de verantwoordelijke van
+  het record uit stap N) is alleen voor de mailstap toegestaan
+  (`MAIL_SENDER_STEP_REF_RE` in validation.js, opgelost in mail-signature.js).
+  Het vaste adres is bij een persoon enkel nog de ingeklapte TERUGVAL: stond het
+  open, dan dacht iedereen dat die naam de afzender werd.
+- **In het beheerscherm heten de twee dingen die allebei "standaard" leken
+  anders:** de soort (`soort: standaard`, grijs) en het vinkje `is_default`
+  (`terugvallink`, blauw). De waarde `standaard` in de database is ongewijzigd.
+- **Nog niet gebouwd, bewust:** klikken tellen via `link.openvme.be`, en de
+  `meeting_link_url` van de handtekeningdesigner hierop laten aansluiten.
+
+---
 
 ## Bestandsstructuur
 

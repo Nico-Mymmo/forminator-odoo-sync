@@ -5,6 +5,7 @@
  */
 
 import { homeDashboardUI, loginPageUI } from './ui.js';
+import { veiligNextPad } from '../../router/auth-gate.js';
 
 export default {
   // Module metadata
@@ -29,6 +30,10 @@ export default {
         });
       }
       
+      // Al ingelogd en toch met ?next= binnen (bv. een tweede tabblad): meteen door.
+      const next = veiligNextPad(new URL(context.request.url).searchParams.get('next'));
+      if (next) return Response.redirect(new URL(next, context.request.url).toString(), 302);
+
       return new Response(homeDashboardUI(context.user), {
         headers: { 'Content-Type': 'text/html' }
       });

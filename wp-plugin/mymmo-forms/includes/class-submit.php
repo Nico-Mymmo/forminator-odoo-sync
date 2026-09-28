@@ -217,7 +217,14 @@ final class Mymmo_Forms_Submit {
                 : sanitize_text_field(wp_unslash((string) $ruw));
         }
 
-        $resultaat = Mymmo_Forms_Api_Client::submit($slug, $values, self::meta($redirect, $lang));
+        // De labels bij wat de HTML-stappen in verborgen velden zetten, zodat
+        // Odoo "Water en verwarming" kan tonen i.p.v. `water_verwarming`. De
+        // waarden zelf blijven de vaste sleutels. Zie waarde_labels().
+        $labels = class_exists('Mymmo_Forms_Steps')
+            ? Mymmo_Forms_Steps::waarde_labels(array_keys($values))
+            : [];
+
+        $resultaat = Mymmo_Forms_Api_Client::submit($slug, $values, self::meta($redirect, $lang), $labels);
 
         if ($resultaat['ok']) {
             $bericht = Mymmo_Forms_I18n::text($form, $lang, 'success_message');

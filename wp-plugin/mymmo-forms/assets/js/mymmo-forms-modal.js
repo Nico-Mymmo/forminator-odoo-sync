@@ -192,6 +192,72 @@
     }
   }
 
+  // ── Naar de bovenste laag ─────────────────────────────────────────────────
+
+  /**
+   * Het venster tijdens het openstaan rechtstreeks onder <body> hangen.
+   *
+   * `position: fixed` is alleen vast ten opzichte van het SCHERM zolang geen
+   * voorouder een transform, filter, `contain` of `container-type` heeft; en
+   * een `z-index` van 100000 telt alleen binnen de stapelcontext van de
+   * voorouders. Staat de knop in een sectie van het thema die een van beide
+   * heeft (een kaart, een groep met een animatie, een sectie met z-index), dan
+   * zat het venster in dat blok gevangen: de grijze laag bedekte alleen dat
+   * blok en de footer schoof eroverheen. Met CSS is daar niet uit te komen --
+   * een stapelcontext kan je van binnenuit niet verlaten.
+   *
+   * Bij het sluiten gaat het terug naar zijn plek (een commentaarknoop houdt
+   * die bij), zodat de pagina daarna precies is zoals ze gerenderd werd.
+   *
+   * Wat het venster van zijn plek ERFDE, gaat mee: de taal (de meldingen en de
+   * agenda lezen `closest('[lang]')`) en de CSS-variabelen die in een
+   * style-attribuut van een voorouder staan -- de wikkel van modal.php draagt
+   * daar het thema van het formulier en de site. Wat het venster zelf al zet,
+   * wint.
+   */
+  function naarBoven(venster) {
+    var ouder = venster.parentNode;
+    if (!ouder || ouder === document.body || venster._mymmoThuis) return;
+
+    if (!venster._mymmoGeerfd) {
+      venster._mymmoGeerfd = true;
+
+      if (!venster.hasAttribute('lang')) {
+        var taal = ouder.closest ? ouder.closest('[lang]') : null;
+        if (taal) venster.setAttribute('lang', taal.getAttribute('lang'));
+      }
+
+      var eigen = venster.style;
+      for (var el = ouder; el && el !== document.body && el.nodeType === 1; el = el.parentNode) {
+        var st = el.style;
+        if (!st) continue;
+        for (var i = 0; i < st.length; i += 1) {
+          var naam = st[i];
+          if (naam.indexOf('--') !== 0) continue;
+          // De dichtstbijzijnde voorouder wint, zoals bij gewone overerving.
+          if (eigen.getPropertyValue(naam) !== '') continue;
+          eigen.setProperty(naam, st.getPropertyValue(naam));
+        }
+      }
+    }
+
+    var thuis = document.createComment('mymmo-modal');
+    ouder.insertBefore(thuis, venster);
+    venster._mymmoThuis = thuis;
+    document.body.appendChild(venster);
+  }
+
+  /** Terug naar de plek waar het venster gerenderd werd. */
+  function terugZetten(venster) {
+    var thuis = venster._mymmoThuis;
+    if (!thuis) return;
+    venster._mymmoThuis = null;
+    if (thuis.parentNode) {
+      thuis.parentNode.insertBefore(venster, thuis);
+      thuis.parentNode.removeChild(thuis);
+    }
+  }
+
   // ── Open en dicht ─────────────────────────────────────────────────────────
 
   /**
@@ -226,6 +292,11 @@
     // Vóór het openen: een callout verhuist zijn stap nu naar het venster, en
     // dat hoort gebeurd te zijn voordat de bezoeker het paneel ziet.
     meldVenster(venster, true);
+
+    // Na de melding: die borrelt nog op door de wikkel waarin het venster
+    // gerenderd werd. De stappenreeks luistert daarnaast ook op het venster
+    // zelf (mymmo-forms-steps.js), voor de melding bij het sluiten.
+    naarBoven(venster);
 
     // Een venster dat nog aan het sluiten was, gaat meteen weer helemaal open;
     // anders zou de uit-animatie over de in-animatie heen blijven liggen.
@@ -269,6 +340,9 @@
       venster.classList.remove('is-sluiten');
       venster.classList.remove('is-open');
       if (paneel) paneel.removeEventListener('animationend', afronden);
+      // Pas na de uitloopbeweging: terugzetten tijdens die beweging zou het
+      // venster weer in het blok van de knop vangen, achter de footer.
+      if (openVenster !== venster) terugZetten(venster);
     };
 
     if (paneel) paneel.addEventListener('animationend', afronden);
@@ -743,6 +817,55 @@
     }
   }
 
+  /**
+   * Eén venster per trigger-selector.
+   *
+   * Een knop van Mymmo Componenten schrijft zijn venster altijd uit, ook als een
+   * andere knop met dezelfde keuze dat al deed: aan de serverkant is niet te
+   * weten welke render op de pagina belandt en welke weggegooid wordt. Hier wel.
+   * Het eerste venster blijft, de rest verdwijnt vóór er iets aan gebonden
+   * wordt -- anders staat hetzelfde formulier twee keer in de DOM, en opent de
+   * knop het ene terwijl de schermlezer het andere voorleest.
+   */
+  function ontdubbel() {
+    var gezien = {};
+    var alle = document.querySelectorAll('[data-mymmo-modal][data-mymmo-trigger]');
+    for (var i = 0; i < alle.length; i += 1) {
+      var sel = alle[i].getAttribute('data-mymmo-trigger');
+      if (!sel) continue;
+      if (gezien[sel]) {
+        if (alle[i].parentNode) alle[i].parentNode.removeChild(alle[i]);
+      } else {
+        gezien[sel] = true;
+      }
+    }
+  }
+
+  /**
+   * Het venster voor een element dat pas NA het opstarten in de pagina kwam.
+   *
+   * `bindTriggers()` draait één keer; een knop die daarna verschijnt (een menu
+   * dat voor mobiel opnieuw opgebouwd wordt, een blok dat later inlaadt) heeft
+   * dan nog geen data-attributen. Bij de klik zelf opnieuw kijken kost niets.
+   */
+  function vensterVanTrigger(doelwit) {
+    if (!doelwit || !doelwit.closest) return null;
+    var alle = document.querySelectorAll('[data-mymmo-modal][data-mymmo-trigger]');
+    for (var i = 0; i < alle.length; i += 1) {
+      var el = null;
+      try {
+        el = doelwit.closest(alle[i].getAttribute('data-mymmo-trigger'));
+      } catch (_) {
+        continue;
+      }
+      if (el && !alle[i].contains(el)) {
+        bindTriggers(alle[i]);
+        return { venster: alle[i], opener: el };
+      }
+    }
+    return null;
+  }
+
   /** Het venster waar deze link naartoe wijst, als het er een van ons is. */
   function vensterVanLink(link) {
     var href = link.getAttribute('href') || '';
@@ -760,6 +883,7 @@
   // ── Opstarten ─────────────────────────────────────────────────────────────
 
   function start() {
+    ontdubbel();
     var vensters = document.querySelectorAll('[data-mymmo-modal]');
     if (vensters.length === 0) return;
 
@@ -870,6 +994,13 @@
       // Een gewone link op de pagina naar #<id van een venster>. Zo hangt een
       // knop van het thema of van Elementor aan dit venster zonder een regel
       // code -- en zonder dit script werkt diezelfde link ook, via :target.
+      var laat = vensterVanTrigger(event.target);
+      if (laat) {
+        event.preventDefault();
+        openen(laat.venster, laat.opener);
+        return;
+      }
+
       var link = event.target.closest('a[href]');
       if (link) {
         var vanLink = vensterVanLink(link);

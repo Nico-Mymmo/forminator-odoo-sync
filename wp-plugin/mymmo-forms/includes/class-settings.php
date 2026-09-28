@@ -680,6 +680,12 @@ final class Mymmo_Forms_Settings {
             'default'           => 1,
         ]);
 
+        register_setting(self::GROUP, Mymmo_Forms_Booking::OPTION, [
+            'type'              => 'string',
+            'sanitize_callback' => static fn ($v) => sanitize_title((string) $v),
+            'default'           => '',
+        ]);
+
         register_setting(self::GROUP, 'mymmo_forms_cache_ttl', [
             'type'              => 'integer',
             'sanitize_callback' => static fn ($v) => max(0, min(3600, (int) $v)),
@@ -1203,6 +1209,27 @@ final class Mymmo_Forms_Settings {
                         </td>
                     </tr>
                     <tr>
+                        <th scope="row"><label for="mymmoIngangTitleSize">Letter van de titel</label></th>
+                        <td>
+                            <input type="text" class="small-text code" id="mymmoIngangTitleSize"
+                                   name="mymmo_entry_title_size"
+                                   value="<?php echo esc_attr($waarde('title_size')); ?>" placeholder="30px">
+                            <input type="text" class="small-text code" name="mymmo_entry_title_weight"
+                                   value="<?php echo esc_attr($waarde('title_weight')); ?>" placeholder="400">
+                            <input type="text" class="regular-text code" name="mymmo_entry_title_color"
+                                   value="<?php echo esc_attr($waarde('title_color')); ?>" placeholder="#030712">
+                            <p class="description">
+                                Grootte, dikte en kleur &mdash; in die volgorde. Leeg = de standaard van
+                                de plugin (meegroeiend met de breedte, vet, in de tekstkleur van het
+                                thema). Staat de callout tussen de kaarten van je pagina, neem dan hier
+                                over wat het thema aan die kaarttitels geeft &mdash; anders is zij de
+                                enige die anders oogt. Dikte uit
+                                <code>300</code>&hellip;<code>900</code>, <code>normal</code> of
+                                <code>bold</code>; iets anders wordt genegeerd.
+                            </p>
+                        </td>
+                    </tr>
+                    <tr>
                         <th scope="row"><label for="mymmoIngangText">Tekst</label></th>
                         <td><input type="text" class="large-text" id="mymmoIngangText" name="mymmo_entry_text"
                                    value="<?php echo esc_attr($waarde('text')); ?>"></td>
@@ -1673,6 +1700,18 @@ final class Mymmo_Forms_Settings {
                             <label for="mymmoFormsFormSub">Regel eronder
                                 <input type="text" id="mymmoFormsFormSub" placeholder="Uit de OM"></label>
                         </div>
+
+                        <div class="mymmo-veld" data-mymmo-alleen-agenda="1">
+                            <span class="mymmo-veld-kop">Boven de agenda</span>
+                            <span class="mymmo-hint">Staat in het agenda-tabblad boven de kalender,
+                                in dezelfde stijl als de kop boven het formulier. Bedoeld om iemand
+                                die een uur moet kiezen op weg te helpen ("Kies een moment dat past,
+                                het gesprek duurt een half uur"). Leeg = geen kop.</span>
+                            <label for="mymmoFormsCalendlyTitle">Titel
+                                <input type="text" id="mymmoFormsCalendlyTitle" placeholder="geen kop"></label>
+                            <label for="mymmoFormsCalendlySub">Regel eronder
+                                <input type="text" id="mymmoFormsCalendlySub" placeholder="geen regel"></label>
+                        </div>
                     </div>
                 </details>
 
@@ -1846,6 +1885,30 @@ final class Mymmo_Forms_Settings {
                             </ul>
                             <span class="mymmo-hint">
                                 Tabbladen die er niet zijn, worden overgeslagen.
+                            </span>
+                        </div>
+
+                        <?php
+                        // -- Welk tabblad opent -----------------------------
+                        // Dit staat BEWUST onder de volgorde: leeg betekent
+                        // "het bovenste uit die lijst", en dat is bijna altijd
+                        // het goede antwoord. Wie hier iets anders kiest, zet
+                        // het venster open op een tabblad dat niet vooraan
+                        // staat -- een knoprij waarvan de tweede knop actief
+                        // is leest als een fout. Zie Shortcodes::tab_order().
+                        ?>
+                        <div class="mymmo-veld">
+                            <span class="mymmo-veld-kop">Welk tabblad opent</span>
+                            <select id="mymmoFormsTabActief">
+                                <option value="">Het bovenste tabblad</option>
+                                <option value="form">Het formulier</option>
+                                <option value="extra">Het derde tabblad</option>
+                                <option value="calendly">De agenda</option>
+                            </select>
+                            <span class="mymmo-hint">
+                                Verzet liever de volgorde hierboven: dan klopt de knoprij ook.
+                                Kies hier alleen iets als dezelfde opstelling op de ene pagina
+                                op het formulier moet openen en op de andere op de agenda.
                             </span>
                         </div>
 
@@ -2205,6 +2268,32 @@ final class Mymmo_Forms_Settings {
                             Alleen de <em>knop</em> wordt overgenomen: achtergrond, tekstkleur en hoeken. Bewust
                             niet de tekst- en achtergrondkleuren van de site — bij een donker thema levert dat
                             witte labels op witte invoervelden op, en dat merkt niemand aan onze kant.
+                        </p>
+                    </td>
+                </tr>
+                <tr>
+                    <th scope="row"><label for="mymmo_forms_booking_preset">Afspraaklinks</label></th>
+                    <td>
+                        <?php $booking_preset = (string) get_option(Mymmo_Forms_Booking::OPTION, ''); ?>
+                        <select id="mymmo_forms_booking_preset" name="mymmo_forms_booking_preset">
+                            <option value="">— uit —</option>
+                            <?php foreach (Mymmo_Forms_Presets::all() as $opstelling) : ?>
+                                <option value="<?php echo esc_attr($opstelling['id']); ?>" <?php selected($booking_preset, $opstelling['id']); ?>>
+                                    <?php echo esc_html($opstelling['name']); ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                        <p class="description">
+                            Een link als <code><?php echo esc_html(home_url('/')); ?>?afspraak=rob-demo</code> opent op
+                            elke pagina het venster van deze opstelling, meteen op het tabblad
+                            "Plan een gesprek", met de agenda van die collega. De links zelf maak je in de
+                            Operations Manager (Afspraaklinks, of bij de Calendly-koppeling). Een onbekende
+                            of gepauzeerde link, en <code>?afspraak=algemeen</code>, tonen de agenda van de
+                            opstelling zelf. De opstelling moet dus een Calendly-link hebben.
+                        </p>
+                        <p class="description">
+                            Veilig met een paginacache: de pagina is voor elke bezoeker dezelfde, de
+                            persoonlijke agenda wordt pas in de browser ingevuld.
                         </p>
                     </td>
                 </tr>
