@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nieuws &amp; updates - Operations Manager</title>
+  <script>
+    (function () {
+      var t = localStorage.getItem('selectedTheme') || 'light';
+      document.documentElement.setAttribute('data-theme', t);
+    })();
+  </script>
+  <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet" type="text/css" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script src="/shared-navbar.js"></script>
+</head>
+<body class="bg-base-200 min-h-screen">
+
+  <div id="navbar"></div>
+
+  <!-- De navbar staat position:fixed met 48px hoogte (zie
+       src/lib/components/navbar.js) en neemt dus geen ruimte in de flow in.
+       Zonder deze compensatie schuift de titel eronder. Zelfde aanpak als
+       .page-shell in events-v2.html; de inline stijl wint van py-6, dat
+       enkel de onderkant blijft verzorgen. -->
+  <main class="max-w-7xl mx-auto px-4 py-6" style="padding-top: calc(48px + 1.5rem);">
+
+    <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
+      <div>
+        <h1 class="text-2xl font-bold">Nieuws &amp; updates</h1>
+        <p class="text-sm opacity-70">
+          Wat hier staat, staat op de site. Er is geen synchronisatiestap meer.
+        </p>
+      </div>
+      <div class="flex items-center gap-2">
+        <button class="btn btn-sm" data-action="refresh">
+          <i data-lucide="refresh-cw" class="w-4 h-4"></i> Verversen
+        </button>
+        <button class="btn btn-sm btn-primary" data-action="new-item">
+          <i data-lucide="plus" class="w-4 h-4"></i> Nieuw bericht
+        </button>
+      </div>
+    </div>
+
+    <div role="tablist" class="tabs tabs-boxed mb-5 w-fit">
+      <button role="tab" class="tab tab-active" data-feed-tab="published">Gepubliceerd</button>
+      <button role="tab" class="tab" data-feed-tab="concept">Concept</button>
+      <button role="tab" class="tab" data-feed-tab="private">Privé</button>
+      <button role="tab" class="tab" data-feed-tab="archived">Archief</button>
+    </div>
+
+    <div class="flex flex-wrap items-end gap-3 mb-4">
+      <label class="form-control w-full max-w-xs">
+        <div class="label py-1"><span class="label-text text-xs">Zoeken</span></div>
+        <input type="search" id="searchInput" class="input input-bordered input-sm"
+               placeholder="Titel, kop of bron…" data-action-input="search">
+      </label>
+      <label class="form-control w-full max-w-[12rem]">
+        <div class="label py-1"><span class="label-text text-xs">Type</span></div>
+        <select id="typeFilter" class="select select-bordered select-sm" data-action-change="filter">
+          <option value="">Alle types</option>
+        </select>
+      </label>
+      <label class="form-control w-full max-w-[12rem]">
+        <div class="label py-1"><span class="label-text text-xs">Label</span></div>
+        <select id="tagFilter" class="select select-bordered select-sm" data-action-change="filter">
+          <option value="">Alle labels</option>
+        </select>
+      </label>
+    </div>
+
+    <!-- Waarschuwing die alleen verschijnt als er iets te melden valt. -->
+    <div id="dataWarning" class="alert alert-warning mb-4 hidden">
+      <i data-lucide="alert-triangle" class="w-5 h-5"></i>
+      <span id="dataWarningText"></span>
+    </div>
+
+    <div id="itemList" class="grid gap-3"></div>
+
+    <div id="emptyState" class="hidden text-center py-16 opacity-60">
+      <i data-lucide="newspaper" class="w-10 h-10 mx-auto mb-3"></i>
+      <p>Geen berichten in deze weergave.</p>
+    </div>
+
+    <div id="loadingState" class="text-center py-16">
+      <span class="loading loading-spinner loading-lg"></span>
+    </div>
+  </main>
+
+  <!-- ── Bewerkdialoog ──────────────────────────────────────────────────── -->
+  <dialog id="itemDialog" class="modal">
+    <div class="modal-box max-w-3xl">
+      <h3 class="font-bold text-lg mb-4" id="dialogTitle">Bericht</h3>
+
+      <div class="grid gap-3">
+        <label class="form-control">
+          <div class="label py-1"><span class="label-text">Titel <span class="text-error">*</span></span></div>
+          <input type="text" id="fTitle" class="input input-bordered">
+          <div class="label py-1">
+            <span class="label-text-alt opacity-60">De interne naam van het bericht.</span>
+          </div>
+        </label>
+
+        <label class="form-control">
+          <div class="label py-1"><span class="label-text">Kop op de kaart</span></div>
+          <input type="text" id="fSummaryTitle" class="input input-bordered">
+          <div class="label py-1">
+            <span class="label-text-alt opacity-60">Dit is wat een bezoeker als titel ziet. Leeg = de titel hierboven.</span>
+          </div>
+        </label>
+
+        <label class="form-control">
+          <div class="label py-1"><span class="label-text">Samenvatting</span></div>
+          <textarea id="fSummary" class="textarea textarea-bordered" rows="4"></textarea>
+        </label>
+
+        <div class="grid sm:grid-cols-2 gap-3">
+          <label class="form-control">
+            <div class="label py-1"><span class="label-text">Link</span></div>
+            <input type="url" id="fUrl" class="input input-bordered" placeholder="https://…">
+          </label>
+          <label class="form-control">
+            <div class="label py-1"><span class="label-text">Tekst op de link</span></div>
+            <input type="text" id="fCta" class="input input-bordered" placeholder="Lees verder">
+          </label>
+        </div>
+
+        <div class="grid sm:grid-cols-2 gap-3">
+          <label class="form-control">
+            <div class="label py-1"><span class="label-text">Bron</span></div>
+            <input type="text" id="fSource" class="input input-bordered" placeholder="BRUZZ, VRT NWS, …">
+          </label>
+          <label class="form-control">
+            <div class="label py-1"><span class="label-text">Publicatiedatum</span></div>
+            <input type="date" id="fPublishedOn" class="input input-bordered">
+            <div class="label py-1">
+              <span class="label-text-alt opacity-60">Bepaalt de plaats in de tijdlijn.</span>
+            </div>
+          </label>
+        </div>
+
+        <div class="grid sm:grid-cols-3 gap-3">
+          <label class="form-control">
+            <div class="label py-1"><span class="label-text">Status</span></div>
+            <select id="fStatus" class="select select-bordered">
+              <option value="concept">Concept</option>
+              <option value="published">Gepubliceerd</option>
+              <option value="private">Privé</option>
+            </select>
+          </label>
+          <label class="form-control">
+            <div class="label py-1"><span class="label-text">Type</span></div>
+            <select id="fType" class="select select-bordered"><option value="">—</option></select>
+          </label>
+          <label class="form-control">
+            <div class="label py-1"><span class="label-text">Tijdlijnkleur</span></div>
+            <select id="fColor" class="select select-bordered">
+              <option value="default">Standaard</option>
+              <option value="blue">Blauw</option>
+              <option value="green">Groen</option>
+              <option value="yellow">Geel</option>
+              <option value="red">Rood</option>
+            </select>
+          </label>
+        </div>
+
+        <label class="form-control">
+          <div class="label py-1"><span class="label-text">Verantwoordelijke</span></div>
+          <select id="fOwner" class="select select-bordered"><option value="">—</option></select>
+        </label>
+
+        <label class="form-control hidden" id="audienceWrap">
+          <div class="label py-1"><span class="label-text">Doelgroep</span></div>
+          <select id="fAudience" class="select select-bordered"></select>
+        </label>
+
+        <label class="form-control">
+          <div class="label py-1"><span class="label-text">Waarom wij dit delen</span></div>
+          <textarea id="fCuratorNote" class="textarea textarea-bordered" rows="2"></textarea>
+          <div class="label py-1">
+            <span class="label-text-alt opacity-60">Onze kijk erop — verschijnt als subkop onder de titel.</span>
+          </div>
+        </label>
+
+        <label class="form-control">
+          <div class="label py-1"><span class="label-text">Citaat</span></div>
+          <textarea id="fQuote" class="textarea textarea-bordered" rows="2"></textarea>
+          <div class="label py-1">
+            <span class="label-text-alt opacity-60">Een zin uit het artikel die voor een VME het meest ter zake doet.</span>
+          </div>
+        </label>
+
+        <div class="form-control">
+          <div class="label py-1"><span class="label-text">Labels</span></div>
+          <div id="fTags" class="flex flex-wrap gap-3"></div>
+        </div>
+
+        <div class="form-control">
+          <div class="label py-1"><span class="label-text">Afbeelding</span></div>
+          <div id="fImage" class="text-sm opacity-70"></div>
+        </div>
+      </div>
+
+      <div id="dialogError" class="alert alert-error mt-4 hidden">
+        <i data-lucide="alert-circle" class="w-5 h-5"></i>
+        <span id="dialogErrorText"></span>
+      </div>
+
+      <div class="modal-action">
+        <button class="btn btn-ghost" data-action="close-dialog">Annuleren</button>
+        <button class="btn btn-primary" data-action="save-item">Opslaan</button>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>sluiten</button></form>
+  </dialog>
+
+  <!-- ── Stap 1: wat wil je toevoegen? ──────────────────────────────────── -->
+  <dialog id="typeDialog" class="modal">
+    <div class="modal-box max-w-lg">
+      <h3 class="font-bold text-lg mb-1">Wat wil je toevoegen?</h3>
+      <p class="text-sm opacity-70 mb-4">
+        Bij een artikel vul je alleen de link in — de rest wordt voorgesteld.
+      </p>
+
+      <div class="grid gap-3">
+        <button class="btn btn-lg justify-start h-auto py-4" data-action="choose-type" data-type="article">
+          <i data-lucide="link" class="w-6 h-6 shrink-0"></i>
+          <span class="text-left">
+            <span class="block font-semibold">Artikel</span>
+            <span class="block text-xs font-normal opacity-70">
+              Plak een link. We halen het artikel op en stellen kop, samenvatting,
+              citaat, bron, datum en afbeelding voor.
+            </span>
+          </span>
+        </button>
+
+        <button class="btn btn-lg justify-start h-auto py-4" data-action="choose-type" data-type="manual">
+          <i data-lucide="pencil" class="w-6 h-6 shrink-0"></i>
+          <span class="text-left">
+            <span class="block font-semibold">Zelf ingeven</span>
+            <span class="block text-xs font-normal opacity-70">
+              Een leeg bericht dat je volledig zelf invult.
+            </span>
+          </span>
+        </button>
+      </div>
+
+      <div class="modal-action">
+        <button class="btn btn-ghost" data-action="close-type">Annuleren</button>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>sluiten</button></form>
+  </dialog>
+
+  <!-- ── Stap 2 (artikel): de link ──────────────────────────────────────────── -->
+  <dialog id="articleDialog" class="modal">
+    <div class="modal-box max-w-xl">
+      <h3 class="font-bold text-lg mb-1">Artikel toevoegen</h3>
+      <p class="text-sm opacity-70 mb-4">
+        Plak de link naar het artikel. Je krijgt een voorstel te zien dat je nog
+        kan aanpassen voor je het bewaart.
+      </p>
+
+      <label class="form-control">
+        <div class="label py-1"><span class="label-text">Link naar het artikel</span></div>
+        <input type="url" id="fArticleUrl" class="input input-bordered"
+               placeholder="https://www.vrt.be/vrtnws/nl/…" data-action-keydown="analyze">
+      </label>
+
+      <!-- De doelgroep gaat MEE naar de AI: ze stuurt de samenvatting en de
+           keuze van het citaat. Daarom staat ze hier en niet pas achteraf in
+           de editor. Het blok verbergt zichzelf als het Studio-veld nog niet
+           bestaat (zie vulDoelgroepen). -->
+      <label class="form-control mt-2 hidden" id="articleAudienceWrap">
+        <div class="label py-1">
+          <span class="label-text">Voor wie is dit?</span>
+          <span class="label-text-alt opacity-60">stuurt de samenvatting en het citaat</span>
+        </div>
+        <select id="fArticleAudience" class="select select-bordered"></select>
+      </label>
+
+      <div id="articleBusy" class="hidden mt-4 flex items-center gap-3 text-sm">
+        <span class="loading loading-spinner loading-sm"></span>
+        <span id="articleBusyText">Het artikel wordt opgehaald…</span>
+      </div>
+
+      <div id="articleError" class="alert alert-error mt-4 hidden">
+        <i data-lucide="alert-circle" class="w-5 h-5"></i>
+        <span id="articleErrorText"></span>
+      </div>
+
+      <div class="modal-action">
+        <button class="btn btn-ghost" data-action="close-article">Annuleren</button>
+        <button class="btn btn-primary" data-action="analyze-article">
+          <i data-lucide="sparkles" class="w-4 h-4"></i> Analyseren
+        </button>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>sluiten</button></form>
+  </dialog>
+
+  <div id="toastHost" class="toast toast-end z-50"></div>
+
+  <script src="/content-feed.js"></script>
+</body>
+</html>

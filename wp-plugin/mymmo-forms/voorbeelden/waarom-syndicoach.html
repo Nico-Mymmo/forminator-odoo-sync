@@ -1,0 +1,417 @@
+<!--
+  STAP - "Waarom overweeg je Syndicoach?"
+
+  MEERKEUZE in vakjes, met een tekening per reden. Levert EEN waarde af:
+
+      waarom_syndicoach   komma-gescheiden, bv. "te_duur,moeilijk_bereikbaar"
+
+  Zet in de Operations Manager een VERBORGEN VELD met die sleutel op het
+  formulier. Deze stap verwacht minstens een keuze: zet `waarom_syndicoach` bij
+  de stap in wp-admin in "Levert deze sleutels", dan blijft "Volgende" uit tot er
+  iets aangeduid staat. Laat je dat veld leeg, dan mag de bezoeker doorklikken
+  zonder iets te kiezen.
+
+  LET OP - DIT IS EEN LIJST, GEEN ENKELE WAARDE
+  ---------------------------------------------
+  De vorige versie van stap 3 (huidig-beheer) leverde exact EEN waarde af. Deze
+  levert er nul tot tien, gescheiden door een komma. In de koppeling hoort dat
+  veld dus NIET op een selectieveld van Odoo te staan dat maar een waarde aankan:
+  gebruik een tekstveld, of splits het in de veldkoppelingen naar meerdere
+  vinkjes. Zonder die aanpassing komt er bij twee redenen stil niets of een
+  onbekende waarde in Odoo terecht.
+
+  DE LIJST AANVULLEN
+  ------------------
+  Een vakje is gewoon een knop in de HTML hieronder. Een regel kopieren en drie
+  dingen aanpassen: `data-waarde`, de `src` van de tekening en het label.
+  `data-waarde` belandt in Odoo en ligt VAST zodra er inzendingen zijn. Het label
+  mag altijd wijzigen -- ook rechtstreeks in het voorbeeld van de bouwer, want
+  het is echte tekst in de HTML.
+
+  WAAROM ER HIER GEEN ENKELE SVG EN GEEN ENKEL LEEG ELEMENT STAAT (1.15.14)
+  ------------------------------------------------------------------------
+  Op syndicoach.be kwam een eerdere stap verminkt aan: na elke inline SVG met een
+  use-element ontbrak de sluit-tag van de omliggende span, en elk leeg element
+  verdween. Daarom: geen inline SVG, en wat getekend moet worden (het vinkje)
+  hangt als ::before / ::after aan een element dat zelf tekst heeft. De
+  tekeningen komen als img binnen, met de gangbare vlaggen om lazyload-plugins
+  over te slaan.
+
+  Geen eigen kop, geen eigen kaartje rond de stap, geen opvulling aan de
+  zijkanten, geen eigen lettertype, geen eigen Vorige/Volgende: dat levert de
+  plugin allemaal zelf.
+-->
+
+<style>
+/* Alles genest onder .mf-waarom. Geen id's: dezelfde stap mag twee keer op een
+   pagina staan (in de tekst en in een pop-up). */
+.mf-waarom {
+  --w-accent: var(--mf-accent, #99f6e4);
+  --w-ink: var(--mf-text, #12384f);
+  --w-muted: var(--mf-muted, #6b7280);
+  --w-lijn: var(--mf-border, #d7dbe2);
+  --w-vlak: var(--mf-field-bg, #ffffff);
+  /* De leesbare merkkleur op wit (bij Syndicoach #0369a1), gezet door de plugin. */
+  --w-inkt: var(--mf-accent-ink, var(--mf-text, #0369a1));
+
+  /* GEEN font-family en GEEN padding: allebei van de plugin. */
+  color: var(--w-ink);
+  line-height: 1.45;
+  display: flex;
+  flex-direction: column;
+  flex: 1 0 auto;
+}
+.mf-waarom *, .mf-waarom *::before, .mf-waarom *::after { box-sizing: border-box; }
+
+/* De vakjes staan verticaal gecentreerd in de vrije ruimte tussen de uitleg en
+   de knoppenrij. Valt er niets te verdelen -- en met tien vakjes is dat op een
+   telefoon het geval -- dan worden allebei de marges 0 en scrolt het paneel. */
+.mf-waarom .mf-keuzes {
+  margin-block: auto;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+  padding: 14px 0 6px;
+}
+/* TWEE KOLOMMEN. Bewust op 560px en niet op 640px: in het venster is de
+   inhoudskolom smaller dan het scherm, en met tien vakjes onder elkaar sta je
+   anders onnodig te scrollen. `grid-auto-rows: 1fr` houdt de twee vakjes van een
+   rij even hoog, ook als het ene label omslaat en het andere niet. */
+@media (min-width: 560px) {
+  .mf-waarom .mf-keuzes { grid-template-columns: 1fr 1fr; grid-auto-rows: 1fr; gap: 12px; }
+}
+
+/* Twee klassen op elke regel die een button raakt: een blokthema zet zijn eigen
+   knopstijl inline in de head en wint anders. Alles wat een thema op een knop
+   zet, noemen we hier zelf (display, richting, hoogte, opvulling, rand, schaduw,
+   tekstopmaak). */
+.mf-waarom .mf-keuze {
+  position: relative;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 12px;
+  width: 100%;
+  height: auto;
+  min-height: 0;
+  margin: 0;
+  /* Rechts ruimte voor het vinkje, dat op de knop zelf getekend wordt. */
+  padding: 8px 42px 8px 10px;
+  font: inherit;
+  font-size: .9rem;
+  font-weight: 400;
+  line-height: 1.3;
+  letter-spacing: normal;
+  text-transform: none;
+  text-align: left;
+  white-space: normal;
+  color: var(--w-ink);
+  background: var(--w-vlak);
+  border: 1.5px solid var(--w-lijn);
+  box-shadow: none;
+  /* Licht onregelmatige hoeken: net genoeg om niet als een tabel te lezen. */
+  border-radius: 18px 22px 20px 24px;
+  cursor: pointer;
+  transition: border-color .18s ease, background-color .18s ease, box-shadow .18s ease, translate .22s cubic-bezier(.34,1.56,.64,1);
+}
+.mf-waarom .mf-keuze:nth-child(4n+2) { border-radius: 22px 18px 24px 20px; }
+.mf-waarom .mf-keuze:nth-child(4n+3) { border-radius: 20px 24px 18px 22px; }
+.mf-waarom .mf-keuze:nth-child(4n)   { border-radius: 24px 20px 22px 18px; }
+
+/* De tekening in een organische kei, zoals in de stap ervoor. Vier vormen die om
+   de beurt terugkomen, zodat geen twee buren identiek zijn. */
+.mf-waarom .mf-ic {
+  flex: 0 0 auto;
+  position: relative;
+  width: 76px;
+  height: 76px;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--w-accent) 16%, var(--w-vlak));
+  border: 1.5px solid transparent;
+  border-radius: 63% 37% 52% 48% / 42% 57% 43% 58%;
+  rotate: -3deg;
+  transition: background-color .22s ease, border-color .22s ease, scale .32s cubic-bezier(.34,1.56,.64,1);
+}
+.mf-waarom .mf-keuze:nth-child(4n+2) .mf-ic { border-radius: 38% 62% 67% 33% / 58% 36% 64% 42%; rotate: 2.5deg; }
+.mf-waarom .mf-keuze:nth-child(4n+3) .mf-ic { border-radius: 56% 44% 31% 69% / 37% 64% 36% 63%; rotate: -1.5deg; }
+.mf-waarom .mf-keuze:nth-child(4n)   .mf-ic { border-radius: 33% 67% 59% 41% / 64% 39% 61% 36%; rotate: 3deg; }
+
+.mf-waarom .mf-ic img {
+  display: block;
+  width: 62px;
+  height: 62px;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+/* Laadt een tekening niet, dan blijft de kei gewoon leeg staan -- nooit een
+   kapot-plaatje-icoontje naast het label. */
+.mf-waarom .mf-keuze--zonder-beeld .mf-ic img { display: none; }
+
+.mf-waarom .mf-keuze-titel {
+  display: block;
+  font-weight: 400;
+  color: var(--w-ink);
+  text-wrap: pretty;
+}
+
+/* Het vinkje rechts: een organisch bolletje met een haakje erin, allebei met CSS
+   getekend op de knop zelf. */
+.mf-waarom .mf-keuze::before {
+  content: "";
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  width: 22px;
+  height: 22px;
+  margin-top: -11px;
+  background: var(--w-vlak);
+  border: 1.5px solid color-mix(in srgb, var(--w-lijn) 70%, var(--w-muted));
+  border-radius: 56% 44% 48% 52% / 47% 52% 48% 53%;
+  transition: background-color .18s ease, border-color .18s ease, scale .28s cubic-bezier(.34,1.56,.64,1);
+}
+.mf-waarom .mf-keuze::after {
+  content: "";
+  position: absolute;
+  right: 20px;
+  top: 50%;
+  width: 6px;
+  height: 11px;
+  margin-top: -7px;
+  border: solid #ffffff;
+  border-width: 0 2px 2px 0;
+  rotate: 45deg;
+  opacity: 0;
+  scale: .4;
+  transition: opacity .16s ease, scale .26s cubic-bezier(.34,1.56,.64,1);
+}
+
+.mf-waarom .mf-keuze:hover {
+  border-color: color-mix(in srgb, var(--w-accent) 75%, var(--w-lijn));
+  box-shadow: 0 6px 18px -10px color-mix(in srgb, var(--w-inkt) 45%, transparent);
+  translate: 0 -2px;
+}
+.mf-waarom .mf-keuze:hover::before { border-color: var(--w-inkt); scale: 1.08; }
+.mf-waarom .mf-keuze:hover .mf-ic { scale: 1.06; }
+.mf-waarom .mf-keuze:focus-visible {
+  outline: 2px solid var(--w-inkt);
+  outline-offset: 2px;
+}
+
+/* Gekozen: zachte mint, rand en vinkje in de leesbare merkkleur. Geen vol mint
+   vlak -- de tekeningen zijn zelf in mint en donkerblauw getekend, en op een vol
+   mint vlak verdwijnt de helft van de tekening. */
+.mf-waarom .mf-keuze[aria-checked="true"] {
+  background: color-mix(in srgb, var(--w-accent) 22%, var(--w-vlak));
+  border-color: var(--w-inkt);
+  box-shadow: 0 0 0 1px var(--w-inkt);
+}
+.mf-waarom .mf-keuze[aria-checked="true"] .mf-keuze-titel {
+  /* Gekozen mag opvallen, maar 600 naast 400 is een sprong die de rij onrustig
+     maakt zodra er drie aangeduid staan. De KLEUR doet hier het werk. */
+  font-weight: 500;
+  color: var(--w-inkt);
+}
+.mf-waarom .mf-keuze[aria-checked="true"] .mf-ic {
+  background: var(--w-vlak);
+  border-color: color-mix(in srgb, var(--w-inkt) 35%, transparent);
+}
+.mf-waarom .mf-keuze[aria-checked="true"]::before {
+  background: var(--w-inkt);
+  border-color: var(--w-inkt);
+  scale: 1;
+}
+.mf-waarom .mf-keuze[aria-checked="true"]::after { opacity: 1; scale: 1; }
+
+.mf-waarom .mf-keuze.mf-plop { animation: mw-plop .42s cubic-bezier(.31,1.7,.6,1); }
+@keyframes mw-plop {
+  0%   { scale: 1; }
+  35%  { scale: .985; }
+  70%  { scale: 1.015; }
+  100% { scale: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mf-waarom .mf-keuze,
+  .mf-waarom .mf-keuze::before,
+  .mf-waarom .mf-keuze::after,
+  .mf-waarom .mf-ic { transition: none; }
+  .mf-waarom .mf-keuze.mf-plop { animation: none; }
+  .mf-waarom .mf-keuze:hover { translate: none; }
+}
+
+@media (max-width: 420px) {
+  .mf-waarom .mf-keuzes { gap: 8px; }
+  .mf-waarom .mf-keuze { padding: 8px 38px 8px 8px; gap: 10px; font-size: .85rem; }
+  .mf-waarom .mf-ic { width: 56px; height: 56px; }
+  .mf-waarom .mf-ic img { width: 44px; height: 44px; }
+  .mf-waarom .mf-keuze::before { right: 10px; }
+  .mf-waarom .mf-keuze::after { right: 18px; }
+}
+</style>
+
+<div class="mf-waarom" data-sleutel="waarom_syndicoach">
+  <div class="mf-keuzes" data-rol="keuzes" role="group" aria-label="Waarom je Syndicoach overweegt">
+
+    <button type="button" class="mf-keuze" role="checkbox" aria-checked="false" data-waarde="te_duur">
+      <span class="mf-ic"><img class="skip-lazy no-lazyload" data-no-lazy="1" data-skip-lazy="1" src="https://link.openvme.be/assets/brand/thingies/thingies_spaarvarken.svg" alt="" width="400" height="400" loading="eager" decoding="async"></span>
+      <span class="mf-keuze-titel">Het huidige beheer is te duur</span>
+    </button>
+
+    <button type="button" class="mf-keuze" role="checkbox" aria-checked="false" data-waarde="teveel_fouten">
+      <span class="mf-ic"><img class="skip-lazy no-lazyload" data-no-lazy="1" data-skip-lazy="1" src="https://link.openvme.be/assets/brand/thingies/thingies_kapotte-lamp.svg" alt="" width="400" height="400" loading="eager" decoding="async"></span>
+      <span class="mf-keuze-titel">De huidige syndicus maakt te veel fouten</span>
+    </button>
+
+    <button type="button" class="mf-keuze" role="checkbox" aria-checked="false" data-waarde="moeilijk_bereikbaar">
+      <span class="mf-ic"><img class="skip-lazy no-lazyload" data-no-lazy="1" data-skip-lazy="1" src="https://link.openvme.be/assets/brand/thingies/thingies_telefoon.svg" alt="" width="400" height="400" loading="eager" decoding="async"></span>
+      <span class="mf-keuze-titel">De huidige syndicus is moeilijk bereikbaar</span>
+    </button>
+
+    <button type="button" class="mf-keuze" role="checkbox" aria-checked="false" data-waarde="geen_beheer">
+      <span class="mf-ic"><img class="skip-lazy no-lazyload" data-no-lazy="1" data-skip-lazy="1" src="https://link.openvme.be/assets/brand/thingies/thingies_openstaande-vraag.svg" alt="" width="400" height="400" loading="eager" decoding="async"></span>
+      <span class="mf-keuze-titel">Er is momenteel nog geen beheer</span>
+    </button>
+
+    <button type="button" class="mf-keuze" role="checkbox" aria-checked="false" data-waarde="gebrek_transparantie">
+      <span class="mf-ic"><img class="skip-lazy no-lazyload" data-no-lazy="1" data-skip-lazy="1" src="https://link.openvme.be/assets/brand/thingies/thingies_vergrootglas.svg" alt="" width="400" height="400" loading="eager" decoding="async"></span>
+      <span class="mf-keuze-titel">Er is gebrek aan transparantie</span>
+    </button>
+
+    <button type="button" class="mf-keuze" role="checkbox" aria-checked="false" data-waarde="niet_meer_zelf">
+      <span class="mf-ic"><img class="skip-lazy no-lazyload" data-no-lazy="1" data-skip-lazy="1" src="https://link.openvme.be/assets/brand/thingies/thingies_kruis.svg" alt="" width="400" height="400" loading="eager" decoding="async"></span>
+      <span class="mf-keuze-titel">We willen het niet meer zelf doen</span>
+    </button>
+
+    <button type="button" class="mf-keuze" role="checkbox" aria-checked="false" data-waarde="extra_ondersteuning">
+      <span class="mf-ic"><img class="skip-lazy no-lazyload" data-no-lazy="1" data-skip-lazy="1" src="https://link.openvme.be/assets/brand/thingies/thingies_aktentas.svg" alt="" width="400" height="400" loading="eager" decoding="async"></span>
+      <span class="mf-keuze-titel">We zoeken extra ondersteuning</span>
+    </button>
+
+    <button type="button" class="mf-keuze" role="checkbox" aria-checked="false" data-waarde="renovatieproject">
+      <span class="mf-ic"><img class="skip-lazy no-lazyload" data-no-lazy="1" data-skip-lazy="1" src="https://link.openvme.be/assets/brand/thingies/thingies_bakstenen.svg" alt="" width="400" height="400" loading="eager" decoding="async"></span>
+      <span class="mf-keuze-titel">We willen een renovatieproject opstarten</span>
+    </button>
+
+    <button type="button" class="mf-keuze" role="checkbox" aria-checked="false" data-waarde="moeilijke_sfeer">
+      <span class="mf-ic"><img class="skip-lazy no-lazyload" data-no-lazy="1" data-skip-lazy="1" src="https://link.openvme.be/assets/brand/thingies/thingies_sfeer.svg" alt="" width="400" height="400" loading="eager" decoding="async"></span>
+      <span class="mf-keuze-titel">Er is een moeilijke onderlinge sfeer</span>
+    </button>
+
+    <button type="button" class="mf-keuze" role="checkbox" aria-checked="false" data-waarde="administratieve_achterstand">
+      <span class="mf-ic"><img class="skip-lazy no-lazyload" data-no-lazy="1" data-skip-lazy="1" src="https://link.openvme.be/assets/brand/thingies/thingies_brieven.svg" alt="" width="400" height="400" loading="eager" decoding="async"></span>
+      <span class="mf-keuze-titel">Er is administratieve achterstand</span>
+    </button>
+
+  </div>
+</div>
+
+<script>
+MymmoStappen.stap(document.currentScript, function (api) {
+  /* LEES DIT VOOR JE DIT SCRIPT AANPAST.
+     Op syndicoach.be wordt de HTML van een stap opnieuw uitgeschreven voor ze de
+     browser bereikt. Daarbij werd een en-teken een HTML-entiteit, een letter met
+     een accent een hex-entiteit, en verdween elke sluit-tag uit een string.
+     Daarom bevat dit script uitsluitend ASCII en geen enkel en-teken, kleiner-
+     of groter-dan-teken of sluit-tag. Schrijf dus geen dubbele en-tekens in een
+     voorwaarde maar twee geneste ifs, en geen lussen met een vergelijking maar
+     forEach en filter. */
+
+  var wortel = api.el.querySelector('.mf-waarom');
+  if (!wortel) return;
+
+  var SLEUTEL = wortel.getAttribute('data-sleutel') || 'waarom_syndicoach';
+  var lijst = wortel.querySelector('[data-rol="keuzes"]');
+  if (!lijst) return;
+
+  function alle(nodes) {
+    return Array.prototype.slice.call(nodes);
+  }
+
+  var knoppen = alle(lijst.querySelectorAll('.mf-keuze'));
+  var gekozen = [];
+
+  function schrijf() {
+    /* De volgorde van de HTML, niet die van het aanklikken: zo levert dezelfde
+       selectie altijd dezelfde string op en zijn twee inzendingen vergelijkbaar. */
+    var waarden = knoppen.filter(function (knop) {
+      return gekozen.indexOf(knop.getAttribute('data-waarde')) !== -1;
+    }).map(function (knop) {
+      return knop.getAttribute('data-waarde');
+    });
+    api.zet(SLEUTEL, waarden.join(','));
+  }
+
+  function plop(knop) {
+    knop.classList.remove('mf-plop');
+    void knop.offsetWidth;
+    knop.classList.add('mf-plop');
+  }
+
+  function zet(knop, aan, metPlop) {
+    var waarde = knop.getAttribute('data-waarde');
+    knop.setAttribute('aria-checked', aan ? 'true' : 'false');
+    gekozen = gekozen.filter(function (w) { return w !== waarde; });
+    if (aan) {
+      gekozen.push(waarde);
+      if (metPlop) plop(knop);
+    }
+  }
+
+  lijst.addEventListener('click', function (e) {
+    var knop = e.target.closest ? e.target.closest('.mf-keuze') : null;
+    if (!knop) return;
+    if (!lijst.contains(knop)) return;
+    zet(knop, knop.getAttribute('aria-checked') !== 'true', true);
+    schrijf();
+  });
+
+  /* Pijltjes lopen door de lijst. Anders dan bij keuzerondjes verandert dat de
+     keuze NIET -- bij een meerkeuze duid je aan met spatie of Enter, en dat doet
+     de browser zelf op een knop. */
+  lijst.addEventListener('keydown', function (e) {
+    var richting = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 }[e.key];
+    if (!richting) return;
+    var nu = knoppen.indexOf(document.activeElement);
+    if (nu === -1) return;
+    e.preventDefault();
+    knoppen[(nu + richting + knoppen.length) % knoppen.length].focus();
+  });
+
+  /* Een tekening die niet laadt: de kei blijft leeg, het label blijft staan. */
+  alle(lijst.querySelectorAll('.mf-ic img')).forEach(function (img) {
+    function mislukt() {
+      var knop = img.closest('.mf-keuze');
+      if (knop) knop.classList.add('mf-keuze--zonder-beeld');
+    }
+    if (img.complete) {
+      if (img.naturalWidth === 0) mislukt();
+      return;
+    }
+    img.addEventListener('error', mislukt);
+  });
+
+  /* Beginstand: terug van een mislukte inzending of van het formulier. Een waarde
+     die hier niet meer bestaat (een oude naam) wordt stil overgeslagen -- ze zou
+     anders als onbekende keuze mee naar Odoo gaan. */
+  String(api.lees(SLEUTEL) || '').split(',')
+    .map(function (s) { return s.trim(); })
+    .filter(Boolean)
+    .forEach(function (waarde) {
+      knoppen.filter(function (knop) {
+        return knop.getAttribute('data-waarde') === waarde;
+      }).forEach(function (knop) {
+        zet(knop, true, false);
+      });
+    });
+  schrijf();
+
+  api.bij('tonen', function () {
+    knoppen.filter(function (knop) {
+      return knop.getAttribute('aria-checked') === 'true';
+    }).forEach(plop);
+  });
+});
+</script>

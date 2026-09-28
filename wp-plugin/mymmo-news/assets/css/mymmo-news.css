@@ -1,0 +1,687 @@
+/**
+ * Mymmo News — feed
+ *
+ * SPECIFICITEIT: een blokthema drukt zijn stijlen INLINE in de <head> af, dus
+ * ná elke plugin-stylesheet -- bij gelijk gewicht wint het thema altijd. En
+ * `:not()` telt mee, dus een themaregel als `ul:not(.wp-block-list)` is
+ * (0,1,1) en verslaat `.mymmo-news-list` (0,1,0).
+ *
+ * Daarom krijgt ELKE regel die een ul, li, button, blockquote, img of h3 van
+ * ons raakt een eigen wikkelklasse ervoor: `.mymmo-news .mymmo-news-list` is
+ * (0,2,0) en wint zonder !important -- zodat iemand die het écht anders wil,
+ * nog steeds kan winnen. Dezelfde les als bij mymmo-forms 1.15.5.
+ *
+ * En: noem wat je bedoelt. `display:flex` zonder `flex-direction` is een gat
+ * waar een thema in stapt. Hetzelfde voor padding, margin, border en
+ * list-style.
+ */
+
+/* Het `hidden`-attribuut moet winnen van ONZE EIGEN klassen. `[hidden]` is
+   (0,0,1) en elke regel hieronder is (0,2,0), dus zonder deze regel bleef een
+   verborgen element gewoon staan -- precies wat er met de knop "Meer berichten"
+   gebeurde: die stond ook zichtbaar bij een lege feed, wat leest als een fout.
+   Dit is de enige !important in deze stylesheet en hij hoort er te zijn: hij
+   overrult geen thema maar het gat in onze eigen specificiteit. */
+.mymmo-news [hidden] {
+  display: none !important;
+}
+
+.mymmo-news {
+  /* Tokens. Een site kan ze overschrijven op .mymmo-news zelf. */
+  /* Dezelfde waarden als mymmo-forms (public/mymmo-forms.css), zodat een
+     pagina met een formulier en een feed erop niet uit twee ontwerpen
+     bestaat. De radius ligt 2px hoger dan die van een invoerveld: een kaart
+     is een vlak, geen bedieningselement -- dat is dezelfde verhouding die de
+     panelen in mymmo-forms aanhouden met calc(--mf-radius + 4). */
+  --mn-radius: 12px;
+  --mn-gap: 20px;
+  --mn-max: 680px;
+
+  --mn-bg: #ffffff;
+  --mn-ink: #1f2430;
+  --mn-ink-zacht: #6b7280;
+  --mn-rand: #d7dbe2;
+  --mn-vlak: #f6f7f9;
+  --mn-accent: #0369a1;
+  --mn-accent-ink: #ffffff;
+
+  /* De tijdlijnkleur uit Odoo als heel zachte VULLING van de kaart. Ze stond
+     eerder als streepje van 3px links, en dat leest in een lange lijst als
+     een statusbalk -- terwijl het een thema-accent is. Bewust vaste tinten en
+     geen color-mix() op de volle kleur: die geeft bij geel en rood een heel
+     andere gevoelswaarde dan bij blauw, en dan is "zacht" niet meer zacht. */
+  --mn-tint-blue: #f0f9ff;
+  --mn-tint-green: #f2fcf5;
+  --mn-tint-yellow: #fefbea;
+  --mn-tint-red: #fef4f2;
+
+  /* De rand van de beheerdersmelding. Staat los van de tinten: dit is een
+     signaalkleur, geen thema-accent. */
+  --mn-waarschuwing: #ca8a04;
+
+  display: block;
+  max-width: var(--mn-max);
+  margin-left: auto;
+  margin-right: auto;
+  color: var(--mn-ink);
+  /* Noem wat je bedoelt: zonder dit erft de feed het lettertype van het thema
+     via de cascade, maar valt hij terug op de browserstandaard zodra er ergens
+     een font-family op een tussenliggend element staat. */
+  font-family: inherit;
+  font-size: 16px;
+  line-height: 1.55;
+}
+
+.mymmo-news--grid {
+  --mn-max: 1120px;
+}
+
+@media (prefers-color-scheme: dark) {
+  .mymmo-news:not([data-mn-theme="light"]) {
+    --mn-bg: #16181c;
+    --mn-ink: #e7e9ea;
+    --mn-ink-zacht: #8b98a5;
+    --mn-rand: #2f3336;
+    --mn-vlak: #202327;
+
+    --mn-tint-blue: #16202a;
+    --mn-tint-green: #16221b;
+    --mn-tint-yellow: #23200f;
+    --mn-tint-red: #261a19;
+  }
+}
+
+.mymmo-news .mymmo-news-heading {
+  margin: 0 0 var(--mn-gap) 0;
+  font-size: 1.6rem;
+  line-height: 1.25;
+  font-weight: 700;
+}
+
+/* ── Filterbalk ──────────────────────────────────────────────────────────── */
+
+.mymmo-news .mymmo-news-filters {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 0;
+  margin: 0 0 var(--mn-gap) 0;
+  background: var(--mn-bg);
+  border-bottom: 1px solid var(--mn-rand);
+}
+
+.mymmo-news .mymmo-news-filterrij {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  gap: 8px;
+  overflow-x: auto;
+  /* De balk mag horizontaal schuiven op een telefoon, maar zonder zichtbare
+     schuifbalk -- dat is hoe elke feed het doet. */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  padding: 2px 0;
+}
+
+.mymmo-news .mymmo-news-filterrij::-webkit-scrollbar {
+  display: none;
+}
+
+.mymmo-news .mymmo-news-chip {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  margin: 0;
+  padding: 7px 14px;
+  border: 1px solid var(--mn-rand);
+  border-radius: 999px;
+  background: var(--mn-bg);
+  color: var(--mn-ink-zacht);
+  font-size: 0.875rem;
+  font-family: inherit;
+  font-weight: 500;
+  line-height: 1.2;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color .15s ease, color .15s ease, border-color .15s ease;
+}
+
+.mymmo-news .mymmo-news-chip:hover {
+  background: var(--mn-vlak);
+  color: var(--mn-ink);
+}
+
+.mymmo-news .mymmo-news-chip.is-actief {
+  background: var(--mn-ink);
+  border-color: var(--mn-ink);
+  color: var(--mn-bg);
+}
+
+.mymmo-news .mymmo-news-chip:focus-visible,
+.mymmo-news .mymmo-news-knop:focus-visible,
+.mymmo-news .mymmo-news-label:focus-visible,
+.mymmo-news .mymmo-news-kop a:focus-visible,
+.mymmo-news .mymmo-news-action:focus-visible {
+  outline: 2px solid var(--mn-accent);
+  outline-offset: 2px;
+}
+
+/* ── De lijst ────────────────────────────────────────────────────────────── */
+
+.mymmo-news .mymmo-news-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mn-gap);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mymmo-news--grid .mymmo-news-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  align-items: start;
+}
+
+.mymmo-news .mymmo-news-list > .mymmo-news-card {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  background: var(--mn-bg);
+  border: 1px solid var(--mn-rand);
+  border-radius: var(--mn-radius);
+  overflow: hidden;
+}
+
+/* De tijdlijnkleur uit Odoo, als zachte vulling. `default` krijgt niets: de
+   meeste berichten staan daarop, en een tint die bijna elke kaart raakt zegt
+   niets meer.
+
+   De selector MOET even zwaar zijn als de basisregel hierboven -- die is
+   (0,3,0) door de `>`-combinator, dus `.mymmo-news .mymmo-news-card--kleur-x`
+   (0,2,0) zou verliezen en er zou gewoon niets gebeuren. Zelfde valkuil als
+   waar de kop van dit bestand over gaat, maar dan tegen onszelf. */
+.mymmo-news .mymmo-news-list > .mymmo-news-card--kleur-blue { background: var(--mn-tint-blue); }
+.mymmo-news .mymmo-news-list > .mymmo-news-card--kleur-green { background: var(--mn-tint-green); }
+.mymmo-news .mymmo-news-list > .mymmo-news-card--kleur-yellow { background: var(--mn-tint-yellow); }
+.mymmo-news .mymmo-news-list > .mymmo-news-card--kleur-red { background: var(--mn-tint-red); }
+
+/* ── Wanneer en waar, bij een event ──────────────────────────────────────── */
+
+/* Een eigen wikkelklasse op ul EN li: een blokthema zet `ul:not(.wp-block-list)`
+   en dat is (0,1,1) -- zwaarder dan een losse klasse. Zelfde les als in de kop
+   van dit bestand. */
+.mymmo-news .mymmo-news-eventinfo {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0 0 10px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mymmo-news .mymmo-news-eventinfo > li {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--mn-ink);
+  font-size: 0.925rem;
+  font-weight: 600;
+}
+
+.mymmo-news .mymmo-news-eventinfo .mymmo-news-ico {
+  flex: 0 0 auto;
+  color: var(--mn-ink-zacht);
+}
+
+/* ── Maandopschrift ──────────────────────────────────────────────────────── */
+
+/* Het opschrift is een <li> in dezelfde <ul> als de kaarten: een lijst mag
+   geen ander kind hebben, en zo blijft de volgorde in de DOM gelijk aan de
+   volgorde op het scherm -- ook voor een schermlezer. */
+.mymmo-news .mymmo-news-list > .mymmo-news-maand {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  background: none;
+  border: 0;
+}
+
+/* In de grid-indeling loopt het opschrift over alle kolommen; zonder dit
+   staat het als een smalle kolom naast de eerste kaart van de maand. */
+.mymmo-news--grid .mymmo-news-list > .mymmo-news-maand {
+  grid-column: 1 / -1;
+}
+
+.mymmo-news .mymmo-news-maand-titel {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  margin: 12px 0 0 0;
+  padding: 0;
+  font-family: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--mn-ink-zacht);
+}
+
+/* Het eerste opschrift staat al onder de filterbalk en heeft die extra lucht
+   erboven niet nodig. */
+.mymmo-news .mymmo-news-list > .mymmo-news-maand:first-child .mymmo-news-maand-titel {
+  margin-top: 0;
+}
+
+/* Het lijntje dat de maand afscheidt. Een pseudo-element en geen border op de
+   titel: zo loopt het door tot de rand van de lijst, ongeacht hoe lang de
+   maandnaam is. */
+.mymmo-news .mymmo-news-maand-titel::after {
+  content: "";
+  flex: 1 1 auto;
+  height: 1px;
+  background: var(--mn-rand);
+}
+
+/* ── Kop van de kaart ────────────────────────────────────────────────────── */
+
+.mymmo-news .mymmo-news-card-top {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 18px 10px 18px;
+}
+
+.mymmo-news .mymmo-news-avatar {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  /* Stabiele kleur per bron: dezelfde bron krijgt altijd dezelfde tint, zodat
+     de feed rustig blijft en je een bron herkent zonder te lezen. */
+  background: hsl(var(--mymmo-news-bron-hue, 210) 65% 92%);
+  color: hsl(var(--mymmo-news-bron-hue, 210) 55% 30%);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: .02em;
+}
+
+@media (prefers-color-scheme: dark) {
+  .mymmo-news:not([data-mn-theme="light"]) .mymmo-news-avatar {
+    background: hsl(var(--mymmo-news-bron-hue, 210) 40% 22%);
+    color: hsl(var(--mymmo-news-bron-hue, 210) 70% 80%);
+  }
+}
+
+.mymmo-news .mymmo-news-herkomst {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.mymmo-news .mymmo-news-bron {
+  font-weight: 600;
+  font-size: 0.925rem;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mymmo-news .mymmo-news-sub {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  color: var(--mn-ink-zacht);
+  font-size: 0.8rem;
+  line-height: 1.3;
+}
+
+.mymmo-news .mymmo-news-soort {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
+}
+
+.mymmo-news .mymmo-news-ico {
+  width: 1em;
+  height: 1em;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  flex: 0 0 auto;
+}
+
+.mymmo-news .mymmo-news-card--podcast .mymmo-news-speel .mymmo-news-ico,
+.mymmo-news .mymmo-news-card--video .mymmo-news-speel .mymmo-news-ico {
+  fill: currentColor;
+  stroke: none;
+}
+
+/* ── Beeld ───────────────────────────────────────────────────────────────── */
+
+.mymmo-news .mymmo-news-beeld {
+  position: relative;
+  display: block;
+  margin: 0;
+  background: var(--mn-vlak);
+  line-height: 0;
+}
+
+.mymmo-news .mymmo-news-beeld img {
+  display: block;
+  width: 100%;
+  height: auto;
+  /* Vaste verhouding: zonder dit springt de lijst tijdens het laden, en dat
+     is precies waar een feed onrustig van wordt. */
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+}
+
+.mymmo-news .mymmo-news-speel {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  font-size: 44px;
+  background: rgba(0, 0, 0, .28);
+  transition: background-color .15s ease;
+}
+
+.mymmo-news .mymmo-news-beeld:hover .mymmo-news-speel {
+  background: rgba(0, 0, 0, .4);
+}
+
+/* ── Tekst ───────────────────────────────────────────────────────────────── */
+
+.mymmo-news .mymmo-news-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 18px 4px 18px;
+}
+
+.mymmo-news .mymmo-news-kop {
+  margin: 0;
+  padding: 0;
+  font-size: 1.14rem;
+  line-height: 1.35;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.mymmo-news .mymmo-news-kop a {
+  color: inherit;
+  text-decoration: none;
+  background: none;
+}
+
+.mymmo-news .mymmo-news-kop a:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* Onze stem. Bewust anders dan de samenvatting: dit is het enige stuk op de
+   kaart dat niet uit het artikel komt. */
+.mymmo-news .mymmo-news-snoot {
+  margin: 0;
+  padding: 0;
+  color: var(--mn-ink);
+  font-size: 0.95rem;
+  font-style: italic;
+  line-height: 1.45;
+}
+
+.mymmo-news .mymmo-news-tekst {
+  margin: 0;
+  padding: 0;
+  color: var(--mn-ink-zacht);
+  font-size: 0.95rem;
+  line-height: 1.55;
+  /* Inkorten met CSS en niet in PHP: de volledige tekst blijft in de DOM
+     staan, dus zoekmachines en schermlezers krijgen alles. */
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.mymmo-news .mymmo-news-citaat {
+  position: relative;
+  display: flex;
+  flex-direction: row;
+  gap: 10px;
+  margin: 4px 0 0 0;
+  padding: 12px 14px;
+  border: 0;
+  border-left: 3px solid var(--mn-accent);
+  border-radius: 0 10px 10px 0;
+  background: var(--mn-vlak);
+  color: var(--mn-ink);
+  font-size: 0.95rem;
+  quotes: none;
+}
+
+.mymmo-news .mymmo-news-citaat .mymmo-news-ico {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+  color: var(--mn-accent);
+}
+
+.mymmo-news .mymmo-news-citaat p {
+  margin: 0;
+  padding: 0;
+  line-height: 1.5;
+}
+
+.mymmo-news .mymmo-news-citaat::before,
+.mymmo-news .mymmo-news-citaat::after {
+  content: none;
+}
+
+/* ── Labels ──────────────────────────────────────────────────────────────── */
+
+.mymmo-news .mymmo-news-labels {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mymmo-news .mymmo-news-labels > li {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mymmo-news .mymmo-news-label {
+  display: inline-flex;
+  align-items: center;
+  margin: 0;
+  padding: 3px 10px;
+  border: 1px solid var(--mn-rand);
+  border-radius: 999px;
+  background: none;
+  color: var(--mn-ink-zacht);
+  font-family: inherit;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  cursor: pointer;
+}
+
+.mymmo-news .mymmo-news-label:hover {
+  background: var(--mn-vlak);
+  color: var(--mn-ink);
+}
+
+/* ── Acties ──────────────────────────────────────────────────────────────── */
+
+.mymmo-news .mymmo-news-acties {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px 14px 18px;
+  margin: 0;
+}
+
+.mymmo-news .mymmo-news-action {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: var(--mn-vlak);
+  color: var(--mn-ink);
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.2;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.mymmo-news .mymmo-news-action:hover {
+  background: var(--mn-accent);
+  color: var(--mn-accent-ink);
+}
+
+/* ── Meer laden ──────────────────────────────────────────────────────────── */
+
+.mymmo-news .mymmo-news-meer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  margin: var(--mn-gap) 0 0 0;
+  padding: 0;
+}
+
+.mymmo-news .mymmo-news-knop {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 10px 20px;
+  border: 1px solid var(--mn-rand);
+  border-radius: 999px;
+  background: var(--mn-bg);
+  color: var(--mn-ink);
+  font-family: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  line-height: 1.2;
+  cursor: pointer;
+}
+
+.mymmo-news .mymmo-news-knop:hover {
+  background: var(--mn-vlak);
+}
+
+.mymmo-news .mymmo-news-knop[disabled] {
+  opacity: .6;
+  cursor: default;
+}
+
+.mymmo-news .mymmo-news-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: mymmo-news-draai .7s linear infinite;
+}
+
+@keyframes mymmo-news-draai {
+  to { transform: rotate(360deg); }
+}
+
+.mymmo-news .mymmo-news-sentinel {
+  display: block;
+  width: 100%;
+  height: 1px;
+}
+
+/* ── Meldingen ───────────────────────────────────────────────────────────── */
+
+.mymmo-news .mymmo-news-leeg,
+.mymmo-news .mymmo-news-melding {
+  margin: var(--mn-gap) 0;
+  padding: 14px 16px;
+  border: 1px dashed var(--mn-rand);
+  border-radius: 12px;
+  color: var(--mn-ink-zacht);
+  font-size: 0.925rem;
+  text-align: center;
+}
+
+.mymmo-news .mymmo-news-melding--let-op {
+  border-style: solid;
+  border-color: var(--mn-waarschuwing);
+  color: var(--mn-ink);
+  text-align: left;
+}
+
+/* ── Bijgeladen kaarten ──────────────────────────────────────────────────── */
+
+.mymmo-news .mymmo-news-card--nieuw {
+  animation: mymmo-news-op .28s ease both;
+}
+
+@keyframes mymmo-news-op {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mymmo-news .mymmo-news-card--nieuw { animation: none; }
+  .mymmo-news .mymmo-news-spinner { animation-duration: 2s; }
+  .mymmo-news .mymmo-news-chip,
+  .mymmo-news .mymmo-news-speel { transition: none; }
+}
+
+/* ── Smal scherm ─────────────────────────────────────────────────────────── */
+
+@media (max-width: 640px) {
+  .mymmo-news {
+    --mn-radius: 12px;
+    --mn-gap: 14px;
+  }
+  .mymmo-news .mymmo-news-card-top { padding: 12px 14px 8px 14px; }
+  .mymmo-news .mymmo-news-body { padding: 12px 14px 4px 14px; }
+  .mymmo-news .mymmo-news-acties { padding: 8px 14px 12px 14px; }
+  .mymmo-news .mymmo-news-kop { font-size: 1.06rem; }
+}
