@@ -523,6 +523,17 @@ voor wie het als bot herkent, en ook niet in een browser zonder plugins of
 taalinstelling. Daar zitten echte mensen tussen. Maak er dus nooit een verplicht
 veld van.
 
+### Safari en de cookie (1.18.5)
+
+Safari houdt een cookie die door JavaScript gezet is hoogstens 7 dagen bij, ook
+als er twee jaar op staat. Wie na een week terugkomt, is daar een nieuwe
+bezoeker. De route `POST /wp-json/mymmo-forms/v1/bezoeker` (`class-visitor-cookie.php`)
+zet dezelfde `ovme_uuid` opnieuw vanuit PHP; een cookie van de server valt niet
+onder die grens. Het tracking-script (`/t.js` van de website-tracker) roept de
+route hoogstens één keer per dag aan. Ze verzint geen UUID: ze zet enkel de
+waarde opnieuw die de browser al had. Bewust een REST-route en niet bij het
+renderen van een pagina: een gecachete pagina stuurt geen `Set-Cookie` mee.
+
 ## Antispam
 
 Vier lagen, geen captcha:

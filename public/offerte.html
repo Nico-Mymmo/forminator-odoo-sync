@@ -17,9 +17,9 @@
   (file://) en niet enkel wanneer de Worker het serveert.
 -->
 
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
+<!-- Zelf gehoste, STATISCHE lettertypes -- geen Google Fonts: die geven een
+     variabel lettertype, dat in de pdf als Type3 belandt. Zie offerte-fonts.css. -->
+<link rel="stylesheet" href="fonts/offerte-fonts.css">
 <link rel="stylesheet" href="offerte.css">
 </head>
 <body>
@@ -37,7 +37,9 @@
   <button type="button" class="ov-knop" data-action="json">JSON&hellip;</button>
   <button type="button" class="ov-knop" data-action="json-kopieren">JSON kopiëren</button>
   <button type="button" class="ov-knop" data-action="herstellen">Herstellen</button>
-  <button type="button" class="ov-knop ov-knop--hoofd" data-action="afdrukken">Pdf maken / afdrukken</button>
+  <button type="button" class="ov-knop" data-action="documenten">Recente pdf's&hellip;</button>
+  <button type="button" class="ov-knop" data-action="afdrukken" title="Afdrukken via de browser -- wordt niet bewaard">Afdrukken</button>
+  <button type="button" class="ov-knop ov-knop--hoofd" id="ovKnopPdf" data-action="pdf-maken" title="Maakt de pdf op de server en bewaart ze 30 dagen bij Recente pdf's">Pdf maken</button>
   <span class="ov-werkbalk-hint" id="ovMelding"></span>
 </div>
 
@@ -130,6 +132,23 @@
   <div class="ov-dialoog-voet">
     <button type="button" class="ov-knop" data-action="sluiten">Annuleren</button>
     <button type="button" class="ov-knop ov-knop--hoofd" data-action="beeld-toepassen">Toepassen</button>
+  </div>
+</dialog>
+
+<!-- Recente pdf's: alles van de laatste 30 dagen, uit de editor EN uit de
+     koppelingen (fs_v2_generated_documents). Opgebouwd door toonDocumenten()
+     in offerte-render.js. -->
+<dialog class="ov-dialoog ov-dialoog--breed" id="ovDocumentenDialoog">
+  <div class="ov-dialoog-kop">
+    <span>Recente pdf's (laatste 30 dagen)</span>
+    <button type="button" class="ov-knop" data-action="sluiten">Sluiten</button>
+  </div>
+  <div class="ov-dialoog-body">
+    <div class="ov-doc-filter">
+      <input type="search" id="ovDocZoek" placeholder="Zoek op klant, adres, offertenummer of koppeling" data-input="documenten-filter">
+      <label><input type="checkbox" id="ovDocMijn" data-change="documenten-filter"> Enkel door mij gemaakt</label>
+    </div>
+    <div id="ovDocumentenBody"></div>
   </div>
 </dialog>
 

@@ -165,8 +165,17 @@ const VALID_ICONS = [
   'shopping-cart', 'truck', 'file-spreadsheet', 'clipboard-check'
 ];
 
+// Ook een pad op DEZE site ("/offerte?template=..."), zonder domein. Het
+// iframe lost dat op tegen het adres waarop de gebruiker zit, dus dezelfde app
+// werkt op operations.openvme.be EN op het workers.dev-adres -- met een
+// absolute link werkt ze enkel op het domein waar je toevallig aangemeld bent.
+// `//` en `/\` vallen erbuiten: die leest een browser als een ander domein.
 function isValidHttpUrl(value) {
   if (typeof value !== 'string' || !value.trim()) return false;
+  const pad = value.trim();
+  if (pad.startsWith('/')) {
+    return !pad.startsWith('//') && !pad.startsWith('/\\') && !/\s/.test(pad);
+  }
   try {
     const parsed = new URL(value.trim());
     return parsed.protocol === 'http:' || parsed.protocol === 'https:';
@@ -1027,7 +1036,7 @@ export const routes = {
       return jsonError('Ongeldige visibility-waarde.', 400, 'INVALID_VISIBILITY');
     }
     if (!isValidHttpUrl(url)) {
-      return jsonError('Ongeldige URL — enkel http:// of https:// links zijn toegestaan.', 400, 'INVALID_URL');
+      return jsonError('Ongeldige URL — gebruik een http(s)://-link of een pad op deze site dat met / begint.', 400, 'INVALID_URL');
     }
 
     const sharedUserIds = visibility === 'specific' ? normalizeSharedUserIds(body.sharedUserIds, user.id) : [];
@@ -1165,7 +1174,7 @@ export const routes = {
         return jsonError('externalUrl kan enkel gezet worden op een externe-URL-app.', 400, 'NOT_URL_APP');
       }
       if (!isValidHttpUrl(body.externalUrl)) {
-        return jsonError('Ongeldige URL — enkel http:// of https:// links zijn toegestaan.', 400, 'INVALID_URL');
+        return jsonError('Ongeldige URL — gebruik een http(s)://-link of een pad op deze site dat met / begint.', 400, 'INVALID_URL');
       }
       update.external_url = body.externalUrl.trim();
     }

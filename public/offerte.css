@@ -834,6 +834,55 @@ html, body{
    Afdrukken / pdf
    ========================================================================== */
 
+/* ---- Contactpersoon in "Gegevens invullen": een kaartje, geen drie velden
+   met een base64-string erin. De ruwe velden staan ingeklapt eronder. ---- */
+.ov-contact-kaart{
+  display: flex; align-items: center; gap: 14px;
+  padding: 12px 14px; margin-bottom: 12px;
+  border: 1px solid var(--ov-lijn); border-radius: 12px; background: var(--ov-blauw-vlak);
+}
+.ov-contact-kaart img{
+  width: 56px; height: 56px; border-radius: 50%; object-fit: cover; flex: none;
+  background: var(--ov-papier); border: 1px solid var(--ov-lijn);
+}
+.ov-contact-kaart-leeg{
+  width: 56px; height: 56px; border-radius: 50%; flex: none;
+  background: var(--ov-blauw-licht);
+}
+.ov-contact-kaart-naam{ font-weight: 600; color: var(--ov-inkt-diep); }
+.ov-contact-kaart-mail{ font-size: 13px; color: var(--ov-inkt); word-break: break-all; }
+.ov-contact-kaart-bron{ font-size: 11.5px; color: var(--ov-inkt-zacht); margin-top: 2px; }
+.ov-contact-rij{ display: grid; grid-template-columns: 1fr 160px; gap: 10px; }
+.ov-contact-handmatig{ margin: 2px 0 12px; }
+.ov-contact-handmatig summary{ cursor: pointer; font-size: 12.5px; color: var(--ov-blauw); margin-bottom: 10px; }
+
+/* ---- Offertenummer en datums: automatisch gezet, dus een regel ---- */
+.ov-offerte-kort{
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 8px 12px; margin-bottom: 8px;
+  border: 1px solid var(--ov-lijn); border-radius: 10px; background: var(--ov-blauw-vlak);
+  font-size: 13px; color: var(--ov-inkt);
+}
+.ov-offerte-kort strong{ color: var(--ov-inkt-diep); }
+.ov-knop.ov-knop--klein{ padding: 3px 10px; font-size: 12px; }
+
+/* ---- Recente pdf's ---- */
+.ov-dialoog--breed{ width: min(920px, calc(100vw - 32px)); }
+.ov-doc-filter{ display: flex; gap: 12px; align-items: center; margin-bottom: 12px; }
+.ov-doc-filter input[type="search"]{
+  flex: 1; padding: 7px 10px; border: 1px solid var(--ov-lijn); border-radius: 8px; font: inherit; font-size: 13px;
+}
+.ov-doc-filter label{ font-size: 13px; white-space: nowrap; }
+.ov-doc-tabel{ width: 100%; border-collapse: collapse; font-size: 13px; }
+.ov-doc-tabel th{ text-align: left; font-weight: 600; color: var(--ov-inkt-zacht); font-size: 12px; padding: 6px 8px; border-bottom: 1px solid var(--ov-lijn); }
+.ov-doc-tabel td{ padding: 8px; border-bottom: 1px solid var(--ov-lijn); vertical-align: top; }
+.ov-doc-tabel td.ov-doc-actie{ text-align: right; white-space: nowrap; }
+.ov-doc-naam{ font-weight: 600; color: var(--ov-inkt-diep); }
+.ov-doc-sub{ color: var(--ov-inkt-zacht); font-size: 12px; }
+.ov-doc-bron{ display: inline-block; font-size: 11.5px; padding: 1px 8px; border-radius: 999px; background: var(--ov-blauw-licht); color: var(--ov-blauw-diep); }
+.ov-doc-bron--manual{ background: var(--ov-mint-band); color: var(--ov-inkt-diep); }
+.ov-doc-leeg{ padding: 24px 8px; text-align: center; color: var(--ov-inkt-zacht); }
+
 @page{
   size: A4;
   margin: 0;

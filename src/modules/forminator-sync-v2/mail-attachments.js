@@ -287,13 +287,24 @@ async function schrijfCache(env, rij) {
  * aangemaakt en gecachet op (r2_key, etag) -- zelfde reden als altijd: bij
  * honderden inzendingen geen honderden kopieën van dezelfde bytes in Odoo.
  *
+ * EEN GEGENEREERDE OFFERTE HANGT AAN HET RECORD VAN DE MAIL (`hangAan`).
+ * Een ir.attachment zonder res_model/res_id kan in Odoo enkel door zijn maker
+ * (de Worker = Administrator) en systeembeheerders geopend worden. Voor een
+ * collega gaf de chatter bij elke verstuurde offerte een foutpagina
+ * ("18875.htm") -- en dat las als "de klant kreeg een lege offerte"
+ * (2026-09-28, Liliane Bosmans). De reden om NIET aan een record te hangen
+ * (één attachment gedeeld door alle mails) geldt voor een pdf-stap niet: elke
+ * pdf heeft een eigen R2-sleutel per inzending en wordt nooit gedeeld. Een
+ * Asset Manager-bestand (de brochure) blijft bewust los.
+ *
  * @param {Object} env
  * @param {Array<Object>|null} lijst
  * @param {Object} [contextObject] uitvoer van eerdere stappen in deze inzending
+ * @param {{model: string, recordId: number}|null} [hangAan] record van de mail
  * @returns {Promise<{ids: number[], files: Array<Object>}>}
  * @throws {MailAttachmentError} bij een ontbrekend of te groot bestand
  */
-export async function resolveMailAttachments(env, lijst, contextObject) {
+export async function resolveMailAttachments(env, lijst, contextObject, hangAan = null) {
   const { assets, pdfSteps } = splitMailAttachments(lijst);
   const genormaliseerd = normalizeMailAttachments(assets) || [];
 
@@ -310,7 +321,7 @@ export async function resolveMailAttachments(env, lijst, contextObject) {
         `Bijlage "${item.name}" ontbreekt: de pdf-stap leverde niets op (mislukt, overgeslagen, of staat na deze mail).`
       );
     }
-    pdfAlsBestand.push({ key: r2Key, name: item.name });
+    pdfAlsBestand.push({ key: r2Key, name: item.name, perInzending: true });
   }
 
   const alleItems = [...genormaliseerd, ...pdfAlsBestand];
@@ -337,7 +348,8 @@ export async function resolveMailAttachments(env, lijst, contextObject) {
       name: item.name,
       etag: inhoudsSleutel(obj),
       bytes,
-      mimetype: (obj.httpMetadata && obj.httpMetadata.contentType) || 'application/octet-stream'
+      mimetype: (obj.httpMetadata && obj.httpMetadata.contentType) || 'application/octet-stream',
+      perInzending: !!item.perInzending
     });
   }
   if (totaal > MAX_MAIL_ATTACHMENT_BYTES) {
@@ -374,16 +386,23 @@ export async function resolveMailAttachments(env, lijst, contextObject) {
       );
     }
     const datas = naarBase64(await obj.arrayBuffer());
+    // Enkel een pdf van DEZE inzending hangt aan het record -- zie het
+    // doc-blok hierboven. Zonder record (mail zonder res_id) blijft ze los.
+    const koppeling = (b.perInzending && hangAan && hangAan.model && Number.isInteger(hangAan.recordId) && hangAan.recordId > 0)
+      ? { res_model: hangAan.model, res_id: hangAan.recordId }
+      : {};
     const attachmentId = await create(env, {
       model: 'ir.attachment',
       values: {
+        ...koppeling,
         name: b.name,
         datas,
         type: 'binary',
         mimetype: b.mimetype,
-        // Bewust GEEN res_model/res_id: dit attachment wordt door alle mails
-        // gedeeld die hetzelfde bestand meesturen. Zou het aan het eerste
-        // lead hangen, dan verdwijnt het bij het opruimen van dat lead.
+        // Een ASSET MANAGER-bestand krijgt bewust GEEN res_model/res_id: dit
+        // attachment wordt door alle mails gedeeld die hetzelfde bestand
+        // meesturen. Zou het aan het eerste lead hangen, dan verdwijnt het bij
+        // het opruimen van dat lead. (Een pdf-stap wel, zie `koppeling`.)
         description: `Operations Manager — mailbijlage: ${b.key} (${b.etag})`
         // GEEN public: true -- dat maakt een attachment wereldwijd leesbaar
         // zonder inloggen (zie het doc-blok bij ir.attachment in pdf-step.js

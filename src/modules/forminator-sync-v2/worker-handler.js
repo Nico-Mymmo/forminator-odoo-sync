@@ -1,3 +1,4 @@
+import { reportWebConversion } from '../../lib/web-conversions.js';
 import {
   createSubmission,
   createSubmissionTargetResult,
@@ -2811,6 +2812,10 @@ export async function handleForminatorV2Webhook({ env, request, payload: payload
     });
   }
 
+  // De inzending staat vast: geef de conversie door aan de website-tracker,
+  // gekoppeld aan de bezoeker-UUID (src/lib/web-conversions.js). Faalt nooit.
+  await reportWebConversion(env, { integration, normalizedForm, submissionId: submission.id, receivedAt: now });
+
   console.log('[webhook] fetching integration bundle...');
   const integrationBundle = await getIntegrationBundle(env, integration.id);
   if (!integrationBundle) {
@@ -2922,6 +2927,10 @@ export async function handleGenericWebhook({ env, integration, request, skipPipe
     console.log('[generic-webhook] skipPipeline=true — payload stored, Odoo pipeline skipped | submission:', submission.id);
     return toHttpResponse({ success: true, data: { submission_id: submission.id, status: 'received' } });
   }
+
+  // De inzending staat vast: geef de conversie door aan de website-tracker,
+  // gekoppeld aan de bezoeker-UUID (src/lib/web-conversions.js). Faalt nooit.
+  await reportWebConversion(env, { integration, normalizedForm, submissionId: submission.id, receivedAt: now });
 
   const integrationBundle = await getIntegrationBundle(env, integration.id);
   if (!integrationBundle) {

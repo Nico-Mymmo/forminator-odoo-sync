@@ -749,7 +749,7 @@
     beeldKiezer.prefix = prefix;
     var lijst = document.getElementById('ovBeeldLijst');
     lijst.innerHTML = '<div class="ov-veld-hint">Laden&hellip;</div>';
-    fetch('/forminator-v2/api/mail-assets?prefix=' + encodeURIComponent(prefix), { credentials: 'include' })
+    apiFetch('/forminator-v2/api/mail-assets?prefix=' + encodeURIComponent(prefix), { credentials: 'include' })
       .then(function (res) {
         if (res.status === 401) { window.location.href = '/'; return null; }
         return res.json();
@@ -1013,11 +1013,11 @@
     if (!TEMPLATE_ID || !serverKlaar) return;
     clearTimeout(serverBewaarTimer);
     serverBewaarTimer = setTimeout(function () {
-      fetch('/forminator-v2/api/pdf-templates/' + TEMPLATE_ID, {
+      apiFetch('/forminator-v2/api/pdf-templates/' + TEMPLATE_ID, {
         method: 'PUT',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ data: { gegevens: staat.gegevens, copy: staat.copy, velden: window.OFFERTE_VELDEN } })
+        body: JSON.stringify({ data: { gegevens: gegevensVoorSjabloon(), copy: staat.copy, velden: window.OFFERTE_VELDEN } })
       }).then(function (res) {
         melding(res.ok ? 'Bewaard.' : 'Bewaren mislukt.');
       }).catch(function () {
@@ -1029,7 +1029,7 @@
   /* Het sjabloon van de server ophalen (bij het opstarten, of na "Herstellen"). */
   function laadVanServer() {
     if (!TEMPLATE_ID) return;
-    fetch('/forminator-v2/api/pdf-templates/' + TEMPLATE_ID, { credentials: 'include' })
+    apiFetch('/forminator-v2/api/pdf-templates/' + TEMPLATE_ID, { credentials: 'include' })
       .then(function (res) {
         if (res.status === 401) { window.location.href = '/'; return null; }
         if (!res.ok) throw new Error('status ' + res.status);
@@ -1041,6 +1041,11 @@
         var data = json.data.data || {};
         window.OFFERTE_VELDEN = data.velden || window.OFFERTE_VELDEN;
         staat = { gegevens: data.gegevens, copy: data.copy };
+        contactAuto = false;
+        sjabloonContact = null;
+        /* Het sjabloon staat weer op zijn voorbeeldnummer; een al genomen
+           nummer wordt bij het openen of de pdf opnieuw ingevuld. */
+        nummer.toegepast = false;
         instellingen.sequence_pattern = json.data.sequence_pattern || '';
         instellingen.geldigheid_dagen = json.data.geldigheid_dagen || '';
         serverKlaar = true;
@@ -1051,6 +1056,7 @@
           bewaar();
           melding('Nieuwe invulvelden toegevoegd aan het sjabloon.');
         }
+        pasStandaardContactToe();
       })
       .catch(function () {
         melding('Sjabloon kon niet geladen worden — wijzigingen worden NIET bewaard.');
@@ -1063,6 +1069,13 @@
 
   document.addEventListener('input', function (e) {
     if (e.target && e.target.id === 'ovBeeldUrl') { toonBeeldVoorbeeld(e.target.value.trim()); return; }
+    if (e.target && e.target.id === 'ovDocZoek') { tekenDocumenten(); return; }
+    if (e.target && e.target.dataset && /^offerte\./.test(e.target.dataset.gegeven || '')) { tekenOfferteKort(); return; }
+    if (e.target && e.target.dataset && /^contact\./.test(e.target.dataset.gegeven || '')) {
+      contactGewijzigd = true;
+      tekenContactKaart();
+      return;
+    }
     if (!bewerken) return;
     var el = e.target.closest && e.target.closest('[data-bind]');
     if (!el) return;
@@ -1104,21 +1117,38 @@
   function toonGegevens() {
     var body = document.getElementById('ovGegevensBody');
     body.innerHTML = (window.OFFERTE_VELDEN || []).map(function (groep) {
-      var velden = groep.velden.map(function (v) {
-        return '<label class="ov-veld"><span>' + esc(v[1]) + '</span>' +
+      var gewoon = [];
+      var contact = [];
+      var offerte = [];
+      groep.velden.forEach(function (v) {
+        (/^contact\./.test(v[0]) ? contact : /^offerte\./.test(v[0]) ? offerte : gewoon).push('<label class="ov-veld"><span>' + esc(v[1]) + '</span>' +
           '<input type="text" data-gegeven="' + esc(v[0]) + '" value="' + esc(lees(v[0], staat.gegevens)) + '">' +
-        '</label>';
-      }).join('');
+        '</label>');
+      });
+      var velden = gewoon.join('');
 
-      if (groepHeeft(groep, 'offerte.nummer')) velden += nummerKnopHtml();
-      /* De kiezer VOOR de velden die hij invult -- erachter lees je eerst drie
-         lege velden en pas dan dat je ze niet zelf hoeft te typen. */
-      if (groepHeeft(groep, 'contact.naam')) velden = contactKiezerHtml() + velden;
+      /* Nummer en datums worden automatisch gezet; ze staan dus kort op een
+         regel, en de velden ingeklapt voor wie toch iets wil wijzigen. */
+      if (offerte.length) {
+        velden = nummerKnopHtml() +
+          '<details class="ov-contact-handmatig"><summary>Met de hand aanpassen</summary>' + offerte.join('') + '</details>' +
+          velden;
+      }
+      /* De contactpersoon als kaartje met de kiezers erboven; de ruwe velden
+         (met de foto als base64) staan ingeklapt eronder. */
+      if (contact.length) {
+        velden = contactKiezerHtml() +
+          '<details class="ov-contact-handmatig"><summary>Met de hand aanpassen</summary>' + contact.join('') + '</details>' +
+          velden;
+      }
 
       return '<div class="ov-groepkop">' + esc(groep.groep) + '</div>' + velden;
     }).join('');
 
+    contactGewijzigd = false;
+    tekenContactKaart();
     laadContacten();
+    nummerBijOpenen();
     document.getElementById('ovGegevensDialoog').showModal();
   }
 
@@ -1126,6 +1156,8 @@
     document.querySelectorAll('#ovGegevensBody [data-gegeven]').forEach(function (input) {
       zet(input.dataset.gegeven, input.value, staat.gegevens);
     });
+    if (contactGewijzigd) contactAuto = false;
+    if (nummer.data) nummer.toegepast = true;
     document.getElementById('ovGegevensDialoog').close();
     bewaar();
     teken();
@@ -1146,14 +1178,39 @@
      is de goede kant om op te falen.
      -------------------------------------------------------------------- */
 
+  /* Het nummer wordt AUTOMATISCH genomen: de eerste keer dat "Gegevens
+     invullen" opengaat, en anders bij "Pdf maken" -- zo vertrekt er nooit een
+     pdf met het voorbeeldnummer van het sjabloon. Een keer per pagina: elke
+     keer het dialoog openen zou telkens een nummer opgebruiken. "Nieuw
+     nummer" neemt er bewust nog een.
+
+     nummer.data     wat de server gaf (of enkel de datum, zonder patroon)
+     nummer.toegepast staat het al in de gegevens (na "Invullen" of bij de
+                      pdf)? Dan overschrijft heropenen niets wat je intussen
+                      met de hand aanpaste. */
+  var nummer = { data: null, bezig: false, toegepast: false };
+
   function nummerKnopHtml() {
-    return '<div class="ov-veld-actie">' +
-      '<button type="button" class="ov-knop" data-action="nummer-genereren">Nummer &amp; datum genereren</button>' +
-      '<span class="ov-veld-hint" id="ovNummerHint">' +
-        (TEMPLATE_ID
-          ? 'Neemt het volgende nummer uit de reeks van dit sjabloon en zet de datum van vandaag erbij.'
-          : 'Enkel beschikbaar voor een opgeslagen sjabloon; hier wordt alleen de datum van vandaag ingevuld.') +
-      '</span></div>';
+    return '<div class="ov-offerte-kort">' +
+      '<span id="ovOfferteKort"></span>' +
+      (TEMPLATE_ID && instellingen.sequence_pattern
+        ? '<button type="button" class="ov-knop ov-knop--klein" data-action="nummer-genereren">Nieuw nummer</button>'
+        : '') +
+      '</div>';
+  }
+
+  /* De korte regel boven de (ingeklapte) offertevelden. Leest de velden, dus
+     klopt ook na met de hand typen. */
+  function tekenOfferteKort() {
+    var el = document.getElementById('ovOfferteKort');
+    if (!el) return;
+    var nr = (document.querySelector('#ovGegevensBody [data-gegeven="offerte.nummer"]') || {}).value || '';
+    var datum = (document.querySelector('#ovGegevensBody [data-gegeven="offerte.datum"]') || {}).value || '';
+    var tot = (document.querySelector('#ovGegevensBody [data-gegeven="offerte.geldig_tot"]') || {}).value || '';
+    if (nummer.bezig) { el.innerHTML = 'Nummer ophalen&hellip;'; return; }
+    el.innerHTML = '<strong>' + esc(nr || 'zonder nummer') + '</strong>' +
+      (datum ? ' &middot; ' + esc(datum) : '') +
+      (tot ? ' &middot; geldig tot ' + esc(tot) : '');
   }
 
   /* Vandaag als DD/MM/JJJJ in Belgische tijd. Zelfde vorm als het sjabloon en
@@ -1172,26 +1229,79 @@
     if (input) input.value = waarde;
   }
 
-  function genereerNummer() {
-    if (!TEMPLATE_ID) {
-      zetGegevenVeld('offerte.datum', vandaag());
-      melding('Datum ingevuld.');
-      return;
+  /* Haalt een nummer (en de datums) op. Zonder sjabloon of zonder patroon is
+     er geen reeks: dan enkel de datum van vandaag, en dat is geen fout. */
+  function haalNummer() {
+    if (!TEMPLATE_ID || !instellingen.sequence_pattern) {
+      return Promise.resolve({ nummer: null, datum: vandaag(), geldig_tot: null });
     }
-    var knop = document.querySelector('[data-action="nummer-genereren"]');
-    if (knop) knop.disabled = true;
-    fetch('/forminator-v2/api/pdf-templates/' + TEMPLATE_ID + '/next-number', {
+    return apiFetch('/forminator-v2/api/pdf-templates/' + TEMPLATE_ID + '/next-number', {
       method: 'POST', credentials: 'include'
     }).then(function (res) { return res.json(); }).then(function (json) {
       if (!json || !json.success) throw new Error((json && json.error) || 'onbekende fout');
-      zetGegevenVeld('offerte.nummer', json.data.nummer);
-      zetGegevenVeld('offerte.datum', json.data.datum || vandaag());
-      if (json.data.geldig_tot) zetGegevenVeld('offerte.geldig_tot', json.data.geldig_tot);
-      melding('Nummer ' + json.data.nummer + ' genomen.');
+      return { nummer: json.data.nummer, datum: json.data.datum || vandaag(), geldig_tot: json.data.geldig_tot || null };
+    });
+  }
+
+  function nummerInInvoer(data) {
+    if (data.nummer) zetGegevenVeld('offerte.nummer', data.nummer);
+    zetGegevenVeld('offerte.datum', data.datum);
+    if (data.geldig_tot) zetGegevenVeld('offerte.geldig_tot', data.geldig_tot);
+    tekenOfferteKort();
+  }
+
+  function nummerInGegevens(data) {
+    if (data.nummer) zet('offerte.nummer', data.nummer, staat.gegevens);
+    zet('offerte.datum', data.datum, staat.gegevens);
+    if (data.geldig_tot) zet('offerte.geldig_tot', data.geldig_tot, staat.gegevens);
+    nummer.toegepast = true;
+  }
+
+  /* opnieuw = de knop "Nieuw nummer"; anders enkel als er nog geen is. */
+  function genereerNummer(opnieuw) {
+    /* Het sjabloon (en dus het patroon) is nog niet binnen: nu nemen zou
+       enkel een datum opleveren, en daarna nooit meer een nummer. */
+    if (TEMPLATE_ID && !serverKlaar) return Promise.resolve(null);
+    if (nummer.bezig) return Promise.resolve(nummer.data);
+    if (nummer.data && !opnieuw) return Promise.resolve(nummer.data);
+    nummer.bezig = true;
+    tekenOfferteKort();
+    return haalNummer().then(function (data) {
+      nummer.data = data;
+      nummer.toegepast = false;
+      return data;
     }).catch(function (err) {
       window.alert('Nummer genereren mislukt: ' + err.message);
-    }).then(function () {
-      if (knop) knop.disabled = false;
+      return null;
+    }).then(function (data) {
+      nummer.bezig = false;
+      if (data) {
+        nummerInInvoer(data);
+        if (data.nummer) melding('Nummer ' + data.nummer + ' genomen.');
+      } else {
+        tekenOfferteKort();
+      }
+      return data;
+    });
+  }
+
+  /* Bij het openen van het dialoog: een nummer dat al genomen maar nog niet
+     bewaard is, staat terug in de velden (anders is het na Annuleren kwijt en
+     neemt de volgende keer een tweede). */
+  function nummerBijOpenen() {
+    tekenOfferteKort();
+    if (nummer.data && !nummer.toegepast) { nummerInInvoer(nummer.data); return; }
+    if (!nummer.data) genereerNummer(false);
+  }
+
+  /* Voor "Pdf maken": zorgt dat er een nummer in de GEGEVENS staat. */
+  function zorgVoorNummer() {
+    if (nummer.toegepast) return Promise.resolve();
+    return genereerNummer(false).then(function (data) {
+      if (!data) return;
+      nummerInGegevens(data);
+      bewaar();
+      teken();
     });
   }
 
@@ -1203,16 +1313,102 @@
      levert een offerte uit de editor iets anders op dan een uit de pipeline.
      De foto is een data-URI en dus lang; ze staat in het gewone
      contact.foto-veld, zodat je ze nog met de hand kan vervangen door een pad.
+     In het dialoog zie je daarom een KAARTJE (foto, naam, adres) en staan de
+     ruwe velden ingeklapt onder "Met de hand aanpassen".
+
+     Standaard staat de INGELOGDE medewerker op de offerte (contactAuto). Dat
+     is een keuze voor dit scherm, niet voor het sjabloon: zolang niemand zelf
+     een contactpersoon koos, gaat bij het bewaren naar de server het contact
+     van het sjabloon mee (sjabloonContact). Anders zet elke collega die de
+     editor opent zichzelf in het sjabloon -- en daarmee in de pdf van elke
+     koppeling zonder eigen contactbron.
      -------------------------------------------------------------------- */
 
-  var contacten = { lijst: null, bezig: false };
+  var contacten = { lijst: null, bezig: false, mij: undefined, gekozenId: null };
+  var contactAuto = false;
+  var sjabloonContact = null;
+  var contactGewijzigd = false;   // in het dialoog dat nu openstaat
+
+  /* In Odoo staat iedereen op @mymmo.com, maar een offerte vertrekt onder een
+     MERK. De domeinkiezer vervangt enkel het deel na de @ -- de naam en de
+     foto blijven die van de gekozen medewerker. */
+  var MAIL_DOMEINEN = ['mymmo.com', 'openvme.be', 'syndicoach.be'];
+  var HOOFDDOMEIN = 'mymmo.com';
+
+  function domeinVan(email) {
+    var i = String(email || '').lastIndexOf('@');
+    return i < 0 ? '' : String(email).slice(i + 1).toLowerCase();
+  }
+
+  function metDomein(email, domein) {
+    var i = String(email || '').lastIndexOf('@');
+    if (i < 0 || !domein) return email;
+    return String(email).slice(0, i + 1) + domein;
+  }
+
+  /* Zelfde regel als bedrijfsdomein()/emailOpBedrijfsdomein() in pdf-step.js:
+     een adres op het hoofddomein krijgt het domein van het bedrijf op de
+     offerte (uit bedrijf.email, anders bedrijf.website). */
+  function bedrijfsdomein() {
+    var b = (staat.gegevens && staat.gegevens.bedrijf) || {};
+    var d = domeinVan(b.email);
+    if (!/^[a-z0-9.-]+\.[a-z]{2,}$/.test(d)) {
+      d = String(b.website || '').trim().toLowerCase()
+        .replace(/^[a-z]+:\/\//, '').replace(/^www\./, '').split(/[\/?#:]/)[0];
+    }
+    return /^[a-z0-9.-]+\.[a-z]{2,}$/.test(d) ? d : null;
+  }
+
+  function opMerkdomein(email) {
+    if (domeinVan(email) !== HOOFDDOMEIN) return email;
+    var d = bedrijfsdomein();
+    return d ? metDomein(email, d) : email;
+  }
 
   function contactKiezerHtml() {
-    return '<label class="ov-veld"><span>Kies uit Odoo</span>' +
-      '<select id="ovContactKiezer" data-change="contact-kiezen">' +
-        '<option value="">Medewerkers laden&hellip;</option>' +
-      '</select></label>' +
-      '<div class="ov-veld-hint">Vult naam, e-mailadres en pasfoto in met de gegevens uit Odoo.</div>';
+    return '<div id="ovContactKaart"></div>' +
+      '<div class="ov-contact-rij">' +
+        '<label class="ov-veld"><span>Medewerker</span>' +
+          '<select id="ovContactKiezer" data-change="contact-kiezen">' +
+            '<option value="">Medewerkers laden&hellip;</option>' +
+          '</select></label>' +
+        '<label class="ov-veld"><span>E-maildomein</span>' +
+          '<select id="ovDomeinKiezer" data-change="contact-domein"></select></label>' +
+      '</div>';
+  }
+
+  function domeinOptiesHtml(huidig) {
+    var opties = MAIL_DOMEINEN.map(function (d) {
+      return '<option value="' + esc(d) + '"' + (d === huidig ? ' selected' : '') + '>@' + esc(d) + '</option>';
+    }).join('');
+    if (huidig && MAIL_DOMEINEN.indexOf(huidig) < 0) {
+      opties = '<option value="" selected>@' + esc(huidig) + '</option>' + opties;
+    }
+    return opties;
+  }
+
+  function contactInput(pad) {
+    return document.querySelector('#ovGegevensBody [data-gegeven="' + pad + '"]');
+  }
+
+  /* Leest de (ingeklapte) velden, dus toont altijd wat er bij "Invullen"
+     bewaard wordt -- ook na met de hand typen. */
+  function tekenContactKaart() {
+    var kaart = document.getElementById('ovContactKaart');
+    if (!kaart) return;
+    var naam = (contactInput('contact.naam') || {}).value || '';
+    var email = (contactInput('contact.email') || {}).value || '';
+    var foto = (contactInput('contact.foto') || {}).value || '';
+    var bron = (contactAuto && !contactGewijzigd) ? 'Je bent aangemeld, dus je staat standaard op de offerte.' : '';
+    kaart.innerHTML = '<div class="ov-contact-kaart">' +
+      (foto ? '<img src="' + esc(foto) + '" alt="">' : '<div class="ov-contact-kaart-leeg"></div>') +
+      '<div>' +
+        '<div class="ov-contact-kaart-naam">' + esc(naam || 'Nog geen contactpersoon') + '</div>' +
+        (email ? '<div class="ov-contact-kaart-mail">' + esc(email) + '</div>' : '') +
+        (bron ? '<div class="ov-contact-kaart-bron">' + esc(bron) + '</div>' : '') +
+      '</div></div>';
+    var sel = document.getElementById('ovDomeinKiezer');
+    if (sel) sel.innerHTML = domeinOptiesHtml(domeinVan(email));
   }
 
   function tekenContactKiezer() {
@@ -1224,14 +1420,14 @@
     }
     sel.innerHTML = '<option value="">- kies een medewerker -</option>' +
       contacten.lijst.map(function (m) {
-        return '<option value="' + esc(m.id) + '">' + esc(m.naam) + (m.email ? ' (' + esc(m.email) + ')' : '') + '</option>';
+        return '<option value="' + esc(m.id) + '"' + (String(m.id) === String(contacten.gekozenId) ? ' selected' : '') + '>' + esc(m.naam) + '</option>';
       }).join('');
   }
 
   function laadContacten() {
     if (contacten.lijst || contacten.bezig) { tekenContactKiezer(); return; }
     contacten.bezig = true;
-    fetch('/forminator-v2/api/pdf-contacten', { credentials: 'include' })
+    apiFetch('/forminator-v2/api/pdf-contacten', { credentials: 'include' })
       .then(function (res) { return res.json(); })
       .then(function (json) {
         if (!json || !json.success) throw new Error((json && json.error) || 'onbekende fout');
@@ -1240,28 +1436,216 @@
       })
       .catch(function () {
         var sel = document.getElementById('ovContactKiezer');
-        if (sel) sel.innerHTML = '<option value="">Lijst kon niet geladen worden - vul hieronder met de hand in</option>';
+        if (sel) sel.innerHTML = '<option value="">Lijst kon niet geladen worden - pas hieronder met de hand aan</option>';
       })
       .then(function () { contacten.bezig = false; });
   }
 
   function kiesContact(id) {
     if (!id) return;
-    fetch('/forminator-v2/api/pdf-contacten/' + encodeURIComponent(id), { credentials: 'include' })
+    apiFetch('/forminator-v2/api/pdf-contacten/' + encodeURIComponent(id), { credentials: 'include' })
       .then(function (res) { return res.json(); })
       .then(function (json) {
         if (!json || !json.success) throw new Error((json && json.error) || 'onbekende fout');
+        /* Het gekozen domein blijft staan bij een andere medewerker; staat er
+           geen van de drie, dan volgt het de regel van de pipeline. */
+        var sel = document.getElementById('ovDomeinKiezer');
+        var email = json.data.email || '';
+        if (domeinVan(email) === HOOFDDOMEIN) email = (sel && sel.value) ? metDomein(email, sel.value) : opMerkdomein(email);
         zetGegevenVeld('contact.naam', json.data.naam || '');
-        zetGegevenVeld('contact.email', json.data.email || '');
+        zetGegevenVeld('contact.email', email);
         /* Geen foto in Odoo? Dan blijft de bestaande staan -- een offerte
            zonder gezicht is erger dan een offerte met de vorige foto, en je
            ziet meteen dat er nog iets te doen is. */
         if (json.data.foto) zetGegevenVeld('contact.foto', json.data.foto);
+        contacten.gekozenId = id;
+        contactGewijzigd = true;
+        tekenContactKaart();
         melding(json.data.foto ? 'Contactpersoon ingevuld.' : 'Contactpersoon ingevuld (geen foto in Odoo).');
       })
       .catch(function (err) {
         window.alert('Medewerker ophalen mislukt: ' + err.message);
       });
+  }
+
+  function kiesDomein(domein) {
+    var input = contactInput('contact.email');
+    if (!input || !domein) return;
+    input.value = metDomein(input.value, domein);
+    contactGewijzigd = true;
+    tekenContactKaart();
+  }
+
+  /* De medewerker van de aangemelde gebruiker, een keer per pagina opgehaald.
+     null = er hoort geen medewerker bij dit account; dan blijft alles zoals
+     het was. */
+  function haalMij(klaar) {
+    if (contacten.mij !== undefined) { klaar(contacten.mij); return; }
+    apiFetch('/forminator-v2/api/pdf-contacten/mij', { credentials: 'include' })
+      .then(function (res) { return res.ok ? res.json() : null; })
+      .then(function (json) {
+        contacten.mij = (json && json.success && json.data) || null;
+        klaar(contacten.mij);
+      })
+      .catch(function () { contacten.mij = null; klaar(null); });
+  }
+
+  function pasStandaardContactToe() {
+    if (SERVER) return;
+    haalMij(function (mij) {
+      if (!mij || !staat.gegevens) return;
+      var huidig = staat.gegevens.contact || null;
+      /* Zonder sjabloon komt de staat uit localStorage: staat daar al iemand
+         anders dan de demo, dan koos deze browser dat bewust. */
+      if (!TEMPLATE_ID && huidig) {
+        var demo = ((window.OFFERTE_DATA || {}).gegevens || {}).contact || {};
+        if (huidig.naam && huidig.naam !== demo.naam) return;
+      }
+      sjabloonContact = huidig ? kopie(huidig) : null;
+      staat.gegevens.contact = {
+        naam: mij.naam || '',
+        email: opMerkdomein(mij.email || ''),
+        foto: mij.foto || (huidig && huidig.foto) || ''
+      };
+      contactAuto = true;
+      contacten.gekozenId = mij.id;
+      teken();
+    });
+  }
+
+  /* Wat er naar het SJABLOON gaat: de gegevens zoals op het scherm, behalve
+     een contactpersoon die enkel automatisch ingevuld werd. */
+  function gegevensVoorSjabloon() {
+    if (!contactAuto) return staat.gegevens;
+    var g = kopie(staat.gegevens);
+    if (sjabloonContact) g.contact = sjabloonContact; else delete g.contact;
+    return g;
+  }
+
+  /* ----------------------------------------------------------------------
+     Pdf maken op de server -- en bewaren
+
+     Dezelfde renderPdf() als de generate_pdf-stap, met exact wat hier op het
+     scherm staat. De pdf komt in fs_v2_generated_documents en is 30 dagen
+     terug te vinden onder "Recente pdf's", net als de pdf's die een
+     koppeling automatisch maakte. "Afdrukken" (window.print) blijft voor wie
+     enkel even op papier wil kijken, maar bewaart niets.
+     -------------------------------------------------------------------- */
+
+  var pdfBezig = false;
+
+  function maakPdf() {
+    if (pdfBezig) return;
+    if (bewerken || opmaakStand) {
+      bewerken = false;
+      opmaakStand = false;
+      teken();
+    }
+    pdfBezig = true;
+    var knop = document.getElementById('ovKnopPdf');
+    if (knop) { knop.disabled = true; knop.textContent = 'Pdf maken…'; }
+    /* Het venster METEEN openen, nog in de klik: pas na de fetch openen houdt
+       de popupblokker tegen. */
+    var venster = window.open('', '_blank');
+    zorgVoorNummer()
+      .then(function () {
+        return apiFetch('/forminator-v2/api/offerte-pdf', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ template_id: TEMPLATE_ID, gegevens: staat.gegevens, copy: staat.copy })
+        });
+      })
+      .then(function (res) {
+        if (res.status === 401) { window.location.href = '/'; return null; }
+        return res.json();
+      })
+      .then(function (json) {
+        if (!json) return;
+        if (!json.success || !json.data) throw new Error(json.error || 'onbekende fout');
+        var url = '/forminator-v2/api/generated-documents/' + encodeURIComponent(json.data.id) + '/download';
+        if (venster) venster.location.href = url; else window.open(url, '_blank');
+        documenten.lijst = null;
+        melding('Pdf gemaakt en bewaard bij Recente pdf\'s.');
+      })
+      .catch(function (err) {
+        if (venster) venster.close();
+        window.alert('Pdf maken mislukt: ' + err.message);
+      })
+      .then(function () {
+        pdfBezig = false;
+        if (knop) { knop.disabled = false; knop.textContent = 'Pdf maken'; }
+      });
+  }
+
+  /* ----------------------------------------------------------------------
+     Recente pdf's -- uit de editor EN uit de koppelingen, laatste 30 dagen
+     -------------------------------------------------------------------- */
+
+  var documenten = { lijst: null };
+
+  function datumTijd(iso) {
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return '';
+    return d.toLocaleString('nl-BE', {
+      timeZone: 'Europe/Brussels', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'
+    });
+  }
+
+  function toonDocumenten() {
+    document.getElementById('ovDocumentenDialoog').showModal();
+    var body = document.getElementById('ovDocumentenBody');
+    body.innerHTML = '<div class="ov-doc-leeg">Laden&hellip;</div>';
+    apiFetch('/forminator-v2/api/generated-documents', { credentials: 'include' })
+      .then(function (res) {
+        if (res.status === 401) { window.location.href = '/'; return null; }
+        return res.json();
+      })
+      .then(function (json) {
+        if (!json) return;
+        if (!json.success) throw new Error(json.error || 'onbekende fout');
+        documenten.lijst = json.data || [];
+        tekenDocumenten();
+      })
+      .catch(function (err) {
+        body.innerHTML = '<div class="ov-doc-leeg">De lijst kon niet opgehaald worden: ' + esc(err.message) + '</div>';
+      });
+  }
+
+  function tekenDocumenten() {
+    var body = document.getElementById('ovDocumentenBody');
+    if (!body || !documenten.lijst) return;
+    var zoek = String((document.getElementById('ovDocZoek') || {}).value || '').trim().toLowerCase();
+    var enkelMijn = !!(document.getElementById('ovDocMijn') || {}).checked;
+    var rijen = documenten.lijst.filter(function (d) {
+      if (enkelMijn && !d.mine) return false;
+      if (!zoek) return true;
+      return [d.filename, d.label, d.integration_name, d.template_name, d.created_by_name]
+        .join(' ').toLowerCase().indexOf(zoek) >= 0;
+    });
+    if (!rijen.length) {
+      body.innerHTML = '<div class="ov-doc-leeg">' +
+        (documenten.lijst.length ? 'Niets gevonden.' : 'Er zijn de laatste 30 dagen geen pdf\'s gemaakt.') + '</div>';
+      return;
+    }
+    body.innerHTML = '<table class="ov-doc-tabel"><thead><tr>' +
+        '<th>Wanneer</th><th>Offerte</th><th>Gemaakt via</th><th></th>' +
+      '</tr></thead><tbody>' +
+      rijen.map(function (d) {
+        var handmatig = d.source === 'manual';
+        var bron = handmatig
+          ? 'Editor' + (d.created_by_name ? ' · ' + d.created_by_name : '')
+          : 'Koppeling' + (d.integration_name ? ' · ' + d.integration_name : '');
+        return '<tr>' +
+          '<td>' + esc(datumTijd(d.created_at)) + '</td>' +
+          '<td><div class="ov-doc-naam">' + esc(d.filename) + '</div>' +
+            (d.label ? '<div class="ov-doc-sub">' + esc(d.label) + '</div>' : '') + '</td>' +
+          '<td><span class="ov-doc-bron' + (handmatig ? ' ov-doc-bron--manual' : '') + '">' + esc(bron) + '</span></td>' +
+          '<td class="ov-doc-actie"><a class="ov-knop" target="_blank" rel="noopener" href="/forminator-v2/api/generated-documents/' +
+            encodeURIComponent(d.id) + '/download">Openen</a></td>' +
+        '</tr>';
+      }).join('') +
+      '</tbody></table>';
   }
 
   function toonJson() {
@@ -1275,6 +1659,7 @@
       var o = JSON.parse(veld.value);
       if (!o || !o.gegevens || !o.copy) throw new Error('verwacht een object met "gegevens" en "copy"');
       staat = o;
+      contactAuto = false;
       document.getElementById('ovJsonDialoog').close();
       bewaar();
       teken();
@@ -1292,6 +1677,28 @@
     } else {
       toonJson();
     }
+  }
+
+  /* Elke aanroep naar de Worker loopt hierdoor. Niet (meer) aangemeld = de
+     auth-gate stuurt door naar de loginpagina (res.redirected) of antwoordt
+     401: dan naar het loginscherm, met deze pagina als `next`, zodat je na
+     het aanmelden terug op dezelfde offerte staat. Zonder dit bleef de pagina
+     half geladen staan met enkel fouten in de console. */
+  function naarLogin() {
+    window.location.href = '/?next=' + encodeURIComponent(window.location.pathname + window.location.search);
+  }
+
+  function apiFetch(url, opties) {
+    return fetch(url, opties).then(function (res) {
+      if (res.status === 401 || res.redirected) {
+        naarLogin();
+        throw new Error('Je bent niet (meer) aangemeld.');
+      }
+      if (res.status === 403) {
+        throw new Error('Je account heeft geen toegang tot Koppelingen, en de offertetool draait daarop. Vraag een beheerder om toegang.');
+      }
+      return res;
+    });
   }
 
   var meldingTimer = null;
@@ -1328,7 +1735,7 @@
     var patroon = document.getElementById('ovSequencePattern').value.trim();
     var dagenRuw = document.getElementById('ovGeldigheidDagen').value.trim();
     var dagen = dagenRuw ? Number(dagenRuw) : null;
-    fetch('/forminator-v2/api/pdf-templates/' + TEMPLATE_ID, {
+    apiFetch('/forminator-v2/api/pdf-templates/' + TEMPLATE_ID, {
       method: 'PUT',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
@@ -1374,7 +1781,7 @@
 
   function laadBedrijvenLijst() {
     tekenBedrijvenBody('<p class="ov-veld-hint">Laden…</p>');
-    fetch('/forminator-v2/api/bedrijf-profielen', { credentials: 'include' })
+    apiFetch('/forminator-v2/api/bedrijf-profielen', { credentials: 'include' })
       .then(function (res) { return res.json(); })
       .then(function (json) {
         bedrijven.lijst = (json && json.data) || [];
@@ -1419,7 +1826,7 @@
   function toonBedrijfBewerken(id) {
     bedrijven.bewerkId = id;
     tekenBedrijvenBody('<p class="ov-veld-hint">Laden…</p>');
-    fetch('/forminator-v2/api/bedrijf-profielen/' + id, { credentials: 'include' })
+    apiFetch('/forminator-v2/api/bedrijf-profielen/' + id, { credentials: 'include' })
       .then(function (res) { return res.json(); })
       .then(function (json) { tekenBedrijfForm(json && json.data); })
       .catch(function () {
@@ -1436,7 +1843,7 @@
     });
     var isNieuw = bedrijven.bewerkId === 'nieuw';
     var url = '/forminator-v2/api/bedrijf-profielen' + (isNieuw ? '' : '/' + bedrijven.bewerkId);
-    fetch(url, {
+    apiFetch(url, {
       method: isNieuw ? 'POST' : 'PUT',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
@@ -1453,7 +1860,7 @@
 
   function verwijderBedrijf(id) {
     if (!window.confirm('Dit bedrijfsprofiel verwijderen?')) return;
-    fetch('/forminator-v2/api/bedrijf-profielen/' + id, { method: 'DELETE', credentials: 'include' })
+    apiFetch('/forminator-v2/api/bedrijf-profielen/' + id, { method: 'DELETE', credentials: 'include' })
       .then(function (res) { return res.json(); })
       .then(function (json) {
         if (!json || !json.success) throw new Error((json && json.error) || 'onbekende fout');
@@ -1481,12 +1888,16 @@
       indelingActie(el);
     } else if (actie === 'afdrukken') {
       afdrukken();
+    } else if (actie === 'pdf-maken') {
+      maakPdf();
+    } else if (actie === 'documenten') {
+      toonDocumenten();
     } else if (actie === 'gegevens') {
       toonGegevens();
     } else if (actie === 'gegevens-bewaren') {
       bewaarGegevens();
     } else if (actie === 'nummer-genereren') {
-      genereerNummer();
+      genereerNummer(true);
     } else if (actie === 'instellingen') {
       toonInstellingen();
     } else if (actie === 'instellingen-bewaren') {
@@ -1528,8 +1939,10 @@
       }
       if (!window.confirm('Alle wijzigingen terugzetten naar de oorspronkelijke offerte?')) return;
       staat = kopie(window.OFFERTE_DATA);
+      contactAuto = false;
       try { window.localStorage.removeItem(OPSLAGSLEUTEL); } catch (err) { /* niet erg */ }
       teken();
+      pasStandaardContactToe();
     } else if (actie === 'rij-erbij') {
       var lijst = lees(el.dataset.lijst);
       if (!Array.isArray(lijst)) return;
@@ -1559,6 +1972,8 @@
     var el = e.target.closest && e.target.closest('[data-change]');
     if (!el) return;
     if (el.dataset.change === 'contact-kiezen') kiesContact(el.value);
+    if (el.dataset.change === 'contact-domein') kiesDomein(el.value);
+    if (el.dataset.change === 'documenten-filter') tekenDocumenten();
   });
 
   /* ======================================================================
@@ -1567,6 +1982,7 @@
 
   teken();
   laadVanServer();
+  if (!TEMPLATE_ID) pasStandaardContactToe();
 
   /* Beelden veranderen de hoogte pas als ze geladen zijn; daarna opnieuw meten. */
   window.addEventListener('load', controleerOverloop);

@@ -8,7 +8,8 @@ import {
   listPdfTemplates, getPdfTemplate, createPdfTemplate, updatePdfTemplate, deletePdfTemplate,
   listBedrijfProfielen, getBedrijfProfiel, createBedrijfProfiel, updateBedrijfProfiel, deleteBedrijfProfiel,
   listGeneratedDocuments, getGeneratedDocument, deleteGeneratedDocument, cleanupGeneratedDocuments,
-  takeNextOfferNumber, listOfferContacten, getOfferContact
+  takeNextOfferNumber, listOfferContacten, getOfferContact, getOfferContactVoorGebruiker,
+  listRecentGeneratedDocuments, createManualPdf, RECENTE_DOCUMENTEN_DAGEN
 } from './pdf-step.js';
 import { listObjects } from '../asset-manager/lib/r2-client.js';
 import {
@@ -1522,6 +1523,47 @@ export const routes = {
     try {
       const data = await listOfferContacten(context.env);
       return jsonResponse({ success: true, data });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
+    }
+  },
+
+  // De medewerker van de INGELOGDE gebruiker -- standaard-contactpersoon in
+  // de editor. Exacte route, dus ze wint van /:id hieronder. data = null als
+  // er geen medewerker bij dit account hoort; dat is geen fout.
+  'GET /api/pdf-contacten/mij': async (context) => {
+    try {
+      const data = await getOfferContactVoorGebruiker(context.env, context.user);
+      return jsonResponse({ success: true, data });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
+    }
+  },
+
+  // Een offerte uit de editor als pdf maken EN bewaren (fs_v2_generated_documents,
+  // source 'manual'). Geeft het document terug; de client opent daarna
+  // /api/generated-documents/:id/download.
+  'POST /api/offerte-pdf': async (context) => {
+    try {
+      const payload = await readJsonBody(context.request);
+      const document = await createManualPdf(context.env, {
+        user: context.user,
+        templateId: payload.template_id || null,
+        gegevens: payload.gegevens,
+        copy: payload.copy
+      });
+      return jsonResponse({ success: true, data: { id: document.id, filename: document.filename } }, 201);
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
+    }
+  },
+
+  // "Recente pdf's": alle documenten van de laatste 30 dagen, handmatig en
+  // automatisch, over alle koppelingen heen.
+  'GET /api/generated-documents': async (context) => {
+    try {
+      const data = await listRecentGeneratedDocuments(context.env, { user: context.user });
+      return jsonResponse({ success: true, data, meta: { dagen: RECENTE_DOCUMENTEN_DAGEN } });
     } catch (error) {
       return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
     }

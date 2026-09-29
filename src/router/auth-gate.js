@@ -77,15 +77,23 @@ export async function authGate(request, env, module) {
   // Bij een GET gaat het gevraagde pad mee als ?next=, zodat je na het
   // inloggen terechtkomt waar je heen wou (een offerte uit de Odoo-chatter)
   // in plaats van op het dashboard.
+  //
+  // De Location is RELATIEF, nooit `new URL('/', request.url)`. Via
+  // operations.openvme.be (een geproxyde CNAME) ziet de Worker als request.url
+  // het workers.dev-adres; een absolute redirect stuurde de browser dan naar
+  // een ANDER domein. Voor een fetch() is dat een CORS-fout in plaats van een
+  // herkenbare redirect (`res.redirected`), en de gebruiker zag enkel een
+  // kapotte pagina -- zo ging het in de offertetool. Relatief lost de browser
+  // op tegen het adres dat HIJ opvroeg.
   const requiresAuth = module.requiresAuth !== false && module.code !== 'home';
   if (!user && requiresAuth) {
-    const login = new URL('/', request.url);
+    let location = '/';
     if (request.method === 'GET') {
       const gevraagd = new URL(request.url);
       const next = veiligNextPad(gevraagd.pathname + gevraagd.search);
-      if (next && next !== '/') login.searchParams.set('next', next);
+      if (next && next !== '/') location = `/?next=${encodeURIComponent(next)}`;
     }
-    return Response.redirect(login.toString(), 302);
+    return new Response(null, { status: 302, headers: { Location: location } });
   }
 
   if (user) {

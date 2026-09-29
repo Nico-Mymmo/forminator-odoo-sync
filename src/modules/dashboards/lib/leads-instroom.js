@@ -244,8 +244,9 @@ async function countLeads(env, domain) {
 function emptyDailySeries(start, end) {
   const days = [];
   let cursor = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate()));
-  const last = new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate()));
-  while (cursor.getTime() < last.getTime()) {
+  // Tot `end` zelf (een tijdstip), niet tot middernacht ervoor: anders valt
+  // vandaag weg uit de reeks terwijl zijn leads wel in het totaal zitten.
+  while (cursor.getTime() < end.getTime()) {
     const row = { date: toDateKey(cursor) };
     for (const key of BRAND_KEYS) row[key] = 0;
     days.push(row);
@@ -487,4 +488,59 @@ export function buildBuckets(daily, dailyTargets, granularity, channelKeys) {
     target: bucket.target === null ? null : Math.round(bucket.target * 10) / 10,
     pct: bucket.target > 0 ? Math.round((bucket.total / bucket.target) * 1000) / 10 : null
   }));
+}
+
+// ─── Target-vensters (maand) ────────────────────────────────────────────────
+
+// Een target wordt NOOIT per dag getoond, alleen per maand (Nico,
+// 2026-09-28): per dag schommelt het percentage tussen 0 en 400% en zegt het
+// niets. De periode wordt daarom opgedeeld in vensters van EEN MAAND die
+// eindigen op vandaag -- 30 dagen = 1 venster, 3 maanden = 3, enz. Rollend en
+// niet per kalendermaand, zodat elk venster volledig is en de som van de
+// vensters exact de periode bovenaan is.
+const PERIOD_TARGET_WINDOWS = { '30d': 1, '3m': 3, '6m': 6, '12m': 12 };
+
+/**
+ * @param {Array<Object>} daily - rijen { date, <kanaal>: aantal }
+ * @param {Array<{date: string, dailyTarget: number}>|null} dailyTargets - null = geen target ingesteld
+ * @param {string} period
+ * @param {Date} rangeEnd - einde van de periode (nu)
+ * @param {string[]} channelKeys
+ */
+export function buildTargetWindows(daily, dailyTargets, period, rangeEnd, channelKeys) {
+  const count = PERIOD_TARGET_WINDOWS[period] || 1;
+  const hasTarget = Array.isArray(dailyTargets) && dailyTargets.length > 0;
+  const targetByDate = new Map((dailyTargets || []).map((row) => [row.date, row.dailyTarget]));
+
+  // Grens k = eerste dag van venster k (het eerste venster begint bij de reeks zelf).
+  const bounds = [];
+  for (let k = 1; k < count; k += 1) bounds.push(toDateKey(addMonths(rangeEnd, -(count - k))));
+
+  const windows = Array.from({ length: count }, () => ({ from: null, to: null, total: 0, target: hasTarget ? 0 : null }));
+  for (const row of daily) {
+    let idx = 0;
+    while (idx < bounds.length && row.date >= bounds[idx]) idx += 1;
+    const w = windows[idx];
+    if (!w.from) w.from = row.date;
+    w.to = row.date;
+    for (const key of channelKeys) w.total += row[key] || 0;
+    if (hasTarget) w.target += targetByDate.get(row.date) || 0;
+  }
+
+  return windows.filter((w) => w.from).map((w) => {
+    const from = parseDateKey(w.from);
+    const to = parseDateKey(w.to);
+    // Label = de maand waarin het MIDDEN van het venster valt (28 mrt – 27 apr
+    // heet "apr"); de exacte dagen staan in `title`.
+    const mid = new Date((from.getTime() + to.getTime()) / 2);
+    return {
+      from: w.from,
+      to: w.to,
+      label: `${MONTH_SHORT[mid.getUTCMonth()]} ${String(mid.getUTCFullYear()).slice(2)}`,
+      title: `${shortDay(w.from)} – ${shortDay(w.to)} ${to.getUTCFullYear()}`,
+      total: w.total,
+      target: w.target === null ? null : Math.round(w.target),
+      pct: w.target > 0 ? Math.round((w.total / w.target) * 1000) / 10 : null
+    };
+  });
 }

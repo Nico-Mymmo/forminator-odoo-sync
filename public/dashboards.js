@@ -186,10 +186,6 @@ function renderTargetProgress(data) {
 
 function renderChartCaptions(data) {
   var unit = GRANULARITY_LABELS[data.granularity] || 'dag';
-  document.getElementById('absoluteSparklineCaption').textContent =
-    'Aanvragen per ' + unit + ', ' + PERIOD_LABELS[data.period] + ' (stippellijn = target)';
-  document.getElementById('targetSparklineCaption').textContent =
-    '% van target per ' + unit + ', ' + PERIOD_LABELS[data.period];
   document.getElementById('dailyChartTitle').textContent = 'Aanvragen per ' + unit;
 }
 
@@ -201,70 +197,120 @@ function bucketTitleCallback(buckets) {
   };
 }
 
-function renderTargetSparkline(data) {
-  var canvas = document.getElementById('targetSparkline');
-  var series = data.series || [];
+/** "+14 boven target" / "-9 onder target" */
+function formatTargetDiff(total, target) {
+  var diff = total - target;
+  if (diff === 0) return 'Precies op target';
+  return (diff > 0 ? '+' : '−') + formatNumber(Math.abs(diff)) + (diff > 0 ? ' boven target' : ' onder target');
+}
 
-  if (state.sparkline) {
-    state.sparkline.destroy();
-    state.sparkline = null;
-  }
-  // Enkel buckets met een target: zonder target bestaat er geen percentage.
-  var withTarget = series.filter(function (b) { return b.pct !== null; });
-  if (withTarget.length === 0) {
-    return; // nog geen target -- renderTargetProgress toont al de uitleg
+function kpiTileHtml(w, heading) {
+  var hasTarget = w.target !== null && w.pct !== null;
+  var reached = hasTarget && w.pct >= 100;
+  var tone = reached ? 'text-success' : 'text-error';
+  var right = hasTarget
+    ? `<div class="ml-auto text-right">
+         <div class="text-2xl font-bold ${tone}">${Math.round(w.pct)}%</div>
+         <div class="text-xs ${tone}">${esc(formatTargetDiff(w.total, w.target))}</div>
+       </div>`
+    : '<div class="ml-auto text-right text-xs text-base-content/50 self-center">Geen target ingesteld</div>';
+  var bar = hasTarget
+    ? `<progress class="progress ${reached ? 'progress-success' : 'progress-error'} w-full mt-2" value="${Math.min(Math.round(w.pct), 100)}" max="100"></progress>`
+    : '';
+  return `<div class="rounded-box border border-base-300 bg-base-100 p-3">
+      <div class="text-xs text-base-content/60">${esc(heading)}</div>
+      <div class="flex items-end gap-5 mt-1">
+        <div><div class="text-xs text-base-content/50">Target</div><div class="text-xl font-bold">${hasTarget ? formatNumber(w.target) : '—'}</div></div>
+        <div><div class="text-xs text-base-content/50">Gehaald</div><div class="text-xl font-bold">${formatNumber(w.total)}</div></div>
+        ${right}
+      </div>
+      ${bar}
+    </div>`;
+}
+
+function destroyTargetCharts() {
+  if (state.absoluteSparkline) { state.absoluteSparkline.destroy(); state.absoluteSparkline = null; }
+  if (state.sparkline) { state.sparkline.destroy(); state.sparkline = null; }
+}
+
+/**
+ * Realisatie tegen target, altijd per MAAND (nooit per dag of week):
+ * 30 dagen = 1 KPI, 3 maanden = 3 KPI's naast elkaar, 6 en 12 maanden = de
+ * twee grafieken. Links het absolute aantal tegen een target die mee op en neer
+ * gaat; rechts het percentage tegen een vlakke 100%-lijn -- daar gaat het enkel
+ * om: gehaald of niet.
+ */
+function renderTargetBreakdown(data) {
+  var windows = data.targetWindows || [];
+  var kpisEl = document.getElementById('targetKpis');
+  var chartsEl = document.getElementById('targetCharts');
+  destroyTargetCharts();
+
+  if (data.period === '30d' || data.period === '3m') {
+    chartsEl.classList.add('hidden');
+    kpisEl.classList.remove('hidden');
+    kpisEl.className = 'grid gap-3 ' + (windows.length > 1 ? 'grid-cols-1 md:grid-cols-3' : 'grid-cols-1 max-w-md');
+    kpisEl.innerHTML = windows.map(function (w) {
+      var heading = windows.length === 1 ? PERIOD_LABELS[data.period] + ' (' + w.title + ')' : w.title;
+      return kpiTileHtml(w, heading.charAt(0).toUpperCase() + heading.slice(1));
+    }).join('');
+    return;
   }
 
-  state.sparkline = new Chart(canvas, {
-    type: 'line',
-    data: {
-      labels: withTarget.map(function (b) { return b.label; }),
-      datasets: [
-        {
-          label: '% van target',
-          data: withTarget.map(function (b) { return b.pct; }),
-          borderColor: '#059669',
-          backgroundColor: 'rgba(5, 150, 105, 0.12)',
-          fill: true,
-          borderWidth: 2,
-          pointRadius: 0,
-          pointHoverRadius: 3,
-          tension: 0.3,
-          yAxisID: 'yPct'
-        },
-        {
-          // De target zelf (niet een vlakke 100%-lijn) -- beweegt mee met de
-          // ingestelde maand-targets, op een eigen schaal zodat hij niet plat
-          // oogt naast het percentage.
-          label: 'Target',
-          data: withTarget.map(function (b) { return b.target; }),
-          borderColor: '#94a3b8',
-          borderDash: [4, 3],
-          fill: false,
-          borderWidth: 1.5,
-          pointRadius: 0,
-          tension: 0.3,
-          yAxisID: 'yTarget'
-        }
-      ]
-    },
+  kpisEl.classList.add('hidden');
+  kpisEl.innerHTML = '';
+  chartsEl.classList.remove('hidden');
+  renderTargetAbsoluteChart(windows);
+  renderTargetPctChart(windows);
+}
+
+function renderTargetAbsoluteChart(windows) {
+  var hasTarget = windows.some(function (w) { return w.target !== null; });
+  var datasets = [
+    {
+      type: 'bar',
+      label: 'Gehaald',
+      data: windows.map(function (w) { return w.total; }),
+      backgroundColor: '#3b82f6',
+      borderRadius: 4,
+      order: 2
+    }
+  ];
+  if (hasTarget) {
+    datasets.push({
+      type: 'line',
+      label: 'Target',
+      data: windows.map(function (w) { return w.target; }),
+      borderColor: '#475569',
+      backgroundColor: '#475569',
+      borderDash: [5, 4],
+      borderWidth: 2,
+      pointRadius: 3,
+      tension: 0.3,
+      order: 1
+    });
+  }
+
+  state.absoluteSparkline = new Chart(document.getElementById('targetAbsoluteChart'), {
+    type: 'bar',
+    data: { labels: windows.map(function (w) { return w.label; }), datasets: datasets },
     options: {
       responsive: true,
       maintainAspectRatio: false,
       interaction: { intersect: false, mode: 'index' },
       scales: {
-        x: { display: false },
-        yPct: { display: false, beginAtZero: true },
-        yTarget: { display: false, position: 'right', beginAtZero: true }
+        x: { grid: { display: false }, ticks: { font: { size: 11 } } },
+        y: { beginAtZero: true, ticks: { precision: 0, font: { size: 11 } } }
       },
       plugins: {
         legend: { display: false },
         tooltip: {
           callbacks: {
-            title: bucketTitleCallback(withTarget),
-            label: function (item) {
-              if (item.datasetIndex === 0) return 'Realisatie: ' + Math.round(item.parsed.y) + '% van target';
-              return 'Target: ' + formatNumber(Math.round(item.parsed.y * 10) / 10);
+            title: bucketTitleCallback(windows),
+            label: function (item) { return item.dataset.label + ': ' + formatNumber(item.parsed.y); },
+            footer: function (items) {
+              var w = items[0] && windows[items[0].dataIndex];
+              return w && w.pct !== null ? Math.round(w.pct) + '% van target' : '';
             }
           }
         }
@@ -273,63 +319,61 @@ function renderTargetSparkline(data) {
   });
 }
 
-function renderTargetAbsoluteSparkline(data) {
-  var canvas = document.getElementById('targetAbsoluteSparkline');
-  var series = data.series || [];
+function renderTargetPctChart(windows) {
+  var captionEl = document.getElementById('targetPctCaption');
+  var withTarget = windows.some(function (w) { return w.pct !== null; });
+  captionEl.textContent = withTarget
+    ? '% van target per maand (stippellijn = 100%)'
+    : '% van target per maand -- nog geen target ingesteld voor deze periode';
+  if (!withTarget) return;
 
-  if (state.absoluteSparkline) {
-    state.absoluteSparkline.destroy();
-    state.absoluteSparkline = null;
-  }
-  if (series.length === 0) return;
-
-  // Realisatie staat er ook zonder target; de targetlijn enkel als die bestaat.
-  // Zelfde as voor beide: allebei "aantal aanvragen per bucket".
-  var datasets = [
-    {
-      label: 'Realisatie',
-      data: series.map(function (b) { return b.total; }),
-      borderColor: '#1d4ed8',
-      backgroundColor: 'rgba(29, 78, 216, 0.10)',
-      fill: true,
-      borderWidth: 2,
-      pointRadius: 0,
-      pointHoverRadius: 3,
-      tension: 0.3
-    }
-  ];
-  var hasTarget = series.some(function (b) { return b.target !== null; });
-  if (hasTarget) {
-    datasets.push({
-      label: 'Target',
-      data: series.map(function (b) { return b.target; }),
-      borderColor: '#94a3b8',
-      borderDash: [4, 3],
-      fill: false,
-      borderWidth: 1.5,
-      pointRadius: 0,
-      tension: 0.3
-    });
-  }
-
-  state.absoluteSparkline = new Chart(canvas, {
-    type: 'line',
-    data: { labels: series.map(function (b) { return b.label; }), datasets: datasets },
+  state.sparkline = new Chart(document.getElementById('targetPctChart'), {
+    type: 'bar',
+    data: {
+      labels: windows.map(function (w) { return w.label; }),
+      datasets: [
+        {
+          type: 'bar',
+          label: '% van target',
+          data: windows.map(function (w) { return w.pct; }),
+          backgroundColor: windows.map(function (w) { return w.pct !== null && w.pct >= 100 ? '#059669' : '#f87171'; }),
+          borderRadius: 4,
+          order: 2
+        },
+        {
+          type: 'line',
+          label: 'Target',
+          data: windows.map(function () { return 100; }),
+          borderColor: '#475569',
+          borderDash: [5, 4],
+          borderWidth: 2,
+          pointRadius: 0,
+          order: 1
+        }
+      ]
+    },
     options: {
       responsive: true,
       maintainAspectRatio: false,
       interaction: { intersect: false, mode: 'index' },
       scales: {
-        x: { display: false },
-        y: { display: false, beginAtZero: true }
+        x: { grid: { display: false }, ticks: { font: { size: 11 } } },
+        y: { beginAtZero: true, ticks: { font: { size: 11 }, callback: function (v) { return v + '%'; } } }
       },
       plugins: {
         legend: { display: false },
         tooltip: {
+          filter: function (item) { return item.datasetIndex === 0; },
           callbacks: {
-            title: bucketTitleCallback(series),
+            title: bucketTitleCallback(windows),
             label: function (item) {
-              return item.dataset.label + ': ' + formatNumber(Math.round(item.parsed.y * 10) / 10);
+              var w = windows[item.dataIndex];
+              if (!w || w.pct === null) return 'Geen target';
+              return Math.round(w.pct) + '% van target (' + formatTargetDiff(w.total, w.target) + ')';
+            },
+            afterLabel: function (item) {
+              var w = windows[item.dataIndex];
+              return w && w.target !== null ? 'Target ' + formatNumber(w.target) + ' · gehaald ' + formatNumber(w.total) : '';
             }
           }
         }
@@ -470,8 +514,7 @@ async function loadInstroom() {
     renderChartCaptions(data);
     renderStatCards(data);
     renderTargetProgress(data);
-    renderTargetSparkline(data);
-    renderTargetAbsoluteSparkline(data);
+    renderTargetBreakdown(data);
     renderDailyChart(data);
   } catch (err) {
     console.error('Instroom-widget kon niet laden:', err);

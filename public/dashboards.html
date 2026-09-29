@@ -22,6 +22,14 @@
   <div style="padding-top: 48px;">
     <main class="max-w-7xl mx-auto p-4 md:p-6">
 
+      <div role="tablist" class="tabs tabs-boxed mb-5 w-fit">
+        <button role="tab" class="tab tab-active" data-dash-tab="instroom">Aanvragen</button>
+        <button role="tab" class="tab" data-dash-tab="web">Website-bezoeken</button>
+      </div>
+
+      <!-- ── Tab: Aanvragen (public/dashboards.js) ───────────────────────────── -->
+      <div data-dash-panel="instroom">
+
       <div class="flex flex-wrap items-start justify-between gap-4 mb-6">
         <div>
           <h1 class="text-2xl font-bold">Van aanvraag tot actief gebouw</h1>
@@ -68,10 +76,6 @@
                 </div>
                 <div class="text-sm text-base-content/60 mt-1" id="statCurrentDelta">&nbsp;</div>
                 <div class="flex flex-wrap gap-1 mt-3" id="statCurrentBrands"></div>
-                <p class="text-xs text-base-content/40 mt-3" id="absoluteSparklineCaption">&nbsp;</p>
-                <div style="height: 64px;" class="mt-1">
-                  <canvas id="targetAbsoluteSparkline"></canvas>
-                </div>
               </div>
 
               <div class="divider md:divider-horizontal my-0"></div>
@@ -89,12 +93,24 @@
                   <span class="text-3xl font-bold shrink-0" id="targetPct">—</span>
                 </div>
                 <p class="text-sm text-base-content/60 mt-2" id="targetDesc">Nog geen target ingesteld voor deze periode.</p>
-                <p class="text-xs text-base-content/40 mt-3" id="targetSparklineCaption">&nbsp;</p>
-                <div style="height: 64px;" class="mt-1">
-                  <canvas id="targetSparkline"></canvas>
-                </div>
               </div>
 
+            </div>
+
+            <!-- Realisatie tegen target, per maand: 30 dagen = 1 KPI, 3 maanden = 3 KPI's,
+                 6 en 12 maanden = twee grafieken (zie renderTargetBreakdown). -->
+            <div class="border-t border-base-300 mt-4 pt-4">
+              <div id="targetKpis" class="grid gap-3"></div>
+              <div id="targetCharts" class="hidden grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <p class="text-xs text-base-content/60 mb-1">Aanvragen per maand, t.o.v. target (stippellijn)</p>
+                  <div style="height: 180px;"><canvas id="targetAbsoluteChart"></canvas></div>
+                </div>
+                <div>
+                  <p class="text-xs text-base-content/60 mb-1" id="targetPctCaption">% van target per maand (stippellijn = 100%)</p>
+                  <div style="height: 180px;"><canvas id="targetPctChart"></canvas></div>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -128,6 +144,182 @@
         </div>
       </div>
 
+      </div>
+
+      <!-- ── Tab: Website-bezoeken (public/dashboards-web.js) ──────────────── -->
+      <div data-dash-panel="web" class="hidden">
+
+        <div class="flex flex-wrap items-start justify-between gap-4 mb-4">
+          <div>
+            <h1 class="text-2xl font-bold">Website-bezoeken</h1>
+            <p class="text-sm text-base-content/60 mt-1" id="webPeriodLabel">Wie komt er, langs waar, en wat doen ze voor ze converteren.</p>
+          </div>
+          <div class="flex flex-wrap gap-2">
+            <div class="join">
+              <button class="btn btn-sm join-item" data-web-action="site" data-value="all">Beide sites</button>
+              <button class="btn btn-sm join-item" data-web-action="site" data-value="openvme">OpenVME</button>
+              <button class="btn btn-sm join-item" data-web-action="site" data-value="syndicoach">Syndicoach</button>
+            </div>
+            <div class="join">
+              <button class="btn btn-sm join-item" data-web-action="period" data-value="7d">7 dagen</button>
+              <button class="btn btn-sm join-item" data-web-action="period" data-value="30d">30 dagen</button>
+              <button class="btn btn-sm join-item" data-web-action="period" data-value="90d">90 dagen</button>
+              <button class="btn btn-sm join-item" data-web-action="period" data-value="12m">12 maanden</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2 mb-3">
+          <div class="join">
+            <button class="btn btn-xs join-item" data-web-action="visit" data-value="">Alle bezoekers</button>
+            <button class="btn btn-xs join-item" data-web-action="visit" data-value="new">Nieuw</button>
+            <button class="btn btn-xs join-item" data-web-action="visit" data-value="returning">Terugkerend</button>
+          </div>
+          <div id="webChips" class="flex flex-wrap items-center gap-2"></div>
+        </div>
+
+        <div id="webStatus" class="mb-4 text-sm"></div>
+        <div id="webDataNote" class="alert alert-info text-xs mb-4 hidden"></div>
+
+        <div id="webKpis" class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6"></div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+          <div class="card bg-base-100 border border-base-300 shadow-sm lg:col-span-2">
+            <div class="card-body">
+              <h2 class="text-base font-semibold" id="webTrendTitle">Sessies per dag, per kanaal</h2>
+              <p class="grow-0 text-xs text-base-content/50 -mt-1">Klik op een kleur om op dat kanaal te filteren. De zwarte lijn zijn conversies.</p>
+              <div style="height: 300px;"><canvas id="webTrendChart"></canvas></div>
+            </div>
+          </div>
+          <div class="card bg-base-100 border border-base-300 shadow-sm">
+            <div class="card-body">
+              <h2 class="text-base font-semibold">Van bezoek naar conversie</h2>
+              <p class="grow-0 text-xs text-base-content/50 -mt-1 mb-2">Hoeveel sessies halen elke stap.</p>
+              <div id="webFunnel"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+          <div class="card bg-base-100 border border-base-300 shadow-sm">
+            <div class="card-body">
+              <h2 class="text-base font-semibold">Kanalen</h2>
+              <p class="grow-0 text-xs text-base-content/50 -mt-1">Groen = duidelijk beter dan gemiddeld, rood = duidelijk slechter.</p>
+              <div class="overflow-x-auto">
+                <table class="table table-sm">
+                  <thead><tr><th>Kanaal</th><th class="text-right">Sessies</th><th class="text-right">Bezoekers</th><th class="text-right">Engagement</th><th class="text-right">Conv.</th><th class="text-right">Conv.-ratio</th></tr></thead>
+                  <tbody id="webChannels"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+          <div class="card bg-base-100 border border-base-300 shadow-sm">
+            <div class="card-body">
+              <h2 class="text-base font-semibold" id="webDetailsTitle">Bronnen en campagnes</h2>
+              <p class="grow-0 text-xs text-base-content/50 -mt-1">Campagne, bron of verwijzende site.</p>
+              <div class="overflow-x-auto">
+                <table class="table table-sm">
+                  <thead><tr><th>Bron</th><th class="text-right">Sessies</th><th class="text-right">Engagement</th><th class="text-right">Conv.</th><th class="text-right">Conv.-ratio</th></tr></thead>
+                  <tbody id="webDetails"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+          <div class="card bg-base-100 border border-base-300 shadow-sm">
+            <div class="card-body">
+              <h2 class="text-base font-semibold">Landingspagina's</h2>
+              <p class="grow-0 text-xs text-base-content/50 -mt-1">De eerste pagina van een sessie. Klik om te filteren.</p>
+              <div class="overflow-x-auto">
+                <table class="table table-sm">
+                  <thead><tr><th>Pagina</th><th class="text-right">Sessies</th><th class="text-right">Engagement</th><th class="text-right">Conv.-ratio</th></tr></thead>
+                  <tbody id="webLandings"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+          <div class="card bg-base-100 border border-base-300 shadow-sm">
+            <div class="card-body">
+              <h2 class="text-base font-semibold">Wat bekijken ze voor ze converteren?</h2>
+              <p class="grow-0 text-xs text-base-content/50 -mt-1">
+                Pagina's die converteerders bezochten vóór hun eerste conversie. <b>Lift</b> = hoeveel vaker
+                een converteerder de pagina zag dan de gemiddelde bezoeker (2× = twee keer zo vaak).
+              </p>
+              <div class="overflow-x-auto">
+                <table class="table table-sm">
+                  <thead><tr><th>Pagina</th><th class="text-right">Converteerders</th><th class="text-right">Aandeel</th><th class="text-right">Lift</th></tr></thead>
+                  <tbody id="webBeforeConv"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+          <div class="card bg-base-100 border border-base-300 shadow-sm lg:col-span-2">
+            <div class="card-body">
+              <h2 class="text-base font-semibold">Tijd tot conversie</h2>
+              <p class="grow-0 text-xs text-base-content/50 -mt-1" id="webTtcNote"></p>
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
+                <div><p class="grow-0 text-xs text-base-content/60 mb-1">Dagen sinds het eerste bezoek</p><div style="height: 180px;"><canvas id="webTtcDays"></canvas></div></div>
+                <div><p class="grow-0 text-xs text-base-content/60 mb-1">Hoeveelste sessie</p><div style="height: 180px;"><canvas id="webTtcSessions"></canvas></div></div>
+              </div>
+            </div>
+          </div>
+          <div class="card bg-base-100 border border-base-300 shadow-sm">
+            <div class="card-body">
+              <h2 class="text-base font-semibold">Toestel</h2>
+              <p class="grow-0 text-xs text-base-content/50 -mt-1" id="webDevicesNote"></p>
+              <table class="table table-sm">
+                <thead><tr><th>Toestel</th><th class="text-right">Sessies</th><th class="text-right">Eng.</th><th class="text-right">Conv.</th></tr></thead>
+                <tbody id="webDevices"></tbody>
+              </table>
+              <div id="webDeviceExtra"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+          <div class="card bg-base-100 border border-base-300 shadow-sm">
+            <div class="card-body">
+              <h2 class="text-base font-semibold">Meest bekeken pagina's</h2>
+              <p class="grow-0 text-xs text-base-content/50 -mt-1">Conv.-ratio = aandeel van de sessies met die pagina waarin een conversie gebeurde.</p>
+              <div class="overflow-x-auto">
+                <table class="table table-sm">
+                  <thead><tr><th>Pagina</th><th class="text-right">Weergaven</th><th class="text-right">Bezoekers</th><th class="text-right">Conv.-ratio</th></tr></thead>
+                  <tbody id="webPages"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+          <div class="card bg-base-100 border border-base-300 shadow-sm">
+            <div class="card-body">
+              <h2 class="text-base font-semibold">Zoektermen op de site</h2>
+              <p class="grow-0 text-xs text-base-content/50 -mt-1">Wat bezoekers in de zoekfunctie typten. Conv.-ratio = aandeel van die sessies met een conversie.</p>
+              <div class="overflow-x-auto">
+                <table class="table table-sm table-fixed w-full">
+                  <thead><tr><th class="w-1/2">Zoekterm</th><th class="text-right">Keer</th><th class="text-right">Sessies</th><th class="text-right">Conv.-ratio</th></tr></thead>
+                  <tbody id="webSearches"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 gap-6 mb-6">
+          <div class="card bg-base-100 border border-base-300 shadow-sm">
+            <div class="card-body">
+              <h2 class="text-base font-semibold">Wanneer komen ze?</h2>
+              <p class="grow-0 text-xs text-base-content/50 -mt-1 mb-2">Start van een sessie, per weekdag en uur (Belgische tijd). Hoe donkerder, hoe drukker.</p>
+              <div id="webHeatmap"></div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
     </main>
   </div>
 
@@ -154,5 +346,6 @@
   </dialog>
 
   <script src="/dashboards.js"></script>
+  <script src="/dashboards-web.js"></script>
 </body>
 </html>

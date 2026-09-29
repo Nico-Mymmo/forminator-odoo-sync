@@ -734,10 +734,40 @@ export async function getOfferContact(env, id) {
   const rec = Array.isArray(rijen) && rijen.length ? rijen[0] : null;
   if (!rec) throw nietGevonden('Deze medewerker bestaat niet (meer) in Odoo.');
   return {
+    id: nummer,
     naam: String(rec.name || '').trim(),
     email: String(rec.work_email || '').trim(),
     foto: rec.image_512 ? `data:${gokAfbeeldingMime(rec.image_512)};base64,${rec.image_512}` : null
   };
+}
+
+/**
+ * De medewerker die bij de INGELOGDE gebruiker hoort -- de standaard-
+ * contactpersoon in de editor, want wie een offerte opmaakt, staat er meestal
+ * zelf op. Gezocht op het werkadres, op de login van de gekoppelde Odoo-
+ * gebruiker, en op hetzelfde adres op het hoofddomein (wie met
+ * rob@openvme.be inlogt, staat in Odoo als rob@mymmo.com).
+ *
+ * Niet gevonden is GEEN fout: dan geeft dit null en kiest de gebruiker zelf.
+ */
+export async function getOfferContactVoorGebruiker(env, user) {
+  const email = String((user && user.email) || '').trim().toLowerCase();
+  if (!/^[^@\s]+@[^@\s]+$/.test(email)) return null;
+  const opHoofddomein = `${email.split('@')[0]}@${HOOFDDOMEIN}`;
+  const rijen = await searchRead(env, {
+    model: 'hr.employee',
+    domain: [
+      ['active', '=', true],
+      '|', '|',
+      ['work_email', '=ilike', email],
+      ['user_id.login', '=ilike', email],
+      ['work_email', '=ilike', opHoofddomein]
+    ],
+    fields: ['id'],
+    limit: 1
+  });
+  const rec = Array.isArray(rijen) && rijen.length ? rijen[0] : null;
+  return rec ? getOfferContact(env, rec.id) : null;
 }
 
 export async function createPdfTemplate(env, { name, data }) {
@@ -1048,6 +1078,88 @@ export async function cleanupGeneratedDocuments(env, integrationId, olderThanDay
 }
 
 /**
+ * Waaraan je een document herkent zonder het te openen: de klant en het
+ * gebouw. Leeg blijft leeg -- geen "onbekende klant", dat leest als een naam.
+ */
+export function documentLabel(gegevens) {
+  const delen = [leesPad(gegevens, 'klant.naam'), leesPad(gegevens, 'gebouw.adres')]
+    .map((w) => String(w == null ? '' : w).trim())
+    .filter(Boolean);
+  return delen.length ? delen.join(' — ').slice(0, 300) : null;
+}
+
+/** Hoe lang het overzicht "Recente pdf's" terugkijkt. */
+export const RECENTE_DOCUMENTEN_DAGEN = 30;
+
+/**
+ * Alle pdf's van de laatste 30 dagen, over alle koppelingen heen en met de
+ * handmatige erbij -- de plek waar sales een offerte terugvindt zonder te
+ * weten via welke koppeling ze vertrok. Het per-koppeling-tabblad
+ * "Documenten" blijft daarnaast bestaan.
+ */
+export async function listRecentGeneratedDocuments(env, { dagen = RECENTE_DOCUMENTEN_DAGEN, user = null } = {}) {
+  const grens = new Date(Date.now() - dagen * 24 * 60 * 60 * 1000).toISOString();
+  const supabase = getSupabaseClient(env);
+  const { data, error } = await supabase
+    .from('fs_v2_generated_documents')
+    .select('id, source, filename, label, bytes, created_at, submission_id, integration_id, created_by, '
+      + 'integratie:fs_v2_integrations(name), sjabloon:fs_v2_pdf_templates(name), maker:users(full_name, email)')
+    .gte('created_at', grens)
+    .order('created_at', { ascending: false })
+    .limit(1000);
+  if (error) throw new Error(`Documenten ophalen mislukt: ${error.message}`);
+  return (data || []).map((r) => ({
+    id: r.id,
+    source: r.source || 'pipeline',
+    filename: r.filename,
+    label: r.label || null,
+    bytes: r.bytes || 0,
+    created_at: r.created_at,
+    submission_id: r.submission_id,
+    integration_id: r.integration_id,
+    integration_name: (r.integratie && r.integratie.name) || null,
+    template_name: (r.sjabloon && r.sjabloon.name) || null,
+    created_by: r.created_by || null,
+    created_by_name: (r.maker && (r.maker.full_name || r.maker.email)) || null,
+    mine: !!(user && user.id && r.created_by === user.id)
+  }));
+}
+
+/**
+ * Een offerte uit de EDITOR: dezelfde renderPdf() als de stap, met exact de
+ * gegevens en copy die op het scherm staan, en daarna bewaard zoals een
+ * pipeline-pdf. Zo is wat sales zelf maakte even vindbaar als wat een
+ * koppeling automatisch verstuurde.
+ */
+export async function createManualPdf(env, { user, templateId = null, gegevens, copy }) {
+  if (!gegevens || typeof gegevens !== 'object' || Array.isArray(gegevens)) {
+    throw validatieFout('Er zijn geen gegevens om een pdf van te maken.');
+  }
+  if (!copy || typeof copy !== 'object' || Array.isArray(copy)) {
+    throw validatieFout('Er is geen copy om een pdf van te maken.');
+  }
+  if (!env.R2_ASSETS) throw new PdfStepError('R2_ASSETS ontbreekt.');
+
+  const bytes = await renderPdf(env, { gegevens, copy });
+  const filename = veiligeBestandsnaam(vulTekst('Offerte-{{offerte.nummer}}.pdf', gegevens));
+  const r2Key = `${GENERATED_PDF_PREFIX}manual/${crypto.randomUUID()}.pdf`;
+  await env.R2_ASSETS.put(r2Key, bytes, { httpMetadata: { contentType: 'application/pdf' } });
+
+  return maakGeneratedDocument(env, {
+    integration_id: null,
+    target_id: null,
+    submission_id: null,
+    r2_key: r2Key,
+    filename,
+    bytes: bytes.byteLength || 0,
+    source: 'manual',
+    template_id: templateId || null,
+    created_by: (user && user.id) || null,
+    label: documentLabel(gegevens)
+  });
+}
+
+/**
  * "Hangt aan": plaatst een chatter-NOTITIE met een downloadlink op het
  * gekozen record, in plaats van een ir.attachment te koppelen (dat bestaat
  * niet meer sinds de pdf niet meer in Odoo staat). Het MODEL komt uit de
@@ -1128,7 +1240,10 @@ export async function runGeneratePdfStep(env, { target, submissionId, form, cont
     submission_id: submissionId,
     r2_key: r2Key,
     filename,
-    bytes: bytes.byteLength || 0
+    bytes: bytes.byteLength || 0,
+    source: 'pipeline',
+    template_id: target.pdf_template_id || null,
+    label: documentLabel(gegevens)
   });
 
   if (target.pdf_res_id_source) {

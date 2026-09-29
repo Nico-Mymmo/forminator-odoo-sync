@@ -10,11 +10,13 @@
  *    GET  /api/leads-instroom   → Instroom-widget data (?period=30d|3m|6m|12m&scope=all|syndicoach|openvme|onbekend)
  *    GET  /api/targets          → Instelbaar maand-venster (?monthsBack=5&monthsAhead=6&scope=...)
  *    POST /api/targets/batch    → Meerdere maand-targets in één keer opslaan (body: {scope, items: [{periodMonth, targetValue}]})
+ *    GET  /api/web-visits       → Tab "Website-bezoeken": compacte sessies uit D1 (?period=7d|30d|90d|12m)
  *
  * @module modules/dashboards/routes
  */
-import { getInstroomData, normalizePeriod, buildBuckets } from './lib/leads-instroom.js';
+import { getInstroomData, normalizePeriod, buildBuckets, buildTargetWindows } from './lib/leads-instroom.js';
 import { listTargetWindow, getTargetsForMonths, buildTargetTrend, upsertTargets } from './lib/targets.js';
+import { getWebVisitsCached, WEB_PERIODS } from './lib/web-visits.js';
 
 const VALID_SCOPES = ['all', 'syndicoach', 'openvme', 'onbekend'];
 
@@ -92,21 +94,35 @@ export const routes = {
       data.target = buildTargetTrend(targetsByMonth, rangeStart, rangeEnd, monthKeys);
 
       // De grafieken VOLGEN de periodetoggle (Nico, 2026-09-28) -- dat
-      // vervangt het vaste rollende venster over de voorbije 2 jaar. Per
-      // bucket (dag/week/maand, zie PERIOD_GRANULARITY) realisatie per kanaal
-      // en de target over diezelfde dagen; de front-end rekent niets meer zelf.
-      data.series = buildBuckets(
-        data.daily,
-        data.target.value === null ? null : data.target.dailySeries,
-        data.granularity,
-        Object.keys(data.brandLabels)
-      );
+      // vervangt het vaste rollende venster over de voorbije 2 jaar.
+      //  - series: staafgrafiek per kanaal, per dag/week/maand (PERIOD_GRANULARITY)
+      //  - targetWindows: realisatie tegen target, ALTIJD per maand -- een
+      //    target per dag of per week wordt bewust nergens getoond.
+      const dailyTargets = data.target.value === null ? null : data.target.dailySeries;
+      const channelKeys = Object.keys(data.brandLabels);
+      data.series = buildBuckets(data.daily, dailyTargets, data.granularity, channelKeys);
+      data.targetWindows = buildTargetWindows(data.daily, dailyTargets, data.period, rangeEnd, channelKeys);
       delete data.target.dailySeries;
       delete data.daily; // zit volledig in data.series
 
       return json({ success: true, data });
     } catch (error) {
       console.error('leads-instroom fout:', error);
+      return json({ success: false, error: error.message || 'Onbekende fout' }, 500);
+    }
+  },
+
+  // ── Website-bezoeken (D1 van de website-tracker) ─────────────────────────
+  // Geen no-store-uitzondering nodig: de response zelf wordt niet gecachet; de
+  // berekening wel, 10 minuten in de edge-cache (lib/web-visits.js).
+  'GET /api/web-visits': async ({ env, request, ctx }) => {
+    const url = new URL(request.url);
+    const period = WEB_PERIODS[url.searchParams.get('period')] ? url.searchParams.get('period') : '30d';
+    try {
+      const data = await getWebVisitsCached(env, ctx, { period });
+      return json({ success: true, data });
+    } catch (error) {
+      console.error('web-visits fout:', error);
       return json({ success: false, error: error.message || 'Onbekende fout' }, 500);
     }
   },

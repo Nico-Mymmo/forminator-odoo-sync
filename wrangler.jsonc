@@ -40,6 +40,18 @@
 	// tweede renderer naast offerte-render.js hoeft te bestaan. Vereist Browser
 	// Rendering op het Cloudflare-account (Workers Paid, eigen quotum) -- zie
 	// docs/plan-offerte-pdf-stap.md, open punt O3.
+	// Bezoekersgedrag van de website-tracker (repo website-tracker). Die Worker
+	// BEZIT deze database; de OM leest er alleen uit, via src/lib/web-events.js.
+	"d1_databases": [
+		{
+			"binding": "WEB_EVENTS",
+			"database_name": "website-tracker-events",
+			"database_id": "eaea8bfe-66f1-47eb-ba45-ec625e83f971",
+			// remote: true = ook in wrangler dev de echte database; zonder dit krijg je
+			// lokaal een lege D1 ("no such table: events").
+			"remote": true
+		}
+	],
 	"browser": {
 		"binding": "BROWSER"
 	},

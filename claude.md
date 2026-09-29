@@ -2019,6 +2019,17 @@ Afspraken die bewust zo zijn:
   op `success` te staan. Bewust niet aangepast: dat zou alle koppelingen
   raken. Zie `docs/plan-offerte-pdf-stap.md` open punt O2 als dat ooit anders
   moet.
+- **Een gegenereerde offerte HANGT AAN HET RECORD van de mail** (`res_model`/
+  `res_id`, via `hangAan` in `resolveMailAttachments()`); een Asset
+  Manager-bestand (brochure) blijft bewust los. Een `ir.attachment` zonder
+  record kan enkel de maker (de Worker = Administrator) openen: elke collega
+  kreeg in de chatter een foutpagina (`18875.htm`), en dat las als "de klant
+  kreeg een lege offerte" (2026-09-28, Liliane Bosmans).
+- **De offerte gebruikt zelf gehoste, STATISCHE lettertypes**
+  (`public/fonts/offerte-fonts.css`), nooit de Google Fonts-link. Google geeft
+  Chrome een variabel lettertype, en headless Chrome sluit dat in de pdf in als
+  Type3 -- in Chrome/Acrobat oké, in sommige pdf-voorbeelden (webmail,
+  telefoon) zonder tekst. Een extra dikte = een extra TTF + `@font-face`.
 - **De mailbijlage kent twee vormen.** `fs_v2_targets.mail_attachments` blijft
   `[{key, name}]` voor een statisch Asset Manager-bestand; `{type: 'pdf_step',
   targetId, name}` verwijst naar het `ir.attachment` dat een `generate_pdf`-stap
@@ -2049,6 +2060,25 @@ Afspraken die bewust zo zijn:
   -dependency**, plus dat Browser Rendering effectief aanstaat op het account
   (Workers Paid, eigen quotum) -- controleren voor de eerste deploy na deze
   wijziging.
+- **"Pdf maken" in de editor maakt de pdf op de SERVER en bewaart ze**
+  (`POST /api/offerte-pdf` → `createManualPdf()`, zelfde `renderPdf()` als de
+  stap). Ze komt in `fs_v2_generated_documents` met `source = 'manual'`,
+  `created_by` en zonder `integration_id` (migratie
+  `20260929120000_fsv2_generated_documents_manual.sql`). "Afdrukken"
+  (`window.print`) bewaart niets. **"Recente pdf's"** in de werkbalk
+  (`GET /api/generated-documents`) toont alles van de laatste 30 dagen,
+  handmatig én uit elke koppeling -- het tabblad "Documenten" per koppeling
+  blijft daarnaast bestaan. Er wordt NIETS automatisch verwijderd: de
+  chatter-notitie in Odoo linkt naar de downloadroute, en die link moet blijven
+  werken.
+- **De contactpersoon in de editor is standaard de AANGEMELDE medewerker**
+  (`GET /api/pdf-contacten/mij`, op werkadres / login / hetzelfde adres op
+  @mymmo.com), maar dat gaat NIET mee naar het sjabloon zolang niemand zelf
+  een contactpersoon koos (`contactAuto` + `gegevensVoorSjabloon()` in
+  offerte-render.js). Anders zet elke collega die de editor opent zichzelf in
+  het sjabloon, en daarmee in elke koppeling zonder `pdf_contact_source`. Het
+  adres volgt het merk van het bedrijf (zelfde regel als
+  `emailOpBedrijfsdomein()`), met een domeinkiezer om dat bij te sturen.
 - **De editor (`offerte.html`) is bewust NIET verplaatst.** Ze blijft een
   volwaardige, zelfstandige pagina met eigen toolbar/dialogen; Instellingen ->
   PDF-ontwerpen beheert enkel de LIJST (naam, gebruikt-in-hoeveel-stappen,
@@ -3591,11 +3621,12 @@ Afspraken die bewust zo zijn:
   deprecated `PUT /api/config`). Zonder dat zou het opslaan van een bannerkleur
   het event uit ieders handtekening wissen -- stil, en pas zichtbaar in de
   volgende mail die iemand verstuurt.
-- **Opschrift en maximale beeldhoogte liggen VAST** (`EYEBROW`,
-  `BEELD_MAX_HOOGTE` in event-rotation.js). Dat zijn geen eventgegevens maar de
+- **Er staat GEEN BEELD in de handtekening**, ook niet als het event een
+  hero-beeld heeft: `eventBlok()` zet `eventImageUrl` altijd leeg. Zet het niet
+  terug. Het opschrift ligt VAST (`EYEBROW` in event-rotation.js). Dat zijn geen eventgegevens maar de
   VORM van het blok, en die hoort voor elk event gelijk te zijn; per event
   instelbaar betekende dat een handtekening er anders uitzag naargelang wie het
-  event had aangemaakt. Beeld, titel, datum en registratielink komen wel van
+  event had aangemaakt. Titel, datum en registratielink komen wel van
   het event -- de link als `<site>/event/<slug>/?owid=<id>`, met de site uit
   het MERK van het event, zodat een syndicoach-event geen openvme-link krijgt.
 - **`sendSystemChannelMessage()` telt de grens per mini-app NIET**, want er is
@@ -3720,6 +3751,35 @@ Afspraken die bewust zo zijn:
   (`terugvallink`, blauw). De waarde `standaard` in de database is ongewijzigd.
 - **Nog niet gebouwd, bewust:** klikken tellen via `link.openvme.be`, en de
   `meeting_link_url` van de handtekeningdesigner hierop laten aansluiten.
+
+---
+
+## Dashboards — tab "Website-bezoeken" (2026-09)
+
+**Regel: bezoekersgedrag komt uit de D1-database van de website-tracker, en de
+OM LEEST er alleen uit.** De tracker (repo `website-tracker`) bezit die database
+en haar schema; zie `website-tracker/docs/ontwerp-web-visitor-events.md`. Een
+tweede schrijver maakt de belofte "elk event staat er zoals het binnenkwam" stuk.
+
+| Wat | Waar |
+|---|---|
+| Binding | `WEB_EVENTS` in `wrangler.jsonc` (database `website-tracker-events`) |
+| Enige toegang (weigert alles behalve SELECT/WITH) | `src/lib/web-events.js` |
+| Sessies afleiden + kanaalindeling + compacte vorm | `src/modules/dashboards/lib/web-visits.js` |
+| Route | `GET /dashboards/api/web-visits?period=7d\|30d\|90d\|12m` |
+| Tab + filteren/doorklikken in de browser | `public/dashboards.html` (`data-dash-tab`) + `public/dashboards-web.js` |
+
+- **Niets afgeleids staat in D1.** Sessie, duur, engagement en kanaal worden in
+  `web-visits.js` berekend met dezelfde regels als de tracker (§5 van het
+  ontwerp). Wijzig je daar een drempel, wijzig hem aan beide kanten.
+- **De server stuurt compacte SESSIES, de browser telt.** Zo kost een klik op een
+  kanaal of landingspagina geen nieuwe query. De vorige, even lange periode komt
+  mee voor de vergelijking. Het antwoord wordt 10 minuten in `caches.default`
+  bewaard (D1 rekent per gelezen rij).
+- **Kanaal:** touchpoint van de sessie > UTM op de eerste pagina > UTM op de
+  bezoeker (enkel voor zijn eerste sessie) > verwijzer. De oude historiek uit
+  Odoo heeft geen verwijzer en geen toestel; het dashboard zegt dat erbij in
+  plaats van die sessies stil als "direct" te tellen.
 
 ---
 

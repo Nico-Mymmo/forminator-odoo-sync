@@ -47,13 +47,12 @@ const LOG_PREFIX = '[mail-signature-designer:rotatie]';
 /*
  * Wat VROEGER instelbaar was in de signature designer en nu vastligt.
  *
- * Het opschrift en de maximale beeldhoogte zijn geen eventgegevens: ze horen
- * bij de VORM van het blok, en die is voor elk event gelijk. Ze per event
+ * Het opschrift is geen eventgegeven: het hoort
+ * bij de VORM van het blok, en die is voor elk event gelijk. Het per event
  * laten instellen betekende dat een handtekening er anders uitzag naargelang
  * wie het event had aangemaakt.
  */
 const EYEBROW = 'Schrijf je in';
-const BEELD_MAX_HOOGTE = 100;
 
 /**
  * De datum zoals ze in de handtekening komt te staan:
@@ -119,8 +118,11 @@ function eventBlok(env, event) {
     eventId: event.id,
     eventTitle: event.title,
     eventDate: handtekeningDatum(event.starts_at),
-    eventImageUrl: event.hero_image_url || '',
-    eventImageMaxHeight: BEELD_MAX_HOOGTE,
+    // BEWUST GEEN BEELD in de handtekening, ook als het event een hero-beeld
+    // heeft: titel, datum en knop volstaan. De sleutels blijven leeg staan
+    // (niet weg), want de compiler en de merge-engine lezen ze nog.
+    eventImageUrl: '',
+    eventImageMaxHeight: null,
     eventEyebrow: EYEBROW,
     // `owid` hangt de klik aan het event vast in de webstatistieken; die
     // vorm stond al in de handmatig ingevulde links.

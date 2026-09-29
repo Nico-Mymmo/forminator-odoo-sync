@@ -52,7 +52,7 @@ window.OFFERTE_DATA = {
 
     contact: {
       naam:  'Jiri Put',
-      email: 'jiri@syndicoach.com',
+      email: 'jiri@syndicoach.be',
       foto:  'offerte-assets/contact-jiri.png'
     },
 
