@@ -70,6 +70,24 @@ function showToast(message, type) {
   }
 }
 
+// ====== Sandbox van de app-iframes ======
+//
+// Moet dezelfde lijst zijn als het sandbox-attribuut in mini-apps.html.
+// Een EXTERNE-URL-app (app_type 'url') krijgt er allow-popups-to-escape-sandbox
+// bij: zonder die vlag erft een tabblad dat zo'n app opent de sandbox, en
+// Chrome weigert daarin zijn pdf-viewer ("This page has been blocked by
+// Chrome") -- zo ging "Pdf maken" in de offertetool stuk zodra die als
+// mini-app geopend werd. Een url-app is een gewone pagina (van ons of van een
+// externe site), geen code van een collega die we moeten inperken; een
+// html-app houdt de sandbox volledig, ook in de tabbladen die ze opent.
+// Een gewijzigd sandbox-attribuut geldt pas bij de VOLGENDE navigatie, dus
+// altijd zetten VOOR src/srcdoc.
+var MINI_APP_SANDBOX = 'allow-scripts allow-forms allow-modals allow-popups allow-downloads allow-same-origin';
+
+function zetFrameSandbox(frame, isUrlApp) {
+  frame.setAttribute('sandbox', MINI_APP_SANDBOX + (isUrlApp ? ' allow-popups-to-escape-sandbox' : ''));
+}
+
 // ====== Mini-app instrumentatie (preview-/fullscreen-iframe) ======
 //
 // Beide iframes (de kleine "Bewerken"-modal en de kale fullscreen-viewer) draaien

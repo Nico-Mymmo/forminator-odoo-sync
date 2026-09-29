@@ -68,6 +68,7 @@ async function openApp(id) {
     var banner = document.getElementById('appErrorBanner');
     activeFrame = { frame: frame, banner: banner, appId: id };
     resetAppErrors(banner);
+    zetFrameSandbox(frame, contentResult.appType === 'url');
     if (contentResult.appType === 'url') {
       frame.removeAttribute('srcdoc');
       frame.src = contentResult.externalUrl;
@@ -268,6 +269,7 @@ async function saveExternalUrl() {
     });
     currentApp = Object.assign(currentApp, updated);
     var frame = document.getElementById('appFrame');
+    zetFrameSandbox(frame, true);
     frame.removeAttribute('srcdoc');
     frame.src = currentApp.external_url;
     showToast('URL opgeslagen en herladen.', 'success');

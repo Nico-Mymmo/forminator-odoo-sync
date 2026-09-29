@@ -164,6 +164,7 @@ async function openAppFullscreen(id, options) {
     var banner = document.getElementById('appFullscreenErrorBanner');
     activeFrame = { frame: frame, banner: banner, appId: id };
     resetAppErrors(banner);
+    zetFrameSandbox(frame, contentResult.appType === 'url');
     if (contentResult.appType === 'url') {
       // Externe-URL-app: cross-origin, geen instrumentatie/shim mogelijk --
       // gewoon rechtstreeks laden via src (niet srcdoc).
