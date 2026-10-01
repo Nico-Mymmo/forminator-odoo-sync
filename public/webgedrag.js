@@ -225,7 +225,7 @@
       var pages = x.pages.slice(0, 3).map(esc).join(', ') + (x.pages.length > 3 ? ' <span class="opacity-50">+' + (x.pages.length - 3) + '</span>' : '');
       return '<tr><td class="whitespace-nowrap text-sm">' + esc(datum(x.start, true)) + '</td>'
         + '<td class="text-sm">' + esc(persoonLabel(x.person, x.uuid)) + '</td>'
-        + '<td>' + chip(x.historic && x.channel === 'Direct / onbekend' ? 'Onbekend (oude historiek)' : x.channel) + (x.detail ? '<div class="text-xs opacity-60">' + esc(x.detail) + '</div>' : '') + '</td>'
+        + '<td>' + chip(x.historic && x.channel === 'Direct / onbekend' ? 'Zonder campagne (oude historiek)' : x.channel) + (x.detail ? '<div class="text-xs opacity-60">' + esc(x.detail) + '</div>' : '') + '</td>'
         + '<td class="text-xs">' + pages + '</td><td>' + conv.join(' ') + '</td></tr>';
     }).join('');
     return '<div class="card bg-base-100 mb-4"><div class="card-body p-5">'

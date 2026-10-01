@@ -12,10 +12,12 @@
  * Puur rekenwerk + HTML; geen Odoo, geen D1 (dat doet push.js).
  */
 
-// Vóór 29-09-2026 bewaarde de tracker de verwijzer niet: een "direct" bezoek uit
-// die tijd is niet direct maar onbekend. Enkel weergave; het dashboard telt het
+// Vóór 29-09-2026 bewaarde de tracker de VERWIJZER niet; hij maakte enkel een
+// touchpoint bij een advertentie- of UTM-link. Een oud bezoek zonder touchpoint
+// kwam dus NIET via een campagne -- organisch zoeken, direct of een verwijzing,
+// maar welke van de drie is niet bewaard. Enkel weergave; het dashboard telt het
 // als "Direct / onbekend" (zie de opmerking bij CHANNELS in web-visits.js).
-const ONBEKEND_OUD = 'Onbekend (oude historiek)';
+const ONBEKEND_OUD = 'Zonder campagne (oude historiek)';
 const GEEN_OORZAAK = new Set(['Direct / onbekend', 'Eigen sites', ONBEKEND_OUD]);
 const MAX_PAD = 8;
 

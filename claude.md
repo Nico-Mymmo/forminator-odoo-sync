@@ -3853,7 +3853,7 @@ Afspraken die bewust zo zijn:
   (`status`) laat de tracker staan. Een "firma" met meer dan 10 leads is een
   organisatie, geen VME: daar telt "collega" niet.
 - **Vóór 29-09-2026 is de bron onbekend, niet direct**: de oude historiek bewaarde
-  geen verwijzer. Het verhaal zegt "Onbekend (oude historiek)".
+  geen verwijzer. Het verhaal zegt "Zonder campagne (oude historiek)".
 - **Schrijven alleen als het veranderde** (hash in `MAPPINGS_KV`, `webstory:hash:*`).
   `push_since` schuift pas op als een volledige ronde af is.
 - **Actieblad**: de velden `x_studio_web_timeline_html` / `x_studio_web_kpi_html`
