@@ -638,7 +638,7 @@
         return;
       }
       if (action === 'replay-submission') {
-        await window.FSV2.handleReplay(btn.dataset.id);
+        await window.FSV2.handleReplay(btn.dataset.id, btn.dataset.full === '1');
         return;
       }
       if (action === 'delete-submission') {

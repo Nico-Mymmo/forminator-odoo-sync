@@ -40,6 +40,12 @@
 	// tweede renderer naast offerte-render.js hoeft te bestaan. Vereist Browser
 	// Rendering op het Cloudflare-account (Workers Paid, eigen quotum) -- zie
 	// docs/plan-offerte-pdf-stap.md, open punt O3.
+	// De website-tracker first-party bereikbaar via link.openvme.be/t/_o/ en
+	// link.syndicoach.be/t/_o/ (src/router/public-routes.js). Een service
+	// binding: verzoeken gaan rechtstreeks naar die Worker, niet over het internet.
+	"services": [
+		{ "binding": "TRACKER", "service": "website-tracker" }
+	],
 	// Bezoekersgedrag van de website-tracker (repo website-tracker). Die Worker
 	// BEZIT deze database; de OM leest er alleen uit, via src/lib/web-events.js.
 	"d1_databases": [

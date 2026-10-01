@@ -2618,7 +2618,9 @@ export const routes = {
         return jsonResponse({ success: false, error: 'Submission id is required' }, 400);
       }
 
-      const result = await replaySubmission(context.env, submissionId);
+      let body = {};
+      try { body = await context.request.json(); } catch (_) { body = {}; }
+      const result = await replaySubmission(context.env, submissionId, { full: body?.full === true });
       return jsonResponse({ success: true, data: result }, 201);
     } catch (error) {
       return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));

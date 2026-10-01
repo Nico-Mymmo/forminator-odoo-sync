@@ -766,10 +766,10 @@
                         // voor hetzelfde resultaat.
                         ? (koppelingUit
                             ? '<button class="btn btn-xs btn-square btn-primary btn-disabled" disabled title="Zet eerst de koppeling aan bij Koppeling"><i data-lucide="refresh-cw" class="w-3 h-3"></i></button>'
-                            : '<button class="btn btn-xs btn-square btn-primary" data-action="replay-submission" data-id="' + esc(sub.id) + '" title="Replay"><i data-lucide="refresh-cw" class="w-3 h-3"></i></button>')
+                            : '<button class="btn btn-xs btn-square btn-primary" data-action="replay-submission" data-id="' + esc(sub.id) + '" title="Replay: enkel de mislukte stappen opnieuw. Wat al gelukt is (mail, notitie, lead) gebeurt niet nog eens."><i data-lucide="refresh-cw" class="w-3 h-3"></i></button>')
                         : '') +
                       (forceReplayAllowed
-                        ? '<button class="btn btn-xs btn-square btn-outline btn-warning" data-action="replay-submission" data-id="' + esc(sub.id) + '" title="Opnieuw verwerken (forceren)"><i data-lucide="refresh-cw" class="w-3 h-3"></i></button>'
+                        ? '<button class="btn btn-xs btn-square btn-outline btn-warning" data-action="replay-submission" data-full="1" data-id="' + esc(sub.id) + '" title="Opnieuw verwerken (forceren): ook geslaagde stappen lopen opnieuw. Een notitie of activiteit komt er dan nog eens bij; een mail niet."><i data-lucide="refresh-cw" class="w-3 h-3"></i></button>'
                         : '') +
                       (deleteUnlocked && hasMailStep
                         ? '<button class="btn btn-xs btn-square btn-outline" data-action="replay-mail-events" data-id="' + esc(sub.id) + '" title="Opgeslagen mail-events opnieuw naar Odoo sturen"><i data-lucide="mail-check" class="w-3 h-3"></i></button>'
@@ -894,12 +894,14 @@
     return mailsHtml + skippedHtml + eventsHtml;
   }
 
-  async function handleReplay(submissionId) {
+  async function handleReplay(submissionId, full) {
+    if (full && !confirm('Alle stappen opnieuw uitvoeren, ook wat al gelukt is? Een notitie of activiteit komt er dan nog eens bij. Een mail die al klaarstond, wordt niet opnieuw verstuurd.')) return;
     var body = await window.FSV2.api('/submissions/' + submissionId + '/replay', {
       method: 'POST',
-      body: JSON.stringify({}),
+      body: JSON.stringify({ full: !!full }),
     });
-    window.FSV2.showAlert('Replay gestart: ' + window.FSV2.shortId((body.data || {}).replay_submission_id), 'success');
+    var d = body.data || {};
+    window.FSV2.showAlert((full ? 'Opnieuw verwerkt' : 'Mislukte stappen opnieuw uitgevoerd') + ': ' + (d.status || 'onbekend'), d.success ? 'success' : 'warning');
     await window.FSV2.openDetail(S().activeId);
   }
 

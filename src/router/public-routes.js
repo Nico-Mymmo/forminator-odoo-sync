@@ -243,6 +243,43 @@ export async function handlePublicRoutes(request, env, ctx) {
     return new Response(null, { status: 204 });
   }
 
+  // Website-tracker, FIRST-PARTY via link.openvme.be / link.syndicoach.be.
+  //
+  // Waarom: het eigen adres van de tracker (website-tracker.openvme-odoo.
+  // workers.dev) heeft "tracker" in de naam en is een extern domein; precies
+  // wat blokkeerlijsten zoeken. Een bezoeker met een adblocker kreeg zo wel
+  // een bezoeker-UUID maar stuurde nooit een event, en een koppeling die die
+  // bezoeker in Odoo zocht, vond niets. Via een subdomein van de site zelf en
+  // een neutraal pad valt het grootste deel daarvan weg.
+  //
+  // Onder /t/ omdat de redirect-regel op link.* in het andere Cloudflare-
+  // account /t/ al doorlaat. "_o" kan geen slug van een trackbare link zijn
+  // (die bevatten geen underscore), dus dit raakt de /t/<slug>-tak niet.
+  //   /t/_o/s.js -> de snippet (tracker: /t.js)
+  //   /t/_o/e    -> een event   (tracker: /track)
+  // Doorgegeven via een service binding (TRACKER), niet over het internet.
+  // Land, netwerk en IP van de bezoeker gaan als headers mee: de tracker ziet
+  // anders de OM als afzender.
+  if (pathname.startsWith('/t/_o/') && env.TRACKER) {
+    const sub = pathname.slice('/t/_o/'.length);
+    const target = sub === 's.js' ? '/t.js' : sub === 'e' ? '/track' : null;
+    if (!target) return new Response('Not found', { status: 404 });
+    const cf = request.cf || {};
+    const headers = new Headers(request.headers);
+    headers.set('X-Ovme-Proxy', env.TRACKER_PROXY_SECRET || '');
+    headers.set('X-Ovme-Ip', request.headers.get('CF-Connecting-IP') || '');
+    headers.set('X-Ovme-Cf', JSON.stringify({
+      country: cf.country || null,
+      asn: cf.asn || null,
+      botScore: cf.botManagement?.score ?? null,
+      verifiedBot: cf.botManagement?.verifiedBot ?? false,
+    }));
+    const body = ['GET', 'HEAD'].includes(request.method) ? undefined : await request.arrayBuffer();
+    return env.TRACKER.fetch(new Request('https://website-tracker.internal' + target + url.search, {
+      method: request.method, headers, body,
+    }));
+  }
+
   // FSV2 tracker-redirect — trackbare korte links/QR-codes.
   //
   // Twee manieren om hier te belanden, BEIDE ondersteund (onafhankelijk van elkaar):

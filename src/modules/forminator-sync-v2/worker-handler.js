@@ -691,7 +691,7 @@ async function restoreStepOutputsFromDB(env, submissionId, sortedTargets, contex
   });
   for (const row of sorted) {
     // Only restore results that represent a completed step — not aborted or missing-dependency skips
-    if (!['created', 'updated', 'skipped', 'found'].includes(row.action_result)) continue;
+    if (!RETRY_DONE_ACTIONS.includes(row.action_result)) continue;
     if (row.skipped_reason === 'pipeline_abort') continue;
     if (row.skipped_reason === 'dependency_missing') continue;
     if (row.skipped_reason === 'condition_not_met') continue;
@@ -740,11 +740,20 @@ function checkRequiredDependencies(mappings, contextObject, attemptTag) {
   return { hasMissingDependency: false };
 }
 
+// Wat bij een retry (automatisch of handmatig via Replay) als GELUKT telt en dus
+// niet opnieuw gebeurt. Een notitie ('posted') en een activiteit
+// ('activity_created') stonden er eerst niet in: een retry plaatste ze dan een
+// tweede keer, want die stappen herkennen zichzelf niet. Een mail en een pdf
+// staan er bewust NIET in: die zijn zelf idempotent op het indieningsnummer
+// (message_id resp. de marker op het attachment), en ze moeten opnieuw lopen om
+// hun uitvoer (bv. het attachment voor een latere mailstap) in de context te zetten.
+const RETRY_DONE_ACTIONS = ['created', 'updated', 'skipped', 'found', 'created_or_updated', 'posted', 'activity_created'];
+
 // Determines whether a target should be skipped in a retry run based on its last result.
 // pipeline_abort and dependency_missing are re-executed; successfully completed steps are not.
 function shouldSkipOnRetry(latestResult) {
   if (!latestResult) return false;
-  if (!['created', 'updated', 'skipped', 'found'].includes(latestResult.action_result)) return false;
+  if (!RETRY_DONE_ACTIONS.includes(latestResult.action_result)) return false;
   // These special skips must be retried — they did not complete successfully
   if (latestResult.skipped_reason === 'pipeline_abort') return false;
   if (latestResult.skipped_reason === 'dependency_missing') return false;
@@ -2961,7 +2970,77 @@ export async function handleGenericWebhook({ env, integration, request, skipPipe
   }, result.httpStatus || 500);
 }
 
-export async function replaySubmission(env, originalSubmissionId) {
+// Statussen waarin een indiening klaar is (niet meer aan het lopen). Enkel een
+// geforceerde replay mag ook op een geslaagde indiening.
+const FINISHED_STATUSES = ['success', 'processed', 'partial_failed', 'permanent_failed', 'retry_exhausted', 'received', 'duplicate_ignored'];
+
+/**
+ * Replay = een HANDMATIGE RETRY van dezelfde indiening, geen nieuwe indiening.
+ *
+ * Eerst maakte een replay een nieuwe rij aan en liet ze ALLE stappen opnieuw
+ * lopen. Omdat de bescherming tegen een dubbele mail aan het indieningsnummer
+ * hangt, ging een mail die al vertrokken was dan nog eens de deur uit, en een
+ * notitie en een activiteit stonden er dubbel. Nu loopt dezelfde indiening in
+ * retry-modus: geslaagde stappen worden overgeslagen (hun resultaat, zoals het
+ * lead-id, komt wel terug in de context), mislukte en niet-gelopen stappen lopen
+ * opnieuw. Een mail die al klaarstond herkent zichzelf aan zijn message_id.
+ *
+ * `full: true` (de knop "Opnieuw verwerken (forceren)") laat alles opnieuw lopen,
+ * ook wat gelukt was -- nog steeds op dezelfde indiening, dus een mail blijft
+ * beschermd; een notitie of activiteit komt er dan bewust opnieuw bij.
+ *
+ * De oude replay-rijen (replay_of_submission_id) blijven bestaan en leesbaar.
+ */
+export async function replaySubmission(env, submissionId, { full = false } = {}) {
+  const sub = await getSubmissionById(env, submissionId);
+  if (!sub) {
+    throw createHttpError('Submission not found', 'NOT_FOUND');
+  }
+
+  const allowed = full ? FINISHED_STATUSES : REPLAYABLE_STATUSES;
+  if (!allowed.includes(sub.status)) {
+    throw createHttpError(`Replay not allowed for status: ${sub.status}`, 'VALIDATION_ERROR');
+  }
+
+  const integrationBundle = await getIntegrationBundle(env, sub.integration_id);
+  if (!integrationBundle) {
+    throw createHttpError('Integration bundle not found for submission', 'NOT_FOUND');
+  }
+
+  // Vergrendelen: alleen vanuit de status die we net zagen. Klikt iemand twee
+  // keer, of loopt er net een automatische retry, dan wint er één.
+  const claimed = await transitionSubmissionStatus(env, sub.id, [sub.status], {
+    status: 'retry_running',
+    retry_status: 'running',
+    next_retry_at: null,
+    started_at: new Date().toISOString(),
+    finished_at: null
+  });
+  if (!claimed) {
+    throw createHttpError('Replay already running for this submission', 'VALIDATION_ERROR');
+  }
+
+  const result = await runSubmissionAttempt(env, {
+    submission: claimed,
+    integrationBundle,
+    rawPayload: claimed.source_payload || {},
+    mode: full ? 'initial' : 'retry'
+  });
+
+  return {
+    replay_submission_id: claimed.id,
+    replay_of_submission_id: null,
+    manual_retry: !full,
+    status: result.finalStatus || result.status || 'unknown',
+    next_retry_at: result.nextRetryAt || null,
+    success: Boolean(result.success)
+  };
+}
+
+// De vorige vorm van replay (een nieuwe indiening die alles opnieuw doet).
+// Niet meer bereikbaar vanuit de UI; blijft staan zolang oude replay-ketens
+// (replay_of_submission_id) gelezen worden.
+export async function replayAsNewSubmission(env, originalSubmissionId) {
   const originalSubmission = await getSubmissionById(env, originalSubmissionId);
   if (!originalSubmission) {
     throw createHttpError('Submission not found', 'NOT_FOUND');

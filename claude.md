@@ -2010,9 +2010,21 @@ Afspraken die bewust zo zijn:
   in `worker-handler.js` overslaat, dus de stap draait bij elke retry gewoon
   opnieuw. Om dan geen tweede pdf te maken, zoekt `runGeneratePdfStep()` eerst
   op de omschrijving `"OM pdf-stap target:<id> submission:<id>"` op
-  `ir.attachment` en hergebruikt die als ze bestaat. Een REPLAY (nieuw
-  `submissionId`) maakt bewust wel een nieuwe pdf -- dat is de bedoeling, met
-  de nieuwste gegevens.
+  `ir.attachment` en hergebruikt die als ze bestaat. Een REPLAY is sinds
+  2026-10 een handmatige retry van DEZELFDE indiening (zie hieronder) en
+  hergebruikt de pdf dus ook.
+- **Replay = handmatige retry van dezelfde indiening, geen nieuwe indiening**
+  (`replaySubmission()` in `worker-handler.js`). Eerst maakte een replay een
+  nieuwe rij en liet ze alles opnieuw lopen; omdat de bescherming tegen een
+  dubbele mail aan het indieningsnummer hangt, vertrok een mail die al weg was
+  dan nog eens, en stonden notitie en activiteit er dubbel. Nu loopt dezelfde
+  indiening in retry-modus: wat in `RETRY_DONE_ACTIONS` staat (ook `posted` en
+  `activity_created`, die eerst ontbraken en dus bij elke retry opnieuw kwamen)
+  wordt overgeslagen, met zijn resultaat terug in de context. Mail en pdf staan
+  er bewust niet in: die zijn zelf idempotent op het indieningsnummer en moeten
+  hun uitvoer opnieuw in de context zetten. `full: true` (de oranje knop
+  "forceren") laat alles opnieuw lopen, op dezelfde indiening. De oude
+  replay-rijen (`replay_of_submission_id`) blijven leesbaar.
 - **`pdf_failed` is net als `mail_failed` NIET automatisch replaybaar.**
   `classifyFinalSubmissionStatus()` telt enkel `failed`/`pipeline_abort` mee;
   een indiening met een mislukte pdf-stap maar verder geslaagde stappen komt
@@ -3768,6 +3780,15 @@ tweede schrijver maakt de belofte "elk event staat er zoals het binnenkwam" stuk
 | Sessies afleiden + kanaalindeling + compacte vorm | `src/modules/dashboards/lib/web-visits.js` |
 | Route | `GET /dashboards/api/web-visits?period=7d\|30d\|90d\|12m` |
 | Tab + filteren/doorklikken in de browser | `public/dashboards.html` (`data-dash-tab`) + `public/dashboards-web.js` |
+| Conversies (formulier, Calendly) naar de tracker | `src/lib/web-conversions.js`, aangeroepen in `worker-handler.js` na het bewaren van een inzending |
+| De tracker first-party op `link.<site>/t/_o/` (snippet `s.js`, events `e`) | blok bovenaan `src/router/public-routes.js` + service binding `TRACKER` |
+
+- **`/t/_o/` hoort bij de tracker, niet bij de trackbare links.** Het staat onder
+  `/t/` omdat de redirect-regel op `link.*` (ander Cloudflare-account) `/t/` al
+  doorlaat; zo hoeft daar niets te veranderen. Een slug bevat nooit een
+  underscore, dus `_o` botst niet. Het eigen adres van de tracker
+  (`website-tracker...workers.dev`) werd door adblockers geblokkeerd: bezoeker-UUID
+  wel, events niet.
 
 - **Niets afgeleids staat in D1.** Sessie, duur, engagement en kanaal worden in
   `web-visits.js` berekend met dezelfde regels als de tracker (§5 van het
