@@ -26,6 +26,7 @@ import dashboardsModule from './dashboards/module.js';
 import gmailChatterModule from './gmail-chatter/module.js';
 import contentFeedModule from './content-feed/module.js';
 import bookingLinksModule from './booking-links/module.js';
+import webStoryModule from './web-story/module.js';
 
 /**
  * All registered modules
@@ -52,6 +53,7 @@ export const MODULES = [
   bookingLinksModule,
   campaignFunnelsModule,
   dashboardsModule,
+  webStoryModule,
 ];
 
 /**

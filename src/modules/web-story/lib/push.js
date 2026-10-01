@@ -17,7 +17,7 @@
  * Een record wordt enkel geschreven als de HTML echt veranderde (hash in KV).
  */
 
-import { searchRead, write, executeKw } from '../../../lib/odoo.js';
+import { searchRead, write, executeKw, messagePost } from '../../../lib/odoo.js';
 import { readWebEvents, hasWebEvents } from '../../../lib/web-events.js';
 import { readVisitorSessions } from '../../dashboards/lib/web-visits.js';
 import { runMatching } from './matching.js';
@@ -37,6 +37,13 @@ const SHEET = {
   model: 'x_sales_action_sheet', timeline: 'x_studio_web_timeline_html', kpi: 'x_studio_web_kpi_html',
   extra: () => ({}), titel: 'Hoe deze VME bij ons kwam',
 };
+
+/** De pagina in de OM met het volledige verhaal (filters, bevestigen, alle bezoeken). */
+export function omStoryUrl(env, kind, id) {
+  const base = (env.APP_BASE_URL || '').replace(/\/$/, '');
+  if (!base) return null;
+  return `${base}/webgedrag?${kind.model === 'crm.lead' ? 'lead' : 'sheet'}=${id}`;
+}
 
 function nowTs() { return new Date().toISOString().substring(0, 19).replace('T', ' '); }
 
@@ -70,7 +77,7 @@ async function hasFields(env, model, names) {
 }
 
 /** Eén record: verhaal + tijdlijn opbouwen, en schrijven als het veranderde. */
-async function pushRecord(env, kind, id, rows, conversionAt, { mode, stats }) {
+async function pushRecord(env, kind, id, rows, conversionAt, { mode, stats, force = false }) {
   const recent = rows.slice().sort((a, b) => (a.last_seen < b.last_seen ? 1 : -1)).slice(0, MAX_UUIDS);
   const uuids = recent.map(r => r.visitor_uuid);
   const persons = new Map(recent.map(r => [r.visitor_uuid, r.email || r.visitor_uuid]));
@@ -79,14 +86,49 @@ async function pushRecord(env, kind, id, rows, conversionAt, { mode, stats }) {
   const tl = await fetchTimeline(env, uuids);
   if (!tl.timeline_html) { stats.leeg++; return; }
   const journey = buildJourney(sessions, { conversionAt, persons });
-  const html = journeyHtml(journey, { titel: kind.titel }) + tl.timeline_html;
+  const omUrl = omStoryUrl(env, kind, id);
+  const html = journeyHtml(journey, { titel: kind.titel, omUrl }) + tl.timeline_html;
   const hash = await sha(html + '\u0000' + tl.kpi_html);
   const key = `${KV}hash:${kind.model}:${id}`;
-  if ((await env.MAPPINGS_KV.get(key)) === hash) { stats.ongewijzigd++; return; }
+  if (!force && (await env.MAPPINGS_KV.get(key)) === hash) { stats.ongewijzigd++; return; }
   if (mode !== 'on') { stats.zou_schrijven++; return; }
   await write(env, { model: kind.model, ids: [id], values: { [kind.timeline]: html, [kind.kpi]: tl.kpi_html, ...kind.extra(nowTs()) } });
   await env.MAPPINGS_KV.put(key, hash);
   stats.geschreven++;
+  // EEN keer per record een notitie in de chatter met de link -- niet bij elke
+  // update, dat wordt ruis (docs/ontwerp-odoo-zonder-bezoekers.md §4).
+  const noted = `${KV}noted:${kind.model}:${id}`;
+  if (omUrl && !(await env.MAPPINGS_KV.get(noted))) {
+    try {
+      await messagePost(env, { model: kind.model, id, isHtml: true,
+        body: `<p>Er hangt webgedrag aan dit record. <a href="${omUrl}" target="_blank" rel="noopener">Bekijk het volledige verhaal in de Operations Manager</a>.</p>` });
+      await env.MAPPINGS_KV.put(noted, nowTs());
+    } catch (e) { console.warn(`[web-story] chatter ${kind.model} ${id}:`, e.message); }
+  }
+}
+
+/**
+ * Eén lead of actieblad nu bijwerken ("Odoo nu bijwerken" in het scherm).
+ * Enkel als WEB_STORY_MODE 'on' is: anders schrijft de tracker de lead nog zelf.
+ */
+export async function pushOne(env, kindName, id) {
+  if (env.WEB_STORY_MODE !== 'on') return { ok: false, reden: `WEB_STORY_MODE staat op "${env.WEB_STORY_MODE || ''}", niet op "on"` };
+  const stats = { geschreven: 0, zou_schrijven: 0, ongewijzigd: 0, leeg: 0 };
+  if (kindName === 'lead') {
+    const [lead] = await searchRead(env, { model: 'crm.lead', domain: [['id', '=', id]], fields: ['create_date'], context: { active_test: false } });
+    if (!lead) return { ok: false, reden: 'lead niet gevonden' };
+    const rows = (await linkedUuids(env, [id])).get(id) || [];
+    await pushRecord(env, LEAD, id, rows, lead.create_date, { mode: 'on', stats, force: true });
+  } else {
+    if (!(await hasFields(env, SHEET.model, [SHEET.timeline, SHEET.kpi]))) return { ok: false, reden: 'velden op het actieblad bestaan nog niet' };
+    const [s] = await searchRead(env, { model: SHEET.model, domain: [['id', '=', id]], fields: ['x_studio_as_opportunity_ids', 'create_date'], context: { active_test: false } });
+    if (!s) return { ok: false, reden: 'actieblad niet gevonden' };
+    const per = await linkedUuids(env, s.x_studio_as_opportunity_ids || []);
+    const seen = new Map();
+    for (const rows of per.values()) for (const r of rows) if (!seen.has(r.visitor_uuid)) seen.set(r.visitor_uuid, r);
+    await pushRecord(env, SHEET, id, [...seen.values()], s.create_date, { mode: 'on', stats, force: true });
+  }
+  return { ok: true, ...stats };
 }
 
 export async function runWebStoryCron(env, { scheduledTime } = {}) {

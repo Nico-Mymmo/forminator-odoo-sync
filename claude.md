@@ -195,6 +195,7 @@ document.addEventListener('click', e => {
 | claude-integration | `/api/claude` | — | onderdeel van `/insights` | ⚠️ Legacy |
 | mini-apps | `/mini-apps` | `mini_apps` | `public/mini-apps.html` + dedicated JS | ✅ Correct (zie hieronder) |
 | booking-links | `/afspraaklinks` | `booking_links` | `public/booking-links.html` + `.js` | ✅ Correct (zie "Afspraaklinks") |
+| web-story | `/webgedrag` | `web_story` | `public/webgedrag.html` + `.js` | ✅ Correct (zie "Webgedrag") |
 
 **Legacy modules NIET aanraken tenzij expliciet gevraagd.** Bij aanpassingen aan legacy `ui.js`: string-concatenatie (+), geen geneste template literals, geen variabelen in inline event handlers. `src/lib/components/navbar.js` is de legacy server-rendered navbar voor deze ui.js-bestanden.
 
@@ -3828,6 +3829,8 @@ schrijver), de OM is de enige die met Odoo praat.** Volledige onderbouwing:
 | Eerste / laatste niet-directe aanraking / pad | `src/modules/web-story/lib/journey.js` |
 | Sessies + kanaal per sessie (dezelfde als het dashboard) | `readVisitorSessions()` + `channelOf()` in `src/modules/dashboards/lib/web-visits.js` |
 | Uurlijkse push naar Odoo | `src/modules/web-story/lib/push.js`, `*/15`-tak in `index.js` (enkel het eerste kwartier, of zolang er werk ligt) |
+| Scherm per lead / actieblad / bezoeker, bevestigen, twijfelgevallen | `src/modules/web-story/routes.js` + `lib/story-data.js`, `public/webgedrag.html` + `.js` (`/webgedrag?lead=<id>`) |
+| Moduleregistratie | `supabase/migrations/20261001120000_web_story_module.sql` |
 | Koppelingen bewaren, tijdlijn renderen | tracker: `POST /internal/links`, `POST /internal/timeline` (`lib/story.js`), via de binding `TRACKER` |
 
 Afspraken die bewust zo zijn:
@@ -3854,6 +3857,11 @@ Afspraken die bewust zo zijn:
 - **Actieblad**: de velden `x_studio_web_timeline_html` / `x_studio_web_kpi_html`
   maakt Nico in Studio; zolang ze ontbreken wordt het actieblad overgeslagen
   (staat in de log). Zet `sanitize` uit, zoals bij de lead.
+- **Beoordelen** (bevestigen/afwijzen) mag de verantwoordelijke van de lead in
+  Odoo (`resolveOdooUser`) en een beheerder; het bulkscherm "Twijfelgevallen" is
+  voor beheerders. Lezen mag iedereen met de module.
+- **Eén chatter-notitie per record**, bij de eerste schrijfactie, met de link
+  naar `/webgedrag` (`webstory:noted:*` in KV). Nooit bij elke update.
 - **Inline stijl: altijd `background-color`, nooit `background`** -- Odoo's
   sanitizer knipt de shorthand stil weg (zie het vrije chatter-bericht).
 

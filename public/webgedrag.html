@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Webgedrag - Operations Manager</title>
+  <script>
+    (function () {
+      var t = localStorage.getItem('selectedTheme') || 'light';
+      document.documentElement.setAttribute('data-theme', t);
+    })();
+  </script>
+  <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet" type="text/css" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script src="/shared-navbar.js"></script>
+</head>
+<body class="bg-base-200 min-h-screen">
+
+  <div id="navbar"></div>
+
+  <main class="max-w-6xl mx-auto px-4 py-6" style="padding-top: calc(48px + 1.5rem);">
+
+    <div class="flex flex-wrap items-end justify-between gap-3 mb-5">
+      <div>
+        <h1 class="text-2xl font-bold">Webgedrag</h1>
+        <p class="text-sm opacity-70">Hoe een lead of VME bij ons kwam: elk bezoek, elk kanaal, tot de aanvraag.</p>
+      </div>
+      <form id="searchForm" class="join">
+        <input id="searchInput" class="input input-sm input-bordered join-item w-72"
+               placeholder="Lead-id, naam of e-mailadres" autocomplete="off">
+        <button class="btn btn-sm btn-primary join-item" type="submit">
+          <i data-lucide="search" class="w-4 h-4"></i> Zoeken
+        </button>
+      </form>
+    </div>
+
+    <div id="tabBar" role="tablist" class="tabs tabs-boxed mb-5 w-fit">
+      <button role="tab" class="tab tab-active" data-story-tab="story">Verhaal</button>
+      <button role="tab" class="tab hidden" data-story-tab="review" id="reviewTab">Twijfelgevallen</button>
+    </div>
+
+    <div id="modeWarning" class="alert alert-info mb-4 hidden text-sm">
+      <i data-lucide="info" class="w-5 h-5"></i>
+      <span id="modeWarningText"></span>
+    </div>
+
+    <section id="panelStory">
+      <div id="searchResults" class="mb-4"></div>
+      <div id="storyHost">
+        <div class="card bg-base-100"><div class="card-body items-center text-center">
+          <i data-lucide="footprints" class="w-8 h-8 opacity-40"></i>
+          <p class="opacity-70">Zoek een lead, of open dit scherm via de link in Odoo.</p>
+        </div></div>
+      </div>
+    </section>
+
+    <section id="panelReview" class="hidden">
+      <div class="card bg-base-100">
+        <div class="card-body">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 class="card-title text-base">Mogelijk dezelfde VME</h2>
+              <p class="text-sm opacity-70">
+                Bezoekers met het adres van een <strong>collega bij dezelfde VME</strong>. Bevestig wat klopt,
+                wijs af wat er niet bij hoort. Je keuze blijft staan, ook als de koppelingen opnieuw berekend worden.
+              </p>
+            </div>
+            <div class="flex gap-2">
+              <button class="btn btn-sm btn-success" data-action="bulk" data-status="bevestigd">Bevestig selectie</button>
+              <button class="btn btn-sm btn-ghost" data-action="bulk" data-status="afgewezen">Wijs selectie af</button>
+            </div>
+          </div>
+          <div id="reviewHost" class="overflow-x-auto mt-3"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div id="toastHost" class="toast toast-end z-50"></div>
+
+  <script src="/webgedrag.js"></script>
+</body>
+</html>

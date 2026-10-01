@@ -19,7 +19,7 @@ const ONBEKEND_OUD = 'Onbekend (oude historiek)';
 const GEEN_OORZAAK = new Set(['Direct / onbekend', 'Eigen sites', ONBEKEND_OUD]);
 const MAX_PAD = 8;
 
-const KLEUR = {
+export const KLEUR = {
   'Betaald zoeken': '#2563eb', 'Betaalde social': '#7c3aed', 'Betaald overig': '#9333ea',
   'E-mail': '#d97706', 'Organisch zoeken': '#16a34a', 'Social organisch': '#0d9488',
   'AI-assistenten': '#db2777', 'Verwijzing': '#475569', 'Eigen sites': '#64748b', 'Direct / onbekend': '#9ca3af',
