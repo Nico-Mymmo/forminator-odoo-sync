@@ -3829,6 +3829,7 @@ schrijver), de OM is de enige die met Odoo praat.** Volledige onderbouwing:
 | Eerste / laatste niet-directe aanraking / pad | `src/modules/web-story/lib/journey.js` |
 | Sessies + kanaal per sessie (dezelfde als het dashboard) | `readVisitorSessions()` + `channelOf()` in `src/modules/dashboards/lib/web-visits.js` |
 | Uurlijkse push naar Odoo | `src/modules/web-story/lib/push.js`, `*/15`-tak in `index.js` (enkel het eerste kwartier, of zolang er werk ligt) |
+| Tabblad Gedrag: trends en flows over ALLE bezoeken (ook anoniem), segment in de browser | `src/modules/web-story/lib/behaviour.js` (compacte sessies via `readSessionRows()` van web-visits.js) + `public/webgedrag-behaviour.js` |
 | Scherm per lead / actieblad / bezoeker, bevestigen, twijfelgevallen | `src/modules/web-story/routes.js` + `lib/story-data.js`, `public/webgedrag.html` + `.js` (`/webgedrag?lead=<id>`) |
 | Moduleregistratie | `supabase/migrations/20261001120000_web_story_module.sql` |
 | Dashboard: wat leidde tot de conversie (eerste / laatste / assist / positie, paden) | `src/modules/dashboards/lib/web-attribution.js` (server, per persoon over de hele historiek), kaart in `dashboards.html` + `loadAttribution()` in `dashboards-web.js` |
@@ -3868,6 +3869,16 @@ Afspraken die bewust zo zijn:
   van het tabblad werken daar bewust niet; de kaart zegt dat.
 - **Kanaalkleuren**: `KLEUR` in journey.js = `CHANNEL_COLORS` in dashboards-web.js
   (de Worker kan niets uit public/ importeren). Wijzig ze samen.
+- **Webgedrag is in de eerste plaats het GEMIDDELDE bezoek, niet het individu.**
+  Het tabblad Gedrag segmenteert alle bezoeken (bron, campagne, instappagina,
+  toestel, anoniem/gekend/lead, aanvraag, nieuw/terug) en toont kerncijfers, een
+  trend, de padverkenner en een tabel per pagina. Individuele trajecten staan in
+  Odoo; het tabblad Traject is enkel het doorklikpunt. Het dashboard blijft de
+  marketinganalyse -- voeg daar geen tweede padverkenner aan toe.
+- **Padverkenner = stappen naast elkaar, geen Sankey.** Een pagina op een stap
+  "vastzetten" filtert op wie daar langskwam; herladen van dezelfde pagina telt
+  niet als stap. Tijd op een pagina = tot de volgende pagina (de gemeten dwell zit
+  niet in de sessie-SQL), dus de laatste pagina van een bezoek heeft geen tijd.
 - **Eén chatter-notitie per record**, bij de eerste schrijfactie, met de link
   naar `/webgedrag` (`webstory:noted:*` in KV). Nooit bij elke update.
 - **Inline stijl: altijd `background-color`, nooit `background`** -- Odoo's

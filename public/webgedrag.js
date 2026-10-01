@@ -7,6 +7,9 @@
  * haar inline stijlen de pagina niet raken en andersom.
  *
  * Openen vanuit Odoo: /webgedrag?lead=<id> | ?sheet=<id> | ?visitor=<uuid>
+ *
+ * Drie panelen: Gedrag (trends over alle bezoeken, webgedrag-behaviour.js),
+ * Traject (één lead/actieblad/bezoeker, hieronder) en Twijfelgevallen.
  */
 
 (function () {
@@ -23,6 +26,16 @@
   }
   function $(id) { return document.getElementById(id); }
   function icons() { if (window.lucide) window.lucide.createIcons(); }
+
+  function showPanel(name) {
+    document.querySelectorAll('[data-story-tab]').forEach(function (t) { t.classList.toggle('tab-active', t.dataset.storyTab === name); });
+    $('panelBehaviour').classList.toggle('hidden', name !== 'behaviour');
+    $('panelDetail').classList.toggle('hidden', name !== 'detail');
+    $('panelReview').classList.toggle('hidden', name !== 'review');
+    if (name === 'detail') $('detailTab').classList.remove('hidden');
+    if (name === 'behaviour' && window.WebGedragBehaviour) window.WebGedragBehaviour.load();
+    if (name === 'review') laadReview().catch(function (err) { toast(err.message, 'error'); });
+  }
   function toast(msg, soort) {
     var el = document.createElement('div');
     el.className = 'alert ' + (soort === 'error' ? 'alert-error' : 'alert-success') + ' text-sm';
@@ -56,6 +69,8 @@
   // ── Laden ──────────────────────────────────────────────────────────────────
 
   async function open(kind, id) {
+    showPanel('detail');
+    window.scrollTo(0, 0);
     $('searchResults').innerHTML = '';
     $('storyHost').innerHTML = '<div class="flex justify-center p-10"><span class="loading loading-spinner"></span></div>';
     var u = new URL(window.location.href);
@@ -74,6 +89,8 @@
 
   async function zoek(q) {
     if (!q) return;
+    showPanel('detail');
+    $('storyHost').innerHTML = '';
     var r = await api('/search?q=' + encodeURIComponent(q));
     if (r.leads.length === 1 && !r.visitors.length) return open('lead', r.leads[0].id);
     if (!r.leads.length && r.visitors.length === 1) return open('visitor', r.visitors[0].uuid);
@@ -265,22 +282,19 @@
 
   document.addEventListener('click', async function (e) {
     var tab = e.target.closest('[data-story-tab]');
-    if (tab) {
-      document.querySelectorAll('[data-story-tab]').forEach(function (t) { t.classList.toggle('tab-active', t === tab); });
-      var review = tab.dataset.storyTab === 'review';
-      $('panelStory').classList.toggle('hidden', review);
-      $('panelReview').classList.toggle('hidden', !review);
-      if (review) laadReview().catch(function (err) { toast(err.message, 'error'); });
-      return;
-    }
+    if (tab) { showPanel(tab.dataset.storyTab); return; }
     var el = e.target.closest('[data-action]');
     if (!el) return;
     var a = el.dataset.action;
     try {
       if (a === 'open') {
         e.preventDefault();
-        document.querySelector('[data-story-tab="story"]').click();
         await open(el.dataset.kind, el.dataset.id);
+      } else if (a === 'back') {
+        var u = new URL(window.location.href);
+        ['lead', 'sheet', 'visitor'].forEach(function (k) { u.searchParams.delete(k); });
+        history.replaceState(null, '', u.toString());
+        showPanel('behaviour');
       } else if (a === 'judge') {
         await beoordeel([{ uuid: el.dataset.uuid, res_id: Number(el.dataset.res), status: el.dataset.status }]);
         await open('lead', state.story.record.id);
@@ -319,6 +333,9 @@
     zoek($('searchInput').value.trim()).catch(function (err) { toast(err.message, 'error'); });
   });
 
+  // Voor webgedrag-behaviour.js: een bezoek aanklikken opent het traject.
+  window.WebGedrag = { open: function (kind, id) { open(kind, id); }, colors: {} };
+
   // ── Start ──────────────────────────────────────────────────────────────────
 
   (async function init() {
@@ -330,6 +347,7 @@
     } catch (_) { /* navbar is niet kritisch */ }
     try {
       state.boot = await api('/bootstrap');
+      window.WebGedrag.colors = state.boot.colors || {};
       $('reviewTab').classList.toggle('hidden', !state.boot.is_admin);
       if (state.boot.mode !== 'on') {
         $('modeWarning').classList.remove('hidden');
@@ -340,6 +358,7 @@
       if (q.get('lead')) await open('lead', q.get('lead'));
       else if (q.get('sheet')) await open('sheet', q.get('sheet'));
       else if (q.get('visitor')) await open('visitor', q.get('visitor'));
+      else showPanel('behaviour');
     } catch (err) { toast(err.message, 'error'); }
     icons();
   })();

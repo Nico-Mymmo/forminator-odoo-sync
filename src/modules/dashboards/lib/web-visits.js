@@ -28,7 +28,8 @@ const CACHE_SECONDS = 600;
 const SESSIONS_SQL_TEMPLATE = `
 WITH ev AS (
   SELECT e.visitor_uuid AS u, e.ts, e.type, e.page, e.data, e.bron,
-         COALESCE(e.site, v.site) AS site, v.first_seen AS vfirst, v.first_utm AS fu
+         COALESCE(e.site, v.site) AS site, v.first_seen AS vfirst, v.first_utm AS fu,
+         (v.email IS NOT NULL AND v.email <> '') AS kn
   FROM events e JOIN visitors v ON v.uuid = e.visitor_uuid
   WHERE __WHERE__
     AND v.is_internal = 0 AND v.is_bot = 0 AND e.type <> 'scroll'
@@ -47,6 +48,7 @@ s0 AS (
 SELECT u,
   MIN(ts) AS st, MAX(ts) AS en, MAX(site) AS site, MAX(vfirst) AS vf, MAX(fu) AS fu,
   json_group_array(CASE WHEN type = 'page' THEN page END) AS pg,
+  json_group_array(CASE WHEN type = 'page' THEN ts END) AS pt,
   json_group_array(CASE WHEN type = 'page' THEN json_extract(data,'$.search') END) AS zq,
   MIN(CASE WHEN type IN ('touchpoint','ai_referral','email_referral')
       THEN ts || '|' || COALESCE(json_extract(data,'$.medium'),'') || '|' || COALESCE(json_extract(data,'$.source'),'')
@@ -63,7 +65,7 @@ SELECT u,
   MIN(CASE WHEN type = 'page' THEN json_extract(data,'$.device.device_type') END) AS dv,
   MIN(CASE WHEN type = 'page' THEN json_extract(data,'$.device.in_app') END) AS ia,
   MIN(CASE WHEN type = 'page' THEN json_extract(data,'$.cf_country') END) AS co,
-  MAX(bron = 'odoo-historiek') AS hi
+  MAX(bron = 'odoo-historiek') AS hi, MAX(kn) AS kn
 FROM s0 GROUP BY u, sid`;
 const SESSIONS_SQL = SESSIONS_SQL_TEMPLATE.replace('__WHERE__', 'e.ts >= ?1 AND e.ts < ?2');
 
@@ -241,6 +243,17 @@ export async function getWebVisitsData(env, { period }) {
     sessions,
     meta: { rowsRead: res.meta?.rows_read ?? null, ms: res.meta?.duration ?? null },
   };
+}
+
+/**
+ * Ruwe sessierijen van een periode, voor Webgedrag (src/modules/web-story/lib/behaviour.js).
+ * Zelfde SQL en kanaalindeling als hierboven; `pt` (tijdstip per pagina, op
+ * dezelfde posities als `pg`) en `kn` (bezoeker heeft een e-mailadres) zijn er
+ * voor dat scherm bijgekomen en worden door het dashboard genegeerd.
+ */
+export async function readSessionRows(env, startTs, endTs) {
+  const res = await readWebEvents(env, SESSIONS_SQL, [startTs, endTs]);
+  return { rows: res.results || [], meta: res.meta || {} };
 }
 
 /**

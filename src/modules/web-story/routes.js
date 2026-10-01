@@ -14,6 +14,8 @@ import { leadStory, sheetStory, visitorStory, search, reviewQueue } from './lib/
 import { saveLinks } from './lib/tracker.js';
 import { pushOne } from './lib/push.js';
 import { KLEUR } from './lib/journey.js';
+import { getBehaviourCached } from './lib/behaviour.js';
+import { WEB_PERIODS } from '../dashboards/lib/web-visits.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const STATUSSEN = new Set(['actief', 'bevestigd', 'afgewezen']);
@@ -48,6 +50,14 @@ export const routes = {
     success: true,
     // De kanaalkleuren komen van de server: dezelfde als in het verhaal in Odoo.
     data: { is_admin: isAdmin(user), mode: env.WEB_STORY_MODE || '', d1: hasWebEvents(env), colors: KLEUR },
+  }),
+
+  // Trends en flows over alle bezoeken (lib/behaviour.js): compacte sessies, de
+  // browser segmenteert. 10 minuten in de edge-cache.
+  'GET /api/behaviour': async ({ env, request, ctx }) => guard(env, async () => {
+    const p = new URL(request.url).searchParams.get('period');
+    const period = WEB_PERIODS[p] ? p : '30d';
+    return json({ success: true, data: await getBehaviourCached(env, ctx, { period }) });
   }),
 
   'GET /api/search': async ({ env, request }) => guard(env, async () => {

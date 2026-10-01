@@ -13,48 +13,114 @@
   <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet" type="text/css" />
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/lucide@latest"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
   <script src="/shared-navbar.js"></script>
 </head>
 <body class="bg-base-200 min-h-screen">
 
   <div id="navbar"></div>
 
-  <main class="max-w-6xl mx-auto px-4 py-6" style="padding-top: calc(48px + 1.5rem);">
+  <main class="max-w-7xl mx-auto px-4 py-6" style="padding-top: calc(48px + 1.5rem);">
 
-    <div class="flex flex-wrap items-end justify-between gap-3 mb-5">
+    <div class="flex flex-wrap items-end justify-between gap-3 mb-4">
       <div>
         <h1 class="text-2xl font-bold">Webgedrag</h1>
-        <p class="text-sm opacity-70">Hoe een lead of VME bij ons kwam: elk bezoek, elk kanaal, tot de aanvraag.</p>
+        <p class="text-sm text-base-content/70">Hoe bezoekers onze twee websites gebruiken: het gemiddelde bezoek, de paden, en wat er verandert.</p>
       </div>
-      <form id="searchForm" class="join">
-        <input id="searchInput" class="input input-sm input-bordered join-item w-72"
-               placeholder="Lead-id, naam of e-mailadres" autocomplete="off">
-        <button class="btn btn-sm btn-primary join-item" type="submit">
-          <i data-lucide="search" class="w-4 h-4"></i> Zoeken
-        </button>
+      <form id="searchForm" class="join" title="Een individueel traject openen">
+        <input id="searchInput" class="input input-sm input-bordered join-item w-64"
+               placeholder="Lead, naam of e-mailadres" autocomplete="off">
+        <button class="btn btn-sm join-item" type="submit" aria-label="Zoeken"><i data-lucide="search" class="w-4 h-4"></i></button>
       </form>
     </div>
 
-    <div id="tabBar" role="tablist" class="tabs tabs-boxed mb-5 w-fit">
-      <button role="tab" class="tab tab-active" data-story-tab="story">Verhaal</button>
+    <div id="tabBar" role="tablist" class="tabs tabs-boxed mb-4 w-fit">
+      <button role="tab" class="tab tab-active" data-story-tab="behaviour">Gedrag</button>
+      <button role="tab" class="tab hidden" data-story-tab="detail" id="detailTab">Traject</button>
       <button role="tab" class="tab hidden" data-story-tab="review" id="reviewTab">Twijfelgevallen</button>
     </div>
 
-    <div id="modeWarning" class="alert alert-info mb-4 hidden text-sm">
-      <i data-lucide="info" class="w-5 h-5"></i>
-      <span id="modeWarningText"></span>
-    </div>
+    <!-- ── Gedrag: trends en flows over alle bezoeken ───────────────────────── -->
+    <section id="panelBehaviour">
+      <div class="sticky z-20 -mx-4 px-4 py-3 mb-4 bg-base-200/90 backdrop-blur border-b border-base-300" style="top:48px">
+        <div id="bhFilters"></div>
+        <div class="flex flex-wrap items-center gap-2 mt-2">
+          <p id="bhSentence" class="text-sm text-base-content/70"></p>
+          <span id="bhVisited"></span>
+        </div>
+      </div>
+      <div id="bhStatus" class="mb-3"></div>
 
-    <section id="panelStory">
-      <div id="searchResults" class="mb-4"></div>
-      <div id="storyHost">
-        <div class="card bg-base-100"><div class="card-body items-center text-center">
-          <i data-lucide="footprints" class="w-8 h-8 opacity-40"></i>
-          <p class="opacity-70">Zoek een lead, of open dit scherm via de link in Odoo.</p>
-        </div></div>
+      <div id="bhBody" class="space-y-5 transition-opacity">
+        <div class="rounded-2xl bg-base-100 border border-base-300 p-5">
+          <div class="text-xs font-semibold uppercase tracking-wide text-base-content/50 mb-2">Het gemiddelde bezoek</div>
+          <div id="bhHero"></div>
+          <div id="bhTiles" class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 mt-4"></div>
+        </div>
+
+        <div class="rounded-2xl bg-base-100 border border-base-300 p-5">
+          <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+            <h2 class="font-semibold" id="bhTrendTitle">Bezoeken per dag</h2>
+            <div class="flex items-center gap-2">
+              <div class="join">
+                <button class="btn btn-xs join-item btn-active" data-bh-action="metric" data-value="sessions">Bezoeken</button>
+                <button class="btn btn-xs join-item" data-bh-action="metric" data-value="eng">Doet er iets mee</button>
+                <button class="btn btn-xs join-item" data-bh-action="metric" data-value="conv">Aanvraag</button>
+              </div>
+              <button class="btn btn-xs btn-ghost" data-bh-action="trend-table" title="Toon de waarden als tabel"><i data-lucide="table" class="w-3.5 h-3.5"></i></button>
+            </div>
+          </div>
+          <div style="height: 240px;"><canvas id="bhTrendChart" aria-label="Trend van het segment, met de vorige periode in grijs"></canvas></div>
+          <div id="bhTrendTable" class="overflow-x-auto max-h-64"></div>
+        </div>
+
+        <div class="rounded-2xl bg-base-100 border border-base-300 p-5">
+          <div class="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 class="font-semibold">Hoe bezoekers door de site gaan</h2>
+            <span class="text-xs text-base-content/50">balk = deel van alle bezoeken in het segment</span>
+          </div>
+          <div id="bhPins" class="flex flex-wrap items-center gap-2 mt-2 mb-3 min-h-[1.75rem]"></div>
+          <div id="bhFlow" class="flex gap-2 overflow-x-auto pb-1"></div>
+        </div>
+
+        <div class="grid grid-cols-1 xl:grid-cols-5 gap-5">
+          <div class="rounded-2xl bg-base-100 border border-base-300 p-5 xl:col-span-2">
+            <h2 class="font-semibold">Meest gevolgde paden</h2>
+            <p class="text-xs text-base-content/50 mb-2">De eerste vier pagina's van een bezoek. Klik om het pad vast te zetten.</p>
+            <div id="bhPaths"></div>
+          </div>
+          <div class="rounded-2xl bg-base-100 border border-base-300 p-5 xl:col-span-3">
+            <div class="flex flex-wrap items-center justify-between gap-2 mb-1">
+              <h2 class="font-semibold">Per pagina</h2>
+              <input id="bhPageQuery" class="input input-bordered input-xs w-48" placeholder="Zoek een pagina">
+            </div>
+            <p class="text-xs text-base-content/50 mb-2">Klik een rij om enkel bezoeken te zien die deze pagina bekeken.</p>
+            <div id="bhPages" class="overflow-x-auto"></div>
+          </div>
+        </div>
+
+        <div class="rounded-2xl bg-base-100 border border-base-300 p-5">
+          <h2 class="font-semibold">Recente bezoeken in dit segment</h2>
+          <p class="text-xs text-base-content/50 mb-2">Klik een bezoek voor het volledige traject van die bezoeker.</p>
+          <div id="bhSessions" class="divide-y divide-base-200"></div>
+        </div>
+
+        <p id="bhNote" class="text-xs text-base-content/50"></p>
       </div>
     </section>
 
+    <!-- ── Traject: één lead, actieblad of bezoeker ──────────────────────────── -->
+    <section id="panelDetail" class="hidden">
+      <button class="btn btn-ghost btn-sm mb-3" data-action="back"><i data-lucide="arrow-left" class="w-4 h-4"></i> Terug naar gedrag</button>
+      <div id="modeWarning" class="alert alert-info mb-4 hidden text-sm">
+        <i data-lucide="info" class="w-5 h-5"></i>
+        <span id="modeWarningText"></span>
+      </div>
+      <div id="searchResults" class="mb-4"></div>
+      <div id="storyHost"></div>
+    </section>
+
+    <!-- ── Twijfelgevallen (beheerders) ──────────────────────────────────────── -->
     <section id="panelReview" class="hidden">
       <div class="card bg-base-100">
         <div class="card-body">
@@ -80,5 +146,6 @@
   <div id="toastHost" class="toast toast-end z-50"></div>
 
   <script src="/webgedrag.js"></script>
+  <script src="/webgedrag-behaviour.js"></script>
 </body>
 </html>
