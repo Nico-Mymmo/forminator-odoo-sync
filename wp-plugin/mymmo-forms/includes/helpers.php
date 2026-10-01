@@ -41,6 +41,25 @@ function mymmo_forms_site_key(): string {
     return (string) get_option('mymmo_forms_site_key', '');
 }
 
+/**
+ * De naam waaronder een formulier in wp-admin in een keuzelijst staat.
+ *
+ * De naam van de KOPPELING in de OM ("Syndicoach - Contactaanvraag"), niet de
+ * titel die een bezoeker boven het formulier leest ("Stel je vraag, wij zoeken
+ * het uit"). Met die titel stond er een zin in de lijst die je in de OM
+ * nergens als naam terugvond. Een OM van voor deze wijziging stuurt geen
+ * `admin_name`; dan blijft het de titel.
+ *
+ * @param array<string,mixed> $form  een rij uit Mymmo_Forms_Api_Client::list_forms()
+ */
+function mymmo_forms_form_label(array $form): string {
+    $naam = trim((string) ($form['admin_name'] ?? ''));
+    if ($naam === '') {
+        $naam = trim((string) ($form['name'] ?? ''));
+    }
+    return $naam !== '' ? $naam : (string) ($form['slug'] ?? '');
+}
+
 function mymmo_forms_is_configured(): bool {
     return mymmo_forms_api_base() !== '' && mymmo_forms_site_key() !== '';
 }

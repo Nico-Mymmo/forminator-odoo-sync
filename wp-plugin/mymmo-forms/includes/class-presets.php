@@ -60,7 +60,7 @@ final class Mymmo_Forms_Presets {
         'gap', 'background', 'icon_color', 'form_title', 'form_sub', 'form_heading', 'calendly_color',
         'image_calendly', 'image_calendly_alt',
         'image_calendly_scale', 'image_calendly_x', 'image_calendly_y',
-        'image_scale', 'image_x', 'image_y',
+        'image_scale', 'image_x', 'image_y', 'image_rotate',
         'watermark', 'watermark_scale', 'watermark_x', 'watermark_y', 'watermark_rotate',
         'thanks_calendly', 'goal_form', 'goal_calendly',
         // 1.16: het dankjewelscherm per tabblad.

@@ -679,10 +679,16 @@ export function toPublicFormPayload(form, fields) {
  * ophalen om een keuzelijst te vullen is verspilling. Geen interne id's --
  * de slug is wat in de shortcode staat en verder heeft niemand iets nodig.
  */
-export function toPublicFormListItem(form, fieldCount) {
+export function toPublicFormListItem(form, fieldCount, adminName = '') {
   return {
     slug: form.slug,
     name: form.name,
+    // De naam van de KOPPELING ("Syndicoach - Contactaanvraag"), niet de titel
+    // die een bezoeker boven het formulier leest ("Stel je vraag, wij zoeken
+    // het uit"). Keuzelijsten in wp-admin tonen deze: met de titel zag je er
+    // een zin staan die je in de OM nergens als naam terugvond. Enkel de NAAM,
+    // nooit het id van de koppeling.
+    admin_name: adminName || form.name,
     description: form.description || '',
     version: form.version,
     field_count: Number(fieldCount) || 0,

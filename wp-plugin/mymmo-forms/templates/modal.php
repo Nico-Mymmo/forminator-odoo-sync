@@ -501,15 +501,21 @@ if ($panel_extra !== '') {
                         ?>
                         <?php if ($watermark !== '') : ?>
                             <span class="mymmo-modal-wm" data-mymmo-greep="watermerk">
-                                <img class="mymmo-modal-watermerk"
+                                <img class="mymmo-modal-watermerk skip-lazy no-lazyload"
                                      src="<?php echo esc_url($watermark); ?>"
                                      alt=""
                                      aria-hidden="true"
-                                     loading="lazy"
+                                     data-no-lazy="1"
+                                     data-skip-lazy="1"
                                      decoding="async">
                             </span>
                         <?php endif; ?>
                         <?php
+                        // Lazyload-plugins blijven eraf (skip-lazy & co): het
+                        // venster staat verborgen tot iemand het opent, en dan
+                        // ziet zo'n plugin het beeld nooit in beeld komen. Op
+                        // syndicoach.be laadde het watermerk daardoor nooit.
+                        //
                         // Een tekening per tabblad. Ze liggen over elkaar in
                         // dezelfde rastercel; het script laat zien welke bij het
                         // open tabblad hoort. Staat er maar een, dan blijft die
@@ -532,10 +538,11 @@ if ($panel_extra !== '') {
                                 // grepen aan deze laag, zodat ze meebewegen.
                                 ?>
                                 <span class="mymmo-modal-stand" data-mymmo-greep="form">
-                                    <img class="mymmo-modal-tekening"
+                                    <img class="mymmo-modal-tekening skip-lazy no-lazyload"
                                          src="<?php echo esc_url($image); ?>"
                                          alt="<?php echo esc_attr($image_alt); ?>"
-                                         loading="lazy"
+                                         data-no-lazy="1"
+                                         data-skip-lazy="1"
                                          decoding="async">
                                 </span>
                             </span>

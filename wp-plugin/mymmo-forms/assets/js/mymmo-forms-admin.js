@@ -302,6 +302,37 @@
     }
   }
 
+  /**
+   * De blokken per tabblad in de volgorde van het VENSTER zetten.
+   *
+   * De volgorde zelf is geen bediening meer (1.19): ze staat in de verborgen
+   * lijst en komt uit de opstelling. Maar het blok dat hier bovenaan staat,
+   * hoort ook het bovenste tabblad in het venster te zijn -- anders zoek je
+   * "Stuur een bericht" op de plek waar het in het venster niet staat.
+   */
+  function schikTabBlokken() {
+    var houder = document.querySelector('[data-mymmo-tabblokken]');
+    if (!houder) return;
+    leesVolgorde().forEach(function (id) {
+      var blok = houder.querySelector('[data-mymmo-tabblok="' + id + '"]');
+      if (blok) houder.appendChild(blok);
+    });
+  }
+
+  /**
+   * De titel van elk blok is het opschrift van het tabblad, zoals je het in
+   * het voorbeeld typt. Leeg valt terug op wat er in de HTML stond.
+   */
+  function noemTabBlokken() {
+    Array.prototype.forEach.call(document.querySelectorAll('[data-mymmo-tabblok-naam]'), function (kop) {
+      if (!kop.hasAttribute('data-mymmo-standaard')) {
+        kop.setAttribute('data-mymmo-standaard', kop.textContent);
+      }
+      var waarde = waardeVan(kop.getAttribute('data-mymmo-tabblok-naam'));
+      kop.textContent = waarde || kop.getAttribute('data-mymmo-standaard');
+    });
+  }
+
   function waardeVan(id) {
     var el = document.getElementById(id);
     return el ? schoon(el.value) : '';
@@ -437,6 +468,8 @@
     var anker = document.getElementById('mymmoFormsAnker');
     var keuze = document.getElementById('mymmoFormsPick');
     if (anker && keuze) anker.textContent = ankerVan(keuze.value);
+
+    noemTabBlokken();
   }
 
   /**
@@ -479,8 +512,6 @@
       var punten = puntenVan('mymmoFormsPunten');
       var beeld = waardeVan('mymmoFormsImage');
       var beeldAlt = waardeVan('mymmoFormsImageAlt');
-      var beeldCal = waardeVan('mymmoFormsImageCal');
-      var beeldCalAlt = waardeVan('mymmoFormsImageCalAlt');
       var watermerk = waardeVan('mymmoFormsWatermark');
 
       if (intro) atts.intro = intro;
@@ -488,8 +519,6 @@
       if (beeld) atts.image = beeld;
       // Een beschrijving zonder afbeelding beschrijft niets.
       if (beeld && beeldAlt) atts.image_alt = beeldAlt;
-      if (beeldCal) atts.image_calendly = beeldCal;
-      if (beeldCal && beeldCalAlt) atts.image_calendly_alt = beeldCalAlt;
       if (watermerk) atts.watermark = watermerk;
 
       // De stand van elk beeld apart. Alleen meegeven als er een tekening is:
@@ -498,16 +527,13 @@
         standVan(atts, [
           ['mymmoFormsImageScale', 'image_scale', '%'],
           ['mymmoFormsImageX', 'image_x', 'px'],
-          ['mymmoFormsImageY', 'image_y', 'px']
+          ['mymmoFormsImageY', 'image_y', 'px'],
+          ['mymmoFormsImageRot', 'image_rotate', 'deg']
         ]);
       }
-      if (beeldCal) {
-        standVan(atts, [
-          ['mymmoFormsImageCalScale', 'image_calendly_scale', '%'],
-          ['mymmoFormsImageCalX', 'image_calendly_x', 'px'],
-          ['mymmoFormsImageCalY', 'image_calendly_y', 'px']
-        ]);
-      }
+      // Een tekening per tabblad bestaat niet meer (1.19): er is er EEN voor
+      // het hele venster. Een opstelling met `image_calendly` verliest die bij
+      // het opnieuw bewaren -- bewust, dat is precies wat er weg moest.
       if (watermerk) {
         standVan(atts, [
           ['mymmoFormsWmScale', 'watermark_scale', '%'],
@@ -761,16 +787,13 @@
     zetVeld('mymmoFormsPunten', String(atts.points || '').split('|').join('\n'));
     zetVeld('mymmoFormsImage', atts.image);
     zetVeld('mymmoFormsImageAlt', atts.image_alt);
-    zetVeld('mymmoFormsImageCal', atts.image_calendly);
-    zetVeld('mymmoFormsImageCalAlt', atts.image_calendly_alt);
     zetVeld('mymmoFormsWatermark', atts.watermark);
     zetVeld('mymmoFormsAccentText', atts.accent_text || '#ffffff');
 
     // De getalvelden: de eenheid eraf, want die staat als label in het scherm.
     [
       ['mymmoFormsImageScale', 'image_scale'], ['mymmoFormsImageX', 'image_x'], ['mymmoFormsImageY', 'image_y'],
-      ['mymmoFormsImageCalScale', 'image_calendly_scale'], ['mymmoFormsImageCalX', 'image_calendly_x'],
-      ['mymmoFormsImageCalY', 'image_calendly_y'],
+      ['mymmoFormsImageRot', 'image_rotate'],
       ['mymmoFormsWmScale', 'watermark_scale'], ['mymmoFormsWmX', 'watermark_x'], ['mymmoFormsWmY', 'watermark_y'],
       ['mymmoFormsWmRot', 'watermark_rotate']
     ].forEach(function (paar) {
@@ -794,6 +817,7 @@
     zetVeld('mymmoFormsTabExtra', atts.tab_extra);
     zetVeld('mymmoFormsTabExtraSub', atts.tab_extra_sub);
     zetVolgorde(atts.tab_order);
+    schikTabBlokken();
     zetVeld('mymmoFormsTabActief', atts.tab);
     zetVeld('mymmoFormsCalendlyTitle', atts.calendly_title);
     zetVeld('mymmoFormsCalendlySub', atts.calendly_sub);
@@ -928,38 +952,6 @@
     if (titel) titel.addEventListener('change', bouwShortcode);
     if (taal) taal.addEventListener('change', bouwShortcode);
 
-    // De volgorde van de tabbladen. Pijltjes en geen sleepbediening: er staan er
-    // drie, en slepen vraagt een toetsenbordalternatief dat dan alsnog pijltjes
-    // is.
-    var volgordeLijst = document.querySelector('[data-mymmo-taborder]');
-    if (volgordeLijst) {
-      volgordeLijst.addEventListener('click', function (e) {
-        var op = e.target.closest('[data-mymmo-taborder-op]');
-        var neer = e.target.closest('[data-mymmo-taborder-neer]');
-        var knop = op || neer;
-        if (!knop) return;
-
-        var rij = knop.closest('li');
-        if (!rij) return;
-
-        var buur = op ? rij.previousElementSibling : rij.nextElementSibling;
-        if (!buur) return;   // al boven- of onderaan
-
-        if (op) {
-          volgordeLijst.insertBefore(rij, buur);
-        } else {
-          volgordeLijst.insertBefore(buur, rij);
-        }
-
-        // De focus meenemen: anders staat hij op een knop die versprongen is en
-        // klikt iemand die drie keer wil opschuiven, de tweede keer mis.
-        var opnieuw = rij.querySelector(op ? '[data-mymmo-taborder-op]' : '[data-mymmo-taborder-neer]');
-        if (opnieuw) opnieuw.focus();
-
-        bouwShortcode();
-      });
-    }
-
     // Alles wat in de shortcode terechtkomt, opnieuw samenstellen zodra het
     // wijzigt. 'input' en niet 'change': anders zie je je knoptekst pas in de
     // shortcode staan nadat je ergens anders geklikt hebt, en dan heb je de
@@ -976,9 +968,8 @@
       + ' #mymmoFormsVariant, #mymmoFormsAccentAan, #mymmoFormsAccent, #mymmoFormsTrigger,'
       + ' #mymmoFormsGap, #mymmoFormsFormTitle, #mymmoFormsFormSub, #mymmoFormsFormHeading,'
       + ' #mymmoFormsBgAan, #mymmoFormsBg, #mymmoFormsIconAan, #mymmoFormsIcon,'
-      + ' #mymmoFormsAccentText, #mymmoFormsImageCal, #mymmoFormsImageCalAlt, #mymmoFormsWatermark,'
-      + ' #mymmoFormsImageScale, #mymmoFormsImageX, #mymmoFormsImageY,'
-      + ' #mymmoFormsImageCalScale, #mymmoFormsImageCalX, #mymmoFormsImageCalY,'
+      + ' #mymmoFormsAccentText, #mymmoFormsWatermark,'
+      + ' #mymmoFormsImageScale, #mymmoFormsImageX, #mymmoFormsImageY, #mymmoFormsImageRot,'
       + ' #mymmoFormsWmScale, #mymmoFormsWmX, #mymmoFormsWmY, #mymmoFormsWmRot,'
       + ' #mymmoFormsThanksCalendly,'
       + ' #mymmoFormsThanksFormImage, #mymmoFormsThanksFormTitle, #mymmoFormsThanksFormText,'
@@ -1001,6 +992,7 @@
 
     koppelStapKiezers();
     tekenStapKiezers();
+    schikTabBlokken();
     toonRijen();
     vulTalen();
 
@@ -1039,6 +1031,14 @@
         geladenNaam = laden.getAttribute('data-mymmo-preset-name') || '';
         zetVeld('mymmoFormsPresetName', geladenNaam);
         zetVeld('mymmoFormsPresetId', laden.getAttribute('data-mymmo-preset-load') || '');
+        zetVeld('mymmoFormsPresetDeleteId', laden.getAttribute('data-mymmo-preset-load') || '');
+        var wegForm = document.getElementById('mymmoFormsPresetDelete');
+        if (wegForm) wegForm.hidden = false;
+        var alsNieuw = document.querySelector('[data-mymmo-preset-nieuw]');
+        if (alsNieuw) alsNieuw.hidden = false;
+        Array.prototype.forEach.call(document.querySelectorAll('[data-mymmo-preset-load]'), function (k) {
+          k.classList.toggle('button-primary', k === laden);
+        });
 
         vulIn(atts, laden.getAttribute('data-mymmo-preset-soort') || 'knop');
         var canvas = document.getElementById('mymmoFormsCanvas');
@@ -1052,15 +1052,14 @@
       kopieer(knop);
     });
 
-    // Een nieuwe naam typen betekent: een NIEUWE opstelling, niet de geladene
-    // bijwerken. Zonder dit overschrijf je stil degene die je net laadde -- en
-    // die staat mogelijk op pagina's die je niet in beeld hebt.
-    var naamVeld = document.getElementById('mymmoFormsPresetName');
-    if (naamVeld) {
-      naamVeld.addEventListener('input', function () {
-        if (geladenNaam !== null && naamVeld.value !== geladenNaam) {
-          zetVeld('mymmoFormsPresetId', '');
-        }
+    // HERNOEMEN houdt het id (1.19.4): een knop op de site wijst naar dat id,
+    // dus een nieuwe naam werkt meteen door. Tot nu maakte een andere naam
+    // typen stil een TWEEDE popup aan -- en dan bleef de site de oude tonen.
+    // Een kopie maken is nu een aparte knop.
+    var nieuwKnop = document.querySelector('[data-mymmo-preset-nieuw]');
+    if (nieuwKnop) {
+      nieuwKnop.addEventListener('click', function () {
+        zetVeld('mymmoFormsPresetId', '');
       });
     }
 

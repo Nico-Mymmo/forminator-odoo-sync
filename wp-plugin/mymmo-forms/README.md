@@ -567,6 +567,71 @@ injectiepad zijn naar elke site die het formulier toont.
 
 ## Versies
 
+**1.19.4** — het tabblad heet "Popups" en beheert popups, geen shortcodes.
+- Een popup HERNOEMEN houdt zijn id, dus de nieuwe naam werkt meteen door op
+  de site. Tot nu maakte een andere naam typen stil een tweede popup aan, en
+  bleef de site de oude tonen. Een kopie maken is een aparte knop ("Als nieuwe
+  popup bewaren"); verwijderen staat onder de geladen popup.
+- "Shortcodes en beheer" is weg. Die tabel zette in de kolom "Formulier" de
+  slug van het berichtformulier (`test-contact-openvme`), wat las als de naam
+  van de popup. Ook de lijst van alle formulieren met hun shortcode is weg.
+- Keuzelijsten (bouwer en blok Mymmo formulier) tonen de naam van de KOPPELING
+  in de OM ("Syndicoach - Contactaanvraag"), niet de titel boven het formulier.
+  Vraagt een Worker-deploy: zonder valt het terug op de titel.
+- Het voorbeeld is niet hoger dan zijn inhoud. Het mat de hoogte van het
+  document in het iframe, en die is nooit kleiner dan het iframe zelf: het
+  groeide mee met het hoogste tabblad en kromp nooit meer terug.
+
+**1.19.3** — geen shortcode meer onderaan de bouwer, en ook geen "losse
+versie". Het venster hang je aan een knop (paneel "Opent een venster" op een
+gewone knop) of aan een ingang, en die verwijzen rechtstreeks naar de
+opstelling. De shortcode zelf werkt nog en staat bij "Shortcodes en beheer".
+
+**1.19.2** — de knop hoort niet meer bij het venster. Je hangt het venster aan
+elke knop op de pagina (het knopblok van Mymmo Componenten, een ingang, een
+klasse), dus de groep "Knop" in de bouwer en de knop bovenaan het voorbeeld
+logen over hoe het op de site werkt. Allebei weg. De accentkleur en de
+tekstkleur erop staan nu onder Uitzicht: die kleuren ook de knoppen en het
+actieve tabblad IN het venster. Stijl, knoptekst en "waar de knop staat"
+blijven als verborgen veld bewaard voor een opstelling die haar eigen knop nog
+toont; aan de shortcode zelf is niets veranderd.
+
+**1.19.1** — de instellingen rechts in de bouwer toonden een rij naamloze
+tekstvakken en een los keuzerondje. Dat waren de velden die je in het voorbeeld
+typt; ze hoorden te verdwijnen zodra het voorbeeld draait, maar
+`.mymmo-veld { display:flex }` stond later in de stylesheet en was even zwaar
+als de verbergregel. Ze staan nu in een eigen verborgen houder. Verder: geen
+bediening meer voor de ruimte tussen de velden (marges en opvulling liggen
+vast; een bestaande `gap` blijft bewaard), en de tekening staat in het
+voorbeeld standaard achteraan, zoals een bezoeker ze ziet.
+
+**1.19.0** — de shortcode-bouwer is enkel nog voor het VENSTER, en ingedeeld
+per tabblad. Tot nu stond alles wat het venster ooit kon door elkaar: het
+formulier van "Stuur een bericht" heette er "Formulier" en stond bovenaan,
+"Bereken je prijsofferte" heette "Derde tabblad" en stond halverwege, en
+daartussen een tabvolgorde, een keuze welk tabblad opent, een regeltje per
+tabknop en een tweede tekening voor de agenda. Nu: één blok per tabblad, in de
+volgorde van het venster en met het opschrift van dat tabblad als titel
+(stappen + formulier, formulier, agenda — telkens met conversiepad), daarna
+**Uitzicht** (één tekening en één watermerk, elk met schaal, verschuiving en nu
+ook draaien voor de tekening) en **Knop**. Teksten typ je in het voorbeeld,
+ook die van de stappen.
+Weg uit het scherm: de tabvolgorde, "welk tabblad opent", de regeltjes onder
+de tabknoppen (een bestaand regeltje blijft te bewerken, je kan er geen meer
+bijzetten), de knop "+ geruststelling" (bestaande blijven te bewerken en weg te
+halen) en de tekening per tabblad (`image_calendly` valt weg bij het opnieuw
+bewaren van een opstelling). De volgorde en het actieve tabblad van een
+bestaande opstelling blijven bewaard: ze staan als verborgen veld.
+"Formulier op de pagina" is uit de bouwer: het blok **Mymmo formulier** kiest
+nu rechtstreeks een formulier uit de OM (plus taal en titel) en toont het
+meteen in de editor. Een bewaarde opstelling kiezen kan daar nog, dichtgeklapt;
+bestaande blokken blijven werken.
+Het watermerk laadde op syndicoach.be nooit: de lazyload-plugin maakte van
+`src` een `data-src` met een leeg plaatje, en in een venster dat op
+`display:none` staat tot iemand het opent, komt zo'n beeld voor die plugin
+nooit "in beeld". Tekening en watermerk dragen nu `skip-lazy`/`data-no-lazy`,
+zoals de afbeeldingen in de stappen.
+
 **1.18.4** — de labels van de stappen gaan mee bij een inzending. Een stap zet de
 WAARDE van een keuze in het verborgen veld (`lift,water_verwarming`), en dat
 blijft zo: die sleutel ligt vast en een koppeling rekent erop. Maar wat de

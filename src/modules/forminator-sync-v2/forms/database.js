@@ -109,6 +109,20 @@ export async function listPublishedForms(env) {
 
   if (veldFout) throw new Error(`Kon de velden niet tellen: ${veldFout.message}`);
 
+  // De naam van de koppeling, voor de keuzelijsten in wp-admin. Best-effort:
+  // lukt het niet, dan valt de lijst terug op de titel van het formulier in
+  // plaats van helemaal niets terug te geven.
+  const namen = {};
+  const { data: koppelingen, error: koppelFout } = await supabase
+    .from(TABLES.integrations)
+    .select('id, name')
+    .in('id', forms.map((f) => f.integration_id).filter(Boolean));
+  if (koppelFout) {
+    console.warn(`[forms] koppelingnamen niet opgehaald: ${koppelFout.message}`);
+  } else {
+    ensureArray(koppelingen).forEach((k) => { namen[k.id] = k.name || ''; });
+  }
+
   // Opmaakblokken tellen niet mee: "3 velden" moet betekenen dat een bezoeker
   // drie dingen invult, niet dat er twee tussentitels tussen staan.
   const OPMAAK = ['heading', 'paragraph'];
@@ -118,7 +132,11 @@ export async function listPublishedForms(env) {
     aantal[rij.form_id] = (aantal[rij.form_id] || 0) + 1;
   });
 
-  return forms.map((form) => ({ form, fieldCount: aantal[form.id] || 0 }));
+  return forms.map((form) => ({
+    form,
+    fieldCount: aantal[form.id] || 0,
+    adminName: namen[form.integration_id] || '',
+  }));
 }
 
 /**

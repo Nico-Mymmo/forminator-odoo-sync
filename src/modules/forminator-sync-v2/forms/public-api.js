@@ -264,7 +264,7 @@ async function handleLijst(request, env) {
     return json({ success: false, error: 'Tijdelijk niet beschikbaar' }, 503, request, env);
   }
 
-  const forms = rijen.map(({ form, fieldCount }) => toPublicFormListItem(form, fieldCount));
+  const forms = rijen.map(({ form, fieldCount, adminName }) => toPublicFormListItem(form, fieldCount, adminName));
 
   // De ETag uit slug+versie van elke rij: verandert er iets aan een formulier,
   // dan verandert zijn versie, en dus deze ETag. Nooit een tijdstip erin --
@@ -272,7 +272,9 @@ async function handleLijst(request, env) {
   // versienummer, dus daarvan gaan naam en link erin: dat is precies wat de
   // keuzelijst toont, en wijzigt er één van de twee dan hoort de plugin te
   // verversen.
-  const etag = `"lijst-${forms.length}-${forms.map((f) => `${f.slug}.${f.version}`).join('~')}`
+  // De naam van de koppeling hoort erin: die heeft geen eigen versie, en een
+  // hernoemde koppeling moet in wp-admin meteen met haar nieuwe naam staan.
+  const etag = `"lijst-${forms.length}-${forms.map((f) => `${f.slug}.${f.version}.${f.admin_name}`).join('~')}`
     + `-a${afspraken.length}-${afspraken.map((a) => `${a.name}.${a.url}`).join('~')}"`;
 
   if (request.headers.get('If-None-Match') === etag) {

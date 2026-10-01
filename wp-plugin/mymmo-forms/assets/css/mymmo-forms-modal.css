@@ -920,7 +920,10 @@ html.mymmo-modal-js .mymmo-modal-body--tabs .mymmo-modal-paneel.is-actief {
   .mymmo-modal-stand {
     display: block;
     position: relative;
-    transform: translate(var(--mf-fig-x, 0px), var(--mf-fig-y, 0px)) scale(var(--mf-fig-scale, 100%));
+    transform:
+      translate(var(--mf-fig-x, 0px), var(--mf-fig-y, 0px))
+      scale(var(--mf-fig-scale, 100%))
+      rotate(var(--mf-fig-rotate, 0deg));
     transform-origin: bottom center;
   }
 

@@ -2,25 +2,26 @@
 /**
  * Het blok "Mymmo formulier" voor de blok-editor.
  *
- * Wat het doet: je voegt het blok in, kiest in de zijbalk een BEWAARDE
- * OPSTELLING, en ziet meteen in de editor wat er op de pagina komt te staan.
+ * Wat het doet: je voegt het blok in, kiest in de zijbalk een FORMULIER uit de
+ * Operations Manager, en ziet het meteen in de editor zoals het op de pagina
+ * komt te staan.
  *
- * Wat het NIET doet: instellingen per plaatsing. Het blok kent één keuze -- welke
- * opstelling -- en verder niets. Dat is met opzet. De teksten en kleuren zet je
- * in de bouwer bij Instellingen → Mymmo Forms, waar het levende voorbeeld staat;
- * ze hier nóg eens als velden in de zijbalk zetten zou betekenen dat dezelfde
- * instelling op twee plekken staat en dat je bij een wijziging moet raden welke
- * van de twee gold. Precies waarom de tekstvelden uit de bouwer verhuisd zijn
- * naar het voorbeeld zelf.
+ * Sinds 1.19 is dit de weg om een formulier gewoon op een pagina te zetten. De
+ * stand "formulier op de pagina" is uit de shortcode-bouwer gehaald: die bouwer
+ * is er enkel nog voor het venster, en een formulier in de tekst heeft niets
+ * van wat daar staat (geen tabbladen, geen tekening, geen agenda). Wat je hier
+ * kiest is dus bewust kort: welk formulier, welke taal, en of de titel erboven
+ * staat. Teksten van het formulier zelf horen in de OM, waar het formulier
+ * gebouwd wordt.
  *
- * Het gevolg is de winst: één opstelling wijzigen werkt door op élke pagina die
- * ze gebruikt, zonder die pagina's te openen.
+ * Het blok kan nog altijd een bewaarde OPSTELLING tonen (`preset`). Dat is wat
+ * het tot 1.18 enkel kon; bestaande blokken blijven dus werken, en een knop met
+ * venster in de tekst zetten gaat nog steeds zo.
  *
  * SERVER-SIDE GERENDERD. `save` geeft null terug, dus er staat geen HTML in de
- * pagina-inhoud -- enkel `<!-- wp:mymmo/forms {"preset":"..."} /-->`. Daardoor
- * kan een opstelling nooit "vastgeroest" in een oude pagina blijven staan, en
- * bestaat er geen blokvalidatiefout als de opmaak van het venster wijzigt. Dat
- * is dezelfde reden waarom de plugin nergens een kopie van een formulier bewaart.
+ * pagina-inhoud -- enkel `<!-- wp:mymmo/forms {"slug":"..."} /-->`. Daardoor
+ * volgt de pagina vanzelf elke wijziging aan het formulier in de OM, en bestaat
+ * er geen blokvalidatiefout als de opmaak wijzigt.
  */
 
 declare(strict_types=1);
@@ -36,6 +37,7 @@ final class Mymmo_Forms_Block {
     public static function init(): void {
         add_action('init', [self::class, 'register']);
         add_action('enqueue_block_assets', [self::class, 'editor_styles']);
+        add_action('enqueue_block_editor_assets', [self::class, 'editor_data']);
     }
 
     public static function register(): void {
@@ -51,29 +53,13 @@ final class Mymmo_Forms_Block {
             true
         );
 
-        // De lijst met opstellingen gaat mee naar de editor. Niet via de
-        // REST-API ophalen: het zijn er een handvol, ze staan al op de server op
-        // het moment dat de editor laadt, en een extra verzoek kan mislukken --
-        // en dan sta je naar een lege keuzelijst te kijken zonder te weten
-        // waarom.
-        $keuzes = [];
-        foreach (Mymmo_Forms_Presets::all() as $opstelling) {
-            $keuzes[] = [
-                'id'    => $opstelling['id'],
-                'name'  => $opstelling['name'],
-                'soort' => $opstelling['soort'],
-            ];
-        }
-
-        wp_localize_script('mymmo-forms-block', 'MymmoFormsBlock', [
-            'presets'     => $keuzes,
-            'settingsUrl' => admin_url('options-general.php?page=mymmo-forms'),
-        ]);
-
         register_block_type(self::NAAM, [
             'api_version'     => 2,
             'editor_script'   => 'mymmo-forms-block',
             'attributes'      => [
+                'slug'   => ['type' => 'string', 'default' => ''],
+                'lang'   => ['type' => 'string', 'default' => ''],
+                'title'  => ['type' => 'boolean', 'default' => true],
                 'preset' => ['type' => 'string', 'default' => ''],
             ],
             'render_callback' => [self::class, 'render'],
@@ -81,17 +67,83 @@ final class Mymmo_Forms_Block {
     }
 
     /**
+     * De keuzelijsten voor de zijbalk.
+     *
+     * Pas hier en niet bij `init`: de formulierenlijst komt uit de OM, en `init`
+     * draait bij ELK verzoek, ook op de voorkant. Deze haak vuurt alleen als de
+     * editor opent. De lijst zelf wordt een minuut bewaard
+     * (Mymmo_Forms_Api_Client), net als in de bouwer.
+     *
+     * Niet via de REST-API vanuit de browser: dan sta je bij een storing naar
+     * een lege keuzelijst te kijken zonder te weten waarom. Hier gaat de
+     * foutmelding gewoon mee.
+     */
+    public static function editor_data(): void {
+        $formulieren = [];
+        $fout = '';
+        $lijst = Mymmo_Forms_Api_Client::list_forms();
+        if ($lijst === null) {
+            $fout = (string) Mymmo_Forms_Api_Client::last_error();
+        } else {
+            foreach ($lijst as $f) {
+                $slug = (string) ($f['slug'] ?? '');
+                if ($slug === '') {
+                    continue;
+                }
+                $formulieren[] = [
+                    'slug'      => $slug,
+                    'name'      => mymmo_forms_form_label($f),
+                    'languages' => array_values(array_map('strval', (array) ($f['languages'] ?? ['nl']))),
+                ];
+            }
+        }
+
+        $opstellingen = [];
+        foreach (Mymmo_Forms_Presets::all() as $opstelling) {
+            $opstellingen[] = [
+                'id'    => $opstelling['id'],
+                'name'  => $opstelling['name'],
+                'soort' => $opstelling['soort'],
+            ];
+        }
+
+        wp_localize_script('mymmo-forms-block', 'MymmoFormsBlock', [
+            'forms'       => $formulieren,
+            'formsError'  => $fout,
+            'configured'  => mymmo_forms_is_configured(),
+            'presets'     => $opstellingen,
+            'settingsUrl' => admin_url('options-general.php?page=mymmo-forms'),
+        ]);
+    }
+
+    /**
      * @param array<string,mixed> $attributen
      */
     public static function render($attributen = []): string {
+        $slug = sanitize_title((string) ($attributen['slug'] ?? ''));
+
+        // Een formulier rechtstreeks: dat wint van een opstelling. Wie in de
+        // zijbalk een formulier kiest, bedoelt dat formulier.
+        if ($slug !== '') {
+            $atts = ['slug' => $slug];
+            $taal = sanitize_key((string) ($attributen['lang'] ?? ''));
+            if ($taal !== '') {
+                $atts['lang'] = $taal;
+            }
+            if (array_key_exists('title', $attributen) && $attributen['title'] === false) {
+                $atts['title'] = 'no';
+            }
+            return Mymmo_Forms_Shortcodes::render($atts);
+        }
+
         $preset = sanitize_title((string) ($attributen['preset'] ?? ''));
 
         if ($preset === '') {
-            // Op de voorkant niets tonen: een blok waarin niemand een opstelling
-            // koos, hoort geen foutmelding aan een bezoeker te geven. In de
-            // editor ziet de redacteur wél een uitnodiging om er een te kiezen.
+            // Op de voorkant niets tonen: een blok waarin niemand iets koos,
+            // hoort geen foutmelding aan een bezoeker te geven. In de editor
+            // ziet de redacteur wél een uitnodiging.
             return current_user_can('edit_posts')
-                ? '<div class="mymmo-form-notice mymmo-form-notice--admin">Kies een opstelling in de zijbalk van dit blok.</div>'
+                ? '<div class="mymmo-form-notice mymmo-form-notice--admin">Kies een formulier in de zijbalk van dit blok.</div>'
                 : '';
         }
 
@@ -110,7 +162,7 @@ final class Mymmo_Forms_Block {
     /**
      * De stylesheets van het formulier ook IN de editor.
      *
-     * Zonder dit staat de knop daar ongestyled: het blok wordt via de
+     * Zonder dit staat het formulier daar ongestyled: het blok wordt via de
      * REST-renderer opgehaald, en de wp_enqueue_style() die de shortcode dan
      * doet, bereikt de editorpagina niet -- die is al geladen.
      *

@@ -2,16 +2,20 @@
  * Het blok "Mymmo formulier" in de blok-editor.
  *
  * Bewust ZONDER JSX en zonder bouwstap: deze plugin heeft er geen, en één blok
- * met één keuzelijst is dat niet waard. wp.element.createElement doet hetzelfde.
+ * met drie keuzes is dat niet waard. wp.element.createElement doet hetzelfde.
  *
- * Het blok toont in de editor het ECHTE resultaat via ServerSideRender: die
- * vraagt de server om de HTML van dit blok, met precies dezelfde render als op
- * de pagina. Geen nabootsing in de editor dus -- zelfde afweging als het levende
- * voorbeeld in de bouwer.
+ * Je kiest een FORMULIER uit de Operations Manager en ziet het meteen staan via
+ * ServerSideRender: die vraagt de server om de HTML van dit blok, met precies
+ * dezelfde render als op de pagina. Geen nabootsing in de editor dus -- zelfde
+ * afweging als het levende voorbeeld in de bouwer.
+ *
+ * Een bewaarde OPSTELLING kiezen kan nog (zo werkte het blok tot 1.18), maar
+ * staat eronder, dichtgeklapt: voor een formulier op de pagina is die omweg niet
+ * meer nodig.
  *
  * `save` geeft null: de HTML staat niet in de pagina-inhoud. Daardoor volgt een
- * pagina automatisch een gewijzigde opstelling, en kan er nooit een
- * blokvalidatiefout ontstaan als de opmaak van het venster verandert.
+ * pagina automatisch een gewijzigd formulier, en kan er nooit een
+ * blokvalidatiefout ontstaan als de opmaak verandert.
  */
 
 (function (blocks, element, blockEditor, components, serverSideRender) {
@@ -20,18 +24,45 @@
   if (!blocks || !element || !serverSideRender) return;
 
   var el = element.createElement;
-  var C = window.MymmoFormsBlock || { presets: [], settingsUrl: '' };
+
+  function data() {
+    return window.MymmoFormsBlock || { forms: [], presets: [], settingsUrl: '' };
+  }
 
   var InspectorControls = blockEditor.InspectorControls;
   var PanelBody = components.PanelBody;
   var SelectControl = components.SelectControl;
+  var ToggleControl = components.ToggleControl;
   var Placeholder = components.Placeholder;
   var ExternalLink = components.ExternalLink;
+  var Notice = components.Notice;
 
-  /** De keuzelijst: eerst niets gekozen, dan de opstellingen op naam. */
-  function keuzes() {
-    var uit = [{ label: '— kies een opstelling —', value: '' }];
-    (C.presets || []).forEach(function (p) {
+  var TAALNAMEN = { nl: 'Nederlands', fr: 'Frans', en: 'Engels', de: 'Duits' };
+
+  function formulier(slug) {
+    return (data().forms || []).filter(function (f) { return f.slug === slug; })[0] || null;
+  }
+
+  function formulierKeuzes() {
+    var uit = [{ label: '— kies een formulier —', value: '' }];
+    (data().forms || []).forEach(function (f) {
+      uit.push({ label: f.name, value: f.slug });
+    });
+    return uit;
+  }
+
+  function taalKeuzes(slug) {
+    var f = formulier(slug);
+    var uit = [{ label: 'Volg de pagina', value: '' }];
+    ((f && f.languages) || []).forEach(function (t) {
+      uit.push({ label: TAALNAMEN[t] || t.toUpperCase(), value: t });
+    });
+    return uit;
+  }
+
+  function opstellingKeuzes() {
+    var uit = [{ label: '— geen —', value: '' }];
+    (data().presets || []).forEach(function (p) {
       uit.push({
         label: p.name + (p.soort === 'inline' ? ' (formulier op de pagina)' : ' (knop met venster)'),
         value: p.id
@@ -40,41 +71,85 @@
     return uit;
   }
 
-  function naamVan(id) {
-    var gevonden = (C.presets || []).filter(function (p) { return p.id === id; })[0];
-    return gevonden ? gevonden.name : '';
+  function naamVanOpstelling(id) {
+    var gevonden = (data().presets || []).filter(function (p) { return p.id === id; })[0];
+    return gevonden ? gevonden.name : id;
   }
 
   blocks.registerBlockType('mymmo/forms', {
     apiVersion: 2,
     title: 'Mymmo formulier',
-    description: 'Een formulier uit de Operations Manager, in de opstelling die je bij Instellingen → Mymmo Forms bewaarde.',
+    description: 'Een formulier uit de Operations Manager, rechtstreeks op de pagina.',
     icon: 'feedback',
     category: 'widgets',
     keywords: ['formulier', 'offerte', 'contact', 'calendly'],
     supports: { html: false, align: ['wide', 'full'] },
 
     attributes: {
+      slug: { type: 'string', default: '' },
+      lang: { type: 'string', default: '' },
+      title: { type: 'boolean', default: true },
       preset: { type: 'string', default: '' }
     },
 
     edit: function (props) {
-      var preset = props.attributes.preset || '';
+      var a = props.attributes;
+      var C = data();
       var blokProps = blockEditor.useBlockProps ? blockEditor.useBlockProps() : {};
+      var talen = taalKeuzes(a.slug);
+
+      var fout = C.formsError
+        ? el(Notice, { status: 'error', isDismissible: false },
+            'De formulieren konden niet opgehaald worden: ' + C.formsError)
+        : (C.configured === false
+          ? el(Notice, { status: 'warning', isDismissible: false },
+              'De verbinding met de Operations Manager is nog niet ingesteld.')
+          : null);
 
       var zijbalk = el(
         InspectorControls,
         null,
         el(
           PanelBody,
-          { title: 'Opstelling', initialOpen: true },
+          { title: 'Formulier', initialOpen: true },
+          fout,
           el(SelectControl, {
-            label: 'Welke opstelling',
-            value: preset,
-            options: keuzes(),
+            label: 'Welk formulier',
+            value: a.slug,
+            options: formulierKeuzes(),
+            // Een ander formulier kan andere talen hebben; een taal die het
+            // nieuwe niet kent zou stil terugvallen op de standaardtaal.
+            onChange: function (waarde) { props.setAttributes({ slug: waarde, lang: '' }); },
+            help: 'Formulieren maak en wijzig je in de Operations Manager, onder Koppelingen. '
+              + 'Alleen gepubliceerde formulieren staan in deze lijst.'
+          }),
+          a.slug && talen.length > 2
+            ? el(SelectControl, {
+                label: 'Taal',
+                value: a.lang,
+                options: talen,
+                onChange: function (waarde) { props.setAttributes({ lang: waarde }); }
+              })
+            : null,
+          a.slug
+            ? el(ToggleControl, {
+                label: 'Titel van het formulier tonen',
+                checked: a.title !== false,
+                onChange: function (waarde) { props.setAttributes({ title: !!waarde }); }
+              })
+            : null
+        ),
+        el(
+          PanelBody,
+          { title: 'Of: een bewaarde opstelling', initialOpen: !a.slug && !!a.preset },
+          el(SelectControl, {
+            label: 'Opstelling',
+            value: a.preset,
+            options: opstellingKeuzes(),
             onChange: function (waarde) { props.setAttributes({ preset: waarde }); },
-            help: 'De teksten, de kleur en de agenda horen bij de opstelling. '
-              + 'Pas je die aan, dan verandert elke pagina mee die dezelfde opstelling gebruikt.'
+            help: a.slug
+              ? 'Er is hierboven een formulier gekozen; dat wint. Zet het formulier op "kies" om een opstelling te tonen.'
+              : 'Bijvoorbeeld een knop die het venster opent. Opstellingen maak je bij Instellingen → Mymmo Forms.'
           }),
           C.settingsUrl
             ? el(ExternalLink, { href: C.settingsUrl }, 'Opstellingen beheren')
@@ -82,14 +157,16 @@
         )
       );
 
+      var attributen = a.slug
+        ? { slug: a.slug, lang: a.lang, title: a.title !== false }
+        : { preset: a.preset };
+
       // Nog niets gekozen: geen ServerSideRender aanroepen voor een leeg
       // resultaat, maar zeggen wat er te doen staat.
-      var inhoud = preset
+      var inhoud = (a.slug || a.preset)
         ? el(serverSideRender, {
             block: 'mymmo/forms',
-            attributes: { preset: preset },
-            // Zonder dit knippert het blok bij elke toetsaanslag elders in de
-            // editor; de inhoud hangt maar van één attribuut af.
+            attributes: attributen,
             httpMethod: 'POST'
           })
         : el(
@@ -97,20 +174,31 @@
             {
               icon: 'feedback',
               label: 'Mymmo formulier',
-              instructions: (C.presets || []).length
-                ? 'Kies rechts in de zijbalk welke opstelling hier moet staan.'
-                : 'Er zijn nog geen opstellingen. Maak er een bij Instellingen → Mymmo Forms; '
-                  + 'daar staat een voorbeeld waarin je alles kan zetten.'
+              instructions: (C.forms || []).length
+                ? 'Kies hieronder of rechts in de zijbalk welk formulier hier moet staan.'
+                : 'Er zijn nog geen gepubliceerde formulieren. Maak er een in de Operations Manager, onder Koppelingen.'
             },
-            C.settingsUrl
-              ? el(ExternalLink, { href: C.settingsUrl }, 'Naar Mymmo Forms')
+            (C.forms || []).length
+              ? el(SelectControl, {
+                  label: 'Formulier',
+                  hideLabelFromVision: true,
+                  value: a.slug,
+                  options: formulierKeuzes(),
+                  onChange: function (waarde) { props.setAttributes({ slug: waarde, lang: '' }); }
+                })
               : null
           );
 
-      return el('div', blokProps, zijbalk, inhoud, preset
-        ? el('p', {
-            style: { margin: '6px 0 0', fontSize: '12px', color: '#646970' }
-          }, 'Opstelling: ' + (naamVan(preset) || preset))
+      var onderschrift = null;
+      if (a.slug) {
+        var f = formulier(a.slug);
+        onderschrift = 'Formulier: ' + (f ? f.name : a.slug);
+      } else if (a.preset) {
+        onderschrift = 'Opstelling: ' + naamVanOpstelling(a.preset);
+      }
+
+      return el('div', blokProps, zijbalk, inhoud, onderschrift
+        ? el('p', { style: { margin: '6px 0 0', fontSize: '12px', color: '#646970' } }, onderschrift)
         : null);
     },
 

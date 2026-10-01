@@ -318,6 +318,18 @@ test('de lijstvorm bevat wat de shortcode-bouwer nodig heeft, en niets meer', ()
   assert.ok(!plat.includes('geheim-id'), 'de interne id hoort niet in een lijst voor een plugin');
   assert.ok(!plat.includes('geheime-koppeling'), 'het koppeling-id al helemaal niet');
   assert.ok(!plat.includes('theme'), 'de stijl heeft de bouwer niet nodig');
+  assert.equal(item.admin_name, 'Offerte', 'zonder koppelingnaam valt de naam terug op de titel');
+});
+
+test('de lijst geeft de naam van de koppeling als admin_name, niet haar id', () => {
+  const item = toPublicFormListItem(
+    { id: 'f', integration_id: 'geheime-koppeling', slug: 'contact', name: 'Stel je vraag', version: 1 },
+    2,
+    'Syndicoach - Contactaanvraag'
+  );
+  assert.equal(item.admin_name, 'Syndicoach - Contactaanvraag');
+  assert.equal(item.name, 'Stel je vraag');
+  assert.ok(!JSON.stringify(item).includes('geheime-koppeling'));
 });
 
 test('elk veldtype in FIELD_TYPES heeft de vier vlaggen', () => {

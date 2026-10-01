@@ -65,7 +65,7 @@
      kan vastpakken? De keuze leeft HIER en niet in het iframe: dat wordt bij
      elke structurele wijziging opnieuw opgebouwd, en dan zou de stand telkens
      terugspringen midden in het werk. */
-  var figuurAchter = false;
+  var figuurAchter = true;   // standaard zoals een bezoeker ze ziet (1.19)
 
   /* Staat het dankjewelscherm open in plaats van het formulier? Zelfde reden
      als hierboven: de stand leeft buiten het iframe. */
@@ -83,11 +83,11 @@
     { sel: '.mymmo-modal-title', veld: 'mymmoFormsHeading' },
     { sel: '.mymmo-modal-lead', veld: 'mymmoFormsIntro' },
     { sel: '[data-mymmo-tab="form"] .mymmo-modal-tab-label', veld: 'mymmoFormsTabForm' },
-    { sel: '[data-mymmo-tab="form"] .mymmo-modal-tab-sub', veld: 'mymmoFormsTabFormSub', leeg: 'Regeltje uitleg' },
+    { sel: '[data-mymmo-tab="form"] .mymmo-modal-tab-sub', veld: 'mymmoFormsTabFormSub' },
     { sel: '[data-mymmo-tab="calendly"] .mymmo-modal-tab-label', veld: 'mymmoFormsTabCalendly' },
-    { sel: '[data-mymmo-tab="calendly"] .mymmo-modal-tab-sub', veld: 'mymmoFormsTabCalendlySub', leeg: 'Regeltje uitleg' },
+    { sel: '[data-mymmo-tab="calendly"] .mymmo-modal-tab-sub', veld: 'mymmoFormsTabCalendlySub' },
     { sel: '[data-mymmo-tab="extra"] .mymmo-modal-tab-label', veld: 'mymmoFormsTabExtra' },
-    { sel: '[data-mymmo-tab="extra"] .mymmo-modal-tab-sub', veld: 'mymmoFormsTabExtraSub', leeg: 'Regeltje uitleg' },
+    { sel: '[data-mymmo-tab="extra"] .mymmo-modal-tab-sub', veld: 'mymmoFormsTabExtraSub' },
 
     /*
      * De kop boven de LAATSTE stap -- het formulier. Die hoort bij de
@@ -265,9 +265,7 @@
       ['image_scale', '--mf-fig-scale'],
       ['image_x', '--mf-fig-x'],
       ['image_y', '--mf-fig-y'],
-      ['image_calendly_scale', '--mf-fig2-scale'],
-      ['image_calendly_x', '--mf-fig2-x'],
-      ['image_calendly_y', '--mf-fig2-y'],
+      ['image_rotate', '--mf-fig-rotate'],
       ['watermark_scale', '--mf-wm-scale'],
       ['watermark_x', '--mf-wm-x'],
       ['watermark_y', '--mf-wm-y'],
@@ -317,8 +315,13 @@
       }
     }
 
-    if (frame) {
-      frame.style.height = Math.max(240, doc.documentElement.scrollHeight) + 'px';
+    // De hoogte van de INHOUD, niet die van het document. scrollHeight van
+    // <html> is nooit kleiner dan het iframe zelf: het voorbeeld groeide dus
+    // mee met het hoogste tabblad (de agenda) en kromp daarna nooit meer
+    // terug, met een leeg grijs vlak eronder.
+    if (frame && doc.body) {
+      var inhoud = Math.ceil(doc.body.getBoundingClientRect().height);
+      frame.style.height = Math.max(240, inhoud) + 'px';
     }
 
     pasSchaalToe();
@@ -390,7 +393,6 @@
       a.background || '',
       a.icon_color || '',
       a.accent_text || '',
-      a.image_calendly || '',
       a.watermark || '',
       a.extra_steps || '',
       a.extra_slug || '',
@@ -561,12 +563,13 @@
         agenda.appendChild(noot);
       }
 
-      var uitleg = doc.createElement('p');
-      uitleg.className = 'mf-uitleg';
-      uitleg.textContent = doc.querySelector('.mymmo-modal-button')
-        ? 'Dit venster gaat open zodra iemand op de knop hierboven klikt.'
-        : 'Dit venster gaat open vanuit een knop die al op je pagina staat.';
-      venster.parentNode.insertBefore(uitleg, venster);
+      // Geen knop in het voorbeeld (1.19.2): het venster hangt aan elke knop
+      // op de pagina, dus de knop die de shortcode zelf kan zetten is hier
+      // niet de knop waar het om gaat. Enkel uit het VOORBEELD gehaald; wat
+      // de shortcode op een pagina doet, verandert niet.
+      Array.prototype.forEach.call(doc.querySelectorAll('.mymmo-modal-button'), function (knop) {
+        knop.parentNode.removeChild(knop);
+      });
     }
 
     // Niets in het voorbeeld mag echt verstuurd worden.
@@ -825,7 +828,6 @@
    */
   var BEELDVELDEN = {
     form: { x: 'mymmoFormsImageX', y: 'mymmoFormsImageY', scale: 'mymmoFormsImageScale' },
-    calendly: { x: 'mymmoFormsImageCalX', y: 'mymmoFormsImageCalY', scale: 'mymmoFormsImageCalScale' },
     watermerk: { x: 'mymmoFormsWmX', y: 'mymmoFormsWmY', scale: 'mymmoFormsWmScale' }
   };
 
@@ -994,32 +996,9 @@
       punt.appendChild(weg);
     });
 
-    // De "erbij"-knop moet er ook staan als er NUL punten zijn -- anders is een
-    // opsomming die je één keer helemaal leeghaalt, nooit meer terug te krijgen
-    // zonder het tekstvak eronder.
-    var aside = doc.querySelector('.mymmo-modal-aside');
-    if (!aside || punten().length >= 6) return;
-
-    var erbij = doc.createElement('button');
-    erbij.type = 'button';
-    erbij.className = 'mf-knop mf-punt-erbij';
-    erbij.textContent = '+ geruststelling';
-    erbij.addEventListener('click', function () {
-      var alles = punten();
-      alles.push('Nieuwe regel');
-      zetPunten(alles);
-      render();
-    });
-
-    var punten_lijst = aside.querySelector('.mymmo-modal-punten');
-    var figuur = aside.querySelector('.mymmo-modal-figuur');
-    if (punten_lijst) {
-      punten_lijst.parentNode.insertBefore(erbij, punten_lijst.nextSibling);
-    } else if (figuur) {
-      aside.insertBefore(erbij, figuur);
-    } else {
-      aside.appendChild(erbij);
-    }
+    // Een geruststelling BIJZETTEN kan niet meer (1.19): het venster heeft er
+    // genoeg, en een lege "+"-knop nodigde uit tot een opsomming die elke week
+    // langer werd. Bewerken en weghalen blijft.
   }
 
   // ── De afbeelding: mediabibliotheek in plaats van een URL overtypen ───────

@@ -97,7 +97,11 @@
 /* Rijen die het canvas overgenomen heeft. Het script zet dit attribuut pas als
    het echt draait -- zonder JavaScript blijven de velden gewoon staan, want
    dan zijn zij de enige manier om die teksten te zetten. */
-[data-mymmo-canvas-overgenomen] {
+[data-mymmo-canvas-overgenomen],
+.mymmo-veld[data-mymmo-canvas-overgenomen],
+[data-mymmo-opslag] {
+  /* Twee keer, want .mymmo-veld { display:flex } staat verderop en is even
+     zwaar: de losse attribuutregel verloor daarvan. */
   display: none;
 }
 

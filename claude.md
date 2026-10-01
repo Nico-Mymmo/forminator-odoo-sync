@@ -931,6 +931,15 @@ Afspraken die bewust zo zijn:
   'form', dan zette je de agenda vooraan en ging het venster alsnog open op het
   formulier -- een knoprij waarvan de tweede knop actief is, leest als een fout.
   Een expliciete `tab="..."` wint nog steeds.
+- **De shortcode-bouwer is VAST per tabblad (plugin 1.19).** Eén blok per
+  tabblad (wat erin staat + conversiepad), dan Uitzicht (EEN tekening, EEN
+  watermerk, elk met schaal/verschuiving/draaien) en Knop. Bewust NIET meer in
+  het scherm: tabvolgorde, "welk tabblad opent", regeltjes onder de tabknoppen,
+  "+ geruststelling", een tekening per tabblad. Volgorde en actief tabblad van
+  een bestaande opstelling staan als VERBORGEN veld, zodat opnieuw bewaren niets
+  aan het venster op de site verandert. Zet die bediening niet terug zonder dat
+  het gevraagd wordt. Een formulier OP DE PAGINA gaat met het blok "Mymmo
+  formulier" (`slug`/`lang`/`title`, met ServerSideRender), niet via de bouwer.
 - **Het venster heeft GEEN vaste tabbladen meer.** Tot 1.14 stonden formulier
   en agenda als twee vaste blokken HTML in `templates/modal.php`, en de volgorde
   was de volgorde waarin ze toevallig in het bestand stonden. Sinds 1.15 is er
