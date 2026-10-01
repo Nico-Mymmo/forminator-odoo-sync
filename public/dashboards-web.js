@@ -586,6 +586,40 @@
     if (window.lucide) window.lucide.createIcons();
   }
 
+  // --- wat leidde tot de conversie (server: lib/web-attribution.js) -----------
+
+  async function loadAttribution() {
+    var body = document.getElementById('webAttrChannels');
+    var paths = document.getElementById('webAttrPaths');
+    body.innerHTML = '<tr><td colspan="5"><span class="loading loading-spinner loading-sm"></span></td></tr>';
+    paths.innerHTML = '';
+    try {
+      var a = await fetchJson('/dashboards/api/web-attribution?period=' + encodeURIComponent(web.period));
+      if (!a.available || !a.conversies) {
+        body.innerHTML = '<tr><td colspan="5" class="text-base-content/60">Geen conversies in deze periode.</td></tr>';
+        return;
+      }
+      var chip = function (ch) {
+        return '<span class="inline-flex items-center gap-1"><span class="inline-block w-2 h-2 rounded-full" style="background-color:' + (CHANNEL_COLORS[ch] || '#94a3b8') + '"></span>' + esc(ch) + '</span>';
+      };
+      body.innerHTML = a.kanalen.map(function (k) {
+        return '<tr><td>' + chip(k.channel) + '</td><td class="text-right">' + nf(k.eerste) + '</td><td class="text-right">' + nf(k.laatste)
+          + '</td><td class="text-right">' + nf(k.assist) + '</td><td class="text-right">' + k.positie.toLocaleString('nl-BE') + '</td></tr>';
+      }).join('');
+      paths.innerHTML = a.paden.map(function (p) {
+        return '<div class="flex justify-between gap-3 text-sm"><span>' + p.pad.split(' → ').map(chip).join(' <span class="text-base-content/40">→</span> ')
+          + '</span><span class="text-base-content/60 whitespace-nowrap">' + nf(p.n) + '×</span></div>';
+      }).join('');
+      var bits = [nf(a.conversies) + ' personen converteerden'];
+      if (a.meer_dan_een_bezoek) bits.push(nf(a.meer_dan_een_bezoek) + ' van hen na meer dan één bezoek');
+      if (a.mediaan_dagen !== null) bits.push('mediaan ' + a.mediaan_dagen + ' dagen en ' + a.mediaan_bezoeken + ' bezoeken tot de conversie');
+      if (a.afgekapt) bits.push(nf(a.afgekapt) + ' personen niet meegeteld (te veel om in één keer te berekenen)');
+      paths.insertAdjacentHTML('beforeend', '<p class="text-xs text-base-content/60 mt-3">' + esc(bits.join(' · ')) + '.</p>');
+    } catch (err) {
+      body.innerHTML = '<tr><td colspan="5" class="text-error">Kon niet laden: ' + esc(err.message) + '</td></tr>';
+    }
+  }
+
   function renderButtons() {
     document.querySelectorAll('[data-web-action="period"]').forEach(function (b) { b.classList.toggle('btn-active', b.dataset.value === web.period); });
     document.querySelectorAll('[data-web-action="site"]').forEach(function (b) { b.classList.toggle('btn-active', b.dataset.value === web.site); });
@@ -637,6 +671,7 @@
       web.data = data;
       status.classList.add('hidden');
       renderAll();
+      loadAttribution();
     } catch (err) {
       status.innerHTML = '<div class="alert alert-error">Kon de bezoeken niet laden: ' + esc(err.message) + '</div>';
       console.error('web-visits', err);

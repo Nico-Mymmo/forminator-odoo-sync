@@ -19,11 +19,14 @@ const ONBEKEND_OUD = 'Onbekend (oude historiek)';
 const GEEN_OORZAAK = new Set(['Direct / onbekend', 'Eigen sites', ONBEKEND_OUD]);
 const MAX_PAD = 8;
 
+// Dezelfde kleuren als CHANNEL_COLORS in public/dashboards-web.js (de Worker kan
+// niets uit public/ importeren): een kanaal heeft overal dezelfde kleur. Enkel de
+// grijzen zijn donkerder: hier zijn ze ook TEKSTkleur, en #cbd5e1 op wit leest niet.
 export const KLEUR = {
-  'Betaald zoeken': '#2563eb', 'Betaalde social': '#7c3aed', 'Betaald overig': '#9333ea',
-  'E-mail': '#d97706', 'Organisch zoeken': '#16a34a', 'Social organisch': '#0d9488',
-  'AI-assistenten': '#db2777', 'Verwijzing': '#475569', 'Eigen sites': '#64748b', 'Direct / onbekend': '#9ca3af',
-  [ONBEKEND_OUD]: '#9ca3af',
+  'Betaald zoeken': '#2563eb', 'Betaalde social': '#7c3aed', 'Betaald overig': '#a78bfa',
+  'E-mail': '#f59e0b', 'Organisch zoeken': '#059669', 'Social organisch': '#db2777',
+  'AI-assistenten': '#0891b2', 'Verwijzing': '#65a30d', 'Eigen sites': '#64748b', 'Direct / onbekend': '#94a3b8',
+  [ONBEKEND_OUD]: '#94a3b8',
 };
 
 function ms(ts) { return ts ? Date.parse(ts.replace(' ', 'T') + 'Z') : 0; }
@@ -40,13 +43,15 @@ function dag(ts) {
  *        conversionAt = moment van de conversie (eerste inzending, anders het
  *        aanmaken van de lead); persons = uuid -> label (e-mail of toestel)
  */
-export function buildJourney(sessions, { conversionAt = null, persons = new Map() } = {}) {
+export function buildJourney(sessions, { conversionAt = null, persons = new Map(), atConversion = null } = {}) {
   if (!sessions.length) return null;
   sessions = sessions.map(s => (s.historic && s.channel === 'Direct / onbekend' ? { ...s, channel: ONBEKEND_OUD } : s));
   const firstConv = sessions.find(s => s.conversions.calendly + s.conversions.events + s.conversions.forms > 0);
   // De conversie is de eerste inzending/afspraak op de site; anders het moment
   // waarop de lead ontstond (via telefoon, mail, een collega ...).
-  const convTs = firstConv ? firstConv.start : conversionAt;
+  // atConversion: het dashboard bepaalt zelf WELKE conversie (de eerste in de
+  // gekozen periode), niet de allereerste ooit.
+  const convTs = atConversion || (firstConv ? firstConv.start : conversionAt);
   const voor = convTs ? sessions.filter(s => ms(s.start) <= ms(convTs) + 60 * 60 * 1000) : sessions;
   const basis = voor.length ? voor : sessions;
 
@@ -68,7 +73,7 @@ export function buildJourney(sessions, { conversionAt = null, persons = new Map(
     sessies: basis.length,
     na: sessions.length - basis.length,
     personen: personen.size,
-    conversie: convTs ? { ts: convTs, opSite: !!firstConv } : null,
+    conversie: convTs ? { ts: convTs, opSite: !!(atConversion || firstConv) } : null,
     dagen: convTs ? Math.max(0, Math.round((ms(convTs) - ms(eerste.start)) / 86400000)) : null,
   };
 }

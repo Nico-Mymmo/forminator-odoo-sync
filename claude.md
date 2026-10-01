@@ -3831,6 +3831,7 @@ schrijver), de OM is de enige die met Odoo praat.** Volledige onderbouwing:
 | Uurlijkse push naar Odoo | `src/modules/web-story/lib/push.js`, `*/15`-tak in `index.js` (enkel het eerste kwartier, of zolang er werk ligt) |
 | Scherm per lead / actieblad / bezoeker, bevestigen, twijfelgevallen | `src/modules/web-story/routes.js` + `lib/story-data.js`, `public/webgedrag.html` + `.js` (`/webgedrag?lead=<id>`) |
 | Moduleregistratie | `supabase/migrations/20261001120000_web_story_module.sql` |
+| Dashboard: wat leidde tot de conversie (eerste / laatste / assist / positie, paden) | `src/modules/dashboards/lib/web-attribution.js` (server, per persoon over de hele historiek), kaart in `dashboards.html` + `loadAttribution()` in `dashboards-web.js` |
 | Koppelingen bewaren, tijdlijn renderen | tracker: `POST /internal/links`, `POST /internal/timeline` (`lib/story.js`), via de binding `TRACKER` |
 
 Afspraken die bewust zo zijn:
@@ -3860,6 +3861,13 @@ Afspraken die bewust zo zijn:
 - **Beoordelen** (bevestigen/afwijzen) mag de verantwoordelijke van de lead in
   Odoo (`resolveOdooUser`) en een beheerder; het bulkscherm "Twijfelgevallen" is
   voor beheerders. Lezen mag iedereen met de module.
+- **Attributie in het dashboard gebeurt op de SERVER**, anders dan de rest van dat
+  tabblad: een eerste aanraking ligt vaak voor de gekozen periode, en die sessies
+  heeft de browser niet. Per PERSOON (zelfde e-mailadres), de eerste conversie in
+  de periode, met `buildJourney()` -- dezelfde lezing als op de lead. De filters
+  van het tabblad werken daar bewust niet; de kaart zegt dat.
+- **Kanaalkleuren**: `KLEUR` in journey.js = `CHANNEL_COLORS` in dashboards-web.js
+  (de Worker kan niets uit public/ importeren). Wijzig ze samen.
 - **Eén chatter-notitie per record**, bij de eerste schrijfactie, met de link
   naar `/webgedrag` (`webstory:noted:*` in KV). Nooit bij elke update.
 - **Inline stijl: altijd `background-color`, nooit `background`** -- Odoo's

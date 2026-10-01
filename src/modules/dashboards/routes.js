@@ -17,6 +17,7 @@
 import { getInstroomData, normalizePeriod, buildBuckets, buildTargetWindows } from './lib/leads-instroom.js';
 import { listTargetWindow, getTargetsForMonths, buildTargetTrend, upsertTargets } from './lib/targets.js';
 import { getWebVisitsCached, WEB_PERIODS } from './lib/web-visits.js';
+import { getWebAttributionCached } from './lib/web-attribution.js';
 
 const VALID_SCOPES = ['all', 'syndicoach', 'openvme', 'onbekend'];
 
@@ -123,6 +124,18 @@ export const routes = {
       return json({ success: true, data });
     } catch (error) {
       console.error('web-visits fout:', error);
+      return json({ success: false, error: error.message || 'Onbekende fout' }, 500);
+    }
+  },
+
+  // Wat leidde tot de conversie: per persoon, over de hele historiek (lib/web-attribution.js).
+  'GET /api/web-attribution': async ({ env, request, ctx }) => {
+    const url = new URL(request.url);
+    const period = WEB_PERIODS[url.searchParams.get('period')] ? url.searchParams.get('period') : '30d';
+    try {
+      return json({ success: true, data: await getWebAttributionCached(env, ctx, { period }) });
+    } catch (error) {
+      console.error('web-attribution fout:', error);
       return json({ success: false, error: error.message || 'Onbekende fout' }, 500);
     }
   },

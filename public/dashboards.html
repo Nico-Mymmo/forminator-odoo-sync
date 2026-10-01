@@ -257,6 +257,28 @@
           </div>
         </div>
 
+        <div class="card bg-base-100 border border-base-300 shadow-sm mb-6">
+          <div class="card-body">
+            <h2 class="text-base font-semibold">Wat leidde tot de conversie</h2>
+            <p class="grow-0 text-xs text-base-content/50 -mt-1" id="webAttrNote">
+              Per persoon die in de periode converteerde, met al haar bezoeken (ook van voor de periode, en op andere toestellen met hetzelfde e-mailadres).
+              Geldt voor de hele periode; de filters hierboven werken hier niet.
+            </p>
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-2">
+              <div class="overflow-x-auto">
+                <table class="table table-sm">
+                  <thead><tr><th>Kanaal</th><th class="text-right" title="Hoe vaak het kanaal de eerste aanraking was">Eerste</th><th class="text-right" title="Hoe vaak het de laatste niet-directe aanraking was">Laatste</th><th class="text-right" title="Stond in het pad, maar was niet de laatste">Assist</th><th class="text-right" title="40% eerste, 40% laatste, 20% wat ertussen zat">Positie</th></tr></thead>
+                  <tbody id="webAttrChannels"></tbody>
+                </table>
+              </div>
+              <div>
+                <p class="grow-0 text-xs text-base-content/60 mb-1">Meest voorkomende paden</p>
+                <div id="webAttrPaths" class="space-y-1"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
           <div class="card bg-base-100 border border-base-300 shadow-sm lg:col-span-2">
             <div class="card-body">
