@@ -27,7 +27,8 @@
 
   var st = {
     period: '30d', data: null, F: null, loading: false, chart: null, metric: 'sessions', showTable: false,
-    f: { site: null, ch: null, det: null, land: null, visited: null, dev: null, who: 'all', conv: 'all', visit: 'all' },
+    // purpose: 'prospect' (standaard) | 'customer' | 'all'. Klant = vanaf de eerste login (web-visits.js).
+    f: { site: null, ch: null, det: null, land: null, visited: null, dev: null, who: 'all', conv: 'all', visit: 'all', purpose: 'prospect' },
     pins: {},           // stap (0-based) -> pagina-index
     sort: { key: 'n', dir: -1 }, pageQuery: '', pageLimit: 20
   };
@@ -73,8 +74,10 @@
 
   // ── Segment ────────────────────────────────────────────────────────────────
 
-  function matches(s) {
+  function matches(s, ignorePurpose) {
     var f = st.f, fl = s[C.flags], F = st.F;
+    if (!ignorePurpose && f.purpose === 'prospect' && (fl & F.customer)) return false;
+    if (!ignorePurpose && f.purpose === 'customer' && !(fl & F.customer)) return false;
     if (f.site !== null && s[C.site] !== f.site) return false;
     if (f.ch !== null && s[C.ch] !== f.ch) return false;
     if (f.det !== null && s[C.det] !== f.det) return false;
@@ -430,6 +433,8 @@
       + sites.map(function (s, i) { return '<option value="' + i + '"' + (st.f.site === i ? ' selected' : '') + '>' + esc(s) + '</option>'; }).join('') + '</select>'
       + select('ch', 'Kanaal', 'ch') + select('det', 'Bron / campagne', 'det') + select('land', 'Instappagina', 'p') + select('dev', 'Toestel', 'dev')
       + '</div><div class="flex flex-wrap items-center gap-2 mt-2">'
+      + '<span title="Klanten = wie inlogt op het platform, vanaf de eerste keer dat ze inloggen. Hun bezoeken daarvoor tellen als prospect.">'
+      + seg('purpose', [['prospect', 'Prospecten'], ['customer', 'Klanten'], ['all', 'Iedereen']]) + '</span>'
       + seg('who', [['all', 'Iedereen'], ['anon', 'Anoniem'], ['known', 'Gekend'], ['lead', 'Met lead']])
       + seg('conv', [['all', 'Alle bezoeken'], ['yes', 'Met aanvraag'], ['no', 'Zonder']])
       + seg('visit', [['all', 'Nieuw + terug'], ['new', 'Nieuw'], ['return', 'Terugkerend']])
@@ -448,7 +453,9 @@
     var f = st.f, bits = [];
     if (f.who === 'anon') bits.push('anonieme'); else if (f.who === 'known') bits.push('gekende'); else if (f.who === 'lead') bits.push('aan een lead gekoppelde');
     if (f.visit === 'new') bits.push('nieuwe'); else if (f.visit === 'return') bits.push('terugkerende');
-    var s = nf(n) + ' ' + bits.join(', ') + (bits.length ? ' ' : '') + 'bezoeken in de ' + PERIODS[st.period];
+    var s = nf(n) + ' ' + bits.join(', ') + (bits.length ? ' ' : '') + 'bezoeken'
+      + (f.purpose === 'prospect' ? ' van prospecten' : f.purpose === 'customer' ? ' van klanten' : '')
+      + ' in de ' + PERIODS[st.period];
     var w = [];
     if (f.site !== null) w.push('op ' + d('site', f.site));
     if (f.ch !== null) w.push('via ' + d('ch', f.ch));
@@ -475,8 +482,22 @@
     renderPaths(p.cur);
     renderPages(p.cur);
     renderSessions(p.cur);
-    $('bhNote').textContent = st.data.sessions.some(function (s) { return s[C.flags] & st.F.historic; })
-      ? 'Bezoeken van vóór 29 september 2026 komen uit de oude historiek: daar is de bron vaak niet bewaard ("Direct / onbekend") en ontbreken klikken.' : '';
+    var notes = [];
+    if (st.f.purpose === 'prospect') {
+      var klant = 0, login = 0;
+      st.data.sessions.forEach(function (s) {
+        if ((s[C.flags] & st.F.previous) || !(s[C.flags] & st.F.customer) || !matches(s, true)) return;
+        klant++;
+        if (s[C.flags] & st.F.loginOnly) login++;
+      });
+      if (klant) notes.push(nf(klant) + ' bezoeken van klanten tellen hier niet mee, waarvan ' + nf(login) + ' enkel om in te loggen. Kies "Klanten" of "Iedereen" om ze te zien.');
+    }
+    if (st.data.sessions.some(function (s) { return s[C.flags] & st.F.historic; })) {
+      notes.push('Bezoeken van vóór 29 september 2026 komen uit de oude historiek: daar is de bron vaak niet bewaard ("Direct / onbekend") en ontbreken klikken.');
+    }
+    var excluded = st.f.purpose === 'prospect' && notes.length && notes[0].indexOf('klanten') >= 0 ? notes.shift() : '';
+    $('bhExcluded').textContent = excluded;
+    $('bhNote').innerHTML = notes.map(esc).join('<br>');
     icons();
   }
 
@@ -515,7 +536,7 @@
     if (a === 'period') { st.period = v; load(); return; }
     if (a === 'seg') { st.f[el.dataset.key] = v; }
     else if (a === 'filter') { var k = el.dataset.key, n = Number(v); st.f[k] = st.f[k] === n ? null : n; }
-    else if (a === 'reset') { st.f = { site: null, ch: null, det: null, land: null, visited: null, dev: null, who: 'all', conv: 'all', visit: 'all' }; st.pins = {}; }
+    else if (a === 'reset') { st.f = { site: null, ch: null, det: null, land: null, visited: null, dev: null, who: 'all', conv: 'all', visit: 'all', purpose: 'prospect' }; st.pins = {}; }
     else if (a === 'pin') { var s = el.dataset.step, pg = Number(el.dataset.page); if (st.pins[s] === pg) delete st.pins[s]; else st.pins[s] = pg; }
     else if (a === 'pin-path') { st.pins = {}; el.dataset.path.split(',').forEach(function (x, i) { st.pins[i] = Number(x); }); }
     else if (a === 'unpin') { delete st.pins[el.dataset.step]; }

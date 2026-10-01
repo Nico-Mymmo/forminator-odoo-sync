@@ -13,14 +13,15 @@
     loaded: false,
     period: '30d',
     site: 'all',
-    filter: { ch: null, det: null, land: null, dev: null, visit: null },
+    // who: 'prospect' (standaard) | 'customer' | 'all' -- zie isCustomerSession in web-visits.js
+    filter: { ch: null, det: null, land: null, dev: null, visit: null, who: 'prospect' },
     data: null,
     charts: {},
     loading: false
   };
 
   var C = { v: 0, start: 1, dur: 2, site: 3, ch: 4, det: 5, pages: 6, flags: 7, clicks: 8, contact: 9, cal: 10, ev: 11, forms: 12, dev: 13, co: 14, inapp: 15, first: 16, search: 17 };
-  var F = { engaged: 1, isNew: 2, historic: 4, previous: 8 };
+  var F = { engaged: 1, isNew: 2, historic: 4, previous: 8, customer: 16, loginOnly: 32 };
 
   var CHANNEL_COLORS = {
     'Betaald zoeken': '#2563eb',
@@ -96,9 +97,11 @@
     return site.indexOf(web.site) !== -1;
   }
 
-  function matches(s) {
+  function matches(s, ignoreWho) {
     var f = web.filter;
     if (!siteMatches(s)) return false;
+    if (!ignoreWho && f.who === 'prospect' && (s[C.flags] & F.customer)) return false;
+    if (!ignoreWho && f.who === 'customer' && !(s[C.flags] & F.customer)) return false;
     if (f.ch !== null && s[C.ch] !== f.ch) return false;
     if (f.det !== null && s[C.det] !== f.det) return false;
     if (f.land !== null && s[C.pages][0] !== f.land) return false;
@@ -577,12 +580,25 @@
     var el = document.getElementById('webDataNote');
     var hist = cur.filter(function (s) { return s[C.flags] & F.historic; }).length;
     var live = web.data.oudsteLive ? web.data.oudsteLive.slice(0, 10).split('-').reverse().join('/') : null;
-    if (!cur.length || !hist) { el.classList.add('hidden'); return; }
+    // Hoeveel klantbezoeken (inloggen) er buiten de cijfers vallen -- zeggen, niet verzwijgen.
+    var klant = 0, login = 0;
+    if (web.filter.who === 'prospect') {
+      web.data.sessions.forEach(function (s) {
+        if ((s[C.flags] & F.previous) || !(s[C.flags] & F.customer) || !matches(s, true)) return;
+        klant++;
+        if (s[C.flags] & F.loginOnly) login++;
+      });
+    }
+    var parts = [];
+    if (klant) parts.push(nf(klant) + ' bezoeken van klanten tellen niet mee (' + nf(login) + ' daarvan kwamen enkel om in te loggen). Kies "Klanten" of "Iedereen" om ze te zien.');
+    if (cur.length && hist) {
+      parts.push(pctTxt(pct(hist, cur.length), 0) + ' van deze sessies komt uit de oude opslag in Odoo'
+        + (live ? ' (volledig gemeten sinds ' + esc(live) + ')' : '') + '. Daar ontbreken verwijzer en toestel, dus "Direct / onbekend" is voor die sessies te groot. '
+        + 'Voor bezoekers die later terugkwamen, werden bovendien klikken en korte bezoeken weggecomprimeerd. Conversies en advertentieklikken zijn volledig.');
+    }
+    if (!parts.length) { el.classList.add('hidden'); return; }
     el.classList.remove('hidden');
-    el.innerHTML = '<i data-lucide="info" class="w-4 h-4 shrink-0"></i><span>'
-      + pctTxt(pct(hist, cur.length), 0) + ' van deze sessies komt uit de oude opslag in Odoo'
-      + (live ? ' (volledig gemeten sinds ' + esc(live) + ')' : '') + '. Daar ontbreken verwijzer en toestel, dus "Direct / onbekend" is voor die sessies te groot. '
-      + 'Voor bezoekers die later terugkwamen, werden bovendien klikken en korte bezoeken weggecomprimeerd. Conversies en advertentieklikken zijn volledig.</span>';
+    el.innerHTML = '<i data-lucide="info" class="w-4 h-4 shrink-0"></i><span>' + parts.join('<br>') + '</span>';
     if (window.lucide) window.lucide.createIcons();
   }
 
@@ -624,6 +640,7 @@
     document.querySelectorAll('[data-web-action="period"]').forEach(function (b) { b.classList.toggle('btn-active', b.dataset.value === web.period); });
     document.querySelectorAll('[data-web-action="site"]').forEach(function (b) { b.classList.toggle('btn-active', b.dataset.value === web.site); });
     document.querySelectorAll('[data-web-action="visit"]').forEach(function (b) { b.classList.toggle('btn-active', (b.dataset.value || null) === (web.filter.visit || null) || (!b.dataset.value && !web.filter.visit)); });
+    document.querySelectorAll('[data-web-action="who"]').forEach(function (b) { b.classList.toggle('btn-active', b.dataset.value === web.filter.who); });
   }
 
   function renderAll() {
@@ -697,12 +714,13 @@
     if (action === 'period') { web.period = el.dataset.value; renderButtons(); load(); }
     else if (action === 'site') { web.site = el.dataset.value; renderAll(); }
     else if (action === 'visit') { web.filter.visit = el.dataset.value || null; renderAll(); }
+    else if (action === 'who') { web.filter.who = el.dataset.value; renderAll(); }
     else if (action === 'filter') {
       var kind = el.dataset.kind, value = Number(el.dataset.value);
       setFilter(kind, web.filter[kind] === value ? null : value);
     }
     else if (action === 'clearFilter') { setFilter(el.dataset.kind, null); }
-    else if (action === 'clearAll') { web.filter = { ch: null, det: null, land: null, dev: null, visit: null }; renderAll(); }
+    else if (action === 'clearAll') { web.filter = { ch: null, det: null, land: null, dev: null, visit: null, who: web.filter.who }; renderAll(); }
   });
 
   var saved = null;

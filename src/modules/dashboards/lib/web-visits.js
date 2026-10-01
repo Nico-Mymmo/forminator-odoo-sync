@@ -23,6 +23,43 @@ import { readWebEvents, hasWebEvents } from '../../../lib/web-events.js';
 export const WEB_PERIODS = { '7d': 7, '30d': 30, '90d': 90, '12m': 365 };
 const CACHE_SECONDS = 600;
 
+// ─── Inloggen en ruisklikken ─────────────────────────────────────────────────
+// Gemeten sept 2026: 13% van alle bezoeken was ENKEL inloggen (homepage, klik op
+// "Inloggen", weg) en 11% van de bezoekers logt ooit in. Dat zijn klanten op weg
+// naar het platform, geen prospecten: ze drukken de duur en blazen "doet er iets
+// mee" op. EEN definitie, hier, voor dashboard, Webgedrag, het verhaal op de lead
+// en de attributie.
+//   - een inlogklik: exit_type 'login' (de snippet zet dat) of een van LOGIN_TEXTS;
+//   - een bezoek dat ENKEL inloggen is: isLoginOnly();
+//   - een KLANT vanaf zijn eerste login (readFirstLogins + isCustomerSession): zijn
+//     bezoeken daarvoor blijven prospectgedrag -- dat is net de weg naar ons toe.
+// Klikken op de cookiebanner en de inlogklik zelf tellen niet als betrokkenheid.
+export const LOGIN_TEXTS = ['Inloggen', 'Login', 'Log in', 'Se connecter', 'Connexion'];
+const NOISE_TEXTS = ['', '×', 'x', 'X', 'Accepteer alles', 'Alles accepteren', 'Alles afwijzen', 'Alles weigeren',
+  'Voorkeuren opslaan', 'Tout accepter', 'Tout refuser', 'Accepter', 'Refuser'];
+const sqlList = list => list.map(s => `'${s.replace(/'/g, "''")}'`).join(',');
+const LOGIN_CLICK = `(type = 'click' AND (json_extract(data,'$.exit_type') = 'login' OR json_extract(data,'$.text') IN (${sqlList(LOGIN_TEXTS)})))`;
+
+/** Homepage, een inlogklik, en verder niets: geen andere pagina, geen advertentie, geen aanvraag. */
+export function isLoginOnly(r) {
+  return (r.lg || 0) > 0 && (r.op || 0) === 0 && !r.tp && !((r.ca || 0) + (r.er || 0) + (r.fs || 0));
+}
+
+/** uuid -> tijdstip van de eerste inlogklik (of partner-login), over de hele historiek. */
+export async function readFirstLogins(env) {
+  const res = await readWebEvents(env,
+    `SELECT visitor_uuid AS u, MIN(ts) AS t FROM events
+     WHERE ${LOGIN_CLICK} OR type = 'partner_login'
+     GROUP BY visitor_uuid`);
+  return new Map((res.results || []).map(r => [r.u, r.t]));
+}
+
+/** Een sessie is van een klant als ze eindigt op of na diens eerste login. */
+export function isCustomerSession(firstLogins, r) {
+  const t = firstLogins.get(r.u);
+  return !!t && r.en >= t;
+}
+
 // __WHERE__ wordt ingevuld: een periode voor het dashboard, een set bezoekers
 // voor het verhaal op een lead (readVisitorSessions). Dezelfde sessie-indeling.
 const SESSIONS_SQL_TEMPLATE = `
@@ -56,7 +93,9 @@ SELECT u,
   MIN(CASE WHEN type = 'page' THEN ts || '|' || COALESCE(json_extract(data,'$.utm.medium'),'') || '|'
            || COALESCE(json_extract(data,'$.utm.source'),'') || '|' || COALESCE(json_extract(data,'$.utm.campaign'),'') END) AS ut,
   MIN(CASE WHEN type = 'page' THEN ts || '|' || COALESCE(json_extract(data,'$.referer'),'') END) AS rf,
-  SUM(type = 'click' AND COALESCE(json_extract(data,'$.text'),'') NOT IN ('','×','x','X')) AS ck,
+  SUM(type = 'click' AND COALESCE(json_extract(data,'$.text'),'') NOT IN (${sqlList(NOISE_TEXTS)}) AND NOT ${LOGIN_CLICK}) AS ck,
+  SUM(${LOGIN_CLICK}) AS lg,
+  SUM(type = 'page' AND page <> '/') AS op,
   SUM(type = 'click' AND (json_extract(data,'$.text') LIKE '%+32%' OR json_extract(data,'$.text') LIKE '%@%')) AS ct,
   SUM(type = 'calendly') AS ca, SUM(type = 'event_registration') AS er, SUM(type = 'form_submission') AS fs,
   SUM(type = 'partner_login') AS pl, SUM(type = 'resume') AS rs,
@@ -179,7 +218,10 @@ export async function getWebVisitsData(env, { period }) {
   const start = new Date(end.getTime() - days * 86400000);
   const prevStart = new Date(start.getTime() - days * 86400000);
 
-  const res = await readWebEvents(env, SESSIONS_SQL, [fmt(prevStart), fmt(end)]);
+  const [res, firstLogins] = await Promise.all([
+    readWebEvents(env, SESSIONS_SQL, [fmt(prevStart), fmt(end)]),
+    readFirstLogins(env),
+  ]);
   const rows = res.results || [];
 
   const dict = { v: [], p: [], ch: CHANNELS.slice(), det: [], site: [], dev: [], co: [], ia: [], zk: [] };
@@ -217,7 +259,8 @@ export async function getWebVisitsData(env, { period }) {
       idx['ch\u0000' + ch],               // 4 kanaal
       id('det', det),                     // 5 kanaaldetail (campagne, bron, host)
       pages.map(p => id('p', p)),         // 6 pagina's, in volgorde
-      (engaged ? 1 : 0) | (isNew ? 2 : 0) | (r.hi ? 4 : 0) | (r.st < startTs ? 8 : 0), // 7 vlaggen
+      (engaged ? 1 : 0) | (isNew ? 2 : 0) | (r.hi ? 4 : 0) | (r.st < startTs ? 8 : 0)
+        | (isCustomerSession(firstLogins, r) ? 16 : 0) | (isLoginOnly(r) ? 32 : 0), // 7 vlaggen
       r.ck || 0,                          // 8 klikken
       r.ct || 0,                          // 9 contactklikken (tel/mail)
       r.ca || 0,                          // 10 afspraken (Calendly)
@@ -237,7 +280,7 @@ export async function getWebVisitsData(env, { period }) {
     range: { start: fmt(start), end: fmt(end), prevStart: fmt(prevStart) },
     generatedAt: fmt(end),
     oudsteLive,
-    flags: { engaged: 1, isNew: 2, historic: 4, previous: 8 },
+    flags: { engaged: 1, isNew: 2, historic: 4, previous: 8, customer: 16, loginOnly: 32 },
     cols: ['v', 'start', 'dur', 'site', 'ch', 'det', 'pages', 'flags', 'clicks', 'contact', 'calendly', 'events', 'forms', 'dev', 'co', 'inapp', 'firstSeen', 'search'],
     dict,
     sessions,
@@ -277,6 +320,7 @@ export async function readVisitorSessions(env, uuids) {
         uuid: r.u, start: r.st, end: r.en, site: r.site || null, channel, detail: detail || '',
         pages, conversions: { calendly: r.ca || 0, events: r.er || 0, forms: r.fs || 0 },
         historic: !!r.hi,
+        loginOnly: isLoginOnly(r),
       });
     }
   }

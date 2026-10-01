@@ -17,12 +17,14 @@
  */
 
 import { hasWebEvents, readWebEvents } from '../../../lib/web-events.js';
-import { readSessionRows, channelOf, CHANNELS, WEB_PERIODS } from '../../dashboards/lib/web-visits.js';
+import { readSessionRows, channelOf, CHANNELS, WEB_PERIODS, readFirstLogins, isCustomerSession, isLoginOnly } from '../../dashboards/lib/web-visits.js';
 
 const CACHE_SECONDS = 600;
 export const FLAGS = {
   engaged: 1, isNew: 2, historic: 4, previous: 8, known: 16, linked: 32,
   form: 64, calendly: 128, event: 256, contact: 512,
+  customer: 1024,   // sessie van een klant: op of na diens eerste login (web-visits.js)
+  loginOnly: 2048,  // enkel om in te loggen
 };
 
 function fmt(d) { return d.toISOString().substring(0, 19).replace('T', ' '); }
@@ -35,9 +37,10 @@ export async function getBehaviourData(env, { period }) {
   const start = new Date(end.getTime() - days * 86400000);
   const prevStart = new Date(start.getTime() - days * 86400000);
 
-  const [{ rows, meta }, linkedRes] = await Promise.all([
+  const [{ rows, meta }, linkedRes, firstLogins] = await Promise.all([
     readSessionRows(env, fmt(prevStart), fmt(end)),
     readWebEvents(env, `SELECT DISTINCT visitor_uuid AS u FROM visitor_links WHERE status <> 'afgewezen'`),
+    readFirstLogins(env),
   ]);
   const linked = new Set((linkedRes.results || []).map(r => r.u));
 
@@ -71,7 +74,8 @@ export async function getBehaviourData(env, { period }) {
     const flags = (engaged ? FLAGS.engaged : 0) | (isNew ? FLAGS.isNew : 0) | (r.hi ? FLAGS.historic : 0)
       | (r.st < startTs ? FLAGS.previous : 0) | (r.kn ? FLAGS.known : 0) | (linked.has(r.u) ? FLAGS.linked : 0)
       | ((r.fs || 0) > 0 ? FLAGS.form : 0) | ((r.ca || 0) > 0 ? FLAGS.calendly : 0) | ((r.er || 0) > 0 ? FLAGS.event : 0)
-      | ((r.ct || 0) > 0 ? FLAGS.contact : 0);
+      | ((r.ct || 0) > 0 ? FLAGS.contact : 0)
+      | (isCustomerSession(firstLogins, r) ? FLAGS.customer : 0) | (isLoginOnly(r) ? FLAGS.loginOnly : 0);
     sessions.push([
       id('v', r.u),                                                     // 0 bezoeker
       st,                                                               // 1 start (unix s)

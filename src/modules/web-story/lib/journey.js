@@ -44,6 +44,8 @@ function dag(ts) {
  *        aanmaken van de lead); persons = uuid -> label (e-mail of toestel)
  */
 export function buildJourney(sessions, { conversionAt = null, persons = new Map(), atConversion = null } = {}) {
+  // Een bezoek dat enkel om in te loggen was, zegt niets over hoe iemand bij ons kwam.
+  sessions = sessions.filter(s => !s.loginOnly);
   if (!sessions.length) return null;
   sessions = sessions.map(s => (s.historic && s.channel === 'Direct / onbekend' ? { ...s, channel: ONBEKEND_OUD } : s));
   const firstConv = sessions.find(s => s.conversions.calendly + s.conversions.events + s.conversions.forms > 0);

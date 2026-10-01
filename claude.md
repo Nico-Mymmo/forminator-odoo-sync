@@ -3875,6 +3875,16 @@ Afspraken die bewust zo zijn:
   trend, de padverkenner en een tabel per pagina. Individuele trajecten staan in
   Odoo; het tabblad Traject is enkel het doorklikpunt. Het dashboard blijft de
   marketinganalyse -- voeg daar geen tweede padverkenner aan toe.
+- **Inloggers zijn klanten, geen prospecten -- EEN definitie in web-visits.js.**
+  Gemeten (sept 2026): 23% van de bezoeken is van klanten, 13% is enkel inloggen
+  (homepage -> "Inloggen" -> weg); zonder hen gaat de mediane duur van 9 naar 15 s.
+  `isLoginOnly()` = een inlogklik en verder niets; `isCustomerSession()` = op of na
+  de EERSTE login van die bezoeker (`readFirstLogins()`), zodat de bezoeken van
+  voor iemand klant werd prospectgedrag blijven -- dat is de weg naar ons toe.
+  Dashboard en Webgedrag tonen standaard "Prospecten" en zeggen hoeveel er buiten
+  valt; het verhaal en de attributie slaan inlogbezoeken over (`buildJourney`).
+  De inlogklik en klikken op de cookiebanner (`NOISE_TEXTS`) tellen niet als
+  betrokkenheid. Nieuwe knoptekst voor inloggen? Zet ze in `LOGIN_TEXTS`.
 - **Padverkenner = stappen naast elkaar, geen Sankey.** Een pagina op een stap
   "vastzetten" filtert op wie daar langskwam; herladen van dezelfde pagina telt
   niet als stap. Tijd op een pagina = tot de volgende pagina (de gemeten dwell zit
