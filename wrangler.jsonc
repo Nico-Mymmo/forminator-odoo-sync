@@ -96,6 +96,14 @@
 		// zie src/modules/event-operations-v2/lib/cron.js). Standaard AAN; zet op
 		// "0" om 'm zonder deploy uit te zetten (Cloudflare-dashboard volstaat).
 		"EVENTS_V2_AUTO_DONE_CRON": "1",
+		// Webgedrag -- het verhaal op lead en actieblad (src/modules/web-story/lib/push.js,
+		// 15-min-cron-tak, enkel het eerste kwartier van elk uur).
+		//   ""      niets
+		//   "match" enkel bezoekers aan leads koppelen (schrijft in D1, niet in Odoo)
+		//   "dry"   + berekenen wat er naar Odoo zou gaan, en loggen ([web-story])
+		//   "on"    + naar Odoo schrijven. PAS NADAT de tracker LEAD_TIMELINE_BY_OM=1 heeft.
+		// Hier en niet in het dashboard: zonder keep_vars wist een deploy dashboardvariabelen.
+		"WEB_STORY_MODE": "match",
 		// Event Operations v2 -- communicatie-studio. Bepaalt voor WELKE
 		// event-types de OM de mails (bevestiging/reminder/recap) overneemt van
 		// de Odoo-automations 53/58/62/63. Kommagescheiden event-type-id's, of
