@@ -1,4 +1,4 @@
-import { reportWebConversion } from '../../lib/web-conversions.js';
+import { reportWebConversion, reportWebLinks } from '../../lib/web-conversions.js';
 import {
   createSubmission,
   createSubmissionTargetResult,
@@ -2607,6 +2607,10 @@ async function runSubmissionAttempt(env, {
     }
 
     const finalStatus = classifyFinalSubmissionStatus(targetResults);
+
+    // Welke Odoo-records hoort deze bezoeker nu bij? Rechtstreeks uit de stappen,
+    // ook bij een retry of replay. Faalt nooit (src/lib/web-conversions.js).
+    await reportWebLinks(env, { normalizedForm, sortedTargets, targetResults });
 
     console.log(`${LOG} ${attemptTag} ==== EINDE ${submission.id}: ${finalStatus} ====`);
     for (const r of targetResults) {

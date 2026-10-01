@@ -16,6 +16,7 @@ import { syncSignatureEvent } from './modules/mail-signature-designer/lib/event-
 import { runDueScheduledTasks } from './modules/mini-apps/lib/scheduler.js';
 import { runDueConditionTasks } from './modules/mini-apps/lib/condition-scheduler.js';
 import { runGmailChatterSync } from './modules/gmail-chatter/lib/sync.js';
+import { runWebStoryCron } from './modules/web-story/lib/push.js';
 
 export default {
   async fetch(request, env, ctx) {
@@ -102,6 +103,13 @@ export default {
       ctx.waitUntil(
         syncSignatureEvent(env, { ctx }).catch(err =>
           console.error('[scheduled][mail-signature-designer][event-rotatie] CRASH:', err?.message, err?.stack)
+        )
+      );
+      // Webgedrag: bezoekers aan leads koppelen en het verhaal in Odoo zetten,
+      // elk uur (eerste kwartier). Doet NIETS zolang WEB_STORY_MODE leeg is.
+      ctx.waitUntil(
+        runWebStoryCron(env, { scheduledTime: event?.scheduledTime }).catch(err =>
+          console.error('[scheduled][web-story] CRASH:', err?.message, err?.stack)
         )
       );
     }

@@ -3804,6 +3804,52 @@ tweede schrijver maakt de belofte "elk event staat er zoals het binnenkwam" stuk
 
 ---
 
+## Webgedrag — het verhaal op lead en actieblad (2026-10)
+
+**Regel: Odoo krijgt geen bezoekers en geen touchpoints meer, enkel het VERHAAL
+als HTML op de lead en het actieblad. D1 bezit de gegevens (tracker = enige
+schrijver), de OM is de enige die met Odoo praat.** Volledige onderbouwing:
+`website-tracker/docs/ontwerp-odoo-zonder-bezoekers.md`. `x_web_visitor` en
+`x_ad_touchpoint` worden opgeruimd zodra dit loopt.
+
+| Wat | Waar |
+|---|---|
+| Koppeling meteen na een inzending (records uit de stappen) | `reportWebLinks()` in `src/lib/web-conversions.js`, aangeroepen in `worker-handler.js` na `classifyFinalSubmissionStatus` |
+| Matching op e-mail, elk uur (vervangt Odoo-serveractie 1147) | `src/modules/web-story/lib/matching.js` |
+| Eerste / laatste niet-directe aanraking / pad | `src/modules/web-story/lib/journey.js` |
+| Sessies + kanaal per sessie (dezelfde als het dashboard) | `readVisitorSessions()` + `channelOf()` in `src/modules/dashboards/lib/web-visits.js` |
+| Uurlijkse push naar Odoo | `src/modules/web-story/lib/push.js`, `*/15`-tak in `index.js` (enkel het eerste kwartier, of zolang er werk ligt) |
+| Koppelingen bewaren, tijdlijn renderen | tracker: `POST /internal/links`, `POST /internal/timeline` (`lib/story.js`), via de binding `TRACKER` |
+
+Afspraken die bewust zo zijn:
+
+- **`WEB_STORY_MODE` is de schakelaar** (Worker-variabele): leeg = niets,
+  `match` = enkel koppelingen (D1), `dry` = ook berekenen en loggen, `on` = ook
+  naar Odoo schrijven. Een deploy op zich verandert dus niets in Odoo.
+- **Nooit `on` zolang de tracker zelf leadtijdlijnen schrijft.** Zet eerst in de
+  tracker `LEAD_TIMELINE_BY_OM=1`; anders overschrijven twee schrijvers elkaar.
+- **De OM schrijft niet in D1.** `src/lib/web-events.js` laat enkel lezen toe;
+  koppelingen gaan via de tracker. Eén schrijver per database.
+- **Er is EEN kanaalindeling**: `channelOf()` in web-visits.js. Het verhaal
+  gebruikt ze ook; voeg er geen tweede aan toe. Mailapps (Gmail-app, Outlook)
+  tellen als E-mail.
+- **Een koppeling heeft een bron en een sterkte** (`zeker` = inzending,
+  `sterk` = e-mailadres op de lead of de klant, `middel` = collega bij dezelfde
+  VME). Een ronde verzwakt of verwijdert nooit; wat een mens bevestigde of afwees
+  (`status`) laat de tracker staan. Een "firma" met meer dan 10 leads is een
+  organisatie, geen VME: daar telt "collega" niet.
+- **Vóór 29-09-2026 is de bron onbekend, niet direct**: de oude historiek bewaarde
+  geen verwijzer. Het verhaal zegt "Onbekend (oude historiek)".
+- **Schrijven alleen als het veranderde** (hash in `MAPPINGS_KV`, `webstory:hash:*`).
+  `push_since` schuift pas op als een volledige ronde af is.
+- **Actieblad**: de velden `x_studio_web_timeline_html` / `x_studio_web_kpi_html`
+  maakt Nico in Studio; zolang ze ontbreken wordt het actieblad overgeslagen
+  (staat in de log). Zet `sanitize` uit, zoals bij de lead.
+- **Inline stijl: altijd `background-color`, nooit `background`** -- Odoo's
+  sanitizer knipt de shorthand stil weg (zie het vrije chatter-bericht).
+
+---
+
 ## Bestandsstructuur
 
 ```

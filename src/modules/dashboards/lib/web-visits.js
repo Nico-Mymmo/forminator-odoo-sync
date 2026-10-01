@@ -23,12 +23,14 @@ import { readWebEvents, hasWebEvents } from '../../../lib/web-events.js';
 export const WEB_PERIODS = { '7d': 7, '30d': 30, '90d': 90, '12m': 365 };
 const CACHE_SECONDS = 600;
 
-const SESSIONS_SQL = `
+// __WHERE__ wordt ingevuld: een periode voor het dashboard, een set bezoekers
+// voor het verhaal op een lead (readVisitorSessions). Dezelfde sessie-indeling.
+const SESSIONS_SQL_TEMPLATE = `
 WITH ev AS (
   SELECT e.visitor_uuid AS u, e.ts, e.type, e.page, e.data, e.bron,
          COALESCE(e.site, v.site) AS site, v.first_seen AS vfirst, v.first_utm AS fu
   FROM events e JOIN visitors v ON v.uuid = e.visitor_uuid
-  WHERE e.ts >= ?1 AND e.ts < ?2
+  WHERE __WHERE__
     AND v.is_internal = 0 AND v.is_bot = 0 AND e.type <> 'scroll'
 ),
 g AS (
@@ -63,6 +65,7 @@ SELECT u,
   MIN(CASE WHEN type = 'page' THEN json_extract(data,'$.cf_country') END) AS co,
   MAX(bron = 'odoo-historiek') AS hi
 FROM s0 GROUP BY u, sid`;
+const SESSIONS_SQL = SESSIONS_SQL_TEMPLATE.replace('__WHERE__', 'e.ts >= ?1 AND e.ts < ?2');
 
 // ─── Kanalen ─────────────────────────────────────────────────────────────────
 // Eén plek. Volgorde van de bronnen: het touchpoint van de sessie (advertentie-
@@ -80,6 +83,9 @@ const SEARCH_HOSTS = /(^|\.)(google|bing|ecosia|duckduckgo|yahoo|qwant|startpage
 const SOCIAL_HOSTS = /(^|\.)(facebook|fb|instagram|linkedin|lnkd|t|x|twitter|tiktok|youtube|pinterest|reddit)\.(com|co|be|in|me)$/;
 const AI_HOSTS = /(chatgpt\.com|openai\.com|perplexity\.ai|copilot\.microsoft\.com|gemini\.google\.com|claude\.ai|you\.com|mistral\.ai)/;
 const OWN_HOSTS = /(^|\.)(openvme\.be|syndicoach\.be)$/;
+// Een klik in een mailapp heeft geen UTM maar wel deze verwijzer (gemeten:
+// android-app://com.google.android.gm/). Zonder deze regel was dat "Verwijzing".
+const MAIL_HOSTS = /(^|\.)(mail\.google\.com|com\.google\.android\.gm|outlook\.live\.com|outlook\.office\.com|outlook\.office365\.com|com\.microsoft\.office\.outlook|mail\.yahoo\.com|webmail\.[a-z.]+)$/;
 
 function classifyTagged(medium, source) {
   const m = (medium || '').toLowerCase();
@@ -108,7 +114,7 @@ function part(str, i) {
   return p[i] || '';
 }
 
-function channelOf(row) {
+export function channelOf(row) {
   // 1. touchpoint in de sessie
   if (row.tp) {
     const [medium, source, campaign] = [part(row.tp, 1), part(row.tp, 2), part(row.tp, 3)];
@@ -135,6 +141,7 @@ function channelOf(row) {
   if (host) {
     const own = (row.site || '').replace(/^www\./, '');
     if (own && (host === own || host.endsWith('.' + own))) return ['Direct / onbekend', '(binnen de site)'];
+    if (MAIL_HOSTS.test(host)) return ['E-mail', host];
     if (AI_HOSTS.test(host)) return ['AI-assistenten', host];
     if (SEARCH_HOSTS.test(host)) return ['Organisch zoeken', host];
     if (SOCIAL_HOSTS.test(host)) return ['Social organisch', host];
@@ -234,6 +241,33 @@ export async function getWebVisitsData(env, { period }) {
     sessions,
     meta: { rowsRead: res.meta?.rows_read ?? null, ms: res.meta?.duration ?? null },
   };
+}
+
+/**
+ * De sessies van een set bezoekers, met hun kanaal: de bron voor het verhaal op
+ * een lead of actieblad (src/modules/web-story). Zelfde SQL en zelfde
+ * kanaalindeling als het dashboard; er bestaat geen tweede versie van een van beide.
+ * @returns {Promise<Array<{uuid, start, end, site, channel, detail, pages, conversions, historic}>>}
+ */
+export async function readVisitorSessions(env, uuids) {
+  const list = [...new Set(uuids || [])];
+  const out = [];
+  for (let i = 0; i < list.length; i += 50) {
+    const part = list.slice(i, i + 50);
+    const sql = SESSIONS_SQL_TEMPLATE.replace('__WHERE__', `e.visitor_uuid IN (${part.map(() => '?').join(',')})`);
+    const res = await readWebEvents(env, sql, part);
+    for (const r of res.results || []) {
+      let pages = [];
+      try { pages = JSON.parse(r.pg || '[]').filter(Boolean); } catch (_) { pages = []; }
+      const [channel, detail] = channelOf(r);
+      out.push({
+        uuid: r.u, start: r.st, end: r.en, site: r.site || null, channel, detail: detail || '',
+        pages, conversions: { calendly: r.ca || 0, events: r.er || 0, forms: r.fs || 0 },
+        historic: !!r.hi,
+      });
+    }
+  }
+  return out.sort((a, b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : 0));
 }
 
 /** Met edge-cache: dezelfde periode wordt hoogstens elke 10 minuten opnieuw berekend. */
