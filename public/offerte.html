@@ -26,7 +26,11 @@
 
 <!-- Werkbalk. Verdwijnt bij het afdrukken. -->
 <div class="ov-werkbalk">
-  <a href="/forminator-v2" class="ov-knop" title="Terug naar Koppelingen">← Koppelingen</a>
+  <a href="/forminator-v2" class="ov-knop" id="ovKnopTerug" title="Terug naar Koppelingen">← Koppelingen</a>
+  <!-- In een iframe (de mini-app "Offerte Generator") laadde deze link Koppelingen
+       IN het iframe, met een tweede navbar eronder. De pagina eromheen heeft al
+       een navbar, en de sandbox laat het iframe het venster niet wegnavigeren. -->
+  <script>try { if (window.self !== window.top) document.getElementById('ovKnopTerug').hidden = true; } catch (e) { document.getElementById('ovKnopTerug').hidden = true; }</script>
   <span class="ov-werkbalk-titel">Offerte</span>
   <button type="button" class="ov-knop" id="ovKnopBewerken" data-action="bewerken">Tekst bewerken</button>
   <button type="button" class="ov-knop" id="ovKnopOpmaak" data-action="opmaak">Opmaak</button>

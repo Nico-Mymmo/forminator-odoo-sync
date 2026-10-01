@@ -514,6 +514,22 @@
       }
     }
 
+    // Een search-stap op een model zonder vast zoekveld in de modelconfig (bv.
+    // res.partner) had hier geen enkele rij: zoeken kon dan alleen via
+    // "Koppeling vorige stap". Deze rij laat een FORMULIERVELD het zoekcriterium
+    // zijn, met vrije keuze van het Odoo-veld (data-map-col="3").
+    if (searchMode && !identRowHtml) {
+      var _vrijeIdm = existingForm.find(function(m) { return m.is_identifier; });
+      identRowHtml = `<tr data-map-row data-row-type="identifier" data-row-is-required="false" class="bg-primary/5">
+          <td class="py-2 pr-2">${ffSelect(_vrijeIdm ? _vrijeIdm.source_value : '')}</td>
+          <td class="py-2 pr-2 text-center align-middle">
+            <span class="text-sm text-base-content/20">—</span>
+          </td>
+          <td class="py-2 pr-2">${odooFieldSelect(filteredOdooCache, odooLoaded, _vrijeIdm ? _vrijeIdm.odoo_field : '', null, ' data-map-col="3"')}</td>
+          <td class="py-2 pl-1"></td>
+        </tr>`;
+    }
+
     // ── Other chain rows (non-identifier) ────────────────────────────────────
     var otherChainRowsHtml = chainRowsWithIdx
       .filter(function(c) { return c !== chainIdentRow; })

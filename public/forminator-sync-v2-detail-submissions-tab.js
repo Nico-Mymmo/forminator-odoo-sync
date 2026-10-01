@@ -962,9 +962,44 @@
     }
   }
 
+  /**
+   * "Verversen" op het tabblad Indieningen. De knop bestond al
+   * (data-action="refresh-submissions" in bootstrap.js), maar deze functie
+   * niet -- klikken deed dus stil niets. Haalt enkel de indieningen (en de
+   * mailstatus) opnieuw op: openDetail() zou het hele scherm herladen en je
+   * van dit tabblad afhalen.
+   */
+  async function handleRefreshSubmissions() {
+    var integId = S().activeId;
+    if (!integId) return;
+    var btn = document.querySelector('[data-action="refresh-submissions"]');
+    if (btn) btn.classList.add('btn-disabled');
+    try {
+      var res = await window.FSV2.api('/integrations/' + integId + '/submissions');
+      if (S().activeId !== integId) return;
+      S().submissions = res.data || [];
+      var targets = (S().detail && S().detail.targets) || [];
+      if (targets.some(function (t) { return t.operation_type === 'send_mail'; })) {
+        try {
+          var me = await window.FSV2.api('/integrations/' + integId + '/mail-events-summary');
+          S().mailEventsBySubmission = (me.data && me.data.bySubmission) || {};
+        } catch (_) { /* funnelicoontje is bijzaak */ }
+      }
+      if (S().activeId !== integId) return;
+      window.FSV2.renderDetailSubmissions();
+      if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
+      window.FSV2.showAlert('Indieningen ververst.', 'success');
+    } catch (e) {
+      window.FSV2.showAlert('Verversen mislukt: ' + e.message, 'error');
+    } finally {
+      var btnNa = document.querySelector('[data-action="refresh-submissions"]');
+      if (btnNa) btnNa.classList.remove('btn-disabled');
+    }
+  }
 
   Object.assign(window.FSV2, {
     handleCleanupReplays: handleCleanupReplays,
+    handleRefreshSubmissions: handleRefreshSubmissions,
     handleDeleteSubmission: handleDeleteSubmission,
     handleReplay: handleReplay,
     handleReplayMailEvents: handleReplayMailEvents,

@@ -122,6 +122,14 @@
           label: 'Unieke identifier (stap ' + (i + 1) + ')',
         });
       });
+      // De namen van de lijsten uit een mailinglijststap (worker-handler.js zet
+      // ze als step.<n>.mailing_lists, komma-gescheiden).
+      if (String(t.operation_type || '') === 'mailing_list') {
+        res.push({
+          fid:   'step.' + stapVolgorde(t) + '.mailing_lists',
+          label: 'Mailinglijsten (stap ' + (i + 1) + ')',
+        });
+      }
       // De afspraaklink van de EIGENAAR van het record uit deze stap (zie
       // src/modules/booking-links/lib/placeholders.js). Bruikbaar als link in
       // het bericht of als knoplink; een andere soort dan `standaard` typ je

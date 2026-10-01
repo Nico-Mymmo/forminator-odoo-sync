@@ -2303,7 +2303,24 @@ async function runSubmissionAttempt(env, {
           };
           await createSubmissionTargetResult(env, targetResult);
           targetResults.push(targetResult);
-          registerTargetOutput(contextObject, target, { action: actionDone, recordId: contactId }, mappings);
+          // De NAMEN van de lijsten als stap-uitvoer, zodat een latere notitie of
+          // mail kan zeggen waaraan iemand toegevoegd werd ({step.<n>.mailing_lists}).
+          // Best-effort: de inschrijving is al gebeurd, dus een mislukte opzoeking
+          // laat enkel die placeholder leeg.
+          let lijstNamen = null;
+          try {
+            const lijsten = await executeKw(env, {
+              model: 'mailing.list', method: 'search_read',
+              args: [[['id', 'in', listIds]]],
+              kwargs: { fields: ['id', 'name'], context: { active_test: false } },
+            });
+            const naamPerId = new Map((lijsten || []).map((l) => [l.id, l.name]));
+            lijstNamen = listIds.map((lid) => naamPerId.get(Number(lid))).filter(Boolean).join(', ') || null;
+          } catch (naamFout) {
+            console.log(attemptTag, 'mailing_list: lijstnamen niet opgehaald -', naamFout.message);
+          }
+          registerTargetOutput(contextObject, target, { action: actionDone, recordId: contactId }, mappings,
+            { mailing_lists: lijstNamen });
           console.log(attemptTag, 'mailing_list done | contact_id:', contactId, '| action:', action);
         } catch (mailError) {
           const targetResult = {
