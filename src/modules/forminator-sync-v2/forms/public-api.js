@@ -24,6 +24,8 @@ import { getIntegrationById } from '../database.js';
 import { listPublicCalendlyAppointments } from '../calendly/database.js';
 import { toPublicFormPayload, toPublicFormListItem } from './schema.js';
 import { submitFormEntry } from './submit.js';
+import { conversieSoort } from '../../../lib/web-conversions.js';
+import { signAcademyToken } from '../../../lib/academy-token.js';
 import { getLinkBySlug, toPublicBookingLink, fetchOwnerAvatar, ALGEMEEN } from '../../booking-links/lib/links.js';
 
 const PUBLIC_PREFIX = '/forminator-v2/public/v1/forms';
@@ -392,9 +394,27 @@ async function handleSubmit(request, env, { form, fields }, site) {
     const uitkomst = await response.json().catch(() => ({}));
     const gelukt = response.ok && uitkomst?.success !== false;
 
+    // Een formulier dat toegang geeft tot de academy: het inlogbewijs gaat
+    // mee terug, zodat de plugin de bezoeker meteen kan doorsturen. Enkel na
+    // een GESLAAGDE inzending, en enkel voor het adres uit het e-mailveld van
+    // DIT formulier -- zie src/lib/academy-token.js waarom een adres alleen
+    // niet meer volstaat.
+    let academyToken = null;
+    if (gelukt && conversieSoort(integration) === 'academy') {
+      const veld = (fields || []).find((f) => f.field_type === 'email');
+      const adres = veld ? body?.form_data?.[veld.field_key] : '';
+      academyToken = await signAcademyToken(env, adres).catch(() => null);
+    }
+
     return json(
       gelukt
-        ? { success: true, data: { status: uitkomst?.data?.status || 'received' } }
+        ? {
+            success: true,
+            data: {
+              status: uitkomst?.data?.status || 'received',
+              ...(academyToken ? { academy_token: academyToken } : {}),
+            },
+          }
         : { success: false, error: uitkomst?.error || 'De inzending kon niet verwerkt worden.' },
       gelukt ? 200 : (response.status === 422 ? 422 : 502),
       request, env

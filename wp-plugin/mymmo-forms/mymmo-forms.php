@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Mymmo Forms
  * Description:       Formulieren die in de Operations Manager gebouwd worden, hier gerenderd met een shortcode. Geen formulierdefinities in WordPress.
- * Version:           1.19.4
+ * Version:           1.20.0
  * Requires at least: 6.2
  * Requires PHP:      8.0
  * Author:            Mymmo
@@ -32,7 +32,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('MYMMO_FORMS_VERSION', '1.19.4');
+define('MYMMO_FORMS_VERSION', '1.20.0');
 define('MYMMO_FORMS_FILE', __FILE__);
 define('MYMMO_FORMS_DIR', plugin_dir_path(__FILE__));
 define('MYMMO_FORMS_URL', plugin_dir_url(__FILE__));
@@ -51,6 +51,7 @@ require_once MYMMO_FORMS_DIR . 'includes/class-entry-block.php';
 require_once MYMMO_FORMS_DIR . 'includes/class-submit.php';
 require_once MYMMO_FORMS_DIR . 'includes/class-booking.php';
 require_once MYMMO_FORMS_DIR . 'includes/class-visitor-cookie.php';
+require_once MYMMO_FORMS_DIR . 'includes/class-academy.php';
 
 function mymmo_forms_bootstrap(): void {
     Mymmo_Forms_Presets::init();
@@ -63,6 +64,7 @@ function mymmo_forms_bootstrap(): void {
     Mymmo_Forms_Submit::init();
     Mymmo_Forms_Booking::init();
     Mymmo_Forms_Visitor_Cookie::init();
+    Mymmo_Forms_Academy::init();
 }
 add_action('plugins_loaded', 'mymmo_forms_bootstrap');
 

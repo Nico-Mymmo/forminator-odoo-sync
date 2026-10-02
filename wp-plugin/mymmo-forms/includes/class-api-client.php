@@ -296,7 +296,7 @@ final class Mymmo_Forms_Api_Client {
      * @param array<string,mixed> $values
      * @param array<string,mixed> $meta
      * @param array<string,array<string,string>> $labels  waarde => label per veld (value_labels)
-     * @return array{ok:bool,error:string}
+     * @return array{ok:bool,error:string,academy_token?:string}
      */
     public static function submit(string $slug, array $values, array $meta, array $labels = []): array {
         if (!mymmo_forms_is_configured()) {
@@ -333,6 +333,12 @@ final class Mymmo_Forms_Api_Client {
         $body = json_decode((string) wp_remote_retrieve_body($response), true);
 
         if ($code === 200 && is_array($body) && !empty($body['success'])) {
+            // Een formulier van de academy: de OM geeft het inlogbewijs mee
+            // (zie Mymmo_Forms_Academy). Enkel iets met de vorm van zo'n bewijs.
+            $bewijs = (string) ($body['data']['academy_token'] ?? '');
+            if ($bewijs !== '' && preg_match('/^v1\.[A-Za-z0-9_-]{8,1000}\.[A-Za-z0-9_-]{20,200}$/', $bewijs)) {
+                return ['ok' => true, 'error' => '', 'academy_token' => $bewijs];
+            }
             return ['ok' => true, 'error' => ''];
         }
 

@@ -1,0 +1,62 @@
+/* Mymmo Forms -- de academy over de pagina. Zie includes/class-academy.php. */
+
+.mymmo-academy[hidden] {
+  display: none !important;
+}
+
+.mymmo-academy {
+  position: fixed;
+  inset: 0;
+  z-index: 100000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: rgba(15, 23, 42, 0.72);
+}
+
+.mymmo-academy .mymmo-academy-paneel {
+  position: relative;
+  width: min(1100px, 95vw);
+  height: 90vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.mymmo-academy .mymmo-academy-sluit {
+  align-self: flex-end;
+  margin: 0 0 8px;
+  padding: 4px 8px;
+  border: 0;
+  background-color: transparent;
+  color: #fff;
+  font: inherit;
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.mymmo-academy .mymmo-academy-paneel iframe {
+  flex: 1 1 auto;
+  width: 100%;
+  border: 0;
+  border-radius: 12px;
+  background-color: #fff;
+}
+
+html.mymmo-academy-actief,
+html.mymmo-academy-actief body {
+  overflow: hidden;
+}
+
+@media (max-width: 640px) {
+  .mymmo-academy .mymmo-academy-paneel {
+    width: 100vw;
+    height: 100vh;
+    height: 100dvh;
+  }
+  .mymmo-academy .mymmo-academy-sluit {
+    margin: 4px 8px;
+  }
+  .mymmo-academy .mymmo-academy-paneel iframe {
+    border-radius: 0;
+  }
+}

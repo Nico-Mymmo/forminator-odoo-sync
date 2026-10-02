@@ -297,6 +297,10 @@
         // KIND van .mymmo-form-wrap, en dan blijft dit overlay-element (dat op
         // .mymmo-form-wrap zelf hangt) zichtbaar boven het dankjewelscherm.
         verbergBezigInVenster(form);
+        // Een formulier van de academy: mymmo-forms-academy.js neemt het over
+        // (venster dicht, academy open) en zegt dat met preventDefault(). Staat
+        // dat script er niet, dan gewoon het dankjewelscherm.
+        if (uitkomst.academy_token && meldAcademyBewijs(form, uitkomst.academy_token)) return;
         toonDankInVenster(form);
         return;
       }
@@ -308,6 +312,20 @@
       toonFoutInVenster(form, t.unavailable || 'Er ging iets mis. Probeer het opnieuw.');
       herstel();
     });
+  }
+
+  /** @return {boolean} waar als iemand het bewijs overnam (preventDefault). */
+  function meldAcademyBewijs(form, bewijs) {
+    try {
+      var ev = new CustomEvent('mymmo:academy_token', {
+        cancelable: true,
+        detail: { token: bewijs, form: form }
+      });
+      document.dispatchEvent(ev);
+      return ev.defaultPrevented;
+    } catch (_) {
+      return false;
+    }
   }
 
   /**

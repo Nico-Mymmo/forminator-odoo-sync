@@ -54,6 +54,9 @@ final class Mymmo_Forms_Submit {
     private static bool $ajax = false;
     public  const AJAX_FIELD        = 'mymmo_ajax';
 
+    /** Het inlogbewijs van de academy, als de OM er een meegaf. */
+    private static string $academy_token = '';
+
     public static function init(): void {
         add_action('admin_post_nopriv_' . self::ACTION, [self::class, 'handle']);
         add_action('admin_post_' . self::ACTION, [self::class, 'handle']);
@@ -227,6 +230,10 @@ final class Mymmo_Forms_Submit {
         $resultaat = Mymmo_Forms_Api_Client::submit($slug, $values, self::meta($redirect, $lang), $labels);
 
         if ($resultaat['ok']) {
+            // Alleen in de pop-up (AJAX) heeft het bewijs zin: daar opent de
+            // browser meteen de academy. Een klassieke redirect zou het in de
+            // URL zetten, en daar hoort het niet.
+            self::$academy_token = (string) ($resultaat['academy_token'] ?? '');
             $bericht = Mymmo_Forms_I18n::text($form, $lang, 'success_message');
             if ($bericht === '') {
                 $bericht = 'Bedankt, we hebben je bericht goed ontvangen.';
@@ -358,12 +365,16 @@ final class Mymmo_Forms_Submit {
         if (self::$ajax) {
             // De browser staat nog op de pagina en heeft zijn ingevulde waarden
             // nog: geen transient, geen redirect, enkel de uitkomst.
-            wp_send_json([
+            $antwoord = [
                 'ok'      => $status === 'success',
                 'status'  => $status,
                 'message' => $message,
                 'tab'     => self::$tab,
-            ]);
+            ];
+            if ($status === 'success' && self::$academy_token !== '') {
+                $antwoord['academy_token'] = self::$academy_token;
+            }
+            wp_send_json($antwoord);
         }
 
         $token = wp_generate_password(16, false, false);

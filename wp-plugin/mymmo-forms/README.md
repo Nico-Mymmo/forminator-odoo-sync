@@ -567,6 +567,20 @@ injectiepad zijn naar elke site die het formulier toont.
 
 ## Versies
 
+**1.20.0** — de academy achter een formulier van de OM. Nieuw: Instellingen →
+Mymmo academy (adres van de academy + de opstelling of het formulier van het
+venster) en het blok **Mymmo academy-knop** (opent het overzicht of een
+bepaalde cursus, eventueel een les). Een knop opent eerst het venster met het
+formulier; na het versturen geeft de OM een ondertekend inlogbewijs mee en gaat
+de bezoeker meteen door naar de academy. De volgende keer opent de knop de
+academy meteen. Oude knoppen met de klasse `ovme-exit-cursus` blijven werken.
+Waarom: het oude script in de kop van syndicoach.be stuurde het kale
+e-mailadres in de link naar de academy (`?email=`), en daarmee kon iedereen
+andermans voortgang zien. Vraagt de OM-deploy van 2026-10-03 (met
+`ACADEMY_TOKEN_SECRET`); zonder die geeft het formulier gewoon het
+dankjewelscherm. Haal het oude script (`<!-- OVME CURSUS POPUP -->`) weg zodra
+dit ingesteld is, anders openen er twee vensters.
+
 **1.19.4** — het tabblad heet "Popups" en beheert popups, geen shortcodes.
 - Een popup HERNOEMEN houdt zijn id, dus de nieuwe naam werkt meteen door op
   de site. Tot nu maakte een andere naam typen stil een tweede popup aan, en
