@@ -367,6 +367,22 @@
   }
 
   /**
+   * De popup van de ACADEMY (Instellingen → Mymmo academy) heeft geen
+   * dankjewelscherm, geen conversiepad en geen andere tabbladen: na het
+   * verzenden opent de cursus. Die instellingen verbergen, met een uitleg
+   * bovenaan -- anders vul je iets in dat nergens verschijnt.
+   */
+  function toonAcademy() {
+    var eigen = waardeVan('mymmoFormsPresetId');
+    var academy = !!eigen && eigen === waardeVan('mymmoFormsAcademyPreset');
+    var banner = document.querySelector('[data-mymmo-academy-banner]');
+    if (banner) banner.hidden = !academy;
+    Array.prototype.forEach.call(document.querySelectorAll('[data-mymmo-academy-verberg]'), function (el) {
+      el.hidden = academy;
+    });
+  }
+
+  /**
    * De stand van een tekening: schaal en verschuiving.
    *
    * De velden zijn getallen (percentage, pixels); de shortcode wil een waarde
@@ -1069,6 +1085,7 @@
         });
 
         vulIn(atts, laden.getAttribute('data-mymmo-preset-soort') || 'knop');
+        toonAcademy();
         var canvas = document.getElementById('mymmoFormsCanvas');
         if (canvas && canvas.scrollIntoView) canvas.scrollIntoView({ behavior: 'smooth', block: 'start' });
         return;
@@ -1088,9 +1105,11 @@
     if (nieuwKnop) {
       nieuwKnop.addEventListener('click', function () {
         zetVeld('mymmoFormsPresetId', '');
+        toonAcademy();
       });
     }
 
+    toonAcademy();
     bouwShortcode();
   }
 

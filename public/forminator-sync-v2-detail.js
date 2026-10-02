@@ -702,6 +702,7 @@
             .then(function () {
               if (S().detail && S().detail.integration) S().detail.integration.web_action = waarde;
               window.FSV2.showAlert('Bewaard. Nieuwe inzendingen tellen in Webgedrag als: ' + e.target.options[e.target.selectedIndex].text + '.', 'success');
+              try { document.dispatchEvent(new CustomEvent('fsv2:web-action', { detail: { web_action: waarde } })); } catch (_) { /* oude browser */ }
             })
             .catch(function (err) { window.FSV2.showAlert(err.message, 'error'); });
         });

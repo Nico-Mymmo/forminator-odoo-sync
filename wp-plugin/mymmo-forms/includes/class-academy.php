@@ -159,6 +159,7 @@ final class Mymmo_Forms_Academy {
                                 een e-mailveld hebben en actief zijn -- anders komt er geen inlogbewijs terug en blijft de
                                 bezoeker op het dankjewelscherm staan.
                             </p>
+                            <?php echo self::keten_melding($s); // phpcs:ignore -- ge-escaped in keten_melding() ?>
                             <?php if ($s['preset'] === '' && $s['slug'] !== '') : ?>
                                 <p class="description"><strong>Nu nog:</strong> het formulier <code><?php echo esc_html($s['slug']); ?></code> zonder popup. Kies een popup om titel en uitleg zelf te bepalen.</p>
                             <?php endif; ?>
@@ -192,6 +193,53 @@ final class Mymmo_Forms_Academy {
             <?php endif; ?>
         </div>
         <?php
+    }
+
+    /**
+     * Klopt de keten pop-up -> formulier -> koppeling op "Academy" -> e-mailveld?
+     * Elk ontbrekend stuk is een stille fout: de bezoeker blijft dan op een
+     * bedankmelding staan in plaats van in de academy te belanden.
+     *
+     * @param array{url:string,preset:string,slug:string} $s
+     */
+    private static function keten_melding(array $s): string {
+        $slug = $s['slug'];
+        if ($s['preset'] !== '' && class_exists('Mymmo_Forms_Presets')) {
+            $slug = sanitize_title((string) (Mymmo_Forms_Presets::atts($s['preset'])['slug'] ?? ''));
+            if ($slug === '') {
+                return self::keten_regel('fout', 'Deze popup heeft geen formulier.');
+            }
+        }
+        if ($slug === '') {
+            return '';
+        }
+        $lijst = class_exists('Mymmo_Forms_Api_Client') ? Mymmo_Forms_Api_Client::list_forms() : null;
+        if (!is_array($lijst)) {
+            return self::keten_regel('info', 'Formulier: ' . $slug . ' (de OM kon niet nagevraagd worden).');
+        }
+        foreach ($lijst as $f) {
+            if ((string) ($f['slug'] ?? '') !== $slug) {
+                continue;
+            }
+            $naam = mymmo_forms_form_label($f);
+            if (!array_key_exists('academy', $f)) {
+                return self::keten_regel('info', 'Formulier: ' . $naam . '. (Deze OM zegt nog niet of de koppeling op Academy staat.)');
+            }
+            if (empty($f['academy'])) {
+                return self::keten_regel('fout', 'Formulier: ' . $naam . ' — de koppeling staat NIET op "Telt in Webgedrag als: Academy". Zet dat in Koppelingen, anders opent de academy niet na het verzenden.');
+            }
+            if (empty($f['has_email'])) {
+                return self::keten_regel('fout', 'Formulier: ' . $naam . ' — er staat geen e-mailveld in. Zonder e-mailveld kan niemand aangemeld worden.');
+            }
+            return self::keten_regel('ok', 'Formulier: ' . $naam . ' — de koppeling staat op Academy en er is een e-mailveld.');
+        }
+        return self::keten_regel('fout', 'Het formulier "' . $slug . '" staat niet (meer) gepubliceerd in de OM.');
+    }
+
+    private static function keten_regel(string $soort, string $tekst): string {
+        $kleur = ['ok' => '#00a32a', 'fout' => '#d63638', 'info' => '#646970'][$soort] ?? '#646970';
+        $teken = ['ok' => '✓', 'fout' => '✕', 'info' => 'ℹ'][$soort] ?? '';
+        return '<p class="description" style="color:' . $kleur . ';font-weight:600">' . esc_html($teken . ' ' . $tekst) . '</p>';
     }
 
     /**

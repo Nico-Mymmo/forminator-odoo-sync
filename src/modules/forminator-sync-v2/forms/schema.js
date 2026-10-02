@@ -698,7 +698,7 @@ export function toPublicFormPayload(form, fields) {
  * ophalen om een keuzelijst te vullen is verspilling. Geen interne id's --
  * de slug is wat in de shortcode staat en verder heeft niemand iets nodig.
  */
-export function toPublicFormListItem(form, fieldCount, adminName = '') {
+export function toPublicFormListItem(form, fieldCount, adminName = '', extra = {}) {
   return {
     slug: form.slug,
     name: form.name,
@@ -716,6 +716,10 @@ export function toPublicFormListItem(form, fieldCount, adminName = '') {
     // zonder deze lijst zou hij talen voorstellen die het formulier niet heeft.
     languages: Array.isArray(form.languages) && form.languages.length ? form.languages : [DEFAULT_LANGUAGE],
     default_language: isLanguage(form.default_language) ? form.default_language : DEFAULT_LANGUAGE,
+    // Voor Instellingen → Mymmo academy: klopt de keten? Enkel twee ja/nee's,
+    // geen soort-van-koppeling en geen veldnamen.
+    academy: Boolean(extra.academy),
+    has_email: Boolean(extra.hasEmail),
   };
 }
 

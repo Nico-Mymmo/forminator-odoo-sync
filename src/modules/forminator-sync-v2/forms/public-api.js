@@ -266,7 +266,8 @@ async function handleLijst(request, env) {
     return json({ success: false, error: 'Tijdelijk niet beschikbaar' }, 503, request, env);
   }
 
-  const forms = rijen.map(({ form, fieldCount, adminName }) => toPublicFormListItem(form, fieldCount, adminName));
+  const forms = rijen.map(({ form, fieldCount, adminName, academy, hasEmail }) =>
+    toPublicFormListItem(form, fieldCount, adminName, { academy, hasEmail }));
 
   // De ETag uit slug+versie van elke rij: verandert er iets aan een formulier,
   // dan verandert zijn versie, en dus deze ETag. Nooit een tijdstip erin --

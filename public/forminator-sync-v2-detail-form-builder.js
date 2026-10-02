@@ -1048,6 +1048,12 @@
       </div>`;
   }
 
+  /** Staat de koppeling van dit formulier op "Telt in Webgedrag als: Academy"? */
+  function isAcademyFormulier() {
+    var k = S().detail && S().detail.integration;
+    return !!(k && k.web_action === 'academy');
+  }
+
   function renderFormulierPaneel() {
     var isRedirect = B.form.success_mode === 'redirect';
     var thema = B.form.theme || {};
@@ -1095,6 +1101,19 @@
           ${(B.form.submit_layout || 'below') !== 'below' ? `<span class="label-text-alt text-base-content/50 mt-1">Veld : knop. Enkel naast een eenregelig veld (tekst, e-mail, telefoon, getal, datum, keuzelijst); anders staat de knop eronder. Op een telefoon staat hij altijd eronder.</span>` : ''}
         </label>
 
+        ${isAcademyFormulier() ? `
+          <div class="rounded-box bg-base-200/40 p-3 mb-3 text-xs">
+            <div class="font-semibold mb-1 flex items-center gap-1">
+              <i data-lucide="graduation-cap" class="w-3.5 h-3.5"></i> Na het verzenden opent de academy
+            </div>
+            <p class="text-base-content/60">Deze koppeling staat op <strong>Academy</strong>: de bezoeker krijgt geen
+            bedankmelding maar gaat meteen naar de cursus, aangemeld met het adres uit het e-mailveld. De pop-up
+            kies je in WordPress bij Instellingen → Mymmo academy.</p>
+            ${B.fields.some(function (v) { return v.field_type === 'email'; }) ? '' : `
+              <p class="text-error mt-2 flex items-start gap-1"><i data-lucide="alert-triangle" class="w-3.5 h-3.5 mt-0.5 shrink-0"></i>
+              <span>Dit formulier heeft geen e-mailveld. Zonder e-mailveld kan niemand aangemeld worden en blijft de
+              bezoeker op een bedankmelding staan.</span></p>`}
+          </div>` : `
         <label class="form-control mb-2">
           <span class="label label-text text-xs">Na het verzenden</span>
           <select class="select select-bordered select-sm" data-fb-change="success-mode">
@@ -1116,6 +1135,7 @@
                       data-fb-form="success_message"
                       placeholder="${esc(bewerktStandaardtaal() ? '' : (B.form.success_message || ''))}">${esc(leesForm('success_message'))}</textarea>
           </label>`}
+        `}
 
         ${renderTalenBlok()}
 
@@ -1611,6 +1631,12 @@
       window.FSV2.showAlert(err.message, 'error');
     }
   }
+
+  // De soort actie van de koppeling wijzigt bovenaan het detailscherm
+  // (forminator-sync-v2-detail.js); het paneel hiernaast hangt ervan af.
+  document.addEventListener('fsv2:web-action', function () {
+    if (B.form && B.integrationId === S().activeId && B.sel === null) tekenInspector();
+  });
 
   Object.assign(window.FSV2, {
     renderDetailForm: renderDetailForm,

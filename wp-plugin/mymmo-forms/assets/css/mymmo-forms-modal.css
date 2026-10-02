@@ -476,6 +476,14 @@ html.mymmo-modal-actief body {
   padding-top: 22px;
 }
 
+/* Behalve een knop NAAST een veld (submit_layout in de OM): die staat in het
+   raster, op de hoogte van het invoervak. De regel hierboven duwde hem 22px
+   omlaag -- zichtbaar als een knop die lager staat dan het veld ernaast. */
+.mymmo-modal-paneel .mymmo-form-grid .mymmo-form-actions--naast {
+  margin-top: 0;
+  padding-top: 0;
+}
+
 .mymmo-modal-paneel:focus {
   outline: none;
 }

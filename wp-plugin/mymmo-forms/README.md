@@ -567,6 +567,15 @@ injectiepad zijn naar elke site die het formulier toont.
 
 ## Versies
 
+**1.20.5** — de academy is duidelijker in te stellen. Instellingen → Mymmo
+academy zegt bij de gekozen popup welk formulier erin zit en of de keten
+klopt (koppeling op "Academy", een e-mailveld), in het groen of in het rood.
+In de pop-upbouwer verbergt de popup van de academy het dankjewelscherm, het
+conversiepad en de ongebruikte tabbladen, met een uitleg bovenaan: na het
+verzenden opent de cursus, dus die instellingen deden niets. En: een knop
+NAAST een veld stond in een pop-up 22px te laag, door de ruimte die het
+venster boven zijn knoppenrij zet.
+
 **1.20.4** — een venster ZONDER kop (enkel een formulier) zet zijn kruisje
 vanaf 900px breed NAAST het venster, rechts bovenaan, en het kaartje krijgt
 bovenaan dezelfde rand als opzij. In 1.20.3 kreeg het kaartje bovenaan extra

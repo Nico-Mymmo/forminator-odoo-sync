@@ -1507,6 +1507,8 @@ final class Mymmo_Forms_Settings {
                     <input type="hidden" name="mymmo_preset_atts" id="mymmoFormsPresetAtts" value="">
                     <input type="hidden" name="mymmo_preset_soort" id="mymmoFormsPresetSoort" value="knop">
                     <input type="hidden" name="mymmo_preset_id" id="mymmoFormsPresetId" value="">
+                    <?php // Welke popup bij de academy hoort; zie toonAcademy() in mymmo-forms-admin.js. ?>
+                    <input type="hidden" id="mymmoFormsAcademyPreset" value="<?php echo esc_attr(class_exists('Mymmo_Forms_Academy') ? Mymmo_Forms_Academy::settings()['preset'] : ''); ?>">
 
                     <label for="mymmoFormsPresetName">Naam</label>
                     <input type="text" id="mymmoFormsPresetName" name="mymmo_preset_name"
@@ -1706,9 +1708,15 @@ final class Mymmo_Forms_Settings {
                 // opschrift van het tabblad zelf -- en niet "Formulier" of
                 // "Derde tabblad", want zo heten ze voor niemand.
                 ?>
+                <div class="notice notice-info inline" data-mymmo-academy-banner hidden style="margin:0 0 12px">
+                    <p><strong>Deze popup hoort bij de academy.</strong> Na het verzenden opent de cursus; er is geen
+                    dankjewelscherm en geen conversiepad. De aanmelding telt in Webgedrag via de koppeling.
+                    Enkel het formulier, de titel en de uitleg (in het voorbeeld) en het uitzicht doen hier iets.</p>
+                </div>
+
                 <div data-mymmo-tabblokken>
 
-                <details class="mymmo-groep" open data-mymmo-tabblok="extra">
+                <details class="mymmo-groep" open data-mymmo-tabblok="extra" data-mymmo-academy-verberg>
                     <summary data-mymmo-tabblok-naam="mymmoFormsTabExtra">Bereken je prijsofferte</summary>
                     <div class="mymmo-groep-lijf">
                         <?php
@@ -1787,12 +1795,12 @@ final class Mymmo_Forms_Settings {
                                 inleiding uit de OM.</span>
                         </div>
 
-                        <div class="mymmo-veld">
+                        <div class="mymmo-veld" data-mymmo-academy-verberg>
                             <label for="mymmoFormsGoalForm">Conversiepad</label>
                             <input type="text" id="mymmoFormsGoalForm" class="code" placeholder="/bedankt/offerte">
                         </div>
 
-                        <div class="mymmo-veld" data-mymmo-canvas="1">
+                        <div class="mymmo-veld" data-mymmo-canvas="1" data-mymmo-academy-verberg>
                             <label for="mymmoFormsThanksFormImage">Dankjewelscherm: afbeelding</label>
                             <input type="url" id="mymmoFormsThanksFormImage" class="code" placeholder="leeg = een vinkje">
                             <span class="mymmo-knoppen">
@@ -1803,7 +1811,7 @@ final class Mymmo_Forms_Settings {
                     </div>
                 </details>
 
-                <details class="mymmo-groep" open data-mymmo-tabblok="calendly">
+                <details class="mymmo-groep" open data-mymmo-tabblok="calendly" data-mymmo-academy-verberg>
                     <summary data-mymmo-tabblok-naam="mymmoFormsTabCalendly">Plan een gesprek</summary>
                     <div class="mymmo-groep-lijf">
                         <div class="mymmo-veld">
