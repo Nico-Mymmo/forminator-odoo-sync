@@ -10,7 +10,10 @@
  *      voorleest en de bezoeker meteen op de juiste plek staat;
  *   2. bij verzenden per veld een foutmelding tonen IN DE TAAL VAN HET
  *      FORMULIER, en naar het eerste foute veld springen;
- *   3. dubbelklikken op verzenden tegenhouden.
+ *   3. dubbelklikken op verzenden tegenhouden;
+ *   4. het token van Cloudflare Turnstile ophalen, als de OM daarom vraagt
+ *      (zie maakTurnstile()). Zonder JavaScript is er geen token en beslist de
+ *      Worker; dit bestand weigert zelf niets.
  *
  * Over punt 2: het formulier heeft `novalidate`, dus de browser toont zijn eigen
  * ballon niet. Dat is bewust. Die ballon ("Please fill out this field.") staat
@@ -147,11 +150,244 @@
     return eerste;
   }
 
+  // ── Botcontrole: Cloudflare Turnstile, onzichtbaar ─────────────────────────
+  //
+  // Alleen voor een formulier met data-mymmo-turnstile (de publieke
+  // sitesleutel). Die zet de OM in de payload zolang FORMS_TURNSTILE_MODE niet
+  // "off" is. De WORKER kijkt het token na en beslist (forms/turnstile.js);
+  // lukt het hier niet (script geblokkeerd, fout, te traag), dan gaat de
+  // inzending gewoon zonder token, met de reden erbij.
+  //
+  // Het script laadt pas bij de eerste klik IN het formulier: wie niets
+  // invult, haalt niets van Cloudflare op. En dan meteen, zodat het token er
+  // bij "Versturen" meestal al is en niemand op iets hoeft te wachten.
+  //
+  // 'refresh-expired: never': een verlopen token (na 5 minuten) wordt pas bij
+  // het versturen vernieuwd. Een formulier in de pop-up of een callout
+  // VERHUIST in de DOM, en een iframe dat verhuist laadt opnieuw -- een
+  // automatische verversing daarin kan stil blijven hangen. reset() op het
+  // moment zelf kan dat niet.
+
+  var TS_SCRIPT = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit&onload=mymmoTurnstileGeladen';
+  // Hoelang we bij het versturen op een token wachten. Toont Cloudflare een
+  // vinkje, dan telt dit niet: dan wachten we op de bezoeker.
+  var TS_WACHT_MS = 15000;
+  var tsStand = '';
+  var tsWachtrij = [];
+  var tsAlle = [];
+
+  function laadTurnstile(klaar) {
+    if (window.turnstile && typeof window.turnstile.render === 'function') { klaar(true); return; }
+    if (tsStand === 'mislukt') { klaar(false); return; }
+    tsWachtrij.push(klaar);
+    if (tsStand === 'laden') return;
+    tsStand = 'laden';
+
+    function klaarMet(ok) {
+      tsStand = ok ? 'klaar' : 'mislukt';
+      var lijst = tsWachtrij;
+      tsWachtrij = [];
+      for (var i = 0; i < lijst.length; i += 1) lijst[i](ok);
+    }
+
+    // Laadt een andere plugin Turnstile al? Dan niet nog eens: een dubbel
+    // api.js geeft Cloudflare-fouten op de hele pagina.
+    var bestaand = document.querySelector('script[src*="challenges.cloudflare.com/turnstile/"]');
+    if (bestaand) {
+      bestaand.addEventListener('load', function () { klaarMet(!!window.turnstile); });
+      bestaand.addEventListener('error', function () { klaarMet(false); });
+      return;
+    }
+
+    window.mymmoTurnstileGeladen = function () { klaarMet(true); };
+    var script = document.createElement('script');
+    script.src = TS_SCRIPT;
+    script.async = true;
+    script.onerror = function () { klaarMet(false); };
+    document.head.appendChild(script);
+  }
+
+  /** @return {object|null} null als dit formulier geen Turnstile heeft */
+  function maakTurnstile(form) {
+    var sleutel = form.getAttribute('data-mymmo-turnstile') || '';
+    if (!sleutel) return null;
+    // Het voorbeeld in wp-admin draait in een srcdoc-iframe. Turnstile kent
+    // die "site" niet en zou er enkel een fout geven.
+    if (!/^https?:$/.test(window.location.protocol)) return null;
+
+    var metTaal = form.closest ? form.closest('[lang]') : null;
+    var vak = null;
+    var id = null;
+    var getekend = false;
+    var loopt = false;        // het script of een uitdaging is onderweg
+    var interactief = false;  // Cloudflare twijfelt en toont een vinkje
+    var token = '';
+    var wachters = [];
+    var opVinkje = null;
+
+    // Eigen verborgen velden, niet die van Turnstile zelf: zo staat het token
+    // er gegarandeerd op het moment dat het formulier vertrekt, ook in de
+    // klassieke POST. Namen = Mymmo_Forms_Submit::TURNSTILE_FIELD / _ERROR_FIELD.
+    var tokenVeld = verborgenVeld(form, 'mymmo_turnstile');
+    var foutVeld = verborgenVeld(form, 'mymmo_turnstile_error');
+
+    function zetToken(waarde) {
+      token = waarde || '';
+      tokenVeld.value = token;
+      if (token) foutVeld.value = '';
+    }
+
+    function meld() {
+      var lijst = wachters;
+      wachters = [];
+      for (var i = 0; i < lijst.length; i += 1) lijst[i]();
+    }
+
+    function mislukt(code) {
+      loopt = false;
+      zetToken('');
+      foutVeld.value = String(code || 'onbekend').slice(0, 40);
+      meld();
+    }
+
+    function zichtbaar(aan) {
+      interactief = aan;
+      if (vak) vak.classList.toggle('mymmo-form-turnstile--zichtbaar', aan);
+    }
+
+    var opties = {
+      sitekey: sleutel,
+      'response-field': false,
+      appearance: 'interaction-only',
+      size: 'flexible',
+      language: (metTaal && metTaal.getAttribute('lang')) || 'auto',
+      'refresh-expired': 'never',
+      callback: function (nieuw) {
+        loopt = false;
+        zichtbaar(false);
+        zetToken(nieuw);
+        meld();
+      },
+      'expired-callback': function () { loopt = false; zetToken(''); },
+      'error-callback': function (code) {
+        zichtbaar(false);
+        mislukt(code);
+        return true; // afgehandeld: geen fout in de console van de bezoeker
+      },
+      'timeout-callback': function () { zichtbaar(false); mislukt('timeout'); },
+      'before-interactive-callback': function () {
+        zichtbaar(true);
+        if (opVinkje) opVinkje();
+      },
+      'after-interactive-callback': function () { zichtbaar(false); }
+    };
+
+    function render() {
+      try {
+        id = window.turnstile.render(vak, opties);
+      } catch (_) {
+        id = null;
+      }
+      return id !== null && id !== undefined;
+    }
+
+    // Een (nieuwe) uitdaging starten. Een tweede keer in hetzelfde vak gaat
+    // met reset(), niet met een tweede render.
+    function begin() {
+      if (getekend) {
+        loopt = true;
+        zetToken('');
+        try { window.turnstile.reset(id); } catch (_) { mislukt('reset'); }
+        return;
+      }
+      if (loopt) return;
+      loopt = true;
+      laadTurnstile(function (geladen) {
+        if (getekend) return;
+        if (!geladen) { mislukt('script'); return; }
+        vak = document.createElement('div');
+        vak.className = 'mymmo-form-turnstile';
+        form.appendChild(vak);
+        getekend = true;
+        if (render()) return;
+        // Een taal die Turnstile niet kent, mag de controle niet breken.
+        vak.innerHTML = '';
+        opties.language = 'auto';
+        if (render()) return;
+        if (vak.parentNode) vak.parentNode.removeChild(vak);
+        getekend = false;
+        mislukt('render');
+      });
+    }
+
+    var ts = {
+      voorbereid: function () {
+        if (!getekend && !loopt) begin();
+      },
+      heeftToken: function () { return token !== ''; },
+      // Wacht op een token en roep dan `verder` aan -- ook ZONDER token, na een
+      // fout of na TS_WACHT_MS. `bijVinkje` loopt als Cloudflare een vinkje
+      // toont; dan wachten we zonder tijdslimiet op de bezoeker.
+      zorgVoor: function (verder, bijVinkje) {
+        if (token) { verder(); return; }
+        var gedaan = false;
+        var klok = null;
+        function eenmaal() {
+          if (gedaan) return;
+          gedaan = true;
+          window.clearTimeout(klok);
+          opVinkje = null;
+          verder();
+        }
+        wachters.push(eenmaal);
+        opVinkje = bijVinkje || null;
+        klok = window.setTimeout(function () {
+          if (interactief) return;
+          loopt = false; // de volgende poging begint opnieuw, met reset()
+          foutVeld.value = foutVeld.value || 'traag';
+          eenmaal();
+        }, TS_WACHT_MS);
+
+        if (interactief) {
+          if (opVinkje) opVinkje();
+        } else if (!loopt) {
+          begin();
+        }
+      },
+      // Het token is verbruikt (de Worker keek het na) of niet meer te
+      // vertrouwen: weg ermee, en meteen een nieuw halen.
+      ververs: function () {
+        loopt = false;
+        zetToken('');
+        if (getekend) begin();
+      },
+      vergeet: function () {
+        loopt = false;
+        zetToken('');
+      }
+    };
+    tsAlle.push(ts);
+    return ts;
+  }
+
+  function verborgenVeld(form, naam) {
+    var veld = document.createElement('input');
+    veld.type = 'hidden';
+    veld.name = naam;
+    veld.value = '';
+    form.appendChild(veld);
+    return veld;
+  }
+
   function koppel(form) {
     var knop = form.querySelector('.mymmo-form-submit');
     var t = teksten(form);
     var bezig = false;
     var ooitGevalideerd = false;
+    var bezigTekst = t.submitting || 'Bezig met versturen…';
+
+    var ts = maakTurnstile(form);
+    if (ts) form.addEventListener('focusin', ts.voorbereid);
 
     // Een VERPLICHT VINKJE (verplichte opt-in in de OM): zolang het niet
     // aangevinkt is, is de knop grijs en doet hij niets -- geen foutmelding.
@@ -221,41 +457,76 @@
       }
 
       bezig = true;
+      zetKnopBezig();
+
+      // Turnstile zonder token (nog niet klaar, verlopen, of pas nu voor het
+      // eerst gevraagd): eerst daarop wachten, dan zelf versturen. Meestal staat
+      // het er al -- het wordt bij de eerste klik in het formulier opgehaald.
+      if (ts && !ts.heeftToken()) {
+        event.preventDefault();
+        ts.zorgVoor(function () { verstuur(null); }, function () {
+          // Cloudflare twijfelt en toont een vinkje. Dan zegt de knop niet
+          // langer "bezig" -- de bezoeker moet eerst zelf iets doen. Na het
+          // vinkje gaat de inzending vanzelf verder.
+          if (knop) {
+            if (knop.dataset.mymmoLabel) knop.textContent = knop.dataset.mymmoLabel;
+            knop.classList.add('mymmo-form-submit--wacht');
+          }
+        });
+        return;
+      }
+
+      verstuur(event);
+    });
+
+    function zetKnopBezig() {
+      if (!knop) return;
+      // aria-disabled en niet disabled: een echt uitgeschakelde knop wordt
+      // door de browser niet meegestuurd, en dan mist de POST zijn naam.
+      knop.classList.remove('mymmo-form-submit--wacht');
+      knop.setAttribute('aria-disabled', 'true');
+      if (knop.textContent !== bezigTekst) knop.dataset.mymmoLabel = knop.textContent;
+      knop.textContent = bezigTekst;
+    }
+
+    function herstel() {
+      bezig = false;
+      if (knop) {
+        knop.removeAttribute('aria-disabled');
+        if (knop.dataset.mymmoLabel) knop.textContent = knop.dataset.mymmoLabel;
+      }
+      werkKnopBij();
+    }
+
+    /**
+     * Het eigenlijke versturen. `event` is het submit-event als we nog IN de
+     * afhandeling zitten -- dan doet de browser de klassieke POST zelf -- of
+     * null als we eerst op Turnstile wachtten, en dan versturen we zelf.
+     */
+    function verstuur(event) {
+      zetKnopBezig();
 
       // In de pop-up: versturen zonder de pagina te herladen, en meteen het
       // dankjewelscherm van dit tabblad tonen. Zie verstuurInVenster().
       if (kanInVenster(form)) {
-        event.preventDefault();
+        if (event) event.preventDefault();
         verstuurInVenster(form, knop, t, function () {
-          bezig = false;
-          if (knop) {
-            knop.removeAttribute('aria-disabled');
-            if (knop.dataset.mymmoLabel) knop.textContent = knop.dataset.mymmoLabel;
-          }
-          werkKnopBij();
+          // Mislukt: het token is verbruikt, een volgende poging heeft een
+          // nieuw nodig.
+          if (ts) ts.ververs();
+          herstel();
         });
-      }
-
-      if (knop) {
-        // aria-disabled en niet disabled: een echt uitgeschakelde knop wordt
-        // door de browser niet meegestuurd, en dan mist de POST zijn naam.
-        knop.setAttribute('aria-disabled', 'true');
-        knop.dataset.mymmoLabel = knop.textContent;
-        knop.textContent = t.submitting || 'Bezig met versturen…';
+      } else if (!event) {
+        // Via het prototype: een veld met de naam "submit" zou form.submit
+        // anders overschaduwen. Dit vuurt geen submit-event, dus geen lus.
+        HTMLFormElement.prototype.submit.call(form);
       }
 
       // Vangnet: gaat er onderweg iets mis en komt er geen redirect, dan mag de
       // bezoeker het na tien seconden opnieuw proberen in plaats van naar een
       // dode knop te kijken.
-      window.setTimeout(function () {
-        bezig = false;
-        if (knop) {
-          knop.removeAttribute('aria-disabled');
-          if (knop.dataset.mymmoLabel) knop.textContent = knop.dataset.mymmoLabel;
-        }
-        werkKnopBij();
-      }, 10000);
-    });
+      window.setTimeout(herstel, 10000);
+    }
   }
 
   /**
@@ -545,4 +816,11 @@
   } else {
     start();
   }
+
+  // Met "terug" uit de back/forward-cache: een token van daarvoor is bij het
+  // vorige versturen al verbruikt, en zou de Worker als ongeldig zien.
+  window.addEventListener('pageshow', function (event) {
+    if (!event.persisted) return;
+    for (var i = 0; i < tsAlle.length; i += 1) tsAlle[i].vergeet();
+  });
 }());

@@ -16,6 +16,7 @@ import { pushOne } from './lib/push.js';
 import { KLEUR } from './lib/journey.js';
 import { getBehaviourCached } from './lib/behaviour.js';
 import { WEB_PERIODS } from '../dashboards/lib/web-visits.js';
+import { loadExclusions, dropExcluded, listRules, describeRules, addRule, removeRule } from './lib/exclusions.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const STATUSSEN = new Set(['actief', 'bevestigd', 'afgewezen']);
@@ -53,11 +54,38 @@ export const routes = {
   }),
 
   // Trends en flows over alle bezoeken (lib/behaviour.js): compacte sessies, de
-  // browser segmenteert. 10 minuten in de edge-cache.
+  // browser segmenteert. 10 minuten in de edge-cache; de uitgesloten personen gaan
+  // er NA de cache uit (lib/exclusions.js), zodat een wijziging meteen telt.
   'GET /api/behaviour': async ({ env, request, ctx }) => guard(env, async () => {
     const p = new URL(request.url).searchParams.get('period');
     const period = WEB_PERIODS[p] ? p : '30d';
-    return json({ success: true, data: await getBehaviourCached(env, ctx, { period }) });
+    const [data, excl] = await Promise.all([getBehaviourCached(env, ctx, { period }), loadExclusions(env)]);
+    return json({ success: true, data: dropExcluded(data, excl) });
+  }),
+
+  // ── Uitgesloten personen en browsers (lib/exclusions.js) ──────────────────
+  // Lezen mag iedereen met de module: wie de cijfers bekijkt, moet kunnen zien wie
+  // er niet in zit. Wijzigen raakt ieders cijfers (ook het dashboard): beheerders.
+  'GET /api/exclusions': async ({ env, user }) => guard(env, async () => {
+    const rules = await listRules(env);
+    return json({ success: true, data: { is_admin: isAdmin(user), rules: await describeRules(env, rules) } });
+  }),
+
+  /** body: { kind: 'email' | 'visitor', value, reason? } */
+  'POST /api/exclusions': async ({ env, user, request }) => guard(env, async () => {
+    if (!isAdmin(user)) return json({ success: false, error: 'Alleen een beheerder kan iemand uitsluiten.' }, 403);
+    const body = await request.json().catch(() => ({}));
+    try {
+      return json({ success: true, data: await addRule(env, user, body || {}) });
+    } catch (e) {
+      return json({ success: false, error: e.message }, 400);
+    }
+  }),
+
+  'DELETE /api/exclusions/:id': async ({ env, user, params }) => guard(env, async () => {
+    if (!isAdmin(user)) return json({ success: false, error: 'Alleen een beheerder kan iemand weer laten meetellen.' }, 403);
+    await removeRule(env, params.id);
+    return json({ success: true });
   }),
 
   'GET /api/search': async ({ env, request }) => guard(env, async () => {

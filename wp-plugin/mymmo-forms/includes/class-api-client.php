@@ -298,7 +298,7 @@ final class Mymmo_Forms_Api_Client {
      * @param array<string,array<string,string>> $labels  waarde => label per veld (value_labels)
      * @return array{ok:bool,error:string,academy_token?:string}
      */
-    public static function submit(string $slug, array $values, array $meta, array $labels = []): array {
+    public static function submit(string $slug, array $values, array $meta, array $labels = [], ?array $turnstile = null): array {
         if (!mymmo_forms_is_configured()) {
             return ['ok' => false, 'error' => 'Dit formulier is nog niet volledig ingesteld. Neem contact met ons op.'];
         }
@@ -316,6 +316,9 @@ final class Mymmo_Forms_Api_Client {
                     'form_data'    => $values,
                     'meta'         => $meta,
                     'value_labels' => $labels !== [] ? $labels : null,
+                    // {token, error}, of weg als het formulier geen Turnstile
+                    // heeft. Zie Mymmo_Forms_Submit::turnstile_antwoord().
+                    'turnstile'    => $turnstile,
                 ], static fn ($v) => $v !== null)),
             ]
         );
@@ -343,10 +346,12 @@ final class Mymmo_Forms_Api_Client {
         }
 
         // 422 = de OM keurde de inhoud af. Die melding gaat over een veld en is
-        // in het Nederlands geschreven, dus die tonen we letterlijk. Alle andere
-        // codes zijn techniek en krijgen een algemene tekst -- een bezoeker
-        // heeft niets aan "502 Bad Gateway".
-        if ($code === 422 && is_array($body) && !empty($body['error'])) {
+        // in het Nederlands geschreven, dus die tonen we letterlijk. 403 = de
+        // botcontrole (Turnstile) weigerde; ook die zin is voor de bezoeker
+        // bedoeld ("probeer opnieuw"). Alle andere codes zijn techniek en
+        // krijgen een algemene tekst -- een bezoeker heeft niets aan "502 Bad
+        // Gateway".
+        if (($code === 422 || $code === 403) && is_array($body) && !empty($body['error'])) {
             return ['ok' => false, 'error' => (string) $body['error']];
         }
 

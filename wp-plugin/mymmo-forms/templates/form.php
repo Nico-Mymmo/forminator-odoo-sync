@@ -73,6 +73,10 @@ if (isset($show_intro) && $show_intro === false) {
     $intro = '';
 }
 $knop  = Mymmo_Forms_I18n::text($form, $lang, 'submit_label');
+
+// Turnstile: de PUBLIEKE sitesleutel, als de OM er een meegaf. mymmo-forms.js
+// doet de rest; zonder JavaScript komt er geen token en beslist de Worker.
+$turnstile_sleutel = mymmo_forms_turnstile_site_key($form);
 ?>
 <?php
 // lang op de wikkel: een schermlezer schakelt daardoor van stem, en de browser
@@ -137,7 +141,7 @@ $knop  = Mymmo_Forms_I18n::text($form, $lang, 'submit_label');
         <form class="mymmo-form"
               method="post"
               action="<?php echo esc_url(Mymmo_Forms_Submit::action_url()); ?>"
-              data-mymmo-messages="<?php echo esc_attr((string) wp_json_encode($teksten)); ?>"
+              data-mymmo-messages="<?php echo esc_attr((string) wp_json_encode($teksten)); ?>"<?php echo $turnstile_sleutel !== '' ? ' data-mymmo-turnstile="' . esc_attr($turnstile_sleutel) . '"' : ''; ?>
               novalidate>
 
             <?php wp_nonce_field(Mymmo_Forms_Submit::action_name() . '_' . $slug); ?>

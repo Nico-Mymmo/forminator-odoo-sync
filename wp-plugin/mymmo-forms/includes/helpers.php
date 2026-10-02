@@ -124,6 +124,22 @@ function mymmo_forms_visitor_uuid(string $cookie = 'ovme_uuid'): string {
 }
 
 /**
+ * De publieke Turnstile-sitesleutel van een formulier, of '' als de OM er geen
+ * meegaf (Turnstile uit). Enkel iets met de vorm van zo'n sleutel: de waarde
+ * belandt in een attribuut op de pagina.
+ *
+ * Een functie en geen methode op Mymmo_Forms_Submit: de render- en
+ * voorbeeldscripts stubben die klasse, maar laden helpers.php wel.
+ *
+ * @param array<string,mixed>|null $form
+ */
+function mymmo_forms_turnstile_site_key(?array $form): string {
+    $ts      = is_array($form) && is_array($form['turnstile'] ?? null) ? $form['turnstile'] : [];
+    $sleutel = (string) ($ts['site_key'] ?? '');
+    return preg_match('/^[0-9A-Za-z_-]{10,100}$/', $sleutel) === 1 ? $sleutel : '';
+}
+
+/**
  * Een kleur die veilig in een style-attribuut mag, of '' als het er geen is.
  *
  * Dezelfde vorm-controle als in mymmo_forms_theme_style(): een hex of een

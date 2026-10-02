@@ -536,16 +536,25 @@ renderen van een pagina: een gecachete pagina stuurt geen `Set-Cookie` mee.
 
 ## Antispam
 
-Vier lagen, geen captcha:
+Vijf lagen:
 
 1. honeypot — een veld dat een mens niet ziet en een bot invult;
 2. minimale invultijd — sneller dan 3 seconden is geen mens. Het tijdstip is
    ondertekend met `wp_hash()`, dus een bot kan het niet terugzetten;
 3. WordPress-nonce — vangt cross-site posts;
-4. rate limit in de Worker, per sitesleutel.
+4. rate limit in de Worker, per sitesleutel;
+5. Cloudflare Turnstile, onzichtbaar (sinds 1.21.0) — alleen als de OM het
+   aanzet (`FORMS_TURNSTILE_MODE`). De plugin heeft er geen instelling voor: de
+   publieke sitesleutel komt mee in de payload van het formulier, het geheim
+   staat enkel in de Worker, en de Worker kijkt het token na en beslist.
 
-Blijkt dit niet te volstaan, dan is Cloudflare Turnstile de volgende stap. Een
-captcha kost inzendingen en staat er daarom bewust niet in.
+Over die laatste: `mymmo-forms.js` laadt het script van Cloudflare pas bij de
+eerste klik IN een formulier en haalt dan meteen een token, zodat er bij
+"Versturen" meestal niets te wachten valt. Voor bijna iedereen is er niets te
+zien; als Cloudflare twijfelt, verschijnt er een vinkje onder de knop, en na
+dat vinkje gaat de inzending vanzelf verder. Zonder JavaScript is er geen
+token: in de stand "on" weigert de Worker dan, met de zin uit `bot_check`.
+Geen reCAPTCHA: die zet Google-cookies op de site.
 
 ## Vormgeving
 
@@ -566,6 +575,14 @@ die eruitzien als een kleur of een lengte — vrije CSS vanuit de OM zou een
 injectiepad zijn naar elke site die het formulier toont.
 
 ## Versies
+
+**1.21.0** — onzichtbare botcontrole met Cloudflare Turnstile op elk formulier
+waarvoor de OM een sitesleutel meegeeft (`turnstile.site_key` in de payload;
+zolang die ontbreekt verandert er niets). Het token gaat als `turnstile` mee
+naar de Worker, die het nakijkt. Een weigering (403) toont de plugin letterlijk,
+met de ingevulde waarden er nog in. Het script laadt pas bij de eerste klik in
+het formulier. Vraagt een Worker-deploy; de modus (`off`/`log`/`on`) staat in de
+OM.
 
 **1.20.9** — een VERPLICHT vinkje (verplichte opt-in in de OM) maakt de
 verstuurknop grijs tot het aangevinkt is; een klik zet de focus op het vinkje,

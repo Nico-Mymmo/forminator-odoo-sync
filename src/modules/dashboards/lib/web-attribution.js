@@ -21,6 +21,7 @@
 import { readWebEvents, hasWebEvents } from '../../../lib/web-events.js';
 import { readVisitorSessions, WEB_PERIODS } from './web-visits.js';
 import { buildJourney } from '../../web-story/lib/journey.js';
+import { exclusionKey } from '../../web-story/lib/exclusions.js';
 
 const CACHE_SECONDS = 600;
 const MAX_PERSONEN = 600;
@@ -33,8 +34,13 @@ function median(a) {
   return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
 }
 
-export async function getWebAttribution(env, { period }) {
+/**
+ * @param {{period: string, excl?: object}} opts excl = loadExclusions() uit
+ *        web-story/lib/exclusions.js: wie daar uitgesloten is, telt hier niet mee.
+ */
+export async function getWebAttribution(env, { period, excl = null }) {
   if (!hasWebEvents(env)) return { available: false };
+  const uit = u => !!(excl && excl.uuids.has(u));
   const days = WEB_PERIODS[period] || 30;
   const end = new Date();
   const start = new Date(end.getTime() - days * 86400000);
@@ -45,7 +51,9 @@ export async function getWebAttribution(env, { period }) {
      FROM events e JOIN visitors v ON v.uuid = e.visitor_uuid
      WHERE e.type IN ('form_submission','calendly') AND e.ts >= ? AND e.ts < ?
        AND v.is_internal = 0 AND v.is_bot = 0`, [fmt(start), fmt(end)]);
-  const rows = conv.results || [];
+  const alle = conv.results || [];
+  const rows = alle.filter(r => !uit(r.u));
+  const uitgesloten = new Set(alle.filter(r => uit(r.u)).map(r => r.email || r.u)).size;
 
   // 2. Persoon = e-mailadres (anders de browser); alle browsers met dat adres erbij.
   const personVan = new Map();
@@ -56,7 +64,7 @@ export async function getWebAttribution(env, { period }) {
     const res = await readWebEvents(env,
       `SELECT uuid, lower(email) AS email FROM visitors WHERE lower(email) IN (${part.map(() => '?').join(',')})
          AND is_internal = 0 AND is_bot = 0`, part);
-    for (const r of res.results || []) personVan.set(r.uuid, r.email);
+    for (const r of res.results || []) if (!uit(r.uuid)) personVan.set(r.uuid, r.email);
   }
   const personen = [...new Set(personVan.values())];
   const afgekapt = Math.max(0, personen.length - MAX_PERSONEN);
@@ -114,6 +122,7 @@ export async function getWebAttribution(env, { period }) {
     period,
     conversies,
     afgekapt,
+    uitgesloten,   // personen die converteerden maar op de uitgesloten lijst staan
     kanalen: Object.entries(kanalen).map(([channel, v]) => ({ channel, ...v, positie: Math.round(v.positie * 10) / 10 }))
       .sort((a, b) => b.positie - a.positie),
     paden: [...paden.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10).map(([pad, n]) => ({ pad, n })),
@@ -123,14 +132,16 @@ export async function getWebAttribution(env, { period }) {
   };
 }
 
-export async function getWebAttributionCached(env, ctx, { period }) {
-  const key = new Request(`https://om-cache.internal/dashboards/web-attribution/${period}`);
+export async function getWebAttributionCached(env, ctx, { period, excl = null }) {
+  // De uitgesloten lijst zit in de sleutel: wie er een persoon bijzet of weghaalt,
+  // ziet het meteen en niet pas na tien minuten.
+  const key = new Request(`https://om-cache.internal/dashboards/web-attribution/${period}/${exclusionKey(excl)}`);
   const cache = typeof caches !== 'undefined' ? caches.default : null;
   if (cache) {
     const hit = await cache.match(key);
     if (hit) return hit.json();
   }
-  const data = await getWebAttribution(env, { period });
+  const data = await getWebAttribution(env, { period, excl });
   if (cache && data.available) {
     const put = cache.put(key, new Response(JSON.stringify(data), {
       headers: { 'Content-Type': 'application/json', 'Cache-Control': `max-age=${CACHE_SECONDS}` },

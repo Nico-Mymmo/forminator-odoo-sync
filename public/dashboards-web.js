@@ -593,6 +593,14 @@
     }
     var parts = [];
     if (klant) parts.push(nf(klant) + ' bezoeken van klanten tellen niet mee (' + nf(login) + ' daarvan kwamen enkel om in te loggen). Kies "Klanten" of "Iedereen" om ze te zien.');
+    // Wie in Webgedrag uitgesloten is (partner, vaste klant): de server haalt die
+    // bezoeken eruit (web-story/lib/exclusions.js). Zeggen hoeveel, nooit stil.
+    var uit = web.data.excluded;
+    if (uit && uit.sessions) {
+      parts.push(nf(uit.sessions) + ' bezoeken van ' + nf(uit.persons) + (uit.persons === 1 ? ' uitgesloten persoon' : ' uitgesloten personen')
+        + ' tellen niet mee. <a class="link" href="/webgedrag?tab=uitgesloten">Bekijk de lijst</a>');
+    }
+    if (uit && uit.error) parts.push('De lijst met uitgesloten personen kon niet gelezen worden: iedereen telt mee.');
     if (cur.length && hist) {
       parts.push(pctTxt(pct(hist, cur.length), 0) + ' van deze sessies komt uit de oude opslag in Odoo'
         + (live ? ' (volledig gemeten sinds ' + esc(live) + ')' : '') + '. Daar ontbreken verwijzer en toestel, dus "Direct / onbekend" is voor die sessies te groot. '
@@ -632,6 +640,7 @@
       if (a.meer_dan_een_bezoek) bits.push(nf(a.meer_dan_een_bezoek) + ' van hen na meer dan één bezoek');
       if (a.mediaan_dagen !== null) bits.push('mediaan ' + a.mediaan_dagen + ' dagen en ' + a.mediaan_bezoeken + ' bezoeken tot de conversie');
       if (a.afgekapt) bits.push(nf(a.afgekapt) + ' personen niet meegeteld (te veel om in één keer te berekenen)');
+      if (a.uitgesloten) bits.push(nf(a.uitgesloten) + (a.uitgesloten === 1 ? ' uitgesloten persoon' : ' uitgesloten personen') + ' niet meegeteld');
       paths.insertAdjacentHTML('beforeend', '<p class="text-xs text-base-content/60 mt-3">' + esc(bits.join(' · ')) + '.</p>');
     } catch (err) {
       body.innerHTML = '<tr><td colspan="5" class="text-error">Kon niet laden: ' + esc(err.message) + '</td></tr>';

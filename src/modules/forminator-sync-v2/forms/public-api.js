@@ -22,8 +22,9 @@
 import { getFormBySlug, listPublishedForms } from './database.js';
 import { getIntegrationById, listTargetsByIntegration } from '../database.js';
 import { listPublicCalendlyAppointments } from '../calendly/database.js';
-import { toPublicFormPayload, toPublicFormListItem } from './schema.js';
-import { submitFormEntry } from './submit.js';
+import { toPublicFormPayload, toPublicFormListItem, t } from './schema.js';
+import { submitFormEntry, taalVanInzending } from './submit.js';
+import { checkTurnstile, publicTurnstileConfig } from './turnstile.js';
 import { conversieSoort } from '../../../lib/web-conversions.js';
 import { signAcademyToken } from '../../../lib/academy-token.js';
 import { getLinkBySlug, toPublicBookingLink, fetchOwnerAvatar, ALGEMEEN } from '../../booking-links/lib/links.js';
@@ -361,10 +362,17 @@ async function busySoort(env, form) {
 
 async function handleSchema(request, env, { form, fields }) {
   const busy = await busySoort(env, form);
+  // Turnstile aan of uit is evenmin een wijziging aan het formulier. Staat het
+  // niet in de ETag, dan blijft de plugin een payload zonder sitesleutel
+  // gebruiken en komt de botcontrole er op die site nooit.
+  const turnstile = publicTurnstileConfig(env);
   // De soort zit in de ETag: een pdf-stap erbij of de koppeling op Academy
   // zetten wijzigt het formulier niet (dus ook de versie niet), en zonder dit
   // bleef de plugin de oude tekst tonen.
-  const etag = etagForForm(form).replace(/"$/, `-${busy || 'gewoon'}"`);
+  const etag = etagForForm(form).replace(
+    /"$/,
+    `-${busy || 'gewoon'}${turnstile ? `-ts${turnstile.site_key.slice(-8)}` : ''}"`
+  );
 
   if (request.headers.get('If-None-Match') === etag) {
     return new Response(null, {
@@ -374,7 +382,7 @@ async function handleSchema(request, env, { form, fields }) {
   }
 
   return json(
-    { success: true, data: toPublicFormPayload(form, fields, { busy }) },
+    { success: true, data: toPublicFormPayload(form, fields, { busy, turnstile }) },
     200, request, env,
     { ETag: etag, 'Cache-Control': 'public, max-age=60' }
   );
@@ -388,6 +396,37 @@ async function handleSubmit(request, env, { form, fields }, site) {
     return json({ success: false, error: 'Ongeldige aanvraag' }, 400, request, env);
   }
 
+  // De site komt uit de SLEUTEL, niet uit de body: zo kan een site niet beweren
+  // dat ze een andere is. Wat de plugin zelf meestuurt (pagina-URL, UTM's) mag
+  // ze wel bepalen — dat is per definitie haar eigen context.
+  const meta = { ...(body?.meta && typeof body.meta === 'object' ? body.meta : {}) };
+  if (site.site) meta.site = site.site;
+  if (!meta.submitted_at) meta.submitted_at = new Date().toISOString();
+
+  // Botcontrole (Turnstile, zie turnstile.js). Vóór de koppeling opgezocht
+  // wordt: een geweigerde bot hoeft niets te kosten. De uitkomst komt van HIER,
+  // nooit van de site -- vandaar het wissen.
+  delete meta.bot_check;
+  const { turnstile: tsVeld, ...inzending } = body || {};
+  const controle = await checkTurnstile(env, tsVeld);
+  if (controle.uitkomst !== 'uit' && controle.uitkomst !== 'niet_meegestuurd') {
+    console.log(`${LOG_PREFIX} turnstile "${form.slug}" site=${site.site || site.key} uitkomst=${controle.uitkomst}`
+      + `${controle.blokkeer ? ' GEWEIGERD' : ''}${controle.codes.length ? ` codes=${controle.codes.join(',')}` : ''}`
+      + `${controle.hostname ? ` host=${controle.hostname}` : ''}`);
+    // Bewaard bij de inzending (meta_bot_check), zodat je in "log" in het
+    // Indieningen-tabblad ziet welke inzendingen in "on" geweigerd zouden zijn.
+    meta.bot_check = controle.uitkomst;
+  }
+  if (controle.blokkeer) {
+    // 403 met een leesbare zin: de plugin toont hem letterlijk, met de
+    // ingevulde waarden er nog in. Een mens die hier ten onrechte strandt,
+    // kan meteen opnieuw proberen -- de browser haalt dan een nieuw token.
+    return json(
+      { success: false, error: t(taalVanInzending(form, meta.lang), 'bot_check'), code: 'bot_check' },
+      403, request, env
+    );
+  }
+
   const integration = await getIntegrationById(env, form.integration_id);
   if (!integration) {
     // Kan alleen als iemand de koppeling verwijderde terwijl het formulier nog
@@ -397,17 +436,10 @@ async function handleSubmit(request, env, { form, fields }, site) {
     return json({ success: false, error: 'Tijdelijk niet beschikbaar' }, 503, request, env);
   }
 
-  // De site komt uit de SLEUTEL, niet uit de body: zo kan een site niet beweren
-  // dat ze een andere is. Wat de plugin zelf meestuurt (pagina-URL, UTM's) mag
-  // ze wel bepalen — dat is per definitie haar eigen context.
-  const meta = { ...(body?.meta && typeof body.meta === 'object' ? body.meta : {}) };
-  if (site.site) meta.site = site.site;
-  if (!meta.submitted_at) meta.submitted_at = new Date().toISOString();
-
   try {
     const { response } = await submitFormEntry(env, {
       integration, form, fields,
-      body: { ...body, meta },
+      body: { ...inzending, meta },
       request,
     });
 

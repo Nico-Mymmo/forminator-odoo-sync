@@ -10,6 +10,12 @@
  * heeft daarbovenop "spelden": een pagina op een bepaalde stap vastzetten toont
  * wie daar langskwam -- waar ze vandaan kwamen en waar ze heen gingen.
  *
+ * In de padverkenner is een ACTIE (formulier, afspraak, event, nieuwsbrief,
+ * academy, registratie) een eigen stap, direct na de pagina waarop ze gebeurde
+ * (kolom `acts`, zie lib/behaviour.js). Twee standen: vooruit vanaf de instap,
+ * of "naar het doel toe": uitgelijnd op de eerste keer dat het gekozen doel
+ * gebeurde, zodat een lange weg ernaartoe niet wegvalt achter de laatste kolom.
+ *
  * REGEL 3: één centrale listener, data-bh-*-attributen. Individuele trajecten
  * opent window.WebGedrag.open() (webgedrag.js).
  */
@@ -17,13 +23,37 @@
 (function () {
   'use strict';
 
-  var C = { v: 0, start: 1, dur: 2, site: 3, ch: 4, det: 5, pages: 6, offs: 7, flags: 8, dev: 9, scroll: 10, clicks: 11 };
+  var C = { v: 0, start: 1, dur: 2, site: 3, ch: 4, det: 5, pages: 6, offs: 7, flags: 8, dev: 9, scroll: 10, clicks: 11, acts: 12, reo: 13 };
   // Een AANVRAAG = formulier (64) of Calendly-boeking (128). Events, nieuwsbrief,
   // academy en registratie zijn eigen acties (zie de vlaggen in lib/behaviour.js).
   var CONV = 64 | 128;
   var ALLE_ACTIES = 64 | 128 | 256 | 4096 | 8192 | 16384;
-  var STEPS = 4;
   var TOP_PER_STEP = 5;
+  var MIN_STEPS = 2, MAX_STEPS = 12;
+  // Acties als STAP in het pad. Dezelfde codes als ACT_KINDS in lib/behaviour.js
+  // (1 formulier ... 6 registratie); wijzig ze samen. In een pad (steps()) staat
+  // een pagina als haar volgnummer (>= 0) en een actie als -code.
+  var ACT = {
+    1: { label: 'Formulier verstuurd', short: 'Formulier', icon: 'send' },
+    2: { label: 'Afspraak geboekt', short: 'Afspraak', icon: 'calendar-check' },
+    3: { label: 'Ingeschreven voor een event', short: 'Event', icon: 'ticket' },
+    4: { label: 'Ingeschreven op de nieuwsbrief', short: 'Nieuwsbrief', icon: 'mail' },
+    5: { label: 'Ingeschreven in de academy', short: 'Academy', icon: 'graduation-cap' },
+    6: { label: 'Registratie gestart', short: 'Registratie', icon: 'user-plus' }
+  };
+  // Het DOEL van de padverkenner. `kinds` = de acties hierboven, `flags` = de
+  // vlaggen uit lib/behaviour.js (om per doel te tellen zonder elk pad te lezen).
+  var GOALS = {
+    aanvraag: { label: 'Aanvraag', kort: 'een aanvraag', naam: 'aanvraag', kinds: [1, 2], flags: ['form', 'calendly'] },
+    reg: { label: 'Registratie gestart', kort: 'een registratie', naam: 'registratie', kinds: [6], flags: ['register'] },
+    nb: { label: 'Nieuwsbrief', kort: 'een nieuwsbriefinschrijving', naam: 'nieuwsbrief', kinds: [4], flags: ['newsletter'] },
+    ev: { label: 'Event', kort: 'een event-inschrijving', naam: 'event', kinds: [3], flags: ['event'] },
+    ac: { label: 'Academy', kort: 'een academy-inschrijving', naam: 'academy', kinds: [5], flags: ['academy'] },
+    any: { label: 'Elke actie', kort: 'een actie', naam: 'actie', kinds: [1, 2, 3, 4, 5, 6], flags: ['form', 'calendly', 'register', 'newsletter', 'event', 'academy'] }
+  };
+  var GOAL_ORDER = ['aanvraag', 'reg', 'nb', 'ev', 'ac', 'any'];
+  // De successkleur van het thema: alles wat een actie is, staat in het groen.
+  var GOOD = 'oklch(var(--su))';
   // De primaire kleur van het daisyUI-THEMA, niet een vaste kleur: zo volgt alles
   // het thema (ook donker). In HTML/SVG rechtstreeks als CSS-variabele; voor de
   // canvas van Chart.js moet de waarde uitgelezen worden (canvas kent geen var()).
@@ -52,7 +82,9 @@
     period: '30d', data: null, F: null, loading: false, chart: null, metric: 'sessions', showTable: false,
     // purpose: 'prospect' (standaard) | 'customer' | 'all'. Klant = vanaf de eerste login (web-visits.js).
     f: { site: null, ch: null, det: null, land: null, visited: null, dev: null, who: 'all', conv: 'all', visit: 'all', purpose: 'prospect' },
-    pins: {},           // stap (0-based) -> pagina-index
+    pins: {},           // vooruit: stap (0-based) -> token (pagina >= 0, actie < 0)
+    bpins: {},          // naar het doel: afstand (1 = vlak ervoor, 0 = het doel, -1 = daarna) -> token
+    flow: { mode: 'fwd', goal: 'aanvraag', n: 4 },   // richting, doel en aantal stappen
     sort: { key: 'n', dir: -1 }, pageQuery: '', pageLimit: 20
   };
 
@@ -63,7 +95,8 @@
   // volgnummer: dat nummer verschilt per geladen periode. Na het laden wordt de
   // naam opnieuw opgezocht; bestaat ze in die periode niet, dan valt die ene filter
   // weg in plaats van alles leeg te maken. Spelden in de padverkenner worden niet
-  // bewaard: dat is verkennen, geen instelling.
+  // bewaard: dat is verkennen, geen instelling. De STAND van de padverkenner
+  // (richting, doel, aantal stappen) wel.
   // localStorage kan ontbreken (privévenster, geblokkeerde site-data): dan werkt
   // alles gewoon, enkel zonder geheugen.
   var STORE_KEY = 'webgedrag.gedrag.v1';
@@ -92,7 +125,7 @@
     try {
       var f = {};
       SCALAR.forEach(function (k) { f[k] = st.f[k]; });
-      localStorage.setItem(STORE_KEY, JSON.stringify({ period: st.period, metric: st.metric, sort: st.sort, f: f, names: namesOf() }));
+      localStorage.setItem(STORE_KEY, JSON.stringify({ period: st.period, metric: st.metric, sort: st.sort, f: f, names: namesOf(), flow: st.flow }));
     } catch (_) { /* geen opslag beschikbaar */ }
   }
 
@@ -105,6 +138,12 @@
       if (s.sort && typeof s.sort.key === 'string') st.sort = { key: s.sort.key, dir: s.sort.dir < 0 ? -1 : 1 };
       SCALAR.forEach(function (k) { if (s.f && typeof s.f[k] === 'string') st.f[k] = s.f[k]; });
       pendingNames = s.names || null;
+      if (s.flow) {
+        if (s.flow.mode === 'fwd' || s.flow.mode === 'back') st.flow.mode = s.flow.mode;
+        if (GOALS[s.flow.goal]) st.flow.goal = s.flow.goal;
+        var n = Math.round(Number(s.flow.n));
+        if (n >= MIN_STEPS && n <= MAX_STEPS) st.flow.n = n;
+      }
     } catch (_) { /* kapotte of geen opslag: met de standaard beginnen */ }
   }
 
@@ -147,6 +186,66 @@
   }
   function converted(s) { return (s[C.flags] & CONV) !== 0; }
 
+  // ── Personen (lib/behaviour.js: `persons` + dict.pe) ───────────────────────
+  // Een persoon = het eerste adres dat een browser gebruikte; een anonieme browser
+  // telt als eigen persoon. "7 bezoeken" leest als zeven mensen, terwijl het één
+  // persoon kan zijn die zeven keer langskwam: daarom staat het aantal personen
+  // overal naast het aantal bezoeken.
+  function personIdx(s) { return st.data && st.data.persons ? st.data.persons[s[C.v]] : -1; }
+  function personKey(s) { var p = personIdx(s); return p >= 0 ? 'p' + p : 'v' + s[C.v]; }
+  function personLabel(s) { var p = personIdx(s); return p >= 0 ? d('pe', p) : null; }
+  function personCount(list) { var m = {}; list.forEach(function (s) { m[personKey(s)] = 1; }); return Object.keys(m).length; }
+  function personWord(n) { return n === 1 ? 'persoon' : 'personen'; }
+  function dayTxt(unix) { return new Date(unix * 1000).toLocaleDateString('nl-BE', { timeZone: 'Europe/Brussels', day: 'numeric', month: 'short', year: 'numeric' }); }
+
+  /**
+   * Het pad MET de acties erin: pagina's als volgnummer (>= 0), acties als -code,
+   * elke actie direct na de pagina waarop ze gebeurde. Herladen telt niet als stap
+   * (zelfde regel als path(), ook niet na een actie: na versturen landt een
+   * formulier vaak terug op dezelfde pagina), en dezelfde actie twee keer na
+   * elkaar ook niet. s._so = seconden na de start, per stap.
+   */
+  function steps(s) {
+    if (s._s) return s._s;
+    var pg = s[C.pages], of = s[C.offs], acts = s[C.acts] || [], out = [], so = [], at = {};
+    acts.forEach(function (a) { (at[a[0]] = at[a[0]] || []).push(a); });
+    var lastPage, lastTok;
+    function addAct(a) {
+      var t = -a[1];
+      if (t === lastTok) return;
+      out.push(t); so.push(a[2]); lastTok = t;
+    }
+    (at[-1] || []).forEach(addAct);
+    for (var i = 0; i < pg.length; i++) {
+      if (pg[i] !== lastPage) { out.push(pg[i]); so.push(of[i]); lastPage = pg[i]; lastTok = pg[i]; }
+      (at[i] || []).forEach(addAct);
+    }
+    s._s = out; s._so = so;
+    return out;
+  }
+  /** Waar in steps() het gekozen doel de EERSTE keer gebeurt; -1 = niet. */
+  function goalIdx(s) {
+    var p = steps(s), kinds = GOALS[st.flow.goal].kinds;
+    for (var i = 0; i < p.length; i++) if (p[i] < 0 && kinds.indexOf(-p[i]) >= 0) return i;
+    return -1;
+  }
+  function tokName(t) { return t < 0 ? (ACT[-t] ? ACT[-t].label : 'Actie') : pageName(t); }
+  function stepWord(n) { return n === 1 ? 'stap' : 'stappen'; }
+
+  /**
+   * Het hoeveelste bezoek van die bezoeker (s._vn, 0 = het eerste dat we ZIEN).
+   * Telt alleen wat in de geladen gegevens zit: de periode en de periode daarvoor.
+   * Een bezoek met _vn 0 dat niet "nieuw" is, had dus eerdere bezoeken die langer
+   * geleden zijn.
+   */
+  function numberVisits(data) {
+    var by = {};
+    data.sessions.forEach(function (s) { (by[s[C.v]] = by[s[C.v]] || []).push(s); });
+    Object.keys(by).forEach(function (v) {
+      by[v].sort(function (a, b) { return a[C.start] - b[C.start]; }).forEach(function (s, i) { s._vn = i; });
+    });
+  }
+
   // ── Segment ────────────────────────────────────────────────────────────────
 
   function matches(s, ignorePurpose) { return matchesF(s, st.f, ignorePurpose); }
@@ -174,8 +273,15 @@
     return true;
   }
   function pinned(s) {
-    var p = path(s);
-    for (var k in st.pins) if (p[k] !== st.pins[k]) return false;
+    var p = steps(s), k;
+    if (st.flow.mode === 'back') {
+      if (!Object.keys(st.bpins).length) return true;
+      var g = goalIdx(s);
+      if (g < 0) return false;
+      for (k in st.bpins) if (p[g - Number(k)] !== st.bpins[k]) return false;
+      return true;
+    }
+    for (k in st.pins) if (p[k] !== st.pins[k]) return false;
     return true;
   }
   function split() {
@@ -295,7 +401,8 @@
     }
     var sp = sparkSeries(cur);
     $('bhTiles').innerHTML =
-      tile('Bezoeken', nf(a.n), delta(a.n, b.n, 'n', true), 'Sessies in dit segment', 'n', sp.n) +
+      tile('Bezoeken', nf(a.n) + '<span class="text-sm font-normal text-base-content/50"> · ' + nf(personCount(cur)) + ' ' + personWord(personCount(cur)) + '</span>',
+        delta(a.n, b.n, 'n', true), 'Bezoeken (sessies) in dit segment, en door hoeveel personen. Een persoon = een e-mailadres; een anonieme browser telt apart.', 'n', sp.n) +
       tile('Duur (mediaan)', durTxt(a.dur), delta(a.dur, b.dur, 'n', true), 'De helft van de bezoeken duurt korter, de helft langer', 'dur', sp.dur) +
       tile('Pagina\'s per bezoek', a.pages === null ? '—' : nf(a.pages, 1), delta(a.pages, b.pages, 'n', true), 'Herladen van dezelfde pagina telt niet', 'pages', sp.pages) +
       tile('Doet er iets mee', pctTxt(a.eng), delta(a.eng, b.eng, 'pct', true), 'Meer dan één pagina, een klik, scrollen, of langer dan 5 seconden', 'eng', sp.eng) +
@@ -507,89 +614,506 @@
   }
 
   // ── Padverkenner ───────────────────────────────────────────────────────────
+  // Twee vragen: WAT WERKT en WAAR STOKT HET. Daarom:
+  //   - bovenaan het antwoord: de pagina's waar meer bezoekers stoppen dan bij de
+  //     rest van die stap, en die het vaakst tot het doel leiden;
+  //   - op elke paginakaart een UITKOMSTBALK over haar EIGEN bezoeken (groen: doet
+  //     daarna het doel, blauw: gaat verder, grijs: stopt na het doel, rood: stopt
+  //     hier). Die balk is altijd even breed, dus 4 bezoeken zijn even leesbaar als
+  //     400; het aantal staat ernaast. Een balk "deel van alle bezoeken" was vanaf
+  //     stap 2 overal een streepje van 0,3%, en dat las als "onbelangrijk";
+  //   - een RASTER met vaste banen (acties, pagina's, andere) en vaste kaarthoogtes:
+  //     dezelfde soort rij staat in elke kolom op dezelfde hoogte. Geen subtekst op
+  //     de kaart; de uitleg staat in de tooltip;
+  //   - LINTEN tussen de kolommen (een Sankey met kaarten als knopen), berekend NA
+  //     het tekenen uit de plaats van de kaarten (drawRibbons). De dikte is per
+  //     tussenruimte geschaald op de bronkolom: op het geheel zijn alle linten na
+  //     stap 2 haarfijn. Geen linten naar "verlaat de site": dat zegt het rood al.
+  // Vooruit = vanaf de instap; "naar het doel toe" = uitgelijnd op de EERSTE keer
+  // dat het doel gebeurde, om te zien langs welke wegen het lukt.
+
+  var CARD_H = 60, ACT_H = 44, REST_H = 34;   // vaste hoogtes: de rijen lijnen uit
+  var RIBBON_MAX = 34;                         // dikte van een lint dat de hele bronkolom draagt
+  var BAD = 'oklch(var(--er))', DONE = 'oklch(var(--bc) / 0.28)', MOVE = 'oklch(var(--p) / 0.55)';
+  var flowModel = null, flowHl = null, ribbonFrame = 0;
+
+  /** De naam op een kaart: het laatste stuk van het pad ("/syndicus-gids/vergoeding/" -> "vergoeding"). Het volledige pad staat in de tooltip. */
+  function pageLabel(i) {
+    var p = String(pageName(i)).split('?')[0];
+    if (p === '/' || p === '') return 'Homepage';
+    var segs = p.split('/').filter(Boolean);
+    return segs.length ? segs[segs.length - 1] : p;
+  }
+  function tokLabel(t) { return t < 0 ? (ACT[-t] ? ACT[-t].label : 'Actie') : pageLabel(t); }
+  function distLabel(d) { return d === 0 ? 'het doel' : d < 0 ? 'daarna' : d + ' ' + stepWord(d) + ' ervoor'; }
+  function whereLabel(m, v) { return m.back ? distLabel(v) : v === 0 ? 'instap' : 'stap ' + (v + 1); }
+  function fx(x) { return x.toFixed(1); }
+  /** Ondergrens van een Wilson-interval (90%): 1 op 1 wint zo niet van 20 op 400. */
+  function wilsonLow(k, n) {
+    if (!n) return 0;
+    var z = 1.64, z2 = z * z, q = k / n;
+    return (q + z2 / (2 * n) - z * Math.sqrt(q * (1 - q) / n + z2 / (4 * n * n))) / (1 + z2 / n);
+  }
+
+  /**
+   * Het model: per kolom de knopen, en per knoop wat er met die bezoeken gebeurde
+   * (goal / more / done / stop telt samen op tot n); plus de linten tussen twee
+   * opeenvolgende kolommen. Enkel getoonde knopen krijgen linten.
+   */
+  function buildFlow(cur) {
+    var back = st.flow.mode === 'back', n = st.flow.n, goal = GOALS[st.flow.goal];
+    var view = back ? cur.filter(function (s) { return goalIdx(s) >= 0; }).filter(pinned) : cur.filter(pinned);
+    var total = view.length, gi = view.map(goalIdx), P = view.map(steps), defs = [], c, j, i;
+    if (back) { for (var d = n; d >= -1; d--) defs.push(d); } else { for (i = 0; i < n; i++) defs.push(i); }
+    // De positie in steps() van bezoek j in kolom c; -1 = (nog) niet of niet meer op de site.
+    function idx(j, c) {
+      var k = back ? gi[j] - defs[c] : defs[c];
+      return k >= 0 && k < P[j].length ? k : -1;
+    }
+    var cols = defs.map(function (v, c) {
+      var nodes = {}, reached = 0;
+      for (var j = 0; j < total; j++) {
+        var k = idx(j, c);
+        if (k < 0) continue;
+        reached++;
+        var t = P[j][k], g = gi[j];
+        var e = nodes[t] || (nodes[t] = { tok: t, n: 0, goal: 0, more: 0, done: 0, stop: 0, times: [] });
+        e.n++;
+        if (g > k) e.goal++;                         // haalt het doel nog, later in het bezoek
+        else if (k + 1 < P[j].length) e.more++;      // gaat verder
+        else if (g >= 0) e.done++;                   // stopt, maar had het doel al
+        else e.stop++;                               // stopt hier, zonder het doel
+        if (back && v > 0) e.times.push(view[j]._so[g] - view[j]._so[k]);
+      }
+      var list = Object.keys(nodes).map(function (t) { return nodes[t]; }).sort(function (a, b) { return b.n - a.n; });
+      var acts = list.filter(function (e) { return e.tok < 0; });
+      var pages = list.filter(function (e) { return e.tok >= 0; });
+      var pinHere = (back ? st.bpins : st.pins)[v];
+      var shown = pages.slice(0, TOP_PER_STEP);
+      if (pinHere !== undefined && pinHere >= 0 && !shown.some(function (e) { return e.tok === pinHere; })) {
+        shown = shown.concat(pages.filter(function (e) { return e.tok === pinHere; }));
+      }
+      var rest = pages.filter(function (e) { return shown.indexOf(e) < 0; });
+      var shownSet = {};
+      acts.concat(shown).forEach(function (e) { e.id = 'c' + c + ':t' + e.tok; e.isPin = pinHere === e.tok; shownSet[e.tok] = e; });
+      return {
+        v: v, reached: reached, acts: acts, pages: shown, allPages: pages, shownSet: shownSet,
+        rest: rest.length ? { count: rest.length, n: rest.reduce(function (s, e) { return s + e.n; }, 0) } : null
+      };
+    });
+    var L = {};
+    for (j = 0; j < total; j++) {
+      for (c = 0; c + 1 < cols.length; c++) {
+        var i0 = idx(j, c), i1 = idx(j, c + 1);
+        if (i0 < 0 || i1 < 0) continue;
+        var a = cols[c].shownSet[P[j][i0]], b = cols[c + 1].shownSet[P[j][i1]];
+        if (!a || !b) continue;
+        L[a.id + '>' + b.id] = (L[a.id + '>' + b.id] || 0) + 1;
+      }
+    }
+    var links = Object.keys(L).map(function (key) {
+      var ab = key.split('>');
+      return { a: ab[0], b: ab[1], n: L[key], c: Number(ab[0].slice(1, ab[0].indexOf(':'))) };
+    });
+    var more = 0;
+    for (j = 0; j < total; j++) if (back ? gi[j] > n : P[j].length > n) more++;
+    return { back: back, n: n, goal: goal, view: view, total: total, gi: gi, P: P, cols: cols, links: links, more: more };
+  }
+
+  // ── Bovenaan: het antwoord ─────────────────────────────────────────────────
+
+  /**
+   * Vooruit: "Waar het stokt" en "Wat werkt". Stokken = meer stoppers dan de rest
+   * van die stap (gerangschikt op het OVERSCHOT, dus volume telt mee); werken =
+   * het deel dat daarna het doel haalt, gerangschikt op de Wilson-ondergrens.
+   * Naar het doel toe: hoeveel pagina's, hoeveel tijd, in welk bezoek.
+   */
+  function renderFlowAnswers(m) {
+    var el = $('bhFlowAnswers');
+    if (!m.total) { el.innerHTML = ''; return; }
+    if (m.back) { el.innerHTML = flowSummaryHtml(m); return; }
+    var stalls = [], works = [];
+    m.cols.forEach(function (c) {
+      var sumN = 0, sumStop = 0;
+      c.allPages.forEach(function (e) { sumN += e.n; sumStop += e.stop; });
+      var avg = sumN ? sumStop / sumN : 0;
+      c.pages.forEach(function (e) {
+        var excess = e.stop - e.n * avg;
+        if (e.n >= 5 && e.stop >= 2 && excess >= 1) stalls.push({ e: e, c: c, rate: e.stop / e.n, avg: avg, score: excess });
+        if (e.goal > 0) works.push({ e: e, c: c, rate: e.goal / e.n, score: wilsonLow(e.goal, e.n) });
+      });
+    });
+    var byScore = function (a, b) { return b.score - a.score; };
+    stalls = stalls.sort(byScore).slice(0, 3);
+    works = works.sort(byScore).slice(0, 3);
+    function row(x, bad) {
+      var where = whereLabel(m, x.c.v);
+      return '<button type="button" class="w-full grid grid-cols-[1fr_auto] gap-x-3 items-center rounded-lg px-2 py-1.5 text-left hover:bg-base-200"'
+        + ' data-bh-action="pin" data-step="' + x.c.v + '" data-page="' + x.e.tok + '"'
+        + ' title="' + esc(pageName(x.e.tok) + ' (' + where + '): ' + outcomeText(x.e, m.goal) + (bad ? ' Gemiddeld in die stap: ' + pctTxt(x.avg * 100) + ' stopt.' : '') + ' Klik om dit pad vast te zetten.') + '">'
+        + '<span class="min-w-0"><span class="block text-[13px] font-medium truncate">' + esc(tokLabel(x.e.tok)) + '</span>'
+        + '<span class="block text-[11px] text-base-content/55 tabular-nums">' + esc(where) + ' · ' + nf(x.e.n) + ' bezoeken</span></span>'
+        + '<span class="text-right"><span class="block text-base font-semibold tabular-nums leading-5" style="color:' + (bad ? BAD : GOOD) + '">' + pctTxt(x.rate * 100) + '</span>'
+        + '<span class="block text-[11px] text-base-content/50 tabular-nums">' + (bad ? 'gem. ' + pctTxt(x.avg * 100) : nf(x.e.goal) + '×') + '</span></span></button>';
+    }
+    function box(icon, color, title, metric, rows, empty) {
+      return '<div class="rounded-xl border border-base-300 p-2">'
+        + '<div class="flex items-baseline justify-between gap-2 px-2 pt-1 pb-1.5">'
+        + '<span class="inline-flex items-center gap-1.5 text-sm font-semibold"><i data-lucide="' + icon + '" class="w-4 h-4 self-center" style="color:' + color + '"></i>' + title + '</span>'
+        + '<span class="text-[11px] text-base-content/50">' + metric + '</span></div>'
+        + (rows.length ? rows.join('') : '<p class="text-xs text-base-content/60 px-2 pb-2">' + empty + '</p>') + '</div>';
+    }
+    el.innerHTML = '<div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-4">'
+      + box('trending-down', BAD, 'Waar het stokt', 'stopt hier', stalls.map(function (x) { return row(x, true); }),
+          'Geen pagina waar duidelijk meer bezoekers stoppen dan bij de rest van die stap.')
+      + box('trending-up', GOOD, 'Wat werkt', 'doet daarna ' + esc(m.goal.kort), works.map(function (x) { return row(x, false); }),
+          'Geen enkele pagina in deze stappen leidde tot ' + esc(m.goal.kort) + '.')
+      + '</div>';
+  }
+
+  /** Een kleine verdeling: titel, kerngetal, een balk per groep. */
+  function miniDist(title, headline, rows, total, note) {
+    return '<div class="rounded-xl border border-base-300 p-3">'
+      + '<div class="flex items-baseline justify-between gap-2"><span class="text-xs text-base-content/60">' + esc(title) + '</span><span class="text-sm font-semibold whitespace-nowrap">' + esc(headline) + '</span></div>'
+      + rows.map(function (r) {
+          return '<div class="flex items-center gap-2 mt-1.5 text-xs"><span class="w-32 shrink-0 truncate text-base-content/70" title="' + esc(r[0]) + '">' + esc(r[0]) + '</span>'
+            + '<div class="h-1.5 rounded-full bg-base-200 flex-1 overflow-hidden"><div class="h-full rounded-full" style="width:' + (r[1] / total * 100) + '%;background-color:' + ACCENT + '"></div></div>'
+            + '<span class="w-10 text-right tabular-nums text-base-content/60">' + pctTxt(pct(r[1], total)) + '</span></div>';
+        }).join('')
+      + (note ? '<div class="text-[11px] text-base-content/50 mt-2">' + esc(note) + '</div>' : '')
+      + '</div>';
+  }
+
+  /** "Naar het doel toe": hoeveel pagina's, hoeveel tijd en in welk bezoek. */
+  function flowSummaryHtml(m) {
+    var goal = m.goal, total = m.total;
+    var pages = [], times = [], pb = [0, 0, 0, 0, 0, 0], tb = [0, 0, 0, 0, 0], vb = [0, 0, 0, 0, 0];
+    m.view.forEach(function (s, j) {
+      var p = m.P[j], g = m.gi[j], k = 0;
+      for (var i = 0; i < g; i++) if (p[i] >= 0) k++;
+      pages.push(k);
+      pb[k <= 1 ? 0 : k === 2 ? 1 : k === 3 ? 2 : k <= 5 ? 3 : k <= 9 ? 4 : 5]++;
+      var t = s._so[g] || 0;
+      times.push(t);
+      tb[t < 60 ? 0 : t < 180 ? 1 : t < 600 ? 2 : t < 1800 ? 3 : 4]++;
+      var vn = s._vn || 0;
+      vb[vn >= 3 ? 3 : vn === 2 ? 2 : vn === 1 ? 1 : (s[C.flags] & st.F.isNew) ? 0 : 4]++;
+    });
+    var lbl = function (labels, counts) { return labels.map(function (l, i) { return [l, counts[i]]; }); };
+    return '<div class="grid grid-cols-1 md:grid-cols-3 gap-3 mt-4">'
+      + miniDist('Pagina\'s tot ' + goal.kort, 'mediaan ' + nf(median(pages), 1),
+          lbl(['1 pagina', '2 pagina\'s', '3 pagina\'s', '4 à 5 pagina\'s', '6 à 9 pagina\'s', '10 of meer'], pb), total,
+          'In dat bezoek, de pagina waarop het gebeurde meegeteld.')
+      + miniDist('Tijd tot ' + goal.kort, 'mediaan ' + durTxt(median(times)),
+          lbl(['minder dan 1 min', '1 à 3 min', '3 à 10 min', '10 à 30 min', '30 min of meer'], tb), total,
+          'Vanaf de eerste pagina van dat bezoek.')
+      + miniDist('In welk bezoek', pctTxt(pct(vb[0], total)) + ' in het eerste',
+          lbl(['Eerste bezoek', '2e bezoek', '3e bezoek', '4e of later', 'Terugkerend, eerder langer geleden'], vb), total,
+          'Eerdere bezoeken geteld binnen de ' + PERIODS[st.period] + ' en de periode daarvoor.')
+      + '</div>';
+  }
+
+  // ── Het raster ─────────────────────────────────────────────────────────────
+
+  function outcomeBar(e) {
+    var seg = function (k, color) { return e[k] ? '<div class="h-full" style="width:' + (e[k] / e.n * 100) + '%;background-color:' + color + '"></div>' : ''; };
+    return '<div class="flex h-1.5 rounded-full overflow-hidden bg-base-200">' + seg('goal', GOOD) + seg('more', MOVE) + seg('done', DONE) + seg('stop', BAD) + '</div>';
+  }
+  function outcomeText(e, goal) {
+    var bits = [];
+    if (e.goal) bits.push(pctTxt(pct(e.goal, e.n)) + ' doet daarna ' + goal.kort);
+    if (e.more) bits.push(pctTxt(pct(e.more, e.n)) + ' gaat verder');
+    if (e.done) bits.push(pctTxt(pct(e.done, e.n)) + ' stopt na ' + goal.kort);
+    if (e.stop) bits.push(pctTxt(pct(e.stop, e.n)) + ' stopt hier');
+    return bits.join(', ') + '.';
+  }
+  function pinAttrs(m, v, t) {
+    return (m.back ? 'data-bh-action="bpin" data-dist="' + v + '"' : 'data-bh-action="pin" data-step="' + v + '"') + ' data-page="' + t + '"';
+  }
+
+  function headCell(m, c, col) {
+    var v = c.v, share = c.reached / m.total, color = ACCENT, title, help;
+    if (m.back) {
+      title = v > 0 ? v + ' ' + stepWord(v) + ' ervoor' : v === 0 ? m.goal.label : 'Daarna';
+      if (v === 0) color = GOOD;
+      help = v > 0 ? pctTxt(share * 100) + ' was toen al op de site; de rest kwam pas later binnen.'
+        : v === 0 ? 'Alle bezoeken met ' + m.goal.kort + '.' : pctTxt(share * 100) + ' bleef daarna nog op de site.';
+    } else {
+      title = v === 0 ? 'Instap' : 'Stap ' + (v + 1);
+      help = v === 0 ? 'Alle bezoeken in het segment.' : pctTxt(share * 100) + ' van de bezoeken is hier nog op de site.';
+    }
+    return '<div class="px-1 pb-1" style="grid-row:1;grid-column:' + col + '" title="' + esc(help) + '">'
+      + '<div class="flex items-baseline justify-between gap-2"><span class="text-xs font-semibold uppercase tracking-wide text-base-content/60 truncate">' + esc(title) + '</span>'
+      + '<span class="text-xs tabular-nums text-base-content/50">' + pctTxt(share * 100) + '</span></div>'
+      + '<div class="text-lg font-semibold tabular-nums leading-tight mt-0.5">' + nf(c.reached) + ' <span class="text-xs font-normal text-base-content/50">bezoeken</span></div>'
+      + '<div class="h-1.5 rounded-full bg-base-200 mt-1.5 overflow-hidden"><div class="h-full rounded-full" style="width:' + (share * 100) + '%;background-color:' + color + '"></div></div></div>';
+  }
+
+  function pageCard(m, c, e, row, col) {
+    var where = whereLabel(m, c.v), help = pageName(e.tok) + ' (' + where + '): ' + nf(e.n) + ' bezoeken';
+    var bar;
+    if (m.back) {
+      var tm = e.times.length ? median(e.times) : null;
+      help += ', ' + pctTxt(pct(e.n, m.total)) + ' van de bezoeken met ' + m.goal.kort + (tm !== null ? '. Mediaan ' + durTxt(tm) + ' tot ' + m.goal.kort : '') + '.';
+      bar = '<div class="h-1.5 rounded-full bg-base-200 overflow-hidden"><div class="h-full rounded-full" style="width:' + Math.max(e.n / m.total * 100, 2) + '%;background-color:' + ACCENT + '"></div></div>';
+    } else {
+      help += ' (' + pctTxt(pct(e.n, m.total)) + ' van het segment). ' + outcomeText(e, m.goal);
+      bar = outcomeBar(e);
+    }
+    var cls = e.isPin ? 'bg-primary/10 border-primary ring-1 ring-primary' : 'bg-base-100 border-base-300 hover:bg-base-200';
+    return '<button type="button" class="w-full text-left rounded-lg border px-2.5 py-2 flex flex-col justify-between transition-colors ' + cls + '"'
+      + ' style="grid-row:' + row + ';grid-column:' + col + ';height:' + CARD_H + 'px" data-flow-node="' + e.id + '" ' + pinAttrs(m, c.v, e.tok)
+      + ' title="' + esc(help + ' Klik om dit pad vast te zetten.') + '">'
+      + '<div class="flex items-start gap-2 min-w-0"><span class="flex-1 min-w-0 text-[13px] font-medium leading-4 line-clamp-2" style="overflow-wrap:anywhere">' + esc(tokLabel(e.tok)) + '</span>'
+      + '<span class="text-sm font-semibold tabular-nums leading-4">' + nf(e.n) + '</span></div>'
+      + bar + '</button>';
+  }
+
+  function actCard(m, c, e, row, col) {
+    var a = ACT[-e.tok];
+    var style = 'grid-row:' + row + ';grid-column:' + col + ';height:' + ACT_H + 'px;'
+      + 'background-color:oklch(var(--su) / ' + (e.isPin ? '0.24' : '0.12') + ');border-color:oklch(var(--su) / 0.55);'
+      + (e.isPin ? 'box-shadow:0 0 0 1px oklch(var(--su));' : '');
+    return '<button type="button" class="w-full text-left rounded-lg border px-2.5 flex items-center gap-2 hover:brightness-95" style="' + style + '"'
+      + ' data-flow-node="' + e.id + '" ' + pinAttrs(m, c.v, e.tok)
+      + ' title="' + esc(tokName(e.tok) + ' (' + whereLabel(m, c.v) + '): ' + nf(e.n) + ' bezoeken. Klik om dit pad vast te zetten.') + '">'
+      + '<i data-lucide="' + (a ? a.icon : 'check') + '" class="w-4 h-4 shrink-0" style="color:oklch(var(--su))"></i>'
+      + '<span class="flex-1 min-w-0 text-[13px] font-medium leading-4 line-clamp-2">' + esc(tokLabel(e.tok)) + '</span>'
+      + '<span class="text-sm font-semibold tabular-nums">' + nf(e.n) + '</span></button>';
+  }
+
+  function restCard(r, row, col) {
+    return '<div class="rounded-lg border border-dashed border-base-300 px-2.5 flex items-center justify-between gap-2 text-xs text-base-content/60"'
+      + ' style="grid-row:' + row + ';grid-column:' + col + ';height:' + REST_H + 'px" title="Pagina\'s buiten de top ' + TOP_PER_STEP + ' van deze stap">'
+      + '<span class="truncate">+ ' + nf(r.count) + ' andere pagina\'s</span><span class="tabular-nums">' + nf(r.n) + '</span></div>';
+  }
+
+  function laneLabel(text, row) {
+    return '<div class="flex items-center gap-2 pt-1 text-[10px] font-semibold uppercase tracking-wide text-base-content/40" style="grid-row:' + row + ';grid-column:1 / -1">'
+      + '<span>' + text + '</span><span class="flex-1 border-t border-base-200"></span></div>';
+  }
+
+  /** Wie verder gaat dan de getoonde kolommen, met een knop voor een stap meer. In de koprij, zodat de banen eronder niet verschuiven. */
+  function moreCell(m, col) {
+    var txt = m.back ? 'had meer dan ' + m.n + ' ' + stepWord(m.n) + ' nodig' : 'gaat verder dan stap ' + m.n;
+    return '<div class="px-1" style="grid-row:1 / span 2;grid-column:' + col + '">'
+      + '<div class="text-xs font-semibold uppercase tracking-wide text-base-content/60">' + (m.back ? 'Langer' : 'Verder') + '</div>'
+      + '<div class="text-[11px] text-base-content/55 mt-0.5 leading-4">' + pctTxt(pct(m.more, m.total)) + ' ' + esc(txt) + '</div>'
+      + (m.n < MAX_STEPS ? '<button type="button" class="btn btn-xs btn-outline mt-1.5 gap-1" data-bh-action="flow-steps" data-value="1"><i data-lucide="plus" class="w-3 h-3"></i> stap erbij</button>' : '')
+      + '</div>';
+  }
+
+  function renderFlowGrid(m) {
+    var A = 0, Pn = 0, hasRest = false;
+    m.cols.forEach(function (c) { A = Math.max(A, c.acts.length); Pn = Math.max(Pn, c.pages.length); if (c.rest) hasRest = true; });
+    // De banen, van boven naar onder. Een baan heeft in elke kolom dezelfde rijen.
+    var r = 2, rows = {};
+    if (A) { rows.actLabel = r++; rows.act = r; r += A; }
+    if (A && Pn) rows.pageLabel = r++;
+    rows.page = r; r += Pn;
+    if (hasRest) rows.rest = r++;
+    var COL = 'minmax(10.5rem, 1fr)', GAP = 'minmax(3rem, 0.5fr)', SEP = '1.25rem', MORE = 'minmax(8rem, 9rem)';
+    var tracks = [], at = [], moreAt = 0, minW = 0;
+    if (m.back && m.more) { tracks.push(MORE, SEP); moreAt = 1; minW += 128 + 20; }
+    m.cols.forEach(function (c, i) {
+      if (i) { tracks.push(GAP); minW += 48; }
+      tracks.push(COL); at.push(tracks.length); minW += 168;
+    });
+    if (!m.back && m.more) { tracks.push(SEP, MORE); moreAt = tracks.length; minW += 20 + 128; }
+    var cells = [];
+    if (rows.actLabel) cells.push(laneLabel('Acties', rows.actLabel));
+    if (rows.pageLabel) cells.push(laneLabel('Pagina\'s', rows.pageLabel));
+    m.cols.forEach(function (c, i) {
+      cells.push(headCell(m, c, at[i]));
+      if (i) cells.push('<div class="flex justify-center pt-0.5 text-base-content/25" style="grid-row:1;grid-column:' + (at[i] - 1) + '"><i data-lucide="chevron-right" class="w-4 h-4"></i></div>');
+      c.acts.forEach(function (e, k) { cells.push(actCard(m, c, e, rows.act + k, at[i])); });
+      c.pages.forEach(function (e, k) { cells.push(pageCard(m, c, e, rows.page + k, at[i])); });
+      if (c.rest) cells.push(restCard(c.rest, rows.rest, at[i]));
+    });
+    if (moreAt) cells.push(moreCell(m, moreAt));
+    $('bhFlow').innerHTML = '<div id="bhFlowGrid" class="relative grid gap-y-1.5" style="grid-template-columns:' + tracks.join(' ') + ';min-width:' + minW + 'px">'
+      + '<svg id="bhFlowRibbons" class="absolute left-0 top-0 pointer-events-none" aria-hidden="true"></svg>'
+      + cells.join('') + '</div>';
+  }
+
+  // ── Linten ─────────────────────────────────────────────────────────────────
+  // Gerekend uit de plaats van de kaarten zoals de browser ze tekende: de
+  // breedtes zijn fr-kolommen, dus vooraf weet je niet waar een kaart staat.
+  // Opnieuw bij elke render, bij resize en bij het tonen van het tabblad (een
+  // verborgen tabblad heeft geen maten).
+
+  function scheduleRibbons() {
+    if (ribbonFrame) cancelAnimationFrame(ribbonFrame);
+    ribbonFrame = requestAnimationFrame(function () { ribbonFrame = 0; drawRibbons(); });
+  }
+
+  function drawRibbons() {
+    var grid = $('bhFlowGrid'), svg = $('bhFlowRibbons');
+    if (!grid || !svg || !flowModel) return;
+    var box = grid.getBoundingClientRect();
+    if (!box.width) return;
+    var R = {};
+    Array.prototype.forEach.call(grid.querySelectorAll('[data-flow-node]'), function (el) {
+      var q = el.getBoundingClientRect();
+      R[el.getAttribute('data-flow-node')] = { l: q.left - box.left, r: q.right - box.left, t: q.top - box.top, h: q.height };
+    });
+    if (flowHl && !R[flowHl]) flowHl = null;
+    var links = flowModel.links.filter(function (k) { return R[k.a] && R[k.b]; }).map(function (k) {
+      var base = flowModel.cols[k.c].reached || 1;
+      return { a: k.a, b: k.b, n: k.n, w: Math.max(1.5, k.n / base * RIBBON_MAX) };
+    });
+    // Stapelen zoals in een Sankey: uit een kaart op volgorde van de doelen, in
+    // een kaart op volgorde van de bronnen, telkens rond het midden van de kaart.
+    function stack(own, other, key) {
+      var groups = {};
+      links.forEach(function (k) { (groups[k[own]] = groups[k[own]] || []).push(k); });
+      Object.keys(groups).forEach(function (id) {
+        var list = groups[id].sort(function (x, y) { return R[x[other]].t - R[y[other]].t; });
+        var sum = list.reduce(function (s, k) { return s + k.w; }, 0), y = R[id].t + (R[id].h - sum) / 2;
+        list.forEach(function (k) { k[key] = y; y += k.w; });
+      });
+    }
+    stack('a', 'b', 'y0');
+    stack('b', 'a', 'y1');
+    svg.setAttribute('width', box.width);
+    svg.setAttribute('height', box.height);
+    svg.setAttribute('viewBox', '0 0 ' + fx(box.width) + ' ' + fx(box.height));
+    svg.innerHTML = links.sort(function (x, y) { return y.n - x.n; }).map(function (k) {
+      var x0 = R[k.a].r, x1 = R[k.b].l, xm = (x0 + x1) / 2, y0 = k.y0, y1 = k.y1, w = k.w;
+      var act = /:t-/.test(k.a) || /:t-/.test(k.b);
+      var op = act ? 0.34 : 0.2;
+      var d = 'M' + fx(x0) + ',' + fx(y0) + 'C' + fx(xm) + ',' + fx(y0) + ' ' + fx(xm) + ',' + fx(y1) + ' ' + fx(x1) + ',' + fx(y1)
+        + 'L' + fx(x1) + ',' + fx(y1 + w) + 'C' + fx(xm) + ',' + fx(y1 + w) + ' ' + fx(xm) + ',' + fx(y0 + w) + ' ' + fx(x0) + ',' + fx(y0 + w) + 'Z';
+      return '<path d="' + d + '" data-a="' + k.a + '" data-b="' + k.b + '" data-o="' + op + '" style="fill:' + (act ? GOOD : ACCENT) + ';opacity:' + op + '"></path>';
+    }).join('');
+    applyHighlight();
+  }
+
+  /** Met de muis (of de focus) op een kaart: haar linten naar voren, de rest naar achteren. */
+  function applyHighlight() {
+    var svg = $('bhFlowRibbons');
+    if (!svg) return;
+    Array.prototype.forEach.call(svg.querySelectorAll('path'), function (el) {
+      var base = Number(el.getAttribute('data-o'));
+      var on = flowHl && (el.getAttribute('data-a') === flowHl || el.getAttribute('data-b') === flowHl);
+      el.style.opacity = !flowHl ? base : on ? Math.min(0.85, base * 2.6) : base * 0.25;
+    });
+  }
+  function hoverFlow(e) {
+    var el = e.target && e.target.closest ? e.target.closest('#bhFlowGrid [data-flow-node]') : null;
+    var id = el ? el.getAttribute('data-flow-node') : null;
+    if (id === flowHl) return;
+    flowHl = id;
+    applyHighlight();
+  }
+  document.addEventListener('mouseover', hoverFlow);
+  document.addEventListener('focusin', hoverFlow);
+  window.addEventListener('resize', scheduleRibbons);
+
+  // ── Bediening, spelden, legende ────────────────────────────────────────────
+
+  function renderPinsLine(total, persons) {
+    var back = st.flow.mode === 'back', pins = back ? st.bpins : st.pins;
+    var keys = Object.keys(pins).sort(function (a, b) { return back ? b - a : a - b; });
+    if (!keys.length) { $('bhPins').innerHTML = ''; return; }
+    $('bhPins').innerHTML = '<span class="text-xs text-base-content/60">Vastgezet:</span> ' + keys.map(function (k) {
+        var where = back ? distLabel(Number(k)) : 'stap ' + (Number(k) + 1);
+        return '<span class="badge badge-primary badge-outline gap-1">' + esc(where) + ': ' + esc(tokLabel(pins[k]))
+          + '<button data-bh-action="' + (back ? 'bunpin' : 'unpin') + '" data-' + (back ? 'dist' : 'step') + '="' + k + '" aria-label="Losmaken">✕</button></span>';
+      }).join(' ') + ' <button class="btn btn-ghost btn-xs" data-bh-action="unpin-all">alles losmaken</button>'
+      + '<span class="text-xs text-base-content/60 ml-2">' + nf(total) + ' bezoeken'
+      + (persons ? ' van ' + nf(persons) + ' ' + personWord(persons) : '') + ' volgen dit pad</span>';
+  }
+
+  function renderFlowControls(cur) {
+    var F = st.F, n = st.flow.n, counts = {};
+    GOAL_ORDER.forEach(function (g) { counts[g] = 0; });
+    cur.forEach(function (s) {
+      var fl = s[C.flags];
+      GOAL_ORDER.forEach(function (g) { if (GOALS[g].flags.some(function (x) { return fl & F[x]; })) counts[g]++; });
+    });
+    $('bhFlowControls').innerHTML = '<div class="flex flex-wrap items-end gap-x-6 gap-y-3">'
+      + '<div>' + groupLabel('Richting') + pills('flow-mode', null, [['fwd', 'Vanaf de instap'], ['back', 'Naar het doel toe']], st.flow.mode) + '</div>'
+      + '<label class="block">' + groupLabel('Doel', 'Vooruit toont bij elke pagina hoeveel bezoeken daarna dit doel haalden (groen). "Naar het doel toe" toont enkel bezoeken met dit doel, uitgelijnd op de eerste keer dat het gebeurde.')
+      + '<select class="select select-bordered select-sm" data-bh-flow-goal>' + GOAL_ORDER.map(function (g) {
+          return '<option value="' + g + '"' + (st.flow.goal === g ? ' selected' : '') + '>' + esc(GOALS[g].label) + ' (' + nf(counts[g]) + ')</option>';
+        }).join('') + '</select></label>'
+      + '<div>' + groupLabel('Stappen') + '<div class="join">'
+      + '<button type="button" class="btn btn-sm join-item" data-bh-action="flow-steps" data-value="-1"' + (n <= MIN_STEPS ? ' disabled' : '') + ' aria-label="Een stap minder">−</button>'
+      + '<span class="btn btn-sm join-item pointer-events-none tabular-nums">' + n + '</span>'
+      + '<button type="button" class="btn btn-sm join-item" data-bh-action="flow-steps" data-value="1"' + (n >= MAX_STEPS ? ' disabled' : '') + ' aria-label="Een stap meer">+</button>'
+      + '</div></div></div>';
+  }
+
+  function renderFlowLegend(m) {
+    if (!m.total) { $('bhFlowLegend').innerHTML = ''; return; }
+    var sw = function (color, label) {
+      return '<span class="inline-flex items-center gap-1"><span class="inline-block w-3 h-1.5 rounded-full" style="background-color:' + color + '"></span>' + label + '</span>';
+    };
+    $('bhFlowLegend').innerHTML = '<div class="flex flex-wrap items-center gap-x-4 gap-y-1">'
+      + (m.back
+        ? '<span>Balk = deel van de bezoeken met ' + esc(m.goal.kort) + '.</span>'
+        : '<span>Balk = wat die bezoekers daarna deden:</span>' + sw(GOOD, esc(m.goal.naam)) + sw(MOVE, 'gaat verder') + sw(DONE, 'stopt na ' + esc(m.goal.naam)) + sw(BAD, 'stopt hier'))
+      + '<span class="text-base-content/45">Linten = wie van de ene stap naar de volgende ging. Klik een kaart om dat pad vast te zetten.</span></div>';
+  }
 
   function renderFlow(cur) {
-    var view = cur.filter(pinned);
-    var total = view.length;
-    var pinKeys = Object.keys(st.pins);
-    $('bhPins').innerHTML = pinKeys.length
-      ? '<span class="text-xs text-base-content/60">Vastgezet:</span> ' + pinKeys.sort().map(function (k) {
-          return '<span class="badge badge-primary badge-outline gap-1">stap ' + (Number(k) + 1) + ': ' + esc(short(pageName(st.pins[k]), 30))
-            + '<button data-bh-action="unpin" data-step="' + k + '" aria-label="Losmaken">✕</button></span>';
-        }).join(' ') + ' <button class="btn btn-ghost btn-xs" data-bh-action="unpin-all">alles losmaken</button>'
-        + '<span class="text-xs text-base-content/60 ml-2">' + nf(total) + ' bezoeken volgen dit pad</span>'
-      : '<span class="text-xs text-base-content/60">Klik een pagina om ze vast te zetten: je ziet dan waar die bezoekers vandaan kwamen en waar ze heen gingen.</span>';
-
-    if (!total) { $('bhFlow').innerHTML = '<p class="text-sm text-base-content/60 p-4">Geen bezoeken met dit pad.</p>'; return; }
-
-    var cols = [];
-    for (var step = 0; step < STEPS; step++) {
-      var counts = {}, conv = {}, reached = 0;
-      view.forEach(function (s) {
-        var p = path(s)[step];
-        if (p === undefined) return;
-        reached++;
-        counts[p] = (counts[p] || 0) + 1;
-        if (converted(s)) conv[p] = (conv[p] || 0) + 1;
-      });
-      var keys = Object.keys(counts).map(Number).sort(function (a, b) { return counts[b] - counts[a]; });
-      var pinnedHere = st.pins[step];
-      var shown = keys.slice(0, TOP_PER_STEP);
-      if (pinnedHere !== undefined && shown.indexOf(pinnedHere) < 0 && counts[pinnedHere]) shown.push(pinnedHere);
-      var rest = keys.filter(function (k) { return shown.indexOf(k) < 0; });
-      var restN = rest.reduce(function (n, k) { return n + counts[k]; }, 0);
-      var left = total - reached;
-
-      var nodes = shown.map(function (k) {
-        var w = counts[k] / total * 100, isPin = pinnedHere === k;
-        return '<button class="group w-full text-left rounded-lg px-2 py-1.5 hover:bg-base-200 ' + (isPin ? 'bg-primary/10 ring-1 ring-primary' : '') + '"'
-          + ' data-bh-action="pin" data-step="' + step + '" data-page="' + k + '" title="' + esc(pageName(k)) + '">'
-          + '<div class="flex justify-between gap-2 text-sm"><span class="truncate">' + esc(short(pageName(k))) + '</span>'
-          + '<span class="text-base-content/60 shrink-0 tabular-nums">' + pctTxt(pct(counts[k], total)) + '</span></div>'
-          + '<div class="h-1.5 rounded-full bg-base-200 mt-1 overflow-hidden"><div class="h-full rounded-full" style="width:' + Math.max(w, 1.5) + '%;background-color:' + (isPin ? ACCENT : 'oklch(var(--p) / 0.6)') + '"></div></div>'
-          + '<div class="text-[11px] text-base-content/50 mt-0.5">' + nf(counts[k]) + ' bezoeken' + (conv[k] ? ' · ' + pctTxt(pct(conv[k], counts[k])) + ' aanvraag' : '') + '</div>'
-          + '</button>';
-      }).join('');
-      if (restN) {
-        nodes += '<div class="px-2 py-1.5 text-sm text-base-content/60">'
-          + '<div class="flex justify-between"><span>' + rest.length + ' andere pagina\'s</span><span class="tabular-nums">' + pctTxt(pct(restN, total)) + '</span></div>'
-          + '<div class="h-1.5 rounded-full bg-base-200 mt-1 overflow-hidden"><div class="h-full rounded-full bg-base-content/20" style="width:' + Math.max(restN / total * 100, 1.5) + '%"></div></div></div>';
-      }
-      if (step > 0 && left > 0) {
-        nodes += '<div class="px-2 py-1.5 text-sm text-base-content/60 border-t border-base-300 mt-1">'
-          + '<div class="flex justify-between"><span class="inline-flex items-center gap-1"><i data-lucide="log-out" class="w-3 h-3"></i> verlaat de site</span><span class="tabular-nums">' + pctTxt(pct(left, total)) + '</span></div>'
-          + '<div class="h-1.5 rounded-full bg-base-200 mt-1 overflow-hidden"><div class="h-full rounded-full bg-base-content/25" style="width:' + Math.max(left / total * 100, 1.5) + '%"></div></div></div>';
-      }
-      cols.push('<div class="min-w-[13rem] flex-1">'
-        + '<div class="flex items-baseline justify-between px-2 mb-1"><span class="text-xs font-semibold uppercase tracking-wide text-base-content/60">'
-        + (step === 0 ? 'Instap' : 'Stap ' + (step + 1)) + '</span>'
-        + '<span class="text-[11px] text-base-content/50">' + (step === 0 ? nf(total) + ' bezoeken' : pctTxt(pct(reached, total)) + ' nog op de site') + '</span></div>'
-        + nodes + '</div>');
+    renderFlowControls(cur);
+    var m = buildFlow(cur);
+    flowModel = m.total ? m : null;
+    renderPinsLine(m.total, m.view ? personCount(m.view) : 0);
+    renderFlowAnswers(m);
+    renderFlowLegend(m);
+    if (!m.total) {
+      $('bhFlow').innerHTML = '<p class="text-sm text-base-content/60 p-4">' + (m.back
+        ? 'Geen bezoeken met ' + esc(m.goal.kort) + (Object.keys(st.bpins).length ? ' langs dit pad' : ' in dit segment') + '.'
+        : 'Geen bezoeken met dit pad.') + '</p>';
+      return;
     }
-    $('bhFlow').innerHTML = cols.join('<div class="hidden md:flex items-start pt-8 text-base-content/30"><i data-lucide="chevron-right" class="w-4 h-4"></i></div>');
+    renderFlowGrid(m);
+  }
+
+  // ── Meest gevolgde paden ───────────────────────────────────────────────────
+
+  /** Een stap in een pad als tekst: een pagina, of een actie als groen etiket. */
+  function tokChip(t) {
+    if (t < 0) {
+      var a = ACT[-t];
+      return '<span class="inline-flex items-center gap-1 rounded-md bg-success/20 px-1.5 font-medium" title="' + esc(tokName(t)) + '">'
+        + '<i data-lucide="' + (a ? a.icon : 'check') + '" class="w-3 h-3"></i>' + esc(a ? a.short : 'Actie') + '</span>';
+    }
+    return '<span class="truncate max-w-[14rem]" title="' + esc(pageName(t)) + '">' + esc(pageLabel(t)) + '</span>';
   }
 
   function renderPaths(cur) {
-    var view = cur.filter(pinned), m = {};
+    var back = st.flow.mode === 'back', n = st.flow.n, goal = GOALS[st.flow.goal], m = {};
+    var view = back ? cur.filter(function (s) { return goalIdx(s) >= 0; }).filter(pinned) : cur.filter(pinned);
     view.forEach(function (s) {
-      var p = path(s).slice(0, STEPS);
-      if (!p.length) return;
-      var k = p.join('>');
-      var g = m[k] || (m[k] = { p: p, n: 0, conv: 0, more: 0 });
-      g.n++;
-      if (converted(s)) g.conv++;
-      if (path(s).length > STEPS) g.more++;
+      var full = steps(s), g = goalIdx(s), from = back ? Math.max(0, g - n) : 0;
+      var seq = back ? full.slice(from, g + 1) : full.slice(0, n);
+      if (!seq.length) return;
+      var k = (from > 0 ? '…>' : '') + seq.join('>');
+      var e = m[k] || (m[k] = { p: seq, n: 0, conv: 0, more: 0, cut: from > 0 });
+      e.n++;
+      if (g >= 0) e.conv++;
+      if (!back && full.length > n) e.more++;
     });
     var rows = Object.keys(m).map(function (k) { return m[k]; }).sort(function (a, b) { return b.n - a.n; }).slice(0, 8);
     var max = rows.length ? rows[0].n : 1;
+    $('bhPathsTitle').textContent = back ? 'Meest gevolgde wegen naar ' + goal.kort : 'Meest gevolgde paden';
+    $('bhPathsSub').textContent = back
+      ? 'De laatste ' + n + ' ' + stepWord(n) + ' voor ' + goal.kort + ' (de eerste keer in dat bezoek). Klik om de weg vast te zetten.'
+      : 'De eerste ' + n + ' ' + stepWord(n) + ' van een bezoek; acties staan in het groen. Klik om het pad vast te zetten.';
     $('bhPaths').innerHTML = rows.length ? rows.map(function (r) {
-      return '<button class="w-full text-left rounded-lg px-2 py-2 hover:bg-base-200" data-bh-action="pin-path" data-path="' + r.p.join(',') + '">'
-        + '<div class="flex flex-wrap items-center gap-1 text-sm">' + r.p.map(function (x) { return '<span class="truncate max-w-[14rem]" title="' + esc(pageName(x)) + '">' + esc(short(pageName(x), 28)) + '</span>'; }).join('<span class="text-base-content/30">→</span>')
-        + (r.p.length === 1 ? ' <span class="text-xs text-base-content/50">(en weg)</span>' : '') + (r.more ? ' <span class="text-xs text-base-content/50">→ …</span>' : '') + '</div>'
+      return '<button type="button" class="w-full text-left rounded-lg px-2 py-2 hover:bg-base-200" data-bh-action="' + (back ? 'bpin-path' : 'pin-path') + '" data-path="' + r.p.join(',') + '">'
+        + '<div class="flex flex-wrap items-center gap-1 text-sm">' + (r.cut ? '<span class="text-base-content/40">… →</span>' : '')
+        + r.p.map(tokChip).join('<span class="text-base-content/30">→</span>')
+        + (!back && r.p.length === 1 ? ' <span class="text-xs text-base-content/50">(en weg)</span>' : '') + (r.more ? ' <span class="text-xs text-base-content/50">→ …</span>' : '') + '</div>'
         + '<div class="flex items-center gap-3 mt-1"><div class="h-1.5 rounded-full bg-base-200 flex-1 overflow-hidden"><div class="h-full rounded-full" style="width:' + (r.n / max * 100) + '%;background-color:' + ACCENT + '"></div></div>'
         + '<span class="text-xs text-base-content/60 tabular-nums w-28 text-right">' + nf(r.n) + ' · ' + pctTxt(pct(r.n, view.length)) + '</span>'
-        + '<span class="text-xs text-base-content/60 tabular-nums w-20 text-right">' + (r.conv ? pctTxt(pct(r.conv, r.n)) + ' aanvr.' : '') + '</span></div></button>';
-    }).join('') : '<p class="text-sm text-base-content/60">Geen paden.</p>';
+        + (back ? '' : '<span class="text-xs text-success tabular-nums w-14 text-right" title="Deel van deze bezoeken met ' + esc(goal.kort) + '">' + (r.conv ? '✓ ' + pctTxt(pct(r.conv, r.n)) : '') + '</span>')
+        + '</div></button>';
+    }).join('') : '<p class="text-sm text-base-content/60">' + (back ? 'Geen bezoeken met ' + esc(goal.kort) + '.' : 'Geen paden.') + '</p>';
   }
 
   // ── Per pagina ─────────────────────────────────────────────────────────────
@@ -639,20 +1163,66 @@
       + (rows.length > st.pageLimit ? '<button class="btn btn-ghost btn-sm w-full" data-bh-action="more-pages">Toon meer (' + nf(rows.length - st.pageLimit) + ')</button>' : '');
   }
 
+  // ── Eén persoon kleurt het segment ─────────────────────────────────────────
+  // In een klein segment kan één persoon alles bepalen (7 van de 7 bezoeken). Dan
+  // lees je het gedrag van die persoon, niet dat van "de bezoeker" -- en dat moet je zien vóór je
+  // er iets uit besluit. Vanaf 3 bezoeken en een kwart van wat er getoond wordt.
+  // Uitsluiten opent het venster van webgedrag.js (window.WebGedrag.exclude).
+  var DOMINANT_MIN = 3, DOMINANT_SHARE = 0.25;
+  function renderConcentration(view) {
+    var el = $('bhConcentration');
+    if (!el) return;
+    var per = {};
+    view.forEach(function (s) { var k = personKey(s); (per[k] = per[k] || { n: 0, s: s }).n++; });
+    var top = Object.keys(per).map(function (k) { return per[k]; })
+      .filter(function (x) { return x.n >= DOMINANT_MIN && x.n / view.length >= DOMINANT_SHARE; })
+      .sort(function (a, b) { return b.n - a.n; }).slice(0, 3);
+    if (!top.length) { el.innerHTML = ''; return; }
+    var waar = Object.keys(st.flow.mode === 'back' ? st.bpins : st.pins).length ? ' op dit pad' : ' in dit segment';
+    var admin = !!(window.WebGedrag && window.WebGedrag.isAdmin && window.WebGedrag.isAdmin());
+    el.innerHTML = '<div class="rounded-2xl border border-warning/40 bg-warning/10 p-4 space-y-2">' + top.map(function (x) {
+      var label = personLabel(x.s), uuid = d('v', x.s[C.v]);
+      var wie = label ? esc(label) : 'een anonieme bezoeker (browser ' + esc(String(uuid).slice(0, 8)) + ')';
+      return '<div class="flex flex-wrap items-center gap-x-3 gap-y-2">'
+        + '<i data-lucide="user-round" class="w-4 h-4 shrink-0"></i>'
+        + '<p class="text-sm flex-1 min-w-[16rem]"><strong>' + nf(x.n) + ' van de ' + nf(view.length) + ' bezoeken</strong> (' + pctTxt(pct(x.n, view.length)) + ')'
+        + waar + ' komen van één persoon: <strong>' + wie + '</strong>. Wat je hier ziet, is vooral het gedrag van die persoon.</p>'
+        + '<button class="btn btn-xs" data-bh-action="visitor" data-uuid="' + esc(uuid) + '">Bekijk traject</button>'
+        + (admin ? '<button class="btn btn-xs btn-ghost" data-bh-action="exclude" data-uuid="' + esc(uuid) + '" data-norm="' + esc(label || '') + '">Uitsluiten uit de cijfers</button>' : '')
+        + '</div>';
+    }).join('') + '</div>';
+  }
+
   // ── Bezoeken in dit segment (doorklikken naar het individuele traject) ─────
 
   function renderSessions(cur) {
-    var view = cur.filter(pinned).slice().sort(function (a, b) { return b[C.start] - a[C.start]; }).slice(0, 25);
+    var all = cur.filter(pinned), view = all.slice().sort(function (a, b) { return b[C.start] - a[C.start]; }).slice(0, 25);
+    var pn = personCount(all);
+    if ($('bhSessionsCount')) {
+      $('bhSessionsCount').textContent = all.length
+        ? nf(all.length) + ' bezoeken van ' + nf(pn) + ' ' + personWord(pn) + (all.length > view.length ? ' · de ' + view.length + ' meest recente' : '') : '';
+    }
     $('bhSessions').innerHTML = view.length ? view.map(function (s) {
       var p = path(s), ch = d('ch', s[C.ch]), det = d('det', s[C.det]), fl = s[C.flags];
+      var wie = personLabel(s);
+      // Een heropende advertentielink is GEEN nieuwe klik (channelOf in web-visits.js):
+      // de bezoeker opende dezelfde link opnieuw. Bij de oude historiek is dat niet na
+      // te gaan, en dat staat er dan bij.
+      var kanaal = s[C.reo]
+        ? dot(chColor(ch)) + '<span title="' + esc('Zelfde klik-id als de advertentieklik van ' + dayTxt(s[C.reo]) + '. Geen nieuwe klik: dezelfde link werd opnieuw geopend (bladwijzer, adresbalk, herstelde tab). Telt als Direct.') + '">'
+          + 'Direct · heropende advertentielink, geklikt op ' + esc(dayTxt(s[C.reo])) + '</span>'
+        : dot(chColor(ch)) + esc(ch) + (det ? ' · ' + esc(short(det, 30)) : '')
+          + (fl & st.F.klikOnbekend ? ' <span class="badge badge-xs badge-ghost" title="Van vóór 29 september: of dit een nieuwe advertentieklik was of dezelfde link opnieuw geopend, is niet bewaard.">oude historiek</span>' : '');
       var badges = (fl & st.F.linked ? '<span class="badge badge-sm badge-info badge-outline">lead</span>' : fl & st.F.known ? '<span class="badge badge-sm badge-outline">gekend</span>' : '')
         + (converted(s) ? '<span class="badge badge-sm badge-success badge-outline">aanvraag</span>' : '');
       var route = p.length ? esc(short(pageName(p[0]), 26)) + (p.length > 2 ? ' <span class="text-base-content/40">→ ' + (p.length - 2) + ' →</span> ' : p.length === 2 ? ' <span class="text-base-content/40">→</span> ' : '') + (p.length > 1 ? esc(short(pageName(p[p.length - 1]), 26)) : '') : '<span class="text-base-content/40">geen pagina</span>';
       return '<button class="w-full text-left grid grid-cols-[6.5rem_1fr_auto] gap-3 items-center px-2 py-2 rounded-lg hover:bg-base-200" data-bh-action="visitor" data-uuid="' + esc(d('v', s[C.v])) + '">'
         + '<span class="text-xs text-base-content/60">' + new Date(s[C.start] * 1000).toLocaleString('nl-BE', { timeZone: 'Europe/Brussels', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) + '</span>'
-        + '<span class="min-w-0"><span class="flex items-center gap-1.5 text-xs text-base-content/70">' + dot(chColor(ch)) + esc(ch) + (det ? ' · ' + esc(short(det, 30)) : '') + '</span>'
+        + '<span class="min-w-0"><span class="flex items-center gap-1.5 text-xs text-base-content/70">' + kanaal + '</span>'
         + '<span class="block text-sm truncate">' + route + '</span></span>'
-        + '<span class="flex items-center gap-1 justify-end"><span class="text-xs text-base-content/60 mr-1">' + durTxt(s[C.dur]) + '</span>' + badges + '</span></button>';
+        + '<span class="flex items-center gap-1 justify-end">'
+        + (wie ? '<span class="text-xs text-base-content/60 truncate max-w-[12rem] mr-1" title="' + esc(wie) + '">' + esc(wie) + '</span>' : '')
+        + '<span class="text-xs text-base-content/60 mr-1">' + durTxt(s[C.dur]) + '</span>' + badges + '</span></button>';
     }).join('') : '<p class="text-sm text-base-content/60">Geen bezoeken.</p>';
   }
 
@@ -778,12 +1348,13 @@
   function active() { return activeKeys().length > 0; }
 
   /** Het segment in één zin, zodat je altijd weet waar je naar kijkt. */
-  function sentence(n) {
+  function sentence(n, p) {
     var f = st.f, bits = [];
     if (f.who === 'anon') bits.push('anonieme'); else if (f.who === 'known') bits.push('gekende'); else if (f.who === 'lead') bits.push('aan een lead gekoppelde');
     if (f.visit === 'new') bits.push('nieuwe'); else if (f.visit === 'return') bits.push('terugkerende');
-    var s = nf(n) + ' ' + bits.join(', ') + (bits.length ? ' ' : '') + 'bezoeken'
-      + (f.purpose === 'prospect' ? ' van prospecten' : f.purpose === 'customer' ? ' van klanten' : '')
+    var wie = f.purpose === 'prospect' ? (p === 1 ? 'prospect' : 'prospecten')
+      : f.purpose === 'customer' ? (p === 1 ? 'klant' : 'klanten') : personWord(p);
+    var s = nf(n) + ' ' + bits.join(', ') + (bits.length ? ' ' : '') + 'bezoeken door ' + nf(p) + ' ' + wie
       + ' in de ' + PERIODS[st.period];
     var w = [];
     if (f.site !== null) w.push('op ' + d('site', f.site));
@@ -804,7 +1375,7 @@
     if (!st.data) return;
     var p = split();
     renderFilters();
-    $('bhSentence').textContent = sentence(p.cur.length);
+    $('bhSentence').textContent = sentence(p.cur.length, personCount(p.cur));
     $('bhVisited').innerHTML = '';
     renderSummary(p.cur, p.prev);
     renderTrend(p.cur, p.prev);
@@ -812,6 +1383,7 @@
     renderPaths(p.cur);
     renderPages(p.cur);
     renderSessions(p.cur);
+    renderConcentration(p.cur.filter(pinned));
     var notes = [];
     if (st.f.purpose === 'prospect') {
       var klant = 0, login = 0;
@@ -826,9 +1398,19 @@
       notes.push('Bezoeken van vóór 29 september 2026 komen uit de oude historiek: daar is de bron vaak niet bewaard ("Direct / onbekend") en ontbreken klikken.');
     }
     var excluded = st.f.purpose === 'prospect' && notes.length && notes[0].indexOf('klanten') >= 0 ? notes.shift() : '';
-    $('bhExcluded').textContent = excluded;
+    // Wie op de lijst Uitgesloten staat (lib/exclusions.js), haalt de server eruit.
+    // Zeggen hoeveel, nooit stil: anders lijkt het segment gewoon kleiner.
+    var uit = st.data.excluded, uitTxt = '';
+    if (uit && uit.sessions) {
+      uitTxt = esc(nf(uit.sessions) + ' bezoeken van ' + nf(uit.persons) + ' uitgesloten ' + personWord(uit.persons) + ' tellen in deze periode niet mee.')
+        + ' <a class="link" data-story-tab="excluded">Bekijk de lijst</a>';
+    } else if (uit && uit.error) {
+      uitTxt = esc('De lijst met uitgesloten personen kon niet gelezen worden: iedereen telt mee.');
+    }
+    $('bhExcluded').innerHTML = [excluded ? esc(excluded) : '', uitTxt].filter(Boolean).join('<br>');
     $('bhNote').innerHTML = notes.map(esc).join('<br>');
     icons();
+    scheduleRibbons();
     saveState();
   }
 
@@ -851,7 +1433,8 @@
       // Filters terugzetten op naam; wat in deze periode niet bestaat, valt weg.
       applyNames(names);
       pendingNames = null;
-      st.pins = {};
+      st.pins = {}; st.bpins = {};
+      numberVisits(st.data);
       $('bhStatus').innerHTML = '';
       render();
     } catch (e) {
@@ -873,23 +1456,49 @@
     if (a === 'kpi-table') { kpi.table = !kpi.table; openKpi(kpi.metric); return; }
     if (a === 'seg') { st.f[el.dataset.key] = v; }
     else if (a === 'filter') { var k = el.dataset.key, n = Number(v); st.f[k] = st.f[k] === n ? null : n; }
-    else if (a === 'reset') { st.f = Object.assign({}, DEFAULTS); st.pins = {}; }
+    else if (a === 'reset') { st.f = Object.assign({}, DEFAULTS); st.pins = {}; st.bpins = {}; }
     else if (a === 'clear') { st.f[el.dataset.key] = DEFAULTS[el.dataset.key]; if (el.dataset.key === 'ch') st.f.det = null; }
     else if (a === 'site') { st.f.site = v === '' ? null : Number(v); }
     else if (a === 'pin') { var s = el.dataset.step, pg = Number(el.dataset.page); if (st.pins[s] === pg) delete st.pins[s]; else st.pins[s] = pg; }
     else if (a === 'pin-path') { st.pins = {}; el.dataset.path.split(',').forEach(function (x, i) { st.pins[i] = Number(x); }); }
     else if (a === 'unpin') { delete st.pins[el.dataset.step]; }
-    else if (a === 'unpin-all') { st.pins = {}; }
+    else if (a === 'unpin-all') { st.pins = {}; st.bpins = {}; }
+    else if (a === 'bpin') { var dd = el.dataset.dist, tk = Number(el.dataset.page); if (st.bpins[dd] === tk) delete st.bpins[dd]; else st.bpins[dd] = tk; }
+    else if (a === 'bpin-path') { st.bpins = {}; var bp = el.dataset.path.split(','); bp.forEach(function (x, i) { st.bpins[bp.length - 1 - i] = Number(x); }); }
+    else if (a === 'bunpin') { delete st.bpins[el.dataset.dist]; }
+    else if (a === 'flow-mode') { if (st.flow.mode !== v) { st.flow.mode = v; st.pins = {}; st.bpins = {}; } }
+    else if (a === 'flow-steps') { setSteps(st.flow.n + Number(v)); }
     else if (a === 'metric') { st.metric = v; }
     else if (a === 'trend-table') { st.showTable = !st.showTable; }
     else if (a === 'sort') { var key = el.dataset.key; st.sort = { key: key, dir: st.sort.key === key ? -st.sort.dir : (key === 'name' ? 1 : -1) }; }
     else if (a === 'more-pages') { st.pageLimit += 30; }
     else if (a === 'visitor') { if (window.WebGedrag) window.WebGedrag.open('visitor', el.dataset.uuid); return; }
+    else if (a === 'exclude') {
+      if (window.WebGedrag && window.WebGedrag.exclude) {
+        window.WebGedrag.exclude({ uuid: el.dataset.uuid, norms: el.dataset.norm ? [el.dataset.norm] : [],
+          label: el.dataset.norm || ('browser ' + String(el.dataset.uuid).slice(0, 8)) });
+      }
+      return;
+    }
     else return;
     render();
   });
 
+  /** Een speld op een stap die niet meer getoond wordt, zou onzichtbaar blijven filteren: weg ermee. */
+  function setSteps(n) {
+    n = Math.max(MIN_STEPS, Math.min(MAX_STEPS, n));
+    st.flow.n = n;
+    Object.keys(st.pins).forEach(function (k) { if (Number(k) >= n) delete st.pins[k]; });
+    Object.keys(st.bpins).forEach(function (k) { if (Number(k) > n) delete st.bpins[k]; });
+  }
+
   document.addEventListener('change', function (e) {
+    var goalSel = e.target.closest('[data-bh-flow-goal]');
+    if (goalSel) {
+      // Een ander doel = een andere uitlijning: de spelden van "naar het doel toe" kloppen niet meer.
+      if (GOALS[goalSel.value]) { st.flow.goal = goalSel.value; st.bpins = {}; render(); }
+      return;
+    }
     var el = e.target.closest('[data-bh-select]');
     if (!el) return;
     var k = el.dataset.bhSelect;
@@ -906,5 +1515,9 @@
   });
 
   restoreState();
-  window.WebGedragBehaviour = { load: function () { if (!st.data) load(); } };
+  window.WebGedragBehaviour = {
+    load: function () { if (!st.data) load(); else scheduleRibbons(); },
+    // Na uitsluiten of weer laten meetellen: opnieuw ophalen (de server filtert NA de cache).
+    reload: function () { if (st.data) load(); },
+  };
 })();

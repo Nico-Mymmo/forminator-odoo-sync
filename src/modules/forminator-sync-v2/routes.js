@@ -813,6 +813,7 @@ const META_LABELS = {
   ovme_uuid:     'Bezoeker-UUID',
   ovme_ref_uuid: 'Bezoeker-UUID andere site',
   lang:          'Taal van de bezoeker',
+  bot_check:     'Botcontrole (Turnstile)',
 };
 
 export const routes = {

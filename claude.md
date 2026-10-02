@@ -312,6 +312,8 @@ kent. Volledige onderbouwing: `docs/ontwerp-om-formulieren.md`.
 | Toont de indieningenlijst de waarden? | `node src/modules/forminator-sync-v2/tests/submissions-list-test.mjs` (playwright) |
 | Belooft het scherm dezelfde replay als de server? | `node src/modules/forminator-sync-v2/tests/replay-status-parity-test.mjs` |
 | Waarden leesbaar maken (labels, tijdstippen) | `src/modules/forminator-sync-v2/display-values.js` |
+| Botcontrole: Turnstile nakijken + modus | `src/modules/forminator-sync-v2/forms/turnstile.js` (aangeroepen in `handleSubmit()` van `forms/public-api.js`) |
+| Turnstile in de browser | `maakTurnstile()` in `wp-plugin/mymmo-forms/assets/js/mymmo-forms.js` |
 
 Afspraken die bewust zo zijn:
 
@@ -601,9 +603,42 @@ Afspraken die bewust zo zijn:
   server-naar-server met de Worker: zo blijft de sitesleutel serverside.
 - **De plugin stuurt GEEN mail.** Dat doet de `send_mail`-stap van de koppeling —
   daar staat de editor en daar staat de Postmark-opvolging.
-- **Antispam zonder captcha:** honeypot, minimale invultijd (tijdstempel ondertekend
-  met `wp_hash()`), WordPress-nonce, en rate limit per sitesleutel in de Worker.
-  Turnstile is de volgende stap als dit niet volstaat — een captcha kost inzendingen.
+- **Antispam:** honeypot, minimale invultijd (tijdstempel ondertekend met
+  `wp_hash()`), WordPress-nonce, rate limit per sitesleutel in de Worker, en
+  sinds plugin 1.21.0 **Cloudflare Turnstile, onzichtbaar** (geen reCAPTCHA: die
+  zet Google-cookies op de site).
+  - **De WORKER beslist, de plugin geeft enkel door.** De publieke sitesleutel
+    reist mee in de formulier-payload (`turnstile.site_key`, en in de ETag --
+    anders blijft een plugin de oude payload gebruiken); het geheim
+    (`FORMS_TURNSTILE_SECRET`) staat alleen in de Worker. Geen instelling in
+    WordPress, dus ook geen site die het vergeten kan zijn.
+  - **`FORMS_TURNSTILE_MODE`** (wrangler.jsonc): `off` / `log` (nakijken en
+    bewaren als `meta_bot_check`, nooit weigeren) / `on` (403 met de zin
+    `bot_check` uit MESSAGES). Zonder sitesleutel of geheim staat het UIT, met
+    een fout in de log -- een halve instelling mag geen bezoeker weigeren.
+  - **Uitrol:** widget aanmaken in Cloudflare (Turnstile, hostnamen van ELKE site
+    die formulieren toont), sitesleutel in wrangler.jsonc, geheim als secret,
+    plugin 1.21.0 overal, dan `log`. Pas naar `on` na minstens 6 uur
+    (`MAX_SECONDS` in class-submit.php: een oudere gecachete pagina zonder
+    widget kan dan toch niet meer versturen) EN als het Indieningen-tabblad bij
+    echte inzendingen `ok` toont. Een site die niet in de hostnamen van de widget
+    staat, geeft ELKE bezoeker `geen_token` -- precies wat `log` moet vangen.
+  - **Wat NOOIT geweigerd wordt, ook niet in `on`:** een inzending ZONDER
+    `turnstile`-veld (oude plugin, of een payload zonder sleutel -- dat kiest
+    PHP op basis van de payload, niet de POST, dus een bot kan het niet), en
+    een storing aan ONZE kant (Cloudflare onbereikbaar, verkeerd geheim):
+    `niet_gecontroleerd`, doorgelaten.
+  - **`meta_bot_check` zet de Worker, nooit de site** (`delete meta.bot_check`
+    in `handleSubmit()`). Waarden: `ok`, `geen_token`, `ongeldig`,
+    `niet_gecontroleerd`.
+  - **In de browser** laadt het script pas bij de eerste klik IN het formulier
+    en haalt het meteen een token; bij "Versturen" wordt alleen gewacht als het
+    er nog niet is (max. 15 s, of tot de bezoeker het vinkje aanklikt als
+    Cloudflare twijfelt). `refresh-expired: never` + `reset()` bij het
+    versturen, omdat een formulier in de pop-up of een callout VERHUIST en een
+    verhuisd iframe opnieuw laadt. Na een mislukte AJAX-inzending is het token
+    verbruikt: `ts.ververs()`. Het voorbeeld in wp-admin (srcdoc) slaat
+    Turnstile over.
 - **Het `theme`-veld gaat door een GESLOTEN lijst.** `mymmo_forms_theme_style()`
   laat enkel bekende variabelen door, en enkel waarden die eruitzien als een kleur
   of een lengte. Vrije CSS vanuit de OM zou een injectiepad zijn naar elke site die
@@ -618,7 +653,9 @@ en "Forminator-formulier gedeactiveerd". Pas als alles over is:
 en de subsequence-heuristiek opruimen.
 
 **Nieuwe secrets:** `FORMS_PUBLIC_SITE_KEYS` (verplicht — zonder is de publieke API
-dicht, niet open) en optioneel `FORMS_PUBLIC_ORIGINS` voor CORS.
+dicht, niet open) en optioneel `FORMS_PUBLIC_ORIGINS` voor CORS. Voor Turnstile:
+het secret `FORMS_TURNSTILE_SECRET` plus de vars `FORMS_TURNSTILE_SITE_KEY` en
+`FORMS_TURNSTILE_MODE` in wrangler.jsonc.
 
 **Nog niet gebouwd, bewust:** bestandsupload, betalingen, meerstaps-formulieren,
 berekeningen en voorwaardelijke velden. Voorwaardelijke velden zijn de meest
@@ -3831,6 +3868,8 @@ schrijver), de OM is de enige die met Odoo praat.** Volledige onderbouwing:
 | Uurlijkse push naar Odoo | `src/modules/web-story/lib/push.js`, `*/15`-tak in `index.js` (enkel het eerste kwartier, of zolang er werk ligt) |
 | Tabblad Gedrag: trends en flows over ALLE bezoeken (ook anoniem), segment in de browser | `src/modules/web-story/lib/behaviour.js` (compacte sessies via `readSessionRows()` van web-visits.js) + `public/webgedrag-behaviour.js` |
 | Scherm per lead / actieblad / bezoeker, bevestigen, twijfelgevallen | `src/modules/web-story/routes.js` + `lib/story-data.js`, `public/webgedrag.html` + `.js` (`/webgedrag?lead=<id>`) |
+| Uitgesloten uit de cijfers (lijst, filter, tabblad) | `src/modules/web-story/lib/exclusions.js`, tabel `web_story_exclusions` (migratie `20261003110000`), `/webgedrag?tab=uitgesloten` |
+| Heropende advertentielink = geen nieuwe klik | `readReopenedClicks()` + `channelOf()` in `src/modules/dashboards/lib/web-visits.js` |
 | Moduleregistratie | `supabase/migrations/20261001120000_web_story_module.sql` |
 | Dashboard: wat leidde tot de conversie (eerste / laatste / assist / positie, paden) | `src/modules/dashboards/lib/web-attribution.js` (server, per persoon over de hele historiek), kaart in `dashboards.html` + `loadAttribution()` in `dashboards-web.js` |
 | Koppelingen bewaren, tijdlijn renderen | tracker: `POST /internal/links`, `POST /internal/timeline` (`lib/story.js`), via de binding `TRACKER` |
@@ -3927,10 +3966,86 @@ Afspraken die bewust zo zijn:
     collega die test). De matching geeft dan hooguit `middel` (Twijfelgevallen); per
     bezoek toont het verhaal het adres dat TOEN in gebruik was (`activeEmail()`), met
     een label, want het is een benadering.
-- **Padverkenner = stappen naast elkaar, geen Sankey.** Een pagina op een stap
-  "vastzetten" filtert op wie daar langskwam; herladen van dezelfde pagina telt
-  niet als stap. Tijd op een pagina = tot de volgende pagina (de gemeten dwell zit
-  niet in de sessie-SQL), dus de laatste pagina van een bezoek heeft geen tijd.
+- **Padverkenner = kaarten in een raster, met linten ertussen** (2026-10-03;
+  voordien "stappen naast elkaar, geen Sankey"). Ze beantwoordt twee vragen:
+  WAT WERKT en WAAR STOKT HET. Een klassieke Sankey met dunne balkjes kan geen
+  leesbare labels dragen en de lange staart wordt er een kluwen; dus blijven de
+  kaarten en komen de linten erbij.
+  - Bovenaan het ANTWOORD: "Waar het stokt" (pagina's waar meer bezoekers stoppen
+    dan bij de rest van die stap, gerangschikt op het overschot, dus volume telt
+    mee) en "Wat werkt" (deel dat daarna het doel haalt, gerangschikt op de
+    ondergrens van een Wilson-interval, zodat 1 op 1 niet wint van 20 op 400).
+  - Elke paginakaart heeft een UITKOMSTBALK over haar EIGEN bezoeken: groen = doet
+    daarna het doel, blauw = gaat verder, grijs = stopt na het doel, rood = stopt
+    hier. Zet er geen balk "deel van alle bezoeken" voor terug: die was vanaf stap 2
+    overal een streepje van 0,3%, en dat las als onbelangrijk.
+  - Vaste BANEN (acties, pagina's, andere) en vaste kaarthoogtes: dezelfde soort
+    rij staat in elke kolom op dezelfde hoogte. Geen subtekst op een kaart (de
+    uitleg staat in de tooltip); het label is het laatste stuk van het pad, op
+    hoogstens twee regels, "/" heet Homepage.
+  - De linten worden NA het tekenen berekend uit de plaats van de kaarten
+    (`drawRibbons()`, één SVG in het raster): opnieuw bij elke render, bij resize
+    en bij het tonen van het tabblad (een verborgen tabblad heeft geen maten). De
+    dikte is per tussenruimte geschaald op de bronkolom. Geen linten van of naar
+    "andere pagina's" en geen naar "verlaat de site": dat zegt het rood al.
+  - Een kaart "vastzetten" filtert op wie daar langskwam; herladen van dezelfde
+    pagina telt niet als stap. Tijd op een pagina = tot de volgende pagina (de
+    gemeten dwell zit niet in de sessie-SQL), dus de laatste pagina van een bezoek
+    heeft geen tijd.
+- **Een ACTIE is een STAP in het pad** (2026-10-02). Formulier, afspraak, event,
+  nieuwsbrief, academy en registratie staan als eigen groene knoop, direct na de
+  pagina waarop ze gebeurden. Zonder dat stond wie op /offerte/ een formulier
+  verstuurde en wegging, gewoon bij "verlaat de site". De sessie-SQL geeft `cv`
+  mee (`tijdstip~type`, volgt de SUM's ernaast) en `behaviour.js` hangt elke actie
+  aan de laatste pagina tot op dat tijdstip (kolom `acts`: [positie, soort,
+  seconden]). Een actie die de OM meldt heeft het tijdstip van de SERVER, een
+  pagina dat van de BROWSER: een scheve klok kan een actie een pagina verschuiven.
+  De soortcodes 1-6 staan twee keer (`ACT_KINDS` in behaviour.js, `ACT` in
+  webgedrag-behaviour.js); wijzig ze samen.
+  Twee standen: **vooruit** (aantal stappen instelbaar, 2-12; wie verder gaat dan
+  de laatste kolom staat erbij) en **naar het doel toe** (enkel bezoeken met het
+  gekozen doel, uitgelijnd op de EERSTE keer dat het gebeurde, met pagina's, tijd
+  en welk bezoek tot dat doel). Dat tweede bestaat omdat een vaste reeks kolommen
+  vanaf de instap een lange weg naar de aanvraag gewoon afknipt.
+  Het bezoeknummer telt enkel wat geladen is (de periode en die daarvoor); wat
+  ouder is, heet "eerder langer geleden" en wordt niet geraden.
+- **Een HEROPENDE advertentielink is GEEN nieuwe klik** (2026-10-02). Google maakt
+  bij elke klik een nieuwe gclid; dezelfde gclid later opnieuw is een bladwijzer, de
+  adresbalk, een herstelde tab of een doorgestuurde link. De tracker maakt bij ELKE
+  URL met advertentieparameters een touchpoint, dus zonder deze regel telde zo'n
+  bezoek als "Betaald zoeken", ook als laatste aanraking. Gemeten: een prospect opende
+  sinds 27 juni ~90 keer dezelfde pmax-link, zonder ooit een verwijzer.
+  `channelOf()` zet zo'n sessie op "Direct / onbekend" met detail "heropende
+  advertentielink (campagne)" en meta `reopened` (de eerste klik). De sleutel is de
+  landingspagina VANAF de klik-parameter (`clickKeySql()`), GLOBAAL en niet per
+  bezoeker: 253 van de 263 hergebruiken gebeurden in een ANDERE browser dan de eerste
+  klik. Oude historiek zonder landingspagina is niet na te gaan: die blijft een klik,
+  met `klikOnbekend` en een badge "oude historiek" in het scherm. "Zelfde persoon,
+  campagne en pagina" als vervangregel is gemeten en verworpen: 14 echte nieuwe kliks
+  tegen 10 heropende. Nog niet aangepast: de tijdlijn die de TRACKER rendert (in Odoo
+  en in het iframe "Tijdlijn (zoals in Odoo)") toont nog elk touchpoint als klik --
+  dat is `lib/timeline.js` in de tracker-repo.
+- **Bezoeken zijn geen personen; het scherm zegt beide.** "7 bezoeken" las als zeven
+  mensen terwijl het één persoon was. Gedrag toont het aantal personen in de zin
+  bovenaan, op de tegel Bezoeken, bij "volgen dit pad" en boven de recente bezoeken,
+  en per recent bezoek wie het was. Persoon = het eerste herleide adres van een browser
+  (`persons` + `dict.pe` uit behaviour.js, zelfde regel als `personKey()`); een anonieme
+  browser telt als eigen persoon. Komen minstens 3 bezoeken en een kwart van wat
+  getoond wordt van één persoon, dan staat er bovenaan een waarschuwing met "Bekijk
+  traject" en (beheerders) "Uitsluiten" (`renderConcentration()`).
+- **Uitgesloten uit de cijfers** (`lib/exclusions.js`). Voor een partner of vaste klant
+  die de site intensief gebruikt. De lijst staat in Supabase (`web_story_exclusions`),
+  NIET in D1: daar is de tracker de enige schrijver, en dit is een keuze van de OM over
+  hoe ze telt. Een regel is een HERLEID adres (elke browser die het ooit gebruikte, ook
+  een nieuwe na gewiste cookies) of één browser (anoniem, of een gedeelde browser
+  waarvan de andere persoon moet blijven meetellen). Uitgesloten telt nergens mee:
+  Gedrag, dashboard Website-bezoeken, attributie. Het traject en het verhaal in Odoo
+  blijven volledig, met een badge. Het filter werkt NA de edge-cache (`dropExcluded()`),
+  zodat een wijziging meteen telt; de attributie heeft de lijst in haar cachesleutel.
+  Lezen mag iedereen met de module, wijzigen enkel beheerders. Mislukt het lezen van de
+  lijst, dan telt iedereen mee en zegt het scherm dat. Hoeveel er buiten valt staat
+  ALTIJD onder de cijfers (`excluded` in het antwoord): stil weglaten leest als een
+  kleiner segment.
 - **Eén chatter-notitie per record**, bij de eerste schrijfactie, met de link
   naar `/webgedrag` (`webstory:noted:*` in KV). Nooit bij elke update.
 - **Inline stijl: altijd `background-color`, nooit `background`** -- Odoo's

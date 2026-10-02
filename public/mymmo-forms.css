@@ -515,6 +515,21 @@ textarea.mymmo-form-input {
   overflow: hidden;
 }
 
+/* ── Botcontrole (Cloudflare Turnstile) ──────────────────────────────────── */
+
+/* mymmo-forms.js zet dit vak onder de knoppen. Voor bijna iedereen blijft
+   Turnstile onzichtbaar; enkel als Cloudflare twijfelt, verschijnt er een
+   vinkje en krijgt het vak ruimte. Bewust NIET verbergen buiten die klasse:
+   mist het sein ooit, dan mag een bezoeker niet vastzitten achter een vinkje
+   dat hij niet ziet. */
+.mymmo-form-wrap .mymmo-form-turnstile {
+  margin: 0;
+}
+
+.mymmo-form-wrap .mymmo-form-turnstile--zichtbaar {
+  margin-top: var(--mf-gap);
+}
+
 /* ── Foutmarkering ───────────────────────────────────────────────────────── */
 
 /* Alleen na een verzendpoging, want :invalid kleurt anders elk leeg verplicht

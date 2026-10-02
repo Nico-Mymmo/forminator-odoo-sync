@@ -38,6 +38,7 @@
       <button role="tab" class="tab tab-active" data-story-tab="behaviour">Gedrag</button>
       <button role="tab" class="tab hidden" data-story-tab="detail" id="detailTab">Traject</button>
       <button role="tab" class="tab hidden" data-story-tab="review" id="reviewTab">Twijfelgevallen</button>
+      <button role="tab" class="tab" data-story-tab="excluded" id="excludedTab">Uitgesloten</button>
     </div>
 
     <!-- ── Gedrag: trends en flows over alle bezoeken ───────────────────────── -->
@@ -54,6 +55,8 @@
         </div>
       </div>
       <div id="bhStatus" class="mb-3"></div>
+      <!-- "7 van de 7 bezoeken komen van één persoon" (webgedrag-behaviour.js, renderConcentration) -->
+      <div id="bhConcentration" class="mb-3"></div>
 
       <div id="bhBody" class="space-y-5 transition-opacity">
         <div class="rounded-2xl bg-base-100 border border-base-300 p-5">
@@ -82,18 +85,20 @@
         </div>
 
         <div class="rounded-2xl bg-base-100 border border-base-300 p-5">
-          <div class="flex flex-wrap items-baseline justify-between gap-2">
-            <h2 class="font-semibold">Hoe bezoekers door de site gaan</h2>
-            <span class="text-xs text-base-content/50">balk = deel van alle bezoeken in het segment</span>
-          </div>
-          <div id="bhPins" class="flex flex-wrap items-center gap-2 mt-2 mb-3 min-h-[1.75rem]"></div>
-          <div id="bhFlow" class="flex gap-2 overflow-x-auto pb-1"></div>
+          <h2 class="font-semibold">Hoe bezoekers door de site gaan</h2>
+          <!-- Leesvolgorde: hoe kijk je (bediening), het antwoord (waar het stokt,
+               wat werkt), wat staat er vast, het pad zelf, en pas dan de legende. -->
+          <div id="bhFlowControls" class="mt-3"></div>
+          <div id="bhFlowAnswers"></div>
+          <div id="bhPins" class="flex flex-wrap items-center gap-2 mt-4 empty:hidden"></div>
+          <div id="bhFlow" class="overflow-x-auto pt-5 pb-2"></div>
+          <div id="bhFlowLegend" class="mt-2 text-[11px] text-base-content/55"></div>
         </div>
 
         <div class="grid grid-cols-1 xl:grid-cols-5 gap-5">
           <div class="rounded-2xl bg-base-100 border border-base-300 p-5 xl:col-span-2">
-            <h2 class="font-semibold">Meest gevolgde paden</h2>
-            <p class="text-xs text-base-content/50 mb-2">De eerste vier pagina's van een bezoek. Klik om het pad vast te zetten.</p>
+            <h2 class="font-semibold" id="bhPathsTitle">Meest gevolgde paden</h2>
+            <p class="text-xs text-base-content/50 mb-2" id="bhPathsSub">De eerste stappen van een bezoek. Klik om het pad vast te zetten.</p>
             <div id="bhPaths"></div>
           </div>
           <div class="rounded-2xl bg-base-100 border border-base-300 p-5 xl:col-span-3">
@@ -107,7 +112,10 @@
         </div>
 
         <div class="rounded-2xl bg-base-100 border border-base-300 p-5">
-          <h2 class="font-semibold">Recente bezoeken in dit segment</h2>
+          <div class="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 class="font-semibold">Recente bezoeken in dit segment</h2>
+            <span id="bhSessionsCount" class="text-xs text-base-content/60"></span>
+          </div>
           <p class="text-xs text-base-content/50 mb-2">Klik een bezoek voor het volledige traject van die bezoeker.</p>
           <div id="bhSessions" class="divide-y divide-base-200"></div>
         </div>
@@ -148,6 +156,32 @@
         </div>
       </div>
     </section>
+
+    <!-- ── Uitgesloten uit de cijfers (src/modules/web-story/lib/exclusions.js) ── -->
+    <section id="panelExcluded" class="hidden">
+      <div class="card bg-base-100">
+        <div class="card-body">
+          <h2 class="card-title text-base">Uitgesloten uit de cijfers</h2>
+          <p class="text-sm opacity-70">
+            Wie hier staat, telt niet mee in <strong>Gedrag</strong>, op het dashboard <strong>Website-bezoeken</strong>
+            en in de attributie. Bedoeld voor een partner of vaste klant die de site intensief gebruikt en anders
+            elk klein segment kleurt. Het eigen traject blijft volledig zichtbaar, en weer laten meetellen kan altijd.
+          </p>
+          <form id="exclAddForm" class="hidden flex flex-wrap items-end gap-2 mt-2">
+            <label class="form-control">
+              <span class="label-text text-xs">E-mailadres of bezoeker-ID</span>
+              <input id="exclAddValue" class="input input-sm input-bordered w-72" placeholder="naam@voorbeeld.be" autocomplete="off">
+            </label>
+            <label class="form-control">
+              <span class="label-text text-xs">Waarom (optioneel)</span>
+              <input id="exclAddReason" class="input input-sm input-bordered w-72" placeholder="bv. partner, gebruikt de site dagelijks" maxlength="300" autocomplete="off">
+            </label>
+            <button class="btn btn-sm btn-primary" type="submit">Uitsluiten</button>
+          </form>
+          <div id="exclHost" class="overflow-x-auto mt-3"></div>
+        </div>
+      </div>
+    </section>
   </main>
 
   <!-- Het verloop van een kerncijfer over een langere periode (webgedrag-behaviour.js, openKpi) -->
@@ -168,6 +202,27 @@
       <div id="bhKpiBody" class="transition-opacity">
         <div style="height: 320px;" class="mt-3"><canvas id="bhKpiChart" aria-label="Verloop van het gekozen kerncijfer"></canvas></div>
         <div id="bhKpiTable" class="overflow-x-auto max-h-64"></div>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>sluiten</button></form>
+  </dialog>
+
+  <!-- Iemand uitsluiten uit de cijfers (webgedrag.js, openUitsluiten) -->
+  <dialog id="exclDialog" class="modal">
+    <div class="modal-box max-w-lg">
+      <h3 class="font-semibold text-lg">Uitsluiten uit de cijfers</h3>
+      <p class="text-sm opacity-70 mt-1">
+        <span id="exclWho" class="font-medium"></span> telt dan niet meer mee in Gedrag, op het dashboard en in de attributie.
+        Het eigen traject blijft zichtbaar; via het tabblad Uitgesloten laat je deze persoon weer meetellen.
+      </p>
+      <div id="exclChoices" class="space-y-2 mt-4"></div>
+      <label class="form-control mt-4">
+        <span class="label-text text-sm">Waarom? (optioneel, voor je collega's)</span>
+        <input id="exclReason" class="input input-sm input-bordered" placeholder="bv. partner, gebruikt de site dagelijks" maxlength="300" autocomplete="off">
+      </label>
+      <div class="modal-action">
+        <form method="dialog"><button class="btn btn-sm btn-ghost">Annuleren</button></form>
+        <button class="btn btn-sm btn-primary" data-action="excl-save">Uitsluiten</button>
       </div>
     </div>
     <form method="dialog" class="modal-backdrop"><button>sluiten</button></form>

@@ -60,6 +60,48 @@ export function isCustomerSession(firstLogins, r) {
   return !!t && r.en >= t;
 }
 
+// ─── Heropende advertentielinks (2026-10-02) ─────────────────────────────────
+// Google maakt bij ELKE advertentieklik een nieuwe gclid. Staat dezelfde gclid er
+// later opnieuw, dan is dat geen nieuwe klik maar dezelfde link, opnieuw geopend:
+// een bladwijzer, de suggestie in de adresbalk, een herstelde tab, of een link die
+// iemand doorstuurde. De tracker maakt bij elke URL met advertentieparameters een
+// touchpoint, dus zonder deze regel telde zo'n bezoek als "Betaald zoeken" -- ook
+// als laatste aanraking voor een conversie. Gemeten 2026-10-02: een prospect opende
+// zo sinds 27 juni ~90 keer dezelfde pmax-link (zelfde gclid, nooit een verwijzer).
+// Over alle touchpoints met een klik-id: 263 hergebruikt, waarvan 253 in een ANDERE
+// browser dan de eerste klik (cookie verlopen, ander toestel). Daarom globaal op de
+// klik-id en niet per bezoeker.
+// De sleutel is het stuk landingspagina VANAF de klik-parameter (64 tekens): een
+// identieke URL geeft een identieke sleutel. Enkel touchpoints met de volledige
+// landingspagina hebben er een (live sinds 29-09-2026, en het deel van de oude
+// historiek dat uit x_ad_touchpoint kwam). Voor de rest van de oude historiek is het
+// NIET na te gaan en blijft het een advertentieklik, met die vermelding erbij
+// (`klikOnbekend`). "Zelfde persoon, campagne en pagina" als vervanging is gemeten
+// en verworpen: 14 echte nieuwe kliks tegen 10 heropende -- vaker fout dan juist.
+const CLICK_PARAMS = ['gclid', 'gbraid', 'wbraid', 'fbclid', 'msclkid', 'ttclid', 'li_fat_id'];
+function clickKeySql(col) {
+  return 'CASE ' + CLICK_PARAMS.map(p => `WHEN instr(${col}, '${p}=') > 0 THEN substr(${col}, instr(${col}, '${p}='), 64)`).join(' ') + ' END';
+}
+const REOPENED_SQL = `
+WITH t AS (SELECT ts, json_extract(data,'$.odoo.x_studio_landing_page') AS lp FROM events WHERE type = 'touchpoint'),
+k AS (SELECT ts, ${clickKeySql('lp')} AS ck FROM t)
+SELECT ck AS k, MIN(ts) AS t FROM k WHERE ck IS NOT NULL GROUP BY ck HAVING COUNT(*) > 1`;
+const REOPENED_MEMO_MS = 10 * 60 * 1000;
+let reopenedMemo = null;
+
+/**
+ * Klik-sleutel -> tijdstip van de EERSTE klik, enkel voor sleutels die meer dan eens
+ * voorkomen (de rest kan niet heropend zijn). Tien minuten in het geheugen van de
+ * isolate: de push naar Odoo vraagt dit per lead op.
+ */
+export async function readReopenedClicks(env) {
+  if (reopenedMemo && Date.now() - reopenedMemo.at < REOPENED_MEMO_MS) return reopenedMemo.map;
+  const res = await readWebEvents(env, REOPENED_SQL);
+  const map = new Map((res.results || []).map(r => [r.k, r.t]));
+  reopenedMemo = { at: Date.now(), map };
+  return map;
+}
+
 // __WHERE__ wordt ingevuld: een periode voor het dashboard, een set bezoekers
 // voor het verhaal op een lead (readVisitorSessions). Dezelfde sessie-indeling.
 // ACTIES (2026-10-03). Een AANVRAAG = fs + ca. De rest zijn eigen acties:
@@ -70,12 +112,18 @@ export function isCustomerSession(firstLogins, r) {
 //   ac  academy_signup     academy
 //   rg  klik naar het app-domein (exit_type 'register'): registratie GESTART -- of ze
 //       daar afgerond werd, ziet de tracker niet.
+//   cv  dezelfde zes, als lijst "tijdstip~type": WAAR in het bezoek ze gebeurden, voor
+//       de padverkenner van Webgedrag (web-story/lib/behaviour.js). Volgt de SUM's
+//       hieronder: wijzig je een voorwaarde, wijzig ze op beide plekken.
+//   tk  "tijdstip|klik-sleutel" van het eerste touchpoint: is het een heropende
+//       advertentielink? (readReopenedClicks hierboven, channelOf hieronder)
 // De soort van een formulier komt uit conversieSoort() in src/lib/web-conversions.js.
 // (Bewust geen SQL-commentaar in de query zelf: een '--' op een samengevoegde regel
 // zou de rest van de query uitschakelen.)
 const SESSIONS_SQL_TEMPLATE = `
 WITH ev AS (
   SELECT e.visitor_uuid AS u, e.ts, e.type, e.page, e.data, e.bron,
+         CASE WHEN e.type = 'touchpoint' THEN json_extract(e.data,'$.odoo.x_studio_landing_page') END AS lp,
          COALESCE(e.site, v.site) AS site, v.first_seen AS vfirst, v.first_utm AS fu,
          (v.email IS NOT NULL AND v.email <> '') AS kn
   FROM events e JOIN visitors v ON v.uuid = e.visitor_uuid
@@ -98,9 +146,12 @@ SELECT u,
   json_group_array(CASE WHEN type = 'page' THEN page END) AS pg,
   json_group_array(CASE WHEN type = 'page' THEN ts END) AS pt,
   json_group_array(CASE WHEN type = 'page' THEN json_extract(data,'$.search') END) AS zq,
+  GROUP_CONCAT(CASE WHEN type IN ('form_submission','calendly','event_registration','newsletter_signup','academy_signup') THEN ts || '~' || type
+                    WHEN type = 'click' AND json_extract(data,'$.exit_type') = 'register' THEN ts || '~register' END, ',') AS cv,
   MIN(CASE WHEN type IN ('touchpoint','ai_referral','email_referral')
       THEN ts || '|' || COALESCE(json_extract(data,'$.medium'),'') || '|' || COALESCE(json_extract(data,'$.source'),'')
            || '|' || COALESCE(json_extract(data,'$.campaign'),'') END) AS tp,
+  MIN(CASE WHEN type = 'touchpoint' THEN ts || '|' || COALESCE(${clickKeySql('lp')}, '') END) AS tk,
   MIN(CASE WHEN type = 'page' THEN ts || '|' || COALESCE(json_extract(data,'$.utm.medium'),'') || '|'
            || COALESCE(json_extract(data,'$.utm.source'),'') || '|' || COALESCE(json_extract(data,'$.utm.campaign'),'') END) AS ut,
   MIN(CASE WHEN type = 'page' THEN ts || '|' || COALESCE(json_extract(data,'$.referer'),'') END) AS rf,
@@ -183,12 +234,34 @@ function part(str, i) {
   return p[i] || '';
 }
 
-export function channelOf(row) {
-  // 1. touchpoint in de sessie
+/** De klik-sleutel van het touchpoint dat het kanaal van de sessie bepaalt, of null. */
+function clickOf(row) {
+  if (!row.tk || !row.tp) return null;
+  const i = row.tk.indexOf('|');
+  const key = row.tk.slice(i + 1);
+  return key && row.tk.slice(0, i) === part(row.tp, 0) ? key : null;
+}
+
+/**
+ * @param reopened readReopenedClicks(); zonder telt elk touchpoint als nieuwe klik.
+ * @returns [kanaal, detail, meta] -- meta = { reopened: tijdstip van de eerste klik }
+ *          bij een heropende advertentielink, { klikOnbekend: true } bij een
+ *          advertentieklik uit de oude historiek die niet na te gaan is, anders leeg.
+ */
+export function channelOf(row, reopened = null) {
+  // 1. touchpoint in de sessie -- tenzij het dezelfde advertentielink is als bij een
+  //    EERDERE klik: dan kwam de bezoeker op eigen houtje terug (Direct), en dan telt
+  //    dit bezoek ook niet als laatste aanraking (GEEN_OORZAAK in journey.js).
   if (row.tp) {
     const [medium, source, campaign] = [part(row.tp, 1), part(row.tp, 2), part(row.tp, 3)];
     const ch = classifyTagged(medium, source);
-    if (ch) return [ch, detailOf(ch, medium, source, campaign)];
+    const klik = clickOf(row);
+    const eerste = klik && reopened ? reopened.get(klik) : null;
+    if (ch && eerste && eerste < row.st) {
+      const c = campaign && campaign !== 'unknown' ? ` (${campaign})` : '';
+      return ['Direct / onbekend', 'heropende advertentielink' + c, { reopened: eerste }];
+    }
+    if (ch) return [ch, detailOf(ch, medium, source, campaign), !klik && row.hi && ch.startsWith('Betaald') ? { klikOnbekend: true } : null];
   }
   // 2. UTM op de eerste pagina
   if (row.ut) {
@@ -246,9 +319,10 @@ export async function getWebVisitsData(env, { period }) {
   const start = new Date(end.getTime() - days * 86400000);
   const prevStart = new Date(start.getTime() - days * 86400000);
 
-  const [res, firstLogins] = await Promise.all([
+  const [res, firstLogins, reopened] = await Promise.all([
     readWebEvents(env, SESSIONS_SQL, [fmt(prevStart), fmt(end)]),
     readFirstLogins(env),
+    readReopenedClicks(env),
   ]);
   const rows = res.results || [];
 
@@ -272,7 +346,7 @@ export async function getWebVisitsData(env, { period }) {
     // Zoektermen in kleine letters: "Syndicus" en "syndicus" zijn dezelfde vraag.
     let zoek = [];
     try { zoek = JSON.parse(r.zq || '[]').filter(Boolean).map(z => String(z).trim().toLowerCase()).filter(Boolean); } catch (_) { zoek = []; }
-    const [ch, det] = channelOf(r);
+    const [ch, det] = channelOf(r, reopened);
     const dur = Math.max(0, Math.round((Date.parse(r.en + 'Z') - Date.parse(r.st + 'Z')) / 1000), Number(r.md) || 0);
     const distinct = new Set(pages).size;
     // Voor de betrokkenheid telt ELKE actie, niet enkel een aanvraag.
@@ -324,8 +398,9 @@ export async function getWebVisitsData(env, { period }) {
 /**
  * Ruwe sessierijen van een periode, voor Webgedrag (src/modules/web-story/lib/behaviour.js).
  * Zelfde SQL en kanaalindeling als hierboven; `pt` (tijdstip per pagina, op
- * dezelfde posities als `pg`) en `kn` (bezoeker heeft een e-mailadres) zijn er
- * voor dat scherm bijgekomen en worden door het dashboard genegeerd.
+ * dezelfde posities als `pg`), `kn` (bezoeker heeft een e-mailadres) en `cv` (de
+ * acties met hun tijdstip) zijn er voor dat scherm bijgekomen en worden door het
+ * dashboard genegeerd.
  */
 export async function readSessionRows(env, startTs, endTs) {
   const res = await readWebEvents(env, SESSIONS_SQL, [startTs, endTs]);
@@ -341,6 +416,7 @@ export async function readSessionRows(env, startTs, endTs) {
 export async function readVisitorSessions(env, uuids, { includeInternal = false } = {}) {
   const list = [...new Set(uuids || [])];
   const out = [];
+  const reopened = list.length ? await readReopenedClicks(env) : null;
   for (let i = 0; i < list.length; i += 50) {
     const part = list.slice(i, i + 50);
     // includeInternal: voor het verhaal op een (test)lead -- in de cijfers nooit.
@@ -350,9 +426,10 @@ export async function readVisitorSessions(env, uuids, { includeInternal = false 
     for (const r of res.results || []) {
       let pages = [];
       try { pages = JSON.parse(r.pg || '[]').filter(Boolean); } catch (_) { pages = []; }
-      const [channel, detail] = channelOf(r);
+      const [channel, detail, meta] = channelOf(r, reopened);
       out.push({
         uuid: r.u, start: r.st, end: r.en, site: r.site || null, channel, detail: detail || '',
+        reopened: (meta && meta.reopened) || null, klikOnbekend: !!(meta && meta.klikOnbekend),
         pages, conversions: { calendly: r.ca || 0, events: r.er || 0, forms: r.fs || 0, newsletter: r.nb || 0, academy: r.ac || 0, register: r.rg || 0 },
         historic: !!r.hi,
         loginOnly: isLoginOnly(r),
@@ -365,7 +442,8 @@ export async function readVisitorSessions(env, uuids, { includeInternal = false 
 
 /** Met edge-cache: dezelfde periode wordt hoogstens elke 10 minuten opnieuw berekend. */
 export async function getWebVisitsCached(env, ctx, { period }) {
-  const key = new Request(`https://om-cache.internal/dashboards/web-visits/${period}`);
+  // v2: heropende advertentielinks tellen als Direct (channelOf).
+  const key = new Request(`https://om-cache.internal/dashboards/web-visits/v2/${period}`);
   const cache = typeof caches !== 'undefined' ? caches.default : null;
   if (cache) {
     const hit = await cache.match(key);

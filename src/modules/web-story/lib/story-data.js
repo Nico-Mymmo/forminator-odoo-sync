@@ -12,6 +12,7 @@ import { readVisitorSessions } from '../../dashboards/lib/web-visits.js';
 import { buildJourney } from './journey.js';
 import { fetchTimeline } from './tracker.js';
 import { readIdentities, isShared, activeEmail, personKey } from './identities.js';
+import { loadExclusions, ruleFor } from './exclusions.js';
 
 const ctx = { active_test: false };
 const m2o = v => (Array.isArray(v) ? { id: v[0], name: v[1] } : null);
@@ -60,12 +61,16 @@ async function assemble(env, links, conversionAt) {
     actief.push(l);
   }
   const uuids = actief.slice(0, MAX_UUIDS).map(l => l.visitor_uuid);
-  const ids = uuids.length ? await readIdentities(env, uuids) : new Map();
-  // Elke koppeling krijgt al haar adressen mee, en of de browser gedeeld is.
+  const [ids, excl] = await Promise.all([uuids.length ? readIdentities(env, uuids) : new Map(), loadExclusions(env)]);
+  // Elke koppeling krijgt al haar adressen mee, of de browser gedeeld is, en of hij
+  // uitgesloten is uit de cijfers (lib/exclusions.js). `norms` = de herleide adressen:
+  // daarop sluit je een PERSOON uit.
   for (const l of links) {
     const list = ids.get(l.visitor_uuid) || [];
     l.emails = list.map(i => i.email);
+    l.norms = [...new Set(list.map(i => i.norm))];
     l.gedeeld = isShared(list);
+    l.uitgesloten = ruleFor(excl, l.visitor_uuid);
   }
   const persons = new Map(uuids.map(u => [u, personKey(ids.get(u), u)]));
   const sessions = uuids.length ? await readVisitorSessions(env, uuids, { includeInternal: true }) : [];
@@ -75,7 +80,8 @@ async function assemble(env, links, conversionAt) {
   return {
     journey,
     // Per bezoek het adres dat TOEN in gebruik was (bij een gedeelde browser een benadering).
-    sessions: sessions.map(s => ({ ...s, person: activeEmail(ids.get(s.uuid), s.end), intern: intern.has(s.uuid), gedeeld: isShared(ids.get(s.uuid)) })),
+    sessions: sessions.map(s => ({ ...s, person: activeEmail(ids.get(s.uuid), s.end), intern: intern.has(s.uuid), gedeeld: isShared(ids.get(s.uuid)),
+      uitgesloten: !!excl.uuids.get(s.uuid) })),
     timeline_html: tl.timeline_html || null,
     kpi_html: tl.kpi_html || null,
     afgekapt: actief.length > MAX_UUIDS ? actief.length - MAX_UUIDS : 0,
@@ -132,13 +138,15 @@ export async function visitorStory(env, uuid) {
   const naam = new Map((leads || []).map(l => [l.id, l]));
   const self = [{ visitor_uuid: uuid, email: v.email, is_internal: v.is_internal, is_bot: v.is_bot, status: 'actief' }];
   const myIds = (await readIdentities(env, [uuid])).get(uuid) || [];
+  const verhaal = await assemble(env, self, null);   // zet ook self[0].uitgesloten
   return {
     kind: 'visitor',
     record: { uuid, email: v.email, site: v.site, first_seen: v.first_seen, last_seen: v.last_seen,
       internal: !!v.is_internal, bot: !!v.is_bot, ref_uuid: v.ref_uuid,
-      emails: myIds.map(i => ({ email: i.email, first_seen: i.first_seen, last_seen: i.last_seen })), gedeeld: isShared(myIds) },
+      emails: myIds.map(i => ({ email: i.email, norm: i.norm, first_seen: i.first_seen, last_seen: i.last_seen })), gedeeld: isShared(myIds),
+      norms: [...new Set(myIds.map(i => i.norm))], uitgesloten: self[0].uitgesloten || null },
     leads: ll.map(l => ({ ...l, name: naam.get(l.res_id)?.name || null, owner: m2o(naam.get(l.res_id)?.user_id), status: leadStatus(naam.get(l.res_id)) })),
-    ...(await assemble(env, self, null)),
+    ...verhaal,
   };
 }
 

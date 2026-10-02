@@ -106,6 +106,9 @@ export const MESSAGES = {
     expired:        'De pagina was verlopen. Probeer het opnieuw.',
     stale_page:     'Deze pagina stond te lang open. Ververs ze en probeer opnieuw.',
     rejected:       'De inzending kon niet verwerkt worden.',
+    // Turnstile (forms/turnstile.js) weigerde de inzending. Bewust "probeer
+    // opnieuw": de browser haalt bij een nieuwe poging een nieuw token.
+    bot_check:      'We konden niet nagaan of je geen robot bent. Probeer het opnieuw.',
     unavailable:    'Dit formulier is momenteel niet beschikbaar.',
     send_failed:    'We konden je bericht niet versturen. Probeer het zo meteen opnieuw.',
   },
@@ -131,6 +134,7 @@ export const MESSAGES = {
     expired:        'La page avait expiré. Veuillez réessayer.',
     stale_page:     'Cette page est restée ouverte trop longtemps. Actualisez-la et réessayez.',
     rejected:       "L'envoi n'a pas pu être traité.",
+    bot_check:      "Nous n'avons pas pu vérifier que vous n'êtes pas un robot. Veuillez réessayer.",
     unavailable:    "Ce formulaire n'est pas disponible pour le moment.",
     send_failed:    "Nous n'avons pas pu envoyer votre message. Réessayez dans un instant.",
   },
@@ -156,6 +160,7 @@ export const MESSAGES = {
     expired:        'The page had expired. Please try again.',
     stale_page:     'This page was open too long. Refresh it and try again.',
     rejected:       'The submission could not be processed.',
+    bot_check:      'We could not verify that you are not a robot. Please try again.',
     unavailable:    'This form is currently unavailable.',
     send_failed:    'We could not send your message. Please try again in a moment.',
   },
@@ -225,11 +230,15 @@ export const RESERVED_FIELD_KEYS = new Set([
  * Beide kunnen leeg zijn, en dat is normaal: het tracking-script zet geen
  * cookie voor wie het als bot herkent, en ook niet in een browser zonder
  * plugins of taalinstelling. Een formulier mag er dus NOOIT op steunen.
+ *
+ * `bot_check` is de uitkomst van Turnstile (forms/turnstile.js): ok,
+ * geen_token, ongeldig of niet_gecontroleerd. Die zet de WORKER, nooit de site
+ * (public-api.js wist wat de plugin meestuurt). Leeg zolang Turnstile uit staat.
  */
 export const META_KEYS = [
   'site', 'page_url', 'page_title', 'referrer', 'submitted_at',
   'utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content',
-  'ovme_uuid', 'ovme_ref_uuid', 'lang',
+  'ovme_uuid', 'ovme_ref_uuid', 'lang', 'bot_check',
 ];
 
 const MAX_FIELDS = 60;
@@ -644,7 +653,7 @@ function normalizeValidation(raw) {
  * geen interne id's — die horen niet op een publieke pagina, ook niet als de
  * plugin ze server-side ophaalt.
  */
-export function toPublicFormPayload(form, fields, { busy = '' } = {}) {
+export function toPublicFormPayload(form, fields, { busy = '', turnstile = null } = {}) {
   const languages = Array.isArray(form.languages) && form.languages.length
     ? form.languages.filter(isLanguage)
     : [DEFAULT_LANGUAGE];
@@ -681,6 +690,9 @@ export function toPublicFormPayload(form, fields, { busy = '' } = {}) {
     default_language: defaultLanguage,
     i18n: (form.i18n && typeof form.i18n === 'object' && !Array.isArray(form.i18n)) ? form.i18n : {},
     messages,
+    // De PUBLIEKE sitesleutel van Turnstile, enkel als die aan staat
+    // (publicTurnstileConfig() in turnstile.js). Het geheim komt hier nooit.
+    ...(turnstile && turnstile.site_key ? { turnstile: { site_key: turnstile.site_key } } : {}),
     fields: (fields || []).map((f) => ({
       key: f.field_key || null,
       type: f.field_type,

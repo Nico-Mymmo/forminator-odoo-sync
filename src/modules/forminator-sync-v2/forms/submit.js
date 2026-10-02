@@ -34,10 +34,7 @@ export async function submitFormEntry(env, { integration, form, fields, body, re
   // Een onbekende of ontbrekende taal valt terug op de standaardtaal van het
   // formulier: de plugin stuurt hem mee, maar deze API staat open voor iedereen
   // met een sitesleutel en die mag hier niets kunnen forceren.
-  const gevraagd = body?.meta?.lang;
-  const taal = isLanguage(gevraagd) && (form.languages || []).includes(gevraagd)
-    ? gevraagd
-    : (isLanguage(form.default_language) ? form.default_language : DEFAULT_LANGUAGE);
+  const taal = taalVanInzending(form, body?.meta?.lang);
 
   const { errors, values } = validateSubmissionValues(fields, body?.form_data, taal);
 
@@ -93,6 +90,17 @@ export async function submitFormEntry(env, { integration, form, fields, body, re
       skipPipeline: !integration.is_active,
     }),
   };
+}
+
+/**
+ * De taal van een inzending: wat de plugin meestuurde, als het formulier die
+ * taal heeft, anders de standaardtaal. Ook gebruikt door public-api.js, voor
+ * een melding die nog vóór submitFormEntry() terugkomt (de botcontrole).
+ */
+export function taalVanInzending(form, gevraagd) {
+  return isLanguage(gevraagd) && (form.languages || []).includes(gevraagd)
+    ? gevraagd
+    : (isLanguage(form.default_language) ? form.default_language : DEFAULT_LANGUAGE);
 }
 
 function jsonResponse(body, status) {

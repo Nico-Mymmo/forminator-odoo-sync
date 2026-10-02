@@ -18,6 +18,7 @@ import { getInstroomData, normalizePeriod, buildBuckets, buildTargetWindows } fr
 import { listTargetWindow, getTargetsForMonths, buildTargetTrend, upsertTargets } from './lib/targets.js';
 import { getWebVisitsCached, WEB_PERIODS } from './lib/web-visits.js';
 import { getWebAttributionCached } from './lib/web-attribution.js';
+import { loadExclusions, dropExcluded } from '../web-story/lib/exclusions.js';
 
 const VALID_SCOPES = ['all', 'syndicoach', 'openvme', 'onbekend'];
 
@@ -115,13 +116,14 @@ export const routes = {
 
   // ── Website-bezoeken (D1 van de website-tracker) ─────────────────────────
   // Geen no-store-uitzondering nodig: de response zelf wordt niet gecachet; de
-  // berekening wel, 10 minuten in de edge-cache (lib/web-visits.js).
+  // berekening wel, 10 minuten in de edge-cache (lib/web-visits.js). Wie in
+  // Webgedrag uitgesloten is, gaat er NA de cache uit (web-story/lib/exclusions.js).
   'GET /api/web-visits': async ({ env, request, ctx }) => {
     const url = new URL(request.url);
     const period = WEB_PERIODS[url.searchParams.get('period')] ? url.searchParams.get('period') : '30d';
     try {
-      const data = await getWebVisitsCached(env, ctx, { period });
-      return json({ success: true, data });
+      const [data, excl] = await Promise.all([getWebVisitsCached(env, ctx, { period }), loadExclusions(env)]);
+      return json({ success: true, data: dropExcluded(data, excl) });
     } catch (error) {
       console.error('web-visits fout:', error);
       return json({ success: false, error: error.message || 'Onbekende fout' }, 500);
@@ -133,7 +135,8 @@ export const routes = {
     const url = new URL(request.url);
     const period = WEB_PERIODS[url.searchParams.get('period')] ? url.searchParams.get('period') : '30d';
     try {
-      return json({ success: true, data: await getWebAttributionCached(env, ctx, { period }) });
+      const excl = await loadExclusions(env);
+      return json({ success: true, data: await getWebAttributionCached(env, ctx, { period, excl }) });
     } catch (error) {
       console.error('web-attribution fout:', error);
       return json({ success: false, error: error.message || 'Onbekende fout' }, 500);

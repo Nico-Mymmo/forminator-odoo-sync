@@ -8,8 +8,10 @@
  *
  * Openen vanuit Odoo: /webgedrag?lead=<id> | ?sheet=<id> | ?visitor=<uuid>
  *
- * Drie panelen: Gedrag (trends over alle bezoeken, webgedrag-behaviour.js),
- * Traject (één lead/actieblad/bezoeker, hieronder) en Twijfelgevallen.
+ * Vier panelen: Gedrag (trends over alle bezoeken, webgedrag-behaviour.js),
+ * Traject (één lead/actieblad/bezoeker, hieronder), Twijfelgevallen en
+ * Uitgesloten (wie niet meetelt in de cijfers, src/modules/web-story/lib/exclusions.js).
+ * ?tab=uitgesloten opent dat laatste rechtstreeks (link vanuit het dashboard).
  */
 
 (function () {
@@ -17,7 +19,7 @@
 
   var BASE = '/webgedrag/api';
   var ODOO = 'https://mymmo.odoo.com/web#';
-  var state = { boot: null, story: null, filterKanaal: '', filterPersoon: '', review: [], gekozen: {} };
+  var state = { boot: null, story: null, filterKanaal: '', filterPersoon: '', review: [], gekozen: {}, excl: null, exclKeuzes: [] };
 
   // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -32,9 +34,11 @@
     $('panelBehaviour').classList.toggle('hidden', name !== 'behaviour');
     $('panelDetail').classList.toggle('hidden', name !== 'detail');
     $('panelReview').classList.toggle('hidden', name !== 'review');
+    if ($('panelExcluded')) $('panelExcluded').classList.toggle('hidden', name !== 'excluded');
     if (name === 'detail') $('detailTab').classList.remove('hidden');
     if (name === 'behaviour' && window.WebGedragBehaviour) window.WebGedragBehaviour.load();
     if (name === 'review') laadReview().catch(function (err) { toast(err.message, 'error'); });
+    if (name === 'excluded') laadUitgesloten().catch(function (err) { toast(err.message, 'error'); });
   }
   function toast(msg, soort) {
     var el = document.createElement('div');
@@ -71,6 +75,22 @@
   var STATUS_BADGE = { won: 'badge-success', lost: 'badge-error badge-outline', archived: 'badge-ghost', lead: 'badge-info badge-outline', open: 'badge-primary badge-outline' };
   function statusBadge(s) {
     return s ? ' <span class="badge badge-sm whitespace-nowrap ' + (STATUS_BADGE[s.key] || '') + '">' + esc(s.label) + '</span>' : '';
+  }
+
+  // Uitgesloten uit de cijfers (lib/exclusions.js): een badge waar het zo is, en
+  // voor beheerders de knop om dat te wijzigen. Het traject zelf blijft volledig.
+  function uitBadge(r) {
+    return r ? ' <span class="badge badge-sm badge-neutral whitespace-nowrap" title="'
+      + esc('Telt niet mee in de cijfers' + (r.reason ? ': ' + r.reason : '')) + '">uitgesloten</span>' : '';
+  }
+  function uitKnop(r, uuid, norms, label) {
+    if (!state.boot || !state.boot.is_admin) return '';
+    if (r) {
+      return '<button class="btn btn-xs btn-ghost" data-action="excl-remove" data-id="' + esc(r.id) + '" title="'
+        + esc('Uitgesloten via ' + r.label) + '">Weer laten meetellen</button>';
+    }
+    return '<button class="btn btn-xs btn-ghost" data-action="excl-open" data-uuid="' + esc(uuid) + '" data-norms="'
+      + esc((norms || []).join(',')) + '" data-label="' + esc(label || '') + '">Uitsluiten uit de cijfers</button>';
   }
 
   // ── Laden ──────────────────────────────────────────────────────────────────
@@ -148,7 +168,8 @@
       if (r.gedeeld) meta.push('<span class="badge badge-sm badge-info badge-outline">gedeelde browser</span>');
       if ((r.emails || []).length > 1) meta.push('adressen: ' + r.emails.map(function (m) { return esc(m.email); }).join(', '));
       if (r.bot) meta.push('<span class="badge badge-sm">bot</span>');
-      links = (s.leads || []).map(function (l) {
+      if (r.uitgesloten) meta.push(uitBadge(r.uitgesloten).trim());
+      links = uitKnop(r.uitgesloten, r.uuid, r.norms, persoonLabel(r.email, r.uuid)) + (s.leads || []).map(function (l) {
         return '<a class="btn btn-xs btn-ghost" data-action="open" data-kind="lead" data-id="' + l.res_id + '">' + esc(l.name || '#' + l.res_id) + statusBadge(l.status) + '</a>';
       }).join('');
     }
@@ -201,13 +222,14 @@
       return '<tr class="' + (l.status === 'afgewezen' ? 'opacity-50' : '') + '">'
         + '<td><a class="link link-hover" data-action="open" data-kind="visitor" data-id="' + l.visitor_uuid + '">' + esc(persoonLabel(l.email, l.visitor_uuid)) + '</a>'
         + (l.is_internal ? ' <span class="badge badge-sm badge-warning" title="Een collega-browser: telt niet mee in de cijfers">intern / test</span>' : '')
+        + uitBadge(l.uitgesloten)
         + (l.gedeeld ? ' <span class="badge badge-sm badge-info badge-outline" title="Deze browser gebruikte meerdere adressen">gedeelde browser</span>'
           + '<div class="text-xs opacity-60">ook: ' + esc((l.emails || []).filter(function (m) { return m !== l.email; }).join(', ')) + '</div>' : '')
         + '</td>'
         + '<td class="text-sm">' + esc(BRON[l.bron] || l.bron) + '</td>'
         + '<td><span class="badge badge-sm ' + (STERKTE[l.sterkte] || '') + '">' + esc(l.sterkte) + '</span> ' + status + '</td>'
         + '<td class="text-sm opacity-70 whitespace-nowrap">' + esc(datum(l.last_seen)) + '</td>'
-        + '<td class="text-right whitespace-nowrap">' + acties + '</td></tr>';
+        + '<td class="text-right whitespace-nowrap">' + acties + uitKnop(l.uitgesloten, l.visitor_uuid, l.norms, persoonLabel(l.email, l.visitor_uuid)) + '</td></tr>';
     }).join('');
     return '<div class="card bg-base-100 mb-4"><div class="card-body p-5"><h3 class="font-semibold">Wie keek er</h3>'
       + '<p class="text-xs opacity-60">Elke rij is een browser. Dezelfde persoon op gsm en laptop zijn twee rijen.</p>'
@@ -238,8 +260,13 @@
         + '<td class="text-sm">' + esc(persoonLabel(x.person, x.uuid))
         + (x.intern ? ' <span class="badge badge-xs badge-warning">intern / test</span>' : '')
         + (x.gedeeld ? ' <span class="badge badge-xs badge-info badge-outline" title="Gedeelde browser: het adres dat op dat moment in gebruik was">~</span>' : '')
-        + (x.test ? ' <span class="badge badge-xs">testpagina</span>' : '') + '</td>'
-        + '<td>' + chip(x.historic && x.channel === 'Direct / onbekend' ? 'Zonder campagne (oude historiek)' : x.channel) + (x.detail ? '<div class="text-xs opacity-60">' + esc(x.detail) + '</div>' : '') + '</td>'
+        + (x.test ? ' <span class="badge badge-xs">testpagina</span>' : '')
+        + (x.uitgesloten ? ' <span class="badge badge-xs badge-neutral" title="Telt niet mee in de cijfers">uitgesloten</span>' : '') + '</td>'
+        + '<td>' + chip(x.historic && x.channel === 'Direct / onbekend' ? 'Zonder campagne (oude historiek)' : x.channel) + (x.detail ? '<div class="text-xs opacity-60">' + esc(x.detail) + '</div>' : '')
+        // Een heropende advertentielink is GEEN nieuwe klik (channelOf in web-visits.js);
+        // bij de oude historiek is dat niet na te gaan, en dat staat er dan bij.
+        + (x.reopened ? '<div class="text-xs opacity-60">zelfde klik-id als de advertentieklik van ' + esc(datum(x.reopened)) + ': geen nieuwe klik</div>' : '')
+        + (x.klikOnbekend ? '<div class="text-xs opacity-50">oude historiek: of dit een nieuwe klik was, is niet bewaard</div>' : '') + '</td>'
         + '<td class="text-xs">' + pages + '</td><td>' + conv.join(' ') + '</td></tr>';
     }).join('');
     return '<div class="card bg-base-100 mb-4"><div class="card-body p-5">'
@@ -294,6 +321,90 @@
     toast(changes.length === 1 ? 'Bewaard.' : changes.length + ' koppelingen bewaard.');
   }
 
+  // ── Uitsluiten: het venster en het tabblad Uitgesloten ─────────────────────
+
+  /** t = { uuid, norms: [herleide adressen van die browser], label } */
+  function openUitsluiten(t) {
+    var dlg = $('exclDialog');
+    if (!dlg) return;
+    var norms = (t.norms || []).filter(Boolean);
+    // [soort, waarde, titel, uitleg]
+    var keuzes = norms.map(function (n) {
+      return ['email', n, 'Deze persoon: ' + n, 'Elke browser die dit adres ooit gebruikte, ook een nieuwe na gewiste cookies of op een ander toestel.'];
+    });
+    keuzes.push(['visitor', t.uuid, 'Enkel deze browser (' + String(t.uuid).slice(0, 8) + ')',
+      norms.length ? 'Op een ander toestel of in een andere browser telt deze persoon nog mee.'
+        : 'Deze bezoeker liet geen adres achter: enkel deze browser kan uitgesloten worden.']);
+    // Eén adres: de persoon. Een gedeelde browser (twee adressen): standaard enkel de
+    // browser, anders sluit je stil de andere persoon mee uit.
+    var standaard = norms.length === 1 ? 0 : keuzes.length - 1;
+    state.exclKeuzes = keuzes;
+    $('exclWho').textContent = t.label || persoonLabel(null, t.uuid);
+    $('exclChoices').innerHTML = (norms.length > 1
+      ? '<p class="text-xs rounded-lg bg-info/10 p-2">Gedeelde browser: hier werden ' + norms.length + ' adressen gebruikt. Kies welke persoon je uitsluit, of enkel deze browser.</p>' : '')
+      + keuzes.map(function (k, i) {
+        return '<label class="flex items-start gap-3 rounded-lg border border-base-300 p-3 cursor-pointer hover:bg-base-200">'
+          + '<input type="radio" name="exclScope" class="radio radio-sm radio-primary mt-0.5" value="' + i + '"' + (i === standaard ? ' checked' : '') + '>'
+          + '<span><span class="block text-sm font-medium">' + esc(k[2]) + '</span><span class="block text-xs opacity-60">' + esc(k[3]) + '</span></span></label>';
+      }).join('');
+    $('exclReason').value = '';
+    dlg.showModal();
+  }
+
+  async function bewaarUitsluiten() {
+    var gekozen = document.querySelector('input[name="exclScope"]:checked');
+    if (!gekozen) { toast('Kies wat je uitsluit.', 'error'); return; }
+    var k = state.exclKeuzes[Number(gekozen.value)];
+    await api('/exclusions', { method: 'POST', body: JSON.stringify({ kind: k[0], value: k[1], reason: $('exclReason').value.trim() }) });
+    $('exclDialog').close();
+    toast('Uitgesloten: telt niet meer mee in de cijfers.');
+    await naWijziging();
+  }
+
+  async function weerMeetellen(id) {
+    await api('/exclusions/' + encodeURIComponent(id), { method: 'DELETE' });
+    toast('Telt weer mee in de cijfers.');
+    await naWijziging();
+  }
+
+  /** Na een wijziging: Gedrag opnieuw laten tellen, en herladen wat open staat. */
+  async function naWijziging() {
+    if (window.WebGedragBehaviour && window.WebGedragBehaviour.reload) window.WebGedragBehaviour.reload();
+    if ($('panelExcluded') && !$('panelExcluded').classList.contains('hidden')) { await laadUitgesloten(); return; }
+    if (state.story && !$('panelDetail').classList.contains('hidden')) {
+      var r = state.story.record;
+      await open(state.story.kind, state.story.kind === 'visitor' ? r.uuid : r.id);
+    }
+  }
+
+  function sindsTekst(iso) {
+    var t = Date.parse(iso || '');
+    return isNaN(t) ? '' : new Date(t).toLocaleDateString('nl-BE', { timeZone: 'Europe/Brussels', day: 'numeric', month: 'short', year: 'numeric' });
+  }
+
+  async function laadUitgesloten() {
+    var host = $('exclHost');
+    if (!host) return;
+    host.innerHTML = '<span class="loading loading-spinner"></span>';
+    var d = await api('/exclusions');
+    state.excl = d;
+    if ($('exclAddForm')) $('exclAddForm').classList.toggle('hidden', !d.is_admin);
+    if (!d.rules.length) { host.innerHTML = '<p class="opacity-70 text-sm">Niemand uitgesloten: iedereen telt mee.</p>'; return; }
+    host.innerHTML = '<table class="table table-sm"><thead><tr><th>Wie</th><th>Wat</th><th>Waarom</th><th>Door</th><th>Sinds</th><th>Laatst op de site</th><th></th></tr></thead><tbody>'
+      + d.rules.map(function (r) {
+        return '<tr><td class="text-sm">' + esc(r.label || r.value) + '</td>'
+          + '<td class="text-xs whitespace-nowrap">' + (r.kind === 'email' ? 'persoon · ' + r.browsers + (r.browsers === 1 ? ' browser' : ' browsers') : 'één browser') + '</td>'
+          + '<td class="text-sm">' + esc(r.reason || '') + '</td>'
+          + '<td class="text-xs opacity-70">' + esc(r.created_by_email || '') + '</td>'
+          + '<td class="text-xs opacity-70 whitespace-nowrap">' + esc(sindsTekst(r.created_at)) + '</td>'
+          + '<td class="text-xs opacity-70 whitespace-nowrap">' + esc(r.last_seen ? datum(r.last_seen) : '—') + '</td>'
+          + '<td class="text-right whitespace-nowrap">'
+          + (r.visitor ? '<button class="btn btn-xs btn-ghost" data-action="open" data-kind="visitor" data-id="' + esc(r.visitor) + '">Traject</button>' : '')
+          + (d.is_admin ? '<button class="btn btn-xs btn-ghost" data-action="excl-remove" data-id="' + esc(r.id) + '">Weer laten meetellen</button>' : '')
+          + '</td></tr>';
+      }).join('') + '</tbody></table>';
+  }
+
   // ── Centrale listeners ─────────────────────────────────────────────────────
 
   document.addEventListener('click', async function (e) {
@@ -319,6 +430,15 @@
         var r = await api('/push/' + el.dataset.kind + '/' + el.dataset.id, { method: 'POST' });
         toast(r.geschreven ? 'Odoo is bijgewerkt.' : 'Niets te schrijven.');
         el.disabled = false;
+      } else if (a === 'excl-open') {
+        openUitsluiten({ uuid: el.dataset.uuid, norms: el.dataset.norms ? el.dataset.norms.split(',') : [], label: el.dataset.label });
+      } else if (a === 'excl-save') {
+        el.disabled = true;
+        await bewaarUitsluiten();
+        el.disabled = false;
+      } else if (a === 'excl-remove') {
+        el.disabled = true;
+        await weerMeetellen(el.dataset.id);
       } else if (a === 'select') {
         state.gekozen[el.dataset.i] = el.checked;
       } else if (a === 'select-all') {
@@ -344,13 +464,35 @@
     renderStory();
   });
 
+  document.addEventListener('submit', function (e) {
+    if (e.target.id !== 'exclAddForm') return;
+    e.preventDefault();
+    var v = $('exclAddValue').value.trim();
+    if (!v) return;
+    var kind = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v) ? 'visitor' : 'email';
+    api('/exclusions', { method: 'POST', body: JSON.stringify({ kind: kind, value: v, reason: $('exclAddReason').value.trim() }) })
+      .then(function () {
+        $('exclAddValue').value = '';
+        $('exclAddReason').value = '';
+        toast('Uitgesloten: telt niet meer mee in de cijfers.');
+        return naWijziging();
+      })
+      .catch(function (err) { toast(err.message, 'error'); });
+  });
+
   $('searchForm').addEventListener('submit', function (e) {
     e.preventDefault();
     zoek($('searchInput').value.trim()).catch(function (err) { toast(err.message, 'error'); });
   });
 
   // Voor webgedrag-behaviour.js: een bezoek aanklikken opent het traject.
-  window.WebGedrag = { open: function (kind, id) { open(kind, id); }, colors: {} };
+  window.WebGedrag = {
+    open: function (kind, id) { open(kind, id); },
+    colors: {},
+    // Uitsluiten vanuit Gedrag (de waarschuwing "komt van één persoon").
+    exclude: function (t) { openUitsluiten(t); },
+    isAdmin: function () { return !!(state.boot && state.boot.is_admin); },
+  };
 
   // ── Start ──────────────────────────────────────────────────────────────────
 
@@ -374,6 +516,7 @@
       if (q.get('lead')) await open('lead', q.get('lead'));
       else if (q.get('sheet')) await open('sheet', q.get('sheet'));
       else if (q.get('visitor')) await open('visitor', q.get('visitor'));
+      else if (q.get('tab') === 'uitgesloten' && $('panelExcluded')) showPanel('excluded');
       else showPanel('behaviour');
     } catch (err) { toast(err.message, 'error'); }
     icons();

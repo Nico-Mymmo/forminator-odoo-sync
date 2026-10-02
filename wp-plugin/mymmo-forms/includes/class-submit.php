@@ -5,16 +5,19 @@
  * De browser post naar admin-post.php, en PHP praat met de API. Daardoor blijft
  * de sitesleutel serverside -- die hoort niet in de HTML.
  *
- * Antispam, in deze volgorde en zonder captcha:
+ * Antispam, in deze volgorde:
  *   1. honeypot -- een veld dat een mens niet ziet en een bot invult
  *   2. minimale invultijd -- een formulier binnen MIN_SECONDS invullen doet
  *      geen mens; het tijdstip is ondertekend met wp_hash() zodat een bot het
  *      niet gewoon kan terugzetten
  *   3. nonce -- vangt cross-site posts
  *   4. rate limit in de Worker, per sitesleutel
+ *   5. Cloudflare Turnstile (sinds 1.21.0), ONZICHTBAAR -- enkel als de OM een
+ *      sitesleutel in de payload meegeeft. Het token gaat hier ongezien door
+ *      naar de Worker; DIE kijkt het na en beslist (forms/turnstile.js). Er
+ *      staat hier geen geheim en geen beleid: de modus (log/on) is van de OM.
  *
- * Een captcha kost inzendingen en staat er bewust niet in. Blijkt dit niet te
- * volstaan, dan is Cloudflare Turnstile de volgende stap -- niet reCAPTCHA.
+ * Geen reCAPTCHA: dat zet Google-cookies op de site, Turnstile niet.
  */
 
 declare(strict_types=1);
@@ -34,6 +37,12 @@ final class Mymmo_Forms_Submit {
     public  const ANCHOR_FIELD      = 'mymmo_anchor';
     /** Welk tabblad van de pop-up verstuurde: het dankjewelscherm is per tabblad. */
     public  const TAB_FIELD         = 'mymmo_tab';
+    /**
+     * Het Turnstile-token en wat de browser meldde als er geen kwam. Dezelfde
+     * namen staan in mymmo-forms.js (maakTurnstile(), de verborgen velden).
+     */
+    public  const TURNSTILE_FIELD       = 'mymmo_turnstile';
+    public  const TURNSTILE_ERROR_FIELD = 'mymmo_turnstile_error';
 
     /** De melding wordt een keer gelezen en daarna uit de memo bediend. */
     private static bool $flash_gelezen = false;
@@ -77,6 +86,36 @@ final class Mymmo_Forms_Submit {
     public static function time_token(): string {
         $nu = time();
         return $nu . '.' . wp_hash((string) $nu . self::ACTION);
+    }
+
+    /**
+     * Wat er van Turnstile naar de Worker gaat, of null als dit formulier geen
+     * Turnstile heeft.
+     *
+     * NIET op basis van wat de POST meestuurt, maar van de payload: een bot die
+     * het tokenveld weglaat, krijgt zo gewoon een leeg token mee -- en dat
+     * weigert de Worker. Alleen null ("dit formulier kent het niet") laat hij
+     * door.
+     *
+     * @param  array<string,mixed>|null $form
+     * @return array{token:string,error:string}|null
+     */
+    private static function turnstile_antwoord(?array $form): ?array {
+        if (mymmo_forms_turnstile_site_key($form) === '') {
+            return null;
+        }
+
+        $token = isset($_POST[self::TURNSTILE_FIELD]) ? trim((string) wp_unslash($_POST[self::TURNSTILE_FIELD])) : '';
+        // Afdrukbare ASCII, hoogstens 2048 tekens -- meer is nooit een token.
+        if (preg_match('/^[\x21-\x7E]{1,2048}$/', $token) !== 1) {
+            $token = '';
+        }
+
+        $fout = isset($_POST[self::TURNSTILE_ERROR_FIELD])
+            ? substr((string) preg_replace('/[^A-Za-z0-9_-]/', '', (string) wp_unslash($_POST[self::TURNSTILE_ERROR_FIELD])), 0, 40)
+            : '';
+
+        return ['token' => $token, 'error' => $fout];
     }
 
     private static function time_token_age(string $token): ?int {
@@ -227,7 +266,13 @@ final class Mymmo_Forms_Submit {
             ? Mymmo_Forms_Steps::waarde_labels(array_keys($values))
             : [];
 
-        $resultaat = Mymmo_Forms_Api_Client::submit($slug, $values, self::meta($redirect, $lang), $labels);
+        $resultaat = Mymmo_Forms_Api_Client::submit(
+            $slug,
+            $values,
+            self::meta($redirect, $lang),
+            $labels,
+            self::turnstile_antwoord($form)
+        );
 
         if ($resultaat['ok']) {
             // Alleen in de pop-up (AJAX) heeft het bewijs zin: daar opent de
