@@ -51,7 +51,10 @@ export function buildJourney(sessions, { conversionAt = null, persons = new Map(
   sessions = sessions.filter(s => !s.loginOnly && !s.test);
   if (!sessions.length) return null;
   sessions = sessions.map(s => (s.historic && s.channel === 'Direct / onbekend' ? { ...s, channel: ONBEKEND_OUD } : s));
-  const firstConv = sessions.find(s => s.conversions.calendly + s.conversions.events + s.conversions.forms > 0);
+  // Elke actie waarbij iemand zijn adres gaf (aanvraag, event, nieuwsbrief, academy):
+  // daar ontstond de lead. Een registratie-klik geeft geen adres en telt hier niet.
+  const c = s => s.conversions;
+  const firstConv = sessions.find(s => c(s).calendly + c(s).events + c(s).forms + (c(s).newsletter || 0) + (c(s).academy || 0) > 0);
   // De conversie is de eerste inzending/afspraak op de site; anders het moment
   // waarop de lead ontstond (via telefoon, mail, een collega ...).
   // atConversion: het dashboard bepaalt zelf WELKE conversie (de eerste in de

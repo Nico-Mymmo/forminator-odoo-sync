@@ -60,7 +60,9 @@
     var m = Math.floor(a.length / 2);
     return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2;
   }
-  function conv(s) { return s[C.cal] + s[C.ev] + s[C.forms]; }
+  // Een conversie is een AANVRAAG: formulier of Calendly-boeking (web-visits.js).
+  // Events, nieuwsbrief, academy en registratie zijn eigen acties en tellen hier niet.
+  function conv(s) { return s[C.cal] + s[C.forms]; }
   function dict(kind, i) { return i >= 0 && web.data ? web.data.dict[kind][i] : null; }
   function shortPath(p, max) {
     max = max || 48;

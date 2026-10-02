@@ -177,6 +177,15 @@ je *Detailpagina's overnemen* aan hebt staan, maar het kan nooit kwaad.
 
 ## Versies
 
+**1.7.2**
+- Een inschrijving stuurt de bezoeker-UUID mee (cookie `ovme_uuid`, en
+  `ovme_ref_uuid` bij een doorklik tussen de merken), server-side gelezen zoals
+  mymmo-forms dat doet. Waarom: een event-inschrijving telde nergens mee in
+  Webgedrag en de bezoeker hing niet aan zijn eigen voorgeschiedenis -- de OM
+  wist niet WIE er ingeschreven had, enkel het e-mailadres. De OM meldt de
+  inschrijving nu als actie "event" aan de tracker. Werkt pas samen met de
+  OM-deploy van 2026-10-03; een oudere OM negeert de twee velden gewoon.
+
 **1.7.1**
 - De eventpagina toont niet meer hoeveel plaatsen er nog vrij zijn van
   hoeveel ("Nog 12 vrij / van 40"). Hoeveel mensen er al ingeschreven zijn,

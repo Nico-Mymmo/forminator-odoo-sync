@@ -24,6 +24,7 @@ import {
 import { toPublicEventDto, EVENT_FIELDS } from './odoo-contract.js';
 import { listEvents, getEvent, listEventTypes } from './lib/events-service.js';
 import { createRegistration } from './lib/registrations-service.js';
+import { reportEventConversion } from '../../lib/web-conversions.js';
 import { registrationStatus } from './odoo-contract.js';
 import { weakEtag, checkRateLimit, checkRateLimitLocal, namespaceVersion } from './lib/cache.js';
 import { sanitizePublicHtml, summarize, buildMetaDescription } from './lib/blocks.js';
@@ -471,6 +472,15 @@ async function handleRegister(request, env, slug, brand, ctx) {
     },
     ctx
   });
+
+  // De bezoeker-UUID (cookie ovme_uuid, server-side gelezen door mymmo-events):
+  // de inschrijving telt dan als actie in Webgedrag en de bezoeker hangt meteen
+  // aan zijn verhaal. Na het antwoord, en een fout kan de inschrijving niet raken.
+  const melding = reportEventConversion(env, {
+    uuid: body.visitor_uuid, refUuid: body.ref_uuid, email,
+    eventName: event.title || slug, eventId: event.id, registrationId: result.id,
+  });
+  if (ctx?.waitUntil) ctx.waitUntil(melding); else await melding;
 
   const payload = {
     ok: true,

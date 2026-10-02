@@ -62,6 +62,17 @@ export function isCustomerSession(firstLogins, r) {
 
 // __WHERE__ wordt ingevuld: een periode voor het dashboard, een set bezoekers
 // voor het verhaal op een lead (readVisitorSessions). Dezelfde sessie-indeling.
+// ACTIES (2026-10-03). Een AANVRAAG = fs + ca. De rest zijn eigen acties:
+//   fs  form_submission    contact- of offerteformulier (de OM meldt het, soort 'aanvraag')
+//   ca  calendly           een NIEUWE boeking (kennismaking, demo)
+//   er  event_registration inschrijving voor een event
+//   nb  newsletter_signup  nieuwsbrief
+//   ac  academy_signup     academy
+//   rg  klik naar het app-domein (exit_type 'register'): registratie GESTART -- of ze
+//       daar afgerond werd, ziet de tracker niet.
+// De soort van een formulier komt uit conversieSoort() in src/lib/web-conversions.js.
+// (Bewust geen SQL-commentaar in de query zelf: een '--' op een samengevoegde regel
+// zou de rest van de query uitschakelen.)
 const SESSIONS_SQL_TEMPLATE = `
 WITH ev AS (
   SELECT e.visitor_uuid AS u, e.ts, e.type, e.page, e.data, e.bron,
@@ -98,6 +109,8 @@ SELECT u,
   SUM(type = 'page' AND page <> '/') AS op,
   SUM(type = 'click' AND (json_extract(data,'$.text') LIKE '%+32%' OR json_extract(data,'$.text') LIKE '%@%')) AS ct,
   SUM(type = 'calendly') AS ca, SUM(type = 'event_registration') AS er, SUM(type = 'form_submission') AS fs,
+  SUM(type = 'newsletter_signup') AS nb, SUM(type = 'academy_signup') AS ac,
+  SUM(type = 'click' AND json_extract(data,'$.exit_type') = 'register') AS rg,
   SUM(type = 'partner_login') AS pl, SUM(type = 'resume') AS rs,
   MAX(COALESCE(json_extract(data,'$.duration'), json_extract(data,'$.dwell_s'), 0)) AS md,
   MAX(COALESCE(json_extract(data,'$.sd'), 0)) AS sd,
@@ -262,7 +275,8 @@ export async function getWebVisitsData(env, { period }) {
     const [ch, det] = channelOf(r);
     const dur = Math.max(0, Math.round((Date.parse(r.en + 'Z') - Date.parse(r.st + 'Z')) / 1000), Number(r.md) || 0);
     const distinct = new Set(pages).size;
-    const conv = (r.ca || 0) + (r.er || 0) + (r.fs || 0);
+    // Voor de betrokkenheid telt ELKE actie, niet enkel een aanvraag.
+    const conv = (r.ca || 0) + (r.er || 0) + (r.fs || 0) + (r.nb || 0) + (r.ac || 0) + (r.rg || 0);
     const engaged = distinct > 1 || (r.ck || 0) > 0 || conv > 0 || (r.pl || 0) > 0 || (r.rs || 0) > 0
       || (Number(r.md) || 0) > 5 || (Number(r.sd) || 0) >= 75;
     const isNew = !!(r.vf && Math.abs(Date.parse(r.st + 'Z') - Date.parse(r.vf + 'Z')) < 30 * 60 * 1000);
@@ -287,6 +301,9 @@ export async function getWebVisitsData(env, { period }) {
       id('ia', r.ia),                     // 15 in-app-browser
       r.vf ? Math.round(Date.parse(r.vf + 'Z') / 1000) : null, // 16 eerste bezoek ooit
       zoek.map(z => id('zk', z)),         // 17 zoektermen op de site
+      r.nb || 0,                          // 18 nieuwsbrief
+      r.ac || 0,                          // 19 academy
+      r.rg || 0,                          // 20 registratie gestart (klik naar de app)
     ]);
   }
 
@@ -297,7 +314,7 @@ export async function getWebVisitsData(env, { period }) {
     generatedAt: fmt(end),
     oudsteLive,
     flags: { engaged: 1, isNew: 2, historic: 4, previous: 8, customer: 16, loginOnly: 32 },
-    cols: ['v', 'start', 'dur', 'site', 'ch', 'det', 'pages', 'flags', 'clicks', 'contact', 'calendly', 'events', 'forms', 'dev', 'co', 'inapp', 'firstSeen', 'search'],
+    cols: ['v', 'start', 'dur', 'site', 'ch', 'det', 'pages', 'flags', 'clicks', 'contact', 'calendly', 'events', 'forms', 'dev', 'co', 'inapp', 'firstSeen', 'search', 'newsletter', 'academy', 'register'],
     dict,
     sessions,
     meta: { rowsRead: res.meta?.rows_read ?? null, ms: res.meta?.duration ?? null },
@@ -336,7 +353,7 @@ export async function readVisitorSessions(env, uuids, { includeInternal = false 
       const [channel, detail] = channelOf(r);
       out.push({
         uuid: r.u, start: r.st, end: r.en, site: r.site || null, channel, detail: detail || '',
-        pages, conversions: { calendly: r.ca || 0, events: r.er || 0, forms: r.fs || 0 },
+        pages, conversions: { calendly: r.ca || 0, events: r.er || 0, forms: r.fs || 0, newsletter: r.nb || 0, academy: r.ac || 0, register: r.rg || 0 },
         historic: !!r.hi,
         loginOnly: isLoginOnly(r),
         test: pages.some(isTestPage),

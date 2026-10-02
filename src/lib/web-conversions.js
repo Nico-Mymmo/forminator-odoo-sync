@@ -14,9 +14,59 @@
  *
  * Secret: WEB_CONVERSION_SECRET (Worker-secret, hier én in de tracker als
  * CONVERSION_SECRET). Zonder die secret gebeurt er niets.
+ *
+ * VIA DE SERVICE BINDING `TRACKER`, nooit via het publieke workers.dev-adres.
+ * Cloudflare laat een Worker een andere Worker van hetzelfde account niet via
+ * dat adres aanroepen; tussen 29-09 en 03-10-2026 faalde daardoor ELKE melding
+ * stil (13 inzendingen met een bezoeker-UUID, 0 conversies in D1) -- de fout
+ * wordt hier bewust ingeslikt, dus niemand zag het. Het publieke adres blijft
+ * enkel als terugval voor een omgeving zonder binding (lokaal).
+ *
+ * REGEL (2026-10-03): ELK punt waar een bezoeker zich bekendmaakt -- een
+ * formulier, een Calendly-boeking, een event-inschrijving, later de academy --
+ * meldt dat hier, met de bezoeker-UUID en het adres. Zonder die melding telt de
+ * conversie niet, hangt de bezoeker niet aan zijn lead, en zie je zijn weg naar
+ * ons nergens. Een koppeling heeft daar GEEN aparte stap voor nodig.
+ *
+ * SOORT (`soort`): aanvraag | nieuwsbrief | academy | event. Zie conversieSoort().
  */
 
-const TRACKER_URL = 'https://website-tracker.openvme-odoo.workers.dev/internal/conversion';
+const TRACKER_PUBLIC = 'https://website-tracker.openvme-odoo.workers.dev';
+
+async function postTracker(env, path, body) {
+  const init = {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Conversion-Secret': env.WEB_CONVERSION_SECRET },
+    body: JSON.stringify(body),
+  };
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 3000);
+  try {
+    const res = env.TRACKER
+      ? await env.TRACKER.fetch(new Request('https://website-tracker.internal' + path, { ...init, signal: ctrl.signal }))
+      : await fetch(TRACKER_PUBLIC + path, { ...init, signal: ctrl.signal });
+    if (!res.ok) console.warn('[web-conversion]', path, 'tracker antwoordde', res.status, await res.text().catch(() => ''));
+    return res.ok;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Welke soort actie is een inzending van deze koppeling? Op de naam van de
+ * koppeling, omdat er geen apart veld voor bestaat:
+ *   calendly                        -> aanvraag (kennismaking, demo)
+ *   "nieuwsbrief"/"newsletter"      -> nieuwsbrief
+ *   "academy"/"cursus"              -> academy
+ *   al de rest (contact, offerte...) -> aanvraag
+ */
+export function conversieSoort(integration) {
+  if (integration?.source_type === 'calendly') return 'aanvraag';
+  const naam = String(integration?.name || '').toLowerCase();
+  if (/nieuwsbrief|newsletter/.test(naam)) return 'nieuwsbrief';
+  if (/academy|cursus/.test(naam)) return 'academy';
+  return 'aanvraag';
+}
 const UUID_VORM = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const EMAIL_VORM = /^[^\s@<>"']+@[^\s@<>"']+\.[a-z]{2,}$/i;
@@ -77,27 +127,48 @@ export async function reportWebConversion(env, { integration, normalizedForm, su
           }
         : {
             form_name: integration?.name || null,
+            soort: conversieSoort(integration),
             form_slug: f.meta_form_slug || null,
             source_type: integration?.source_type || null,
             site: f.meta_site || null,
             email: emailUit(f),
           },
     };
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 3000);
-    try {
-      const res = await fetch(TRACKER_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Conversion-Secret': env.WEB_CONVERSION_SECRET },
-        body: JSON.stringify(body),
-        signal: ctrl.signal,
-      });
-      if (!res.ok) console.warn('[web-conversion] tracker antwoordde', res.status, await res.text().catch(() => ''));
-    } finally {
-      clearTimeout(timer);
-    }
+    await postTracker(env, '/internal/conversion', body);
   } catch (e) {
     console.warn('[web-conversion] niet doorgegeven:', e?.message || e);
+  }
+}
+
+/**
+ * Een inschrijving voor een event (Eventbeheer, publieke API). De bezoeker-UUID
+ * komt van de plugin mymmo-events, die de cookie server-side leest.
+ * Faalt nooit.
+ *
+ * @param {{uuid: string, refUuid?: string, email?: string, eventName?: string, eventId?: number, registrationId?: number, ts?: string}} args
+ */
+export async function reportEventConversion(env, { uuid, refUuid, email, eventName, eventId, registrationId, ts }) {
+  try {
+    if (!env.WEB_CONVERSION_SECRET) return;
+    const u = typeof uuid === 'string' && UUID_VORM.test(uuid.trim()) ? uuid.trim().toLowerCase() : null;
+    if (!u) return;
+    await postTracker(env, '/internal/conversion', {
+      uuid: u,
+      kind: 'event',
+      ts: ts || new Date().toISOString(),
+      ref: `evtv2:${eventId || '?'}:${registrationId || email || u}`,
+      data: { event_name: eventName || null, event_id: eventId || null, email: email || null, soort: 'event' },
+    });
+    const r = typeof refUuid === 'string' && UUID_VORM.test(refUuid.trim()) ? refUuid.trim().toLowerCase() : null;
+    if (r && r !== u && email) {
+      await postTracker(env, '/internal/conversion', {
+        uuid: r, kind: 'event', ts: ts || new Date().toISOString(),
+        ref: `evtv2:${eventId || '?'}:${registrationId || email}:ref`,
+        data: { event_name: eventName || null, event_id: eventId || null, email, soort: 'event' },
+      });
+    }
+  } catch (e) {
+    console.warn('[web-conversion] event niet doorgegeven:', e?.message || e);
   }
 }
 
@@ -133,19 +204,7 @@ export async function reportWebLinks(env, { normalizedForm, sortedTargets, targe
       if (ref && ref !== uuid) links.push({ uuid: ref, model, res_id: resId, bron: 'inzending-andere-site', sterkte: 'zeker' });
     }
     if (!links.length) return;
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 3000);
-    try {
-      const res = await fetch(TRACKER_URL.replace('/internal/conversion', '/internal/links'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Conversion-Secret': env.WEB_CONVERSION_SECRET },
-        body: JSON.stringify({ links }),
-        signal: ctrl.signal,
-      });
-      if (!res.ok) console.warn('[web-links] tracker antwoordde', res.status, await res.text().catch(() => ''));
-    } finally {
-      clearTimeout(timer);
-    }
+    await postTracker(env, '/internal/links', { links });
   } catch (e) {
     console.warn('[web-links] niet doorgegeven:', e?.message || e);
   }

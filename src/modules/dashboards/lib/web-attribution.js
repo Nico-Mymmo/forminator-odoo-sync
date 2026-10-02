@@ -43,7 +43,7 @@ export async function getWebAttribution(env, { period }) {
   const conv = await readWebEvents(env,
     `SELECT DISTINCT e.visitor_uuid AS u, lower(v.email) AS email
      FROM events e JOIN visitors v ON v.uuid = e.visitor_uuid
-     WHERE e.type IN ('form_submission','calendly','event_registration') AND e.ts >= ? AND e.ts < ?
+     WHERE e.type IN ('form_submission','calendly') AND e.ts >= ? AND e.ts < ?
        AND v.is_internal = 0 AND v.is_bot = 0`, [fmt(start), fmt(end)]);
   const rows = conv.results || [];
 
@@ -81,7 +81,7 @@ export async function getWebAttribution(env, { period }) {
   const startTs = fmt(start);
   let conversies = 0;
   for (const list of perPersoon.values()) {
-    const conversie = list.find(s => s.start >= startTs && s.conversions.calendly + s.conversions.events + s.conversions.forms > 0);
+    const conversie = list.find(s => s.start >= startTs && s.conversions.calendly + s.conversions.forms > 0);
     if (!conversie) continue;
     const tot = list.filter(s => s.start <= conversie.start);
     const j = buildJourney(tot, { atConversion: conversie.start });

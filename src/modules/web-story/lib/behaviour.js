@@ -25,6 +25,7 @@ export const FLAGS = {
   form: 64, calendly: 128, event: 256, contact: 512,
   customer: 1024,   // sessie van een klant: op of na diens eerste login (web-visits.js)
   loginOnly: 2048,  // enkel om in te loggen
+  newsletter: 4096, academy: 8192, register: 16384,  // eigen acties, geen aanvraag
 };
 
 function fmt(d) { return d.toISOString().substring(0, 19).replace('T', ' '); }
@@ -67,7 +68,7 @@ export async function getBehaviourData(env, { period }) {
     views.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
     const st = unix(r.st);
     const [ch, det] = channelOf(r);
-    const conv = (r.ca || 0) + (r.er || 0) + (r.fs || 0);
+    const conv = (r.ca || 0) + (r.er || 0) + (r.fs || 0) + (r.nb || 0) + (r.ac || 0) + (r.rg || 0);
     const distinct = new Set(views.map(v => v[1])).size;
     const engaged = distinct > 1 || (r.ck || 0) > 0 || conv > 0 || (r.pl || 0) > 0 || (r.rs || 0) > 0
       || (Number(r.md) || 0) > 5 || (Number(r.sd) || 0) >= 75;
@@ -75,6 +76,7 @@ export async function getBehaviourData(env, { period }) {
     const flags = (engaged ? FLAGS.engaged : 0) | (isNew ? FLAGS.isNew : 0) | (r.hi ? FLAGS.historic : 0)
       | (r.st < startTs ? FLAGS.previous : 0) | (r.kn ? FLAGS.known : 0) | (linked.has(r.u) ? FLAGS.linked : 0)
       | ((r.fs || 0) > 0 ? FLAGS.form : 0) | ((r.ca || 0) > 0 ? FLAGS.calendly : 0) | ((r.er || 0) > 0 ? FLAGS.event : 0)
+      | ((r.nb || 0) > 0 ? FLAGS.newsletter : 0) | ((r.ac || 0) > 0 ? FLAGS.academy : 0) | ((r.rg || 0) > 0 ? FLAGS.register : 0)
       | ((r.ct || 0) > 0 ? FLAGS.contact : 0)
       | (isCustomerSession(firstLogins, r) ? FLAGS.customer : 0) | (isLoginOnly(r) ? FLAGS.loginOnly : 0);
     sessions.push([

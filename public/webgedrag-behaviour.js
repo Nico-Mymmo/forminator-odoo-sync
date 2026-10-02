@@ -18,7 +18,10 @@
   'use strict';
 
   var C = { v: 0, start: 1, dur: 2, site: 3, ch: 4, det: 5, pages: 6, offs: 7, flags: 8, dev: 9, scroll: 10, clicks: 11 };
-  var CONV = 64 | 128 | 256;
+  // Een AANVRAAG = formulier (64) of Calendly-boeking (128). Events, nieuwsbrief,
+  // academy en registratie zijn eigen acties (zie de vlaggen in lib/behaviour.js).
+  var CONV = 64 | 128;
+  var ALLE_ACTIES = 64 | 128 | 256 | 4096 | 8192 | 16384;
   var STEPS = 4;
   var TOP_PER_STEP = 5;
   // De primaire kleur van het daisyUI-THEMA, niet een vaste kleur: zo volgt alles
@@ -161,7 +164,11 @@
     if (f.who === 'known' && !(fl & F.known)) return false;
     if (f.who === 'lead' && !(fl & F.linked)) return false;
     if (f.conv === 'yes' && !converted(s)) return false;
-    if (f.conv === 'no' && converted(s)) return false;
+    if (f.conv === 'reg' && !(fl & F.register)) return false;
+    if (f.conv === 'nb' && !(fl & F.newsletter)) return false;
+    if (f.conv === 'ev' && !(fl & F.event)) return false;
+    if (f.conv === 'ac' && !(fl & F.academy)) return false;
+    if (f.conv === 'no' && (fl & ALLE_ACTIES)) return false;
     if (f.visit === 'new' && !(fl & F.isNew)) return false;
     if (f.visit === 'return' && (fl & F.isNew)) return false;
     return true;
@@ -193,7 +200,17 @@
       if (converted(s)) conv++;
       if (s[C.scroll] >= 75) scroll++;
     });
-    return { n: n, dur: median(durs), pages: n ? pages / n : null, eng: pct(eng, n), bounce: pct(bounce, n), conv: pct(conv, n), scroll: pct(scroll, n), convN: conv };
+    var acties = { reg: 0, nb: 0, ev: 0, ac: 0 };
+    list.forEach(function (s) {
+      var fl = s[C.flags];
+      if (fl & st.F.register) acties.reg++;
+      if (fl & st.F.newsletter) acties.nb++;
+      if (fl & st.F.event) acties.ev++;
+      if (fl & st.F.academy) acties.ac++;
+    });
+    return { n: n, dur: median(durs), pages: n ? pages / n : null, eng: pct(eng, n), bounce: pct(bounce, n), conv: pct(conv, n), scroll: pct(scroll, n), convN: conv,
+      reg: pct(acties.reg, n), nb: pct(acties.nb, n), ev: pct(acties.ev, n), ac: pct(acties.ac, n),
+      regN: acties.reg, nbN: acties.nb, evN: acties.ev, acN: acties.ac };
   }
 
   function delta(cur, prev, kind, upIsGood) {
@@ -242,7 +259,11 @@
     { key: 'pages', label: 'Pagina\'s per bezoek', fmt: function (v) { return v === null ? '—' : nf(v, 1); } },
     { key: 'eng', label: 'Doet er iets mee', fmt: pctTxt, pct: true },
     { key: 'bounce', label: 'Haakt meteen af', fmt: pctTxt, pct: true },
-    { key: 'conv', label: 'Aanvraag', fmt: pctTxt, pct: true }
+    { key: 'conv', label: 'Aanvraag', fmt: pctTxt, pct: true },
+    { key: 'reg', label: 'Registratie gestart', fmt: pctTxt, pct: true },
+    { key: 'nb', label: 'Nieuwsbrief', fmt: pctTxt, pct: true },
+    { key: 'ev', label: 'Event', fmt: pctTxt, pct: true },
+    { key: 'ac', label: 'Academy', fmt: pctTxt, pct: true }
   ];
   function metricOf(key) { return METRICS.filter(function (m) { return m.key === key; })[0]; }
 
@@ -279,7 +300,14 @@
       tile('Pagina\'s per bezoek', a.pages === null ? '—' : nf(a.pages, 1), delta(a.pages, b.pages, 'n', true), 'Herladen van dezelfde pagina telt niet', 'pages', sp.pages) +
       tile('Doet er iets mee', pctTxt(a.eng), delta(a.eng, b.eng, 'pct', true), 'Meer dan één pagina, een klik, scrollen, of langer dan 5 seconden', 'eng', sp.eng) +
       tile('Haakt meteen af', pctTxt(a.bounce), delta(a.bounce, b.bounce, 'pct', false), 'Eén pagina en verder niets', 'bounce', sp.bounce) +
-      tile('Aanvraag', pctTxt(a.conv), delta(a.conv, b.conv, 'pct', true), nf(a.convN) + ' formulieren, afspraken of inschrijvingen', 'conv', sp.conv);
+      tile('Aanvraag', pctTxt(a.conv), delta(a.conv, b.conv, 'pct', true), nf(a.convN) + ' contact- of offerteformulieren en Calendly-afspraken', 'conv', sp.conv);
+    // Andere belangrijke acties: geen aanvraag, maar wel een stap. Met het aantal erbij.
+    var aantal = function (x) { return ' <span class="text-sm font-normal text-base-content/50">(' + nf(x) + ')</span>'; };
+    $('bhActions').innerHTML =
+      tile('Registratie gestart', pctTxt(a.reg) + aantal(a.regN), delta(a.reg, b.reg, 'pct', true), 'Klik op een knop naar het platform (Start gratis op, Start je gebouwscan, Registreer ...). Of de registratie daar afgerond werd, zien we (nog) niet.', 'reg', sp.reg) +
+      tile('Nieuwsbrief', pctTxt(a.nb) + aantal(a.nbN), delta(a.nb, b.nb, 'pct', true), 'Inschrijving op een nieuwsbrief', 'nb', sp.nb) +
+      tile('Event', pctTxt(a.ev) + aantal(a.evN), delta(a.ev, b.ev, 'pct', true), 'Inschrijving voor een event', 'ev', sp.ev) +
+      tile('Academy', pctTxt(a.ac) + aantal(a.acN), delta(a.ac, b.ac, 'pct', true), 'Inschrijving in de academy', 'ac', sp.ac);
   }
 
   // ── Trend ──────────────────────────────────────────────────────────────────
@@ -694,7 +722,7 @@
       case 'dev': return 'Toestel: ' + (DEV_LABELS[d('dev', f.dev)] || d('dev', f.dev));
       case 'purpose': return f.purpose === 'customer' ? 'Enkel klanten' : 'Prospecten + klanten';
       case 'who': return { anon: 'Anoniem', known: 'Met e-mailadres', lead: 'Gekoppeld aan een lead' }[f.who];
-      case 'conv': return f.conv === 'yes' ? 'Met aanvraag' : 'Zonder aanvraag';
+      case 'conv': return { yes: 'Met aanvraag', reg: 'Registratie gestart', nb: 'Nieuwsbrief', ev: 'Event', ac: 'Academy', no: 'Zonder actie' }[f.conv];
       case 'visit': return f.visit === 'new' ? 'Nieuwe bezoekers' : 'Terugkerende bezoekers';
     }
     return key;
@@ -725,7 +753,7 @@
             'Klant = wie inlogt op het platform, vanaf de eerste keer dat hij inlogt. Zijn bezoeken daarvoor tellen als prospect.')
       +   seg('who', 'Herkend', [['all', 'Alle'], ['anon', 'Anoniem'], ['known', 'Met e-mail'], ['lead', 'Met lead']],
             'Met e-mail = de bezoeker liet ooit een adres achter. Met lead = hij hangt aan een lead in Odoo.')
-      +   seg('conv', 'Aanvraag', [['all', 'Alle'], ['yes', 'Met aanvraag'], ['no', 'Zonder']],
+      +   seg('conv', 'Actie', [['all', 'Alle'], ['yes', 'Aanvraag'], ['reg', 'Registratie'], ['nb', 'Nieuwsbrief'], ['ev', 'Event'], ['ac', 'Academy'], ['no', 'Geen actie']],
             'Een formulier, een afspraak of een inschrijving in dat bezoek.')
       +   seg('visit', 'Bezoek', [['all', 'Alle'], ['new', 'Eerste bezoek'], ['return', 'Terugkerend']])
       + '</div>'
@@ -764,7 +792,9 @@
     if (f.land !== null) w.push('die begonnen op ' + short(pageName(f.land), 40));
     if (f.visited !== null) w.push('die ' + short(pageName(f.visited), 40) + ' bekeken');
     if (f.dev !== null) w.push('op ' + (DEV_LABELS[d('dev', f.dev)] || d('dev', f.dev)).toLowerCase());
-    if (f.conv === 'yes') w.push('met een aanvraag'); else if (f.conv === 'no') w.push('zonder aanvraag');
+    var actieZin = { yes: 'met een aanvraag', reg: 'waarin een registratie gestart werd', nb: 'met een inschrijving op de nieuwsbrief',
+      ev: 'met een inschrijving voor een event', ac: 'met een inschrijving in de academy', no: 'zonder enige actie' };
+    if (actieZin[f.conv]) w.push(actieZin[f.conv]);
     return s + (w.length ? ' ' + w.join(' ') : '') + '.';
   }
 

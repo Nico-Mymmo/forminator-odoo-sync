@@ -3837,6 +3837,30 @@ schrijver), de OM is de enige die met Odoo praat.** Volledige onderbouwing:
 
 Afspraken die bewust zo zijn:
 
+- **ELK PUNT WAAR EEN BEZOEKER ZICH BEKENDMAAKT, MELDT DE BEZOEKER-UUID AAN DE
+  TRACKER -- altijd, automatisch, zonder aparte stap in een koppeling.** Een
+  formulier (OM of Forminator) en een Calendly-boeking: `reportWebConversion()` +
+  `reportWebLinks()` in `worker-handler.js`. Een event-inschrijving:
+  `reportEventConversion()` in `event-operations-v2/public-api.js`, met de UUID die
+  mymmo-events (>= 1.7.2) server-side uit de cookie leest. De academy volgt. Komt
+  er een nieuwe plek bij (een nieuw formulier, een app, een import): die meldt het
+  ook, anders telt de actie niet, hangt de bezoeker niet aan zijn lead, en zie je
+  zijn weg naar ons nergens -- zonder enige foutmelding.
+  De stap "x_web_visitor bijwerken" in de koppelingen is daardoor overbodig; ze
+  verdwijnt samen met dat Odoo-model.
+- **De melding gaat via de service binding `TRACKER`, NOOIT via het publieke
+  workers.dev-adres.** Cloudflare laat een Worker een andere Worker van hetzelfde
+  account niet via dat adres aanroepen. Tussen 29-09 en 03-10-2026 faalde daardoor
+  ELKE melding stil (de fout wordt bewust ingeslikt): 13 inzendingen, 0 conversies.
+- **Een ACTIE heeft een soort, en enkel een AANVRAAG is een conversie.**
+  Aanvraag = contact- of offerteformulier + Calendly-boeking (kennismaking, demo).
+  Eigen acties: registratie gestart (klik naar het app-domein, `exit_type
+  register`), nieuwsbrief, event, academy. De soort van een formulier komt uit
+  `conversieSoort()` in `src/lib/web-conversions.js` (op de NAAM van de koppeling:
+  "nieuwsbrief", "academy"/"cursus"); de tracker maakt er een eigen eventtype van
+  (`newsletter_signup`, `academy_signup`), en de telling staat bovenaan
+  `SESSIONS_SQL_TEMPLATE` in web-visits.js. Of een registratie in de app afgerond
+  werd, ziet de tracker nog niet.
 - **`WEB_STORY_MODE` is de schakelaar** (Worker-variabele): leeg = niets,
   `match` = enkel koppelingen (D1), `dry` = ook berekenen en loggen, `on` = ook
   naar Odoo schrijven. Een deploy op zich verandert dus niets in Odoo.

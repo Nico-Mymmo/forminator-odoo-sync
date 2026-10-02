@@ -91,6 +91,10 @@ final class Mymmo_Events_Registration {
             'consent' => $consent,
             'source' => 'public_form',
             'utm' => self::utm(),
+            // De bezoeker op de site: dezelfde cookies die mymmo-forms meestuurt.
+            // Zo telt de inschrijving in Webgedrag en hangt ze aan de bezoeker.
+            'visitor_uuid' => self::visitor_uuid('ovme_uuid'),
+            'ref_uuid' => self::visitor_uuid('ovme_ref_uuid'),
         ]);
 
         if ($result['ok']) {
@@ -103,6 +107,23 @@ final class Mymmo_Events_Registration {
         }
 
         self::finish($redirect, 'error', (string) $result['error'], $first_name);
+    }
+
+    /**
+     * Server-side uit de cookie van het tracking-script, nooit via JavaScript: een
+     * gecachete pagina kan dan geen UUID van een vorige bezoeker meegeven. Enkel
+     * iets met de vorm van een UUID gaat mee; leeg is toegestaan (geen cookie,
+     * bot, of geen toestemming) en blokkeert de inschrijving nooit.
+     */
+    private static function visitor_uuid(string $cookie): string {
+        if (empty($_COOKIE[$cookie])) {
+            return '';
+        }
+        $waarde = sanitize_text_field(wp_unslash((string) $_COOKIE[$cookie]));
+        if (!preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $waarde)) {
+            return '';
+        }
+        return strtolower($waarde);
     }
 
     /** @return array<string,string> */
