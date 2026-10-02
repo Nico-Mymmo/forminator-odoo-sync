@@ -124,6 +124,17 @@ export async function updateIntegrationRecord(env, integrationId, payload) {
       updates.is_active = true;
     } else {
       const bundle = await getIntegrationBundle(env, integrationId);
+      // Een academy-formulier heeft een eigen doel zonder Odoo: het geeft
+      // toegang tot de academy (inlogbewijs, zie src/lib/academy-token.js) en
+      // telt als actie in Webgedrag. Dat laatste gebeurt ENKEL als de koppeling
+      // aan staat -- uit = inzending bewaren en niets doorgeven -- dus moet ze
+      // zonder stap kunnen activeren. Met stappen geldt de gewone controle.
+      const webAction = payload.web_action !== undefined ? (payload.web_action || null) : existing.web_action;
+      const zonderStappen = !(bundle?.targets || []).length;
+      if (zonderStappen && webAction === 'academy') {
+        updates.is_active = true;
+        return updateIntegration(env, integrationId, updates);
+      }
       const successfulTest = await hasSuccessfulTestSubmission(env, integrationId);
       // Zelfde opbouw als routes.js (POST/PUT .../targets): zowel de slug-naam
       // als het technische Odoo-model toestaan, uit de DB-lijst i.p.v. de
