@@ -148,6 +148,12 @@ html .mymmo-form-wrap .mymmo-form-label--verborgen {
   opacity: 0.45;
 }
 
+/* En omdat dat label hier WEL ruimte inneemt, staat de knop ernaast hier ook
+   weer op de hoogte van het invoervak (op de site valt die ruimte weg). */
+html .mymmo-form-grid .mymmo-form-actions--zonder-label::before {
+  content: "\00a0";
+}
+
 /* ── Sleepgreep ───────────────────────────────────────────────────────────── */
 
 .om-greep {
