@@ -390,6 +390,9 @@
       a.button || '',
       a.tab || '',
       a.title === 'no' ? 'geen-kop' : 'kop',
+      // "Kop boven het formulier": de kop staat er of niet, dat is structuur.
+      // Ontbrak hier, waardoor het vinkje pas na het bewaren iets deed.
+      a.form_heading === 'no' ? 'geen-formkop' : 'formkop',
       a.background || '',
       a.icon_color || '',
       a.accent_text || '',

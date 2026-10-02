@@ -880,10 +880,17 @@ function mymmo_forms_form_kop(array $form, array $form_args): string {
     $titel = (string) ($form_args['form_title'] ?? '');
     $sub   = (string) ($form_args['form_sub'] ?? '');
 
-    if ($titel === '') {
+    // "no" = bewust GEEN titel (of tekst), niet "neem die uit de OM". Zo kan de
+    // uitleg alleen staan, zonder kop erboven -- het venster van de academy
+    // (class-academy.php) heeft dat nodig.
+    if (strtolower(trim($titel)) === 'no') {
+        $titel = '';
+    } elseif ($titel === '') {
         $titel = (string) Mymmo_Forms_I18n::text($form, $lang, 'name');
     }
-    if ($sub === '') {
+    if (strtolower(trim($sub)) === 'no') {
+        $sub = '';
+    } elseif ($sub === '') {
         $sub = (string) Mymmo_Forms_I18n::text(
             $form, $lang, 'description', $lang === Mymmo_Forms_I18n::default_language($form)
         );

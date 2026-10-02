@@ -234,10 +234,13 @@
       velden = '<div class="om-leeg-formulier">Nog geen velden — kies er hiernaast een uit</div>';
     }
 
-    var knop = '<button type="button" class="mymmo-form-submit"' +
-      (bewerkbaar ? ' data-om-edit="form:submit_label" contenteditable="true"' + leegOf(form._leegSubmit, 'Versturen') : '') + '>' +
-      tekst(form.submit_label) +
-      '</button>';
+    // In de bouwer een <span> met dezelfde klasse, geen <button>: in een
+    // bewerkbare knop maakt de browser van de spatiebalk een KLIK, en dan kan je
+    // geen spatie typen. De stijl hangt aan de klasse, dus hij ziet er gelijk uit.
+    var knop = bewerkbaar
+      ? '<span class="mymmo-form-submit" data-om-edit="form:submit_label" contenteditable="true"' +
+        leegOf(form._leegSubmit, 'Versturen') + '>' + tekst(form.submit_label) + '</span>'
+      : '<button type="button" class="mymmo-form-submit">' + tekst(form.submit_label) + '</button>';
 
     return '<div class="mymmo-form-wrap">' +
       titel + intro +

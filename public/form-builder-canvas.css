@@ -32,7 +32,11 @@ body {
 
 /* ── Bewerkbare tekst ─────────────────────────────────────────────────────── */
 
-[data-om-edit] {
+/* De verzendknop is zelf bewerkbaar, maar hij heeft een EIGEN achtergrond en
+   opvulling. Een tint erover vervangt die achtergrond (de shorthand wint), en
+   dan staat er witte tekst op een bijna witte knop: onleesbaar terwijl je typt.
+   Daarom slaat elke regel hieronder de knop over; hij krijgt een stippellijn. */
+[data-om-edit]:not(.mymmo-form-submit) {
   outline: none;
   border-radius: 3px;
   /* Kleine negatieve marge zodat de achtergrond bij focus niet de layout
@@ -42,12 +46,22 @@ body {
   cursor: text;
 }
 
-[data-om-edit]:hover {
+[data-om-edit]:not(.mymmo-form-submit):hover {
   background: rgba(37, 99, 235, 0.06);
 }
 
-[data-om-edit]:focus {
+[data-om-edit]:not(.mymmo-form-submit):focus {
   background: rgba(37, 99, 235, 0.10);
+}
+
+.mymmo-form-submit[data-om-edit] {
+  cursor: text;
+}
+
+.mymmo-form-submit[data-om-edit]:hover,
+.mymmo-form-submit[data-om-edit]:focus {
+  outline: 2px dashed currentColor;
+  outline-offset: -6px;
 }
 
 /* Lege tekst zichtbaar maken, maar duidelijk als plaatsaanduiding.
@@ -116,7 +130,7 @@ body {
 /* Eén selectiekader, niet twee: het geselecteerde veld krijgt de blauwe rand,
    het stukje tekst waarin je typt alleen een zachte achtergrond. Twee geneste
    blauwe randen zien er kapot uit. */
-[data-om-field].om-geselecteerd [data-om-edit]:focus {
+[data-om-field].om-geselecteerd [data-om-edit]:not(.mymmo-form-submit):focus {
   background: rgba(37, 99, 235, 0.10);
 }
 

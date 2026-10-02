@@ -567,6 +567,17 @@ injectiepad zijn naar elke site die het formulier toont.
 
 ## Versies
 
+**1.20.1** — het venster van de academy is nu EEN formulier met EEN kop, ingesteld
+op Instellingen → Mymmo academy: welk formulier, titel aan/uit (met eigen tekst
+of de naam uit de OM) en een uitleg boven de velden. Waarom: in 1.20.0 koos je
+een opstelling uit de bouwer, en die bracht de tabbladen en blokken van een
+ander venster mee, plus een titel die je er niet af kreeg. Een al bewaarde
+opstelling levert nog haar formulier, dus niets valt stil. `form_title` en
+`form_sub` aanvaarden nu ook `no` (bewust leeg, niet "neem die uit de OM").
+Daarnaast: in de bouwer werkt het vinkje "Kop boven het formulier" meteen in
+het voorbeeld; tot nu deed het pas iets na het bewaren, omdat het niet als
+structurele wijziging telde.
+
 **1.20.0** — de academy achter een formulier van de OM. Nieuw: Instellingen →
 Mymmo academy (adres van de academy + de opstelling of het formulier van het
 venster) en het blok **Mymmo academy-knop** (opent het overzicht of een
