@@ -423,6 +423,11 @@ textarea.mymmo-form-input {
  * waarden te hebben. Wijzig je er een, wijzig ze allebei.
  */
 .mymmo-form-wrap .mymmo-form-submit {
+  /* Een <button> rekent zijn opvulling standaard BINNEN zijn breedte, een
+     ander element niet. In de bouwer van de OM is de knop een <span> (anders
+     kan je er geen spatie in typen), en zonder dit was hij daar te hoog en
+     52px te breed. Een thema dat button anders zet, raakt ons ook niet meer. */
+  box-sizing: border-box;
   display: inline-flex;
   align-items: center;
   justify-content: center;
