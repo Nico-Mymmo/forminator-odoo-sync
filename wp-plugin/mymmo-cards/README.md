@@ -338,6 +338,12 @@ cache-busting van CSS en JS. Het script controleert dat en weigert anders.
 
 ## Versies
 
+**1.8.8** — waar de academy opent is een KEUZELIJST: de inhoudspagina en elke
+cursus apart, gegroepeerd. De lijst komt uit de academy zelf (`/api/catalog`,
+`destinations`), dus een nieuwe cursus of een nieuwe pagina (bv. certificaten)
+staat er vanzelf in. De knop bewaart een PAD (`mymmoAcademyPad`); een knop van
+1.8.5-1.8.7 met enkel een cursus blijft werken.
+
 **1.8.7** — de academy-popup wordt ook herkend als op Instellingen → Mymmo
 academy nog enkel een formulier staat (en geen popup): elke popup met dat
 formulier telt dan. Zonder dat bleef de knop een gewone knop, zonder de keuze

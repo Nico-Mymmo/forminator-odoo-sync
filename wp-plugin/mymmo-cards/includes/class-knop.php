@@ -116,10 +116,14 @@ final class Mymmo_Cards_Knop {
             // academy opent.
             'academy'  => class_exists('Mymmo_Forms_Academy')
                 ? [
-                    'preset'  => Mymmo_Forms_Academy::settings()['preset'],
-                    'courses' => Mymmo_Forms_Academy::catalogus() ?? [],
+                    'preset'       => Mymmo_Forms_Academy::settings()['preset'],
+                    'courses'      => Mymmo_Forms_Academy::catalogus() ?? [],
+                    // Generiek: de academy zegt zelf welke pagina's er zijn.
+                    'destinations' => method_exists('Mymmo_Forms_Academy', 'bestemmingen')
+                        ? Mymmo_Forms_Academy::bestemmingen()
+                        : [],
                 ]
-                : ['preset' => '', 'courses' => []],
+                : ['preset' => '', 'courses' => [], 'destinations' => []],
         ]);
     }
 
@@ -188,8 +192,15 @@ final class Mymmo_Cards_Knop {
          */
         if (class_exists('Mymmo_Forms_Academy') && Mymmo_Forms_Academy::is_academy_preset($opstelling)) {
             $cursus = sanitize_title((string) ($block['attrs'][self::ACADEMY_ATTRIBUUT] ?? ''));
-            $les    = $cursus === '' ? '' : (string) preg_replace('/[^A-Za-z0-9_-]/', '', (string) ($block['attrs']['mymmoAcademyLes'] ?? ''));
-            $extra  = ['data-mymmo-academy' => $cursus];
+            // Het PAD uit de keuzelijst (1.8.8); een knop van 1.8.5-1.8.7 heeft
+            // enkel een cursus-slug, en die wordt dan het pad van die cursus.
+            $pad = (string) ($block['attrs']['mymmoAcademyPad'] ?? '');
+            if ($pad === '' || !preg_match('#^/(?!/)[A-Za-z0-9/_%.-]*$#', $pad) || str_contains($pad, '..')) {
+                $pad = $cursus !== '' ? '/courses/' . rawurlencode($cursus) : '';
+            }
+            $is_cursus = str_starts_with($pad, '/courses/');
+            $les    = !$is_cursus ? '' : (string) preg_replace('/[^A-Za-z0-9_-]/', '', (string) ($block['attrs']['mymmoAcademyLes'] ?? ''));
+            $extra  = ['data-mymmo-academy' => $cursus, 'data-mymmo-academy-pad' => $pad];
             if ($les !== '') {
                 $extra['data-mymmo-academy-les'] = $les;
             }

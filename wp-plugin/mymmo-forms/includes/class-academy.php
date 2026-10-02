@@ -41,7 +41,9 @@ final class Mymmo_Forms_Academy {
     private const GROUP = 'mymmo_forms_academy';
     private const PAGE  = 'mymmo-forms-academy';
     private const BLOK  = 'mymmo/academy';
-    private const CATALOGUS_CACHE = 'mymmo_forms_academy_catalogus';
+    private const CATALOGUS_CACHE = 'mymmo_forms_academy_catalogus_v2';
+    /** Een pad in de academy: "/", "/courses/<slug>", ... Nooit een volledige URL. */
+    public const PAD_RE = '#^/(?!/)[A-Za-z0-9/_%.-]*$#';
 
     /** Wat een academy-knop is. De oude klasse blijft werken. */
     public const KNOPPEN = '.ovme-exit-cursus, [data-mymmo-academy]';
@@ -265,12 +267,12 @@ final class Mymmo_Forms_Academy {
     }
 
     /**
-     * De gepubliceerde cursussen (`/api/catalog` van de academy), vijf minuten
-     * bewaard. null = niet op te halen.
+     * Wat `/api/catalog` van de academy teruggeeft, vijf minuten bewaard.
+     * null = niet op te halen.
      *
-     * @return array<int,array{slug:string,title:string}>|null
+     * @return array{courses:array<int,array{slug:string,title:string}>,destinations:array<int,array{path:string,label:string,group:string}>}|null
      */
-    public static function catalogus(): ?array {
+    private static function catalogus_data(): ?array {
         $bewaard = get_transient(self::CATALOGUS_CACHE);
         if (is_array($bewaard)) {
             return $bewaard;
@@ -287,14 +289,62 @@ final class Mymmo_Forms_Academy {
         if (!is_array($data) || !is_array($data['courses'] ?? null)) {
             return null;
         }
-        $lijst = [];
+        $cursussen = [];
         foreach ($data['courses'] as $c) {
             $slug = sanitize_title((string) ($c['slug'] ?? ''));
             if ($slug !== '') {
-                $lijst[] = ['slug' => $slug, 'title' => sanitize_text_field((string) ($c['title'] ?? $slug))];
+                $cursussen[] = ['slug' => $slug, 'title' => sanitize_text_field((string) ($c['title'] ?? $slug))];
             }
         }
-        set_transient(self::CATALOGUS_CACHE, $lijst, 5 * MINUTE_IN_SECONDS);
+        $bestemmingen = [];
+        foreach ((array) ($data['destinations'] ?? []) as $d) {
+            $pad = (string) ($d['path'] ?? '');
+            if (!is_array($d) || !preg_match(self::PAD_RE, $pad) || str_contains($pad, '..')) {
+                continue;
+            }
+            $bestemmingen[] = [
+                'path'  => $pad,
+                'label' => sanitize_text_field((string) ($d['label'] ?? $pad)),
+                'group' => sanitize_text_field((string) ($d['group'] ?? '')),
+            ];
+        }
+        $uit = ['courses' => $cursussen, 'destinations' => $bestemmingen];
+        set_transient(self::CATALOGUS_CACHE, $uit, 5 * MINUTE_IN_SECONDS);
+        return $uit;
+    }
+
+    /**
+     * De gepubliceerde cursussen. null = niet op te halen.
+     *
+     * @return array<int,array{slug:string,title:string}>|null
+     */
+    public static function catalogus(): ?array {
+        $data = self::catalogus_data();
+        return $data === null ? null : $data['courses'];
+    }
+
+    /**
+     * Waar een knop de academy kan laten openen: de lijst komt uit de ACADEMY
+     * (`destinations`), zodat een nieuwe cursus of pagina vanzelf in de
+     * keuzelijst staat. Een oudere academy zonder die lijst: de inhoudspagina
+     * plus haar cursussen. Niet op te halen: enkel de inhoudspagina, die
+     * bestaat altijd.
+     *
+     * @return array<int,array{path:string,label:string,group:string}>
+     */
+    public static function bestemmingen(): array {
+        $basis = ['path' => '/', 'label' => 'Inhoudspagina (alle cursussen)', 'group' => "Pagina's"];
+        $data  = self::catalogus_data();
+        if ($data === null) {
+            return [$basis];
+        }
+        if ($data['destinations'] !== []) {
+            return $data['destinations'];
+        }
+        $lijst = [$basis];
+        foreach ($data['courses'] as $c) {
+            $lijst[] = ['path' => '/courses/' . rawurlencode($c['slug']), 'label' => $c['title'], 'group' => 'Cursussen'];
+        }
         return $lijst;
     }
 

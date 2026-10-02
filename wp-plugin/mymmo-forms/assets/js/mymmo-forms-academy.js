@@ -22,7 +22,7 @@
 
   var SLEUTEL = 'mymmo_academy_token';
   var BEWIJS_RE = /^v1\.[A-Za-z0-9_-]{8,1000}\.[A-Za-z0-9_-]{20,200}$/;
-  var start = { course: '', lesson: '' };
+  var start = { pad: '', course: '', lesson: '' };
   var vorigeFocus = null;
 
   function bewijs() {
@@ -49,9 +49,15 @@
   }
 
   /** Waar de knop heen wil: data-mymmo-academy="slug", of de oude klasse ovme-cursus-<slug>. */
+  var PAD_RE = /^\/(?!\/)[A-Za-z0-9\/_%.-]*$/;
+
   function startVan(el) {
     if (el.hasAttribute('data-mymmo-academy')) {
+      // Een PAD in de academy (keuzelijst bij "Opent een venster", generiek:
+      // de academy bepaalt welke pagina's er zijn). Anders de cursus-slug.
+      var pad = el.getAttribute('data-mymmo-academy-pad') || '';
       return {
+        pad: PAD_RE.test(pad) && pad.indexOf('..') === -1 ? pad : '',
         course: el.getAttribute('data-mymmo-academy') || '',
         lesson: el.getAttribute('data-mymmo-academy-les') || ''
       };
@@ -61,12 +67,13 @@
       var c = el.classList[i];
       if (c.indexOf('ovme-cursus-') === 0) course = c.slice('ovme-cursus-'.length);
     }
-    return { course: course, lesson: '' };
+    return { pad: '', course: course, lesson: '' };
   }
 
   function adres(t) {
     var u = String(cfg.url).replace(/\/+$/, '');
-    u += start.course ? '/courses/' + encodeURIComponent(start.course) : '/';
+    if (start.pad) u += start.pad;
+    else u += start.course ? '/courses/' + encodeURIComponent(start.course) : '/';
     u += '?gate=parent';
     if (start.lesson) u += '&lesson=' + encodeURIComponent(start.lesson);
     if (t) u += '#t=' + encodeURIComponent(t);

@@ -567,6 +567,10 @@ injectiepad zijn naar elke site die het formulier toont.
 
 ## Versies
 
+**1.20.8** — `Mymmo_Forms_Academy::bestemmingen()`: de pagina's en cursussen
+waar een knop de academy kan laten openen, uit de academy zelf. Een
+academy-knop opent op een PAD (`data-mymmo-academy-pad`).
+
 **1.20.7** — `is_academy_preset()` herkent ook een popup met het formulier dat
 op het academy-scherm staat, als daar nog geen popup gekozen is.
 

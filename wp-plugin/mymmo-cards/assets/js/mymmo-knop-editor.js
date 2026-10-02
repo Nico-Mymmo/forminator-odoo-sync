@@ -61,6 +61,9 @@
       /* Waar de academy opent, als de gekozen popup die van de academy is. */
       attrs.mymmoAcademyCursus = { type: 'string', 'default': '' };
       attrs.mymmoAcademyLes = { type: 'string', 'default': '' };
+      /* Waar de academy opent, als pad ("/", "/courses/<slug>"). Vervangt
+         mymmoAcademyCursus, dat blijft voor knoppen van 1.8.5-1.8.7. */
+      attrs.mymmoAcademyPad = { type: 'string', 'default': '' };
 
       return Object.assign({}, settings, {
         attributes: Object.assign({}, settings.attributes, attrs)
@@ -136,15 +139,51 @@
     return !!ACADEMY.preset && id === ACADEMY.preset;
   }
 
-  function cursusOpties(huidig) {
-    var uit = [{ label: 'Het overzicht van alle cursussen', value: '' }];
+  /** Het pad van deze knop; een knop van 1.8.5-1.8.7 heeft enkel een cursus. */
+  function padVan(a) {
+    if (a.mymmoAcademyPad) return a.mymmoAcademyPad;
+    return a.mymmoAcademyCursus ? '/courses/' + a.mymmoAcademyCursus : '/';
+  }
+
+  /**
+   * De keuzelijst van bestemmingen, gegroepeerd. GENERIEK: de lijst komt uit
+   * de academy zelf (/api/catalog), dus een nieuwe cursus of pagina staat er
+   * vanzelf in.
+   */
+  function bestemmingKeuze(a, zet) {
+    var lijst = ACADEMY.destinations && ACADEMY.destinations.length
+      ? ACADEMY.destinations
+      : [{ path: '/', label: 'Inhoudspagina (alle cursussen)', group: "Pagina's" }];
+    var huidig = padVan(a);
+    var groepen = [];
+    var perGroep = {};
     var gevonden = false;
-    (ACADEMY.courses || []).forEach(function (c) {
-      if (c.slug === huidig) gevonden = true;
-      uit.push({ label: c.title, value: c.slug });
+    lijst.forEach(function (d) {
+      var g = d.group || '';
+      if (!perGroep[g]) { perGroep[g] = []; groepen.push(g); }
+      perGroep[g].push(d);
+      if (d.path === huidig) gevonden = true;
     });
-    if (huidig && !gevonden) uit.push({ label: huidig + ' — niet gevonden in de academy', value: huidig });
-    return uit;
+    var kinderen = groepen.map(function (g) {
+      var opties = perGroep[g].map(function (d) {
+        return el('option', { key: d.path, value: d.path }, d.label);
+      });
+      return g ? el('optgroup', { key: g, label: g }, opties) : opties;
+    });
+    // Een bestemming die er intussen niet meer is (cursus offline gehaald), niet
+    // stil laten verdwijnen: dan lijkt de knop op iets anders te staan.
+    if (!gevonden) kinderen.push(el('option', { key: '_weg', value: huidig }, huidig + ' — niet (meer) in de academy'));
+
+    return el(SelectControl, {
+      label: 'Opent in de academy',
+      value: huidig,
+      help: ACADEMY.destinations && ACADEMY.destinations.length
+        ? 'Komt uit de academy zelf: een nieuwe cursus of pagina staat hier vanzelf bij.'
+        : 'De lijst uit de academy kon niet geladen worden; enkel de inhoudspagina staat erin.',
+      onChange: function (v) {
+        zet({ mymmoAcademyPad: v, mymmoAcademyCursus: '', mymmoAcademyLes: v.indexOf('/courses/') === 0 ? a.mymmoAcademyLes : '' });
+      }
+    }, kinderen);
   }
 
   var metPaneel = compose.createHigherOrderComponent(function (BlockEdit) {
@@ -182,30 +221,8 @@
                 props.setAttributes(nieuw);
               }
             }),
-            /* Waar de academy opent. Met een cursuslijst: kiezen. Zonder (de
-               academy kon niet bevraagd worden, of een oudere academy zonder
-               /api/catalog): de slug intypen -- anders kan je enkel nog het
-               overzicht openen. */
-            isAcademy(huidig) && (ACADEMY.courses || []).length
-              ? el(SelectControl, {
-                  label: 'Opent op',
-                  value: props.attributes.mymmoAcademyCursus || '',
-                  options: cursusOpties(props.attributes.mymmoAcademyCursus || ''),
-                  onChange: function (v) { props.setAttributes({ mymmoAcademyCursus: v, mymmoAcademyLes: v ? props.attributes.mymmoAcademyLes : '' }); }
-                })
-              : null,
-            isAcademy(huidig) && !(ACADEMY.courses || []).length
-              ? el(TextControl, {
-                  label: 'Opent op cursus (slug)',
-                  help: 'Leeg = het overzicht van alle cursussen. De lijst met cursussen kon niet geladen worden; '
-                    + 'de slug vind je in de academy (de link naar een cursus eindigt op /courses/<slug>).',
-                  value: props.attributes.mymmoAcademyCursus || '',
-                  onChange: function (v) {
-                    props.setAttributes({ mymmoAcademyCursus: String(v || '').toLowerCase().replace(/[^a-z0-9-]/g, '') });
-                  }
-                })
-              : null,
-            isAcademy(huidig) && props.attributes.mymmoAcademyCursus
+            isAcademy(huidig) ? bestemmingKeuze(props.attributes, props.setAttributes) : null,
+            isAcademy(huidig) && padVan(props.attributes).indexOf('/courses/') === 0
               ? el(TextControl, {
                   label: 'Meteen naar een les (optioneel)',
                   help: 'Het id van de les. Leeg = het begin van de cursus.',
