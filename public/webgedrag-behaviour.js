@@ -406,47 +406,112 @@
     return Object.keys(m).map(Number).sort(function (a, b) { return m[b] - m[a]; }).slice(0, 60).map(function (v) { return [v, m[v]]; });
   }
 
+  // De filterkaart. Drie regels, elk met een duidelijke rol:
+  //   1. WANNEER en WAAR (periode, website)
+  //   2. WIE bekijk je (vier gelabelde keuzes -- de gekozen optie in de primaire kleur)
+  //   3. VERFIJN (vier keuzelijsten, elk met een eigen titel)
+  // en daaronder de actieve filters als chips die je met een kruisje weghaalt.
+  // Er staat nooit twee keer hetzelfde woord zonder label erboven: dat was het
+  // probleem van de eerste versie ("Iedereen" stond er twee keer, in twee groepen).
+
+  var DEFAULTS = { site: null, ch: null, det: null, land: null, visited: null, dev: null, who: 'all', conv: 'all', visit: 'all', purpose: 'prospect' };
+
+  function groupLabel(text, help) {
+    return '<div class="text-[11px] font-semibold uppercase tracking-wide text-base-content/50 mb-1 flex items-center gap-1">' + esc(text)
+      + (help ? ' <span class="tooltip tooltip-bottom normal-case font-normal tracking-normal" data-tip="' + esc(help) + '"><i data-lucide="info" class="w-3 h-3"></i></span>' : '')
+      + '</div>';
+  }
+
+  /** Segmentknop: de gekozen optie is gevuld in de primaire kleur, de rest neutraal. */
+  function pills(action, key, choices, current) {
+    return '<div class="inline-flex flex-wrap rounded-lg bg-base-200 p-0.5 gap-0.5" role="group">' + choices.map(function (c) {
+      var on = current === c[0];
+      return '<button type="button" aria-pressed="' + on + '" class="px-3 py-1 text-sm rounded-md transition-colors '
+        + (on ? 'bg-primary text-primary-content font-medium shadow-sm' : 'text-base-content/70 hover:bg-base-300/70 hover:text-base-content')
+        + '" data-bh-action="' + action + '"' + (key ? ' data-key="' + key + '"' : '') + ' data-value="' + c[0] + '">' + esc(c[1]) + '</button>';
+    }).join('') + '</div>';
+  }
+
+  function seg(key, label, choices, help) {
+    return '<div>' + groupLabel(label, help) + pills('seg', key, choices, st.f[key]) + '</div>';
+  }
+
   function select(key, label, kind) {
     var cur = st.f[key];
     var opts = options(key).map(function (o) {
       var name = kind === 'dev' ? (DEV_LABELS[d('dev', o[0])] || d('dev', o[0])) : kind === 'p' ? short(pageName(o[0]), 50) : d(kind, o[0]);
       return '<option value="' + o[0] + '"' + (cur === o[0] ? ' selected' : '') + '>' + esc(name) + ' (' + nf(o[1]) + ')</option>';
     }).join('');
-    return '<select class="select select-bordered select-sm max-w-[13rem] ' + (cur !== null ? 'select-primary' : '') + '" data-bh-select="' + key + '" aria-label="' + esc(label) + '">'
-      + '<option value="">' + esc(label) + ': alle</option>' + opts + '</select>';
+    return '<label class="block min-w-0">' + groupLabel(label)
+      + '<select class="select select-bordered select-sm w-full ' + (cur !== null ? 'border-primary bg-primary/5 font-medium' : '') + '" data-bh-select="' + key + '">'
+      + '<option value="">Alle</option>' + opts + '</select></label>';
   }
 
-  function seg(key, choices) {
-    return '<div class="join">' + choices.map(function (c) {
-      return '<button class="btn btn-sm join-item ' + (st.f[key] === c[0] ? 'btn-active' : '') + '" data-bh-action="seg" data-key="' + key + '" data-value="' + c[0] + '">' + c[1] + '</button>';
-    }).join('') + '</div>';
+  function chipLabel(key) {
+    var f = st.f;
+    switch (key) {
+      case 'site': return 'Website: ' + d('site', f.site);
+      case 'ch': return 'Kanaal: ' + d('ch', f.ch);
+      case 'det': return 'Bron: ' + short(d('det', f.det) || '', 36);
+      case 'land': return 'Instap: ' + short(pageName(f.land), 36);
+      case 'visited': return 'Bekeken: ' + short(pageName(f.visited), 36);
+      case 'dev': return 'Toestel: ' + (DEV_LABELS[d('dev', f.dev)] || d('dev', f.dev));
+      case 'purpose': return f.purpose === 'customer' ? 'Enkel klanten' : 'Prospecten + klanten';
+      case 'who': return { anon: 'Anoniem', known: 'Met e-mailadres', lead: 'Gekoppeld aan een lead' }[f.who];
+      case 'conv': return f.conv === 'yes' ? 'Met aanvraag' : 'Zonder aanvraag';
+      case 'visit': return f.visit === 'new' ? 'Nieuwe bezoekers' : 'Terugkerende bezoekers';
+    }
+    return key;
+  }
+
+  function activeKeys() {
+    return Object.keys(DEFAULTS).filter(function (k) { return st.f[k] !== DEFAULTS[k]; });
   }
 
   function renderFilters() {
     var sites = st.data.dict.site;
+    var siteControl = sites.length <= 3
+      ? pills('site', null, [['', 'Beide']].concat(sites.map(function (s, i) { return [String(i), s]; })), st.f.site === null ? '' : String(st.f.site))
+      : '<select class="select select-bordered select-sm" data-bh-select="site"><option value="">Alle websites</option>'
+        + sites.map(function (s, i) { return '<option value="' + i + '"' + (st.f.site === i ? ' selected' : '') + '>' + esc(s) + '</option>'; }).join('') + '</select>';
+    var keys = activeKeys();
+
     $('bhFilters').innerHTML =
-      '<div class="flex flex-wrap items-center gap-2">'
-      + '<div class="join">' + Object.keys(PERIODS).map(function (p) {
-          return '<button class="btn btn-sm join-item ' + (st.period === p ? 'btn-active' : '') + '" data-bh-action="period" data-value="' + p + '">' + p.replace('d', ' d').replace('12m', '12 mnd') + '</button>';
-        }).join('') + '</div>'
-      + '<select class="select select-bordered select-sm ' + (st.f.site !== null ? 'select-primary' : '') + '" data-bh-select="site" aria-label="Website"><option value="">Beide websites</option>'
-      + sites.map(function (s, i) { return '<option value="' + i + '"' + (st.f.site === i ? ' selected' : '') + '>' + esc(s) + '</option>'; }).join('') + '</select>'
-      + select('ch', 'Kanaal', 'ch') + select('det', 'Bron / campagne', 'det') + select('land', 'Instappagina', 'p') + select('dev', 'Toestel', 'dev')
-      + '</div><div class="flex flex-wrap items-center gap-2 mt-2">'
-      + '<span title="Klanten = wie inlogt op het platform, vanaf de eerste keer dat ze inloggen. Hun bezoeken daarvoor tellen als prospect.">'
-      + seg('purpose', [['prospect', 'Prospecten'], ['customer', 'Klanten'], ['all', 'Iedereen']]) + '</span>'
-      + seg('who', [['all', 'Iedereen'], ['anon', 'Anoniem'], ['known', 'Gekend'], ['lead', 'Met lead']])
-      + seg('conv', [['all', 'Alle bezoeken'], ['yes', 'Met aanvraag'], ['no', 'Zonder']])
-      + seg('visit', [['all', 'Nieuw + terug'], ['new', 'Nieuw'], ['return', 'Terugkerend']])
-      + (active() ? '<button class="btn btn-ghost btn-sm" data-bh-action="reset"><i data-lucide="x" class="w-4 h-4"></i> Segment wissen</button>' : '')
+      '<div class="rounded-2xl bg-base-100 border border-base-300 shadow-sm p-4 space-y-4">'
+      // 1. wanneer en waar
+      + '<div class="flex flex-wrap items-end gap-x-8 gap-y-3">'
+      +   '<div>' + groupLabel('Periode') + pills('period', null, [['7d', '7 dagen'], ['30d', '30 dagen'], ['90d', '90 dagen'], ['12m', '12 maanden']], st.period) + '</div>'
+      +   '<div>' + groupLabel('Website') + siteControl + '</div>'
+      + '</div>'
+      // 2. wie
+      + '<div class="flex flex-wrap items-end gap-x-8 gap-y-3 pt-4 border-t border-base-200">'
+      +   seg('purpose', 'Wie', [['prospect', 'Prospecten'], ['customer', 'Klanten'], ['all', 'Allebei']],
+            'Klant = wie inlogt op het platform, vanaf de eerste keer dat hij inlogt. Zijn bezoeken daarvoor tellen als prospect.')
+      +   seg('who', 'Herkend', [['all', 'Alle'], ['anon', 'Anoniem'], ['known', 'Met e-mail'], ['lead', 'Met lead']],
+            'Met e-mail = de bezoeker liet ooit een adres achter. Met lead = hij hangt aan een lead in Odoo.')
+      +   seg('conv', 'Aanvraag', [['all', 'Alle'], ['yes', 'Met aanvraag'], ['no', 'Zonder']],
+            'Een formulier, een afspraak of een inschrijving in dat bezoek.')
+      +   seg('visit', 'Bezoek', [['all', 'Alle'], ['new', 'Eerste bezoek'], ['return', 'Terugkerend']])
+      + '</div>'
+      // 3. verfijn
+      + '<div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 pt-4 border-t border-base-200">'
+      +   select('ch', 'Kanaal', 'ch') + select('det', 'Bron of campagne', 'det') + select('land', 'Instappagina', 'p') + select('dev', 'Toestel', 'dev')
+      + '</div>'
+      // 4. wat staat er aan
+      + (keys.length
+        ? '<div class="flex flex-wrap items-center gap-2 pt-3 border-t border-base-200">'
+          + '<span class="text-xs text-base-content/60">Actief:</span>'
+          + keys.map(function (k) {
+              return '<span class="inline-flex items-center gap-1 rounded-full bg-primary/10 text-sm pl-3 pr-1 py-0.5">' + esc(chipLabel(k))
+                + '<button type="button" class="rounded-full w-5 h-5 inline-flex items-center justify-center hover:bg-primary/20" data-bh-action="clear" data-key="' + k + '" aria-label="Filter weghalen">✕</button></span>';
+            }).join('')
+          + '<button type="button" class="btn btn-ghost btn-xs ml-1" data-bh-action="reset">Alles wissen</button>'
+          + '</div>'
+        : '')
       + '</div>';
   }
 
-  function active() {
-    var f = st.f;
-    return f.site !== null || f.ch !== null || f.det !== null || f.land !== null || f.visited !== null || f.dev !== null
-      || f.who !== 'all' || f.conv !== 'all' || f.visit !== 'all';
-  }
+  function active() { return activeKeys().length > 0; }
 
   /** Het segment in één zin, zodat je altijd weet waar je naar kijkt. */
   function sentence(n) {
@@ -474,8 +539,7 @@
     var p = split();
     renderFilters();
     $('bhSentence').textContent = sentence(p.cur.length);
-    $('bhVisited').innerHTML = st.f.visited !== null
-      ? '<span class="badge badge-primary badge-outline gap-1">bekeken: ' + esc(short(pageName(st.f.visited), 40)) + '<button data-bh-action="filter" data-key="visited" data-value="' + st.f.visited + '" aria-label="Weg">✕</button></span>' : '';
+    $('bhVisited').innerHTML = '';
     renderSummary(p.cur, p.prev);
     renderTrend(p.cur, p.prev);
     renderFlow(p.cur);
@@ -536,7 +600,9 @@
     if (a === 'period') { st.period = v; load(); return; }
     if (a === 'seg') { st.f[el.dataset.key] = v; }
     else if (a === 'filter') { var k = el.dataset.key, n = Number(v); st.f[k] = st.f[k] === n ? null : n; }
-    else if (a === 'reset') { st.f = { site: null, ch: null, det: null, land: null, visited: null, dev: null, who: 'all', conv: 'all', visit: 'all', purpose: 'prospect' }; st.pins = {}; }
+    else if (a === 'reset') { st.f = Object.assign({}, DEFAULTS); st.pins = {}; }
+    else if (a === 'clear') { st.f[el.dataset.key] = DEFAULTS[el.dataset.key]; if (el.dataset.key === 'ch') st.f.det = null; }
+    else if (a === 'site') { st.f.site = v === '' ? null : Number(v); }
     else if (a === 'pin') { var s = el.dataset.step, pg = Number(el.dataset.page); if (st.pins[s] === pg) delete st.pins[s]; else st.pins[s] = pg; }
     else if (a === 'pin-path') { st.pins = {}; el.dataset.path.split(',').forEach(function (x, i) { st.pins[i] = Number(x); }); }
     else if (a === 'unpin') { delete st.pins[el.dataset.step]; }

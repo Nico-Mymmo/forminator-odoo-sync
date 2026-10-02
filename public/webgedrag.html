@@ -42,9 +42,13 @@
 
     <!-- ── Gedrag: trends en flows over alle bezoeken ───────────────────────── -->
     <section id="panelBehaviour">
-      <div class="sticky z-20 -mx-4 px-4 py-3 mb-4 bg-base-200/90 backdrop-blur border-b border-base-300" style="top:48px">
+      <!-- Bewust NIET sticky: de filterkaart is drie regels hoog en zou anders een
+           derde van het scherm wegnemen bij elke scroll. De zin eronder zegt altijd
+           waar je naar kijkt. -->
+      <div class="mb-4">
         <div id="bhFilters"></div>
-        <div class="flex flex-wrap items-center gap-2 mt-2">
+        <div class="flex flex-wrap items-center gap-2 mt-3 px-1">
+          <i data-lucide="filter" class="w-4 h-4 text-base-content/40"></i>
           <p id="bhSentence" class="text-sm text-base-content/70"></p>
           <span id="bhVisited"></span>
         </div>
