@@ -338,6 +338,10 @@ cache-busting van CSS en JS. Het script controleert dat en weigert anders.
 
 ## Versies
 
+**1.8.6** — bij de academy-popup kies je ook een les (optioneel), en kan je de
+cursus intypen als de lijst met cursussen niet geladen kon worden. Zonder dat
+kon je in dat geval enkel het overzicht openen.
+
 **1.8.5** — "Opent een venster" op een gewone knop werkt met de popup van de
 academy (Mymmo Forms 1.20.6): kies je die popup, dan vraagt het paneel waar de
 academy opent (het overzicht of een cursus), en wordt de knop een academy-knop.

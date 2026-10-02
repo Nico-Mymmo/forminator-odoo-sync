@@ -40,6 +40,7 @@
   var InspectorControls = blockEditor.InspectorControls;
   var PanelBody = components.PanelBody;
   var SelectControl = components.SelectControl;
+  var TextControl = components.TextControl;
 
   /* ── 1. Het attribuut op de kern-knop ───────────────────────────────────── */
 
@@ -59,6 +60,7 @@
       attrs.mymmoIngang = { type: 'string', 'default': '' };
       /* Waar de academy opent, als de gekozen popup die van de academy is. */
       attrs.mymmoAcademyCursus = { type: 'string', 'default': '' };
+      attrs.mymmoAcademyLes = { type: 'string', 'default': '' };
 
       return Object.assign({}, settings, {
         attributes: Object.assign({}, settings.attributes, attrs)
@@ -175,13 +177,37 @@
                 props.setAttributes(nieuw);
               }
             }),
-            isAcademy(huidig)
+            /* Waar de academy opent. Met een cursuslijst: kiezen. Zonder (de
+               academy kon niet bevraagd worden, of een oudere academy zonder
+               /api/catalog): de slug intypen -- anders kan je enkel nog het
+               overzicht openen. */
+            isAcademy(huidig) && (ACADEMY.courses || []).length
               ? el(SelectControl, {
                   label: 'Opent op',
                   value: props.attributes.mymmoAcademyCursus || '',
                   options: cursusOpties(props.attributes.mymmoAcademyCursus || ''),
-                  help: (ACADEMY.courses || []).length ? '' : 'De cursuslijst kon niet geladen worden; het overzicht werkt altijd.',
-                  onChange: function (v) { props.setAttributes({ mymmoAcademyCursus: v }); }
+                  onChange: function (v) { props.setAttributes({ mymmoAcademyCursus: v, mymmoAcademyLes: v ? props.attributes.mymmoAcademyLes : '' }); }
+                })
+              : null,
+            isAcademy(huidig) && !(ACADEMY.courses || []).length
+              ? el(TextControl, {
+                  label: 'Opent op cursus (slug)',
+                  help: 'Leeg = het overzicht van alle cursussen. De lijst met cursussen kon niet geladen worden; '
+                    + 'de slug vind je in de academy (de link naar een cursus eindigt op /courses/<slug>).',
+                  value: props.attributes.mymmoAcademyCursus || '',
+                  onChange: function (v) {
+                    props.setAttributes({ mymmoAcademyCursus: String(v || '').toLowerCase().replace(/[^a-z0-9-]/g, '') });
+                  }
+                })
+              : null,
+            isAcademy(huidig) && props.attributes.mymmoAcademyCursus
+              ? el(TextControl, {
+                  label: 'Meteen naar een les (optioneel)',
+                  help: 'Het id van de les. Leeg = het begin van de cursus.',
+                  value: props.attributes.mymmoAcademyLes || '',
+                  onChange: function (v) {
+                    props.setAttributes({ mymmoAcademyLes: String(v || '').replace(/[^A-Za-z0-9_-]/g, '') });
+                  }
                 })
               : null,
             huidig

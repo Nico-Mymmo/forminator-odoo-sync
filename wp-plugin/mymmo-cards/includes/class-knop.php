@@ -188,7 +188,12 @@ final class Mymmo_Cards_Knop {
          */
         if (class_exists('Mymmo_Forms_Academy') && Mymmo_Forms_Academy::is_academy_preset($opstelling)) {
             $cursus = sanitize_title((string) ($block['attrs'][self::ACADEMY_ATTRIBUUT] ?? ''));
-            return self::knop_klaarmaken($html, '', ['data-mymmo-academy' => $cursus]);
+            $les    = $cursus === '' ? '' : (string) preg_replace('/[^A-Za-z0-9_-]/', '', (string) ($block['attrs']['mymmoAcademyLes'] ?? ''));
+            $extra  = ['data-mymmo-academy' => $cursus];
+            if ($les !== '') {
+                $extra['data-mymmo-academy-les'] = $les;
+            }
+            return self::knop_klaarmaken($html, '', $extra);
         }
 
         $klasse = self::KLASSE_PREFIX . $opstelling . '-' . $tab;
