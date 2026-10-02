@@ -567,6 +567,14 @@ injectiepad zijn naar elke site die het formulier toont.
 
 ## Versies
 
+**1.20.4** — een venster ZONDER kop (enkel een formulier) zet zijn kruisje
+vanaf 900px breed NAAST het venster, rechts bovenaan, en het kaartje krijgt
+bovenaan dezelfde rand als opzij. In 1.20.3 kreeg het kaartje bovenaan extra
+ruimte voor het kruisje, en een bovenrand die groter is dan de rest oogt
+scheef. Op een telefoon en een tablet blijft het kruisje binnen. Een venster
+met zijkolom ook: daar kan een tekening over de rand lopen die het venster
+moet afknippen.
+
 **1.20.3** — drie dingen uit de formulierbouwer van de OM komen nu op de site:
 de verstuurknop NAAST het laatste eenregelige veld (1:1, 2:1 of 3:1; wat erna
 komt, zoals een vinkje, staat eronder; op een telefoon altijd eronder), een

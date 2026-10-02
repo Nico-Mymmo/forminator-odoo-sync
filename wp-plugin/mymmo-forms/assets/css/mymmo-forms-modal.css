@@ -566,11 +566,42 @@ html.mymmo-modal-js .mymmo-modal-body--tabs .mymmo-modal-paneel.is-actief {
 }
 
 /* Zonder kop ("Kop van het venster tonen" uit) gaf de kop ook de ruimte
-   bovenaan: het paneel plakte dan tegen de bovenrand en het kruisje hing over
-   de hoek ervan. Nu krijgt de inhoud zelf die ruimte, net genoeg voor het
-   kruisje (10px + 40px + wat lucht). */
+   bovenaan: het kaartje plakte dan tegen de bovenrand en het kruisje hing over
+   de hoek ervan.
+   Op een SCHERM MET RUIMTE staat het kruisje daarom NAAST het venster, rechts
+   bovenaan, en krijgt het kaartje bovenaan dezelfde rand als opzij -- een
+   grotere bovenrand enkel voor het kruisje oogt scheef. `overflow: visible`
+   is nodig, anders knipt het venster het kruisje weg; het kaartje en de
+   zijkolom dragen hun eigen afronding.
+   Enkel bij een KAAL venster (enkel een formulier, max 660px breed): een
+   venster met zijkolom kan een tekening dragen die bewust over de rand loopt en
+   door het venster afgeknipt wordt -- `overflow: visible` zou die laten
+   uitsteken. Daar, en op een smaller scherm, blijft het kruisje binnen met
+   ruimte erboven (52-56px). */
 .mymmo-modal-panel--zonder-kop .mymmo-modal-lijf {
   padding-top: 56px;
+}
+
+@media (min-width: 900px) {
+  .mymmo-modal-panel--zonder-kop.mymmo-modal-panel--kaal {
+    overflow: visible;
+  }
+  .mymmo-modal-panel--zonder-kop.mymmo-modal-panel--kaal .mymmo-modal-lijf {
+    padding-top: 0;
+  }
+  .mymmo-modal-panel--zonder-kop.mymmo-modal-panel--kaal .mymmo-modal-main {
+    margin-top: 20px;
+  }
+  .mymmo-modal-panel--zonder-kop.mymmo-modal-panel--kaal .mymmo-modal-close {
+    top: 0;
+    right: -52px;
+    background: rgba(255, 255, 255, 0.92);
+  }
+  /* Op de donkere achtergrond: de gewone hover (een grijze waas) zou het
+     kruisje daar laten verdwijnen. */
+  .mymmo-modal-panel--zonder-kop.mymmo-modal-panel--kaal .mymmo-modal-close:hover {
+    background: #ffffff;
+  }
 }
 
 .mymmo-modal-close:hover {
