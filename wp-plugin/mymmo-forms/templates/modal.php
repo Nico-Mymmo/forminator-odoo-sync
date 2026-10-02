@@ -300,6 +300,8 @@ if ($wikkel_class !== '') {
 $panel_class = 'mymmo-modal-panel';
 $panel_class .= $heeft_zijkolom ? ' mymmo-modal-panel--zijkolom' : ' mymmo-modal-panel--kaal';
 $panel_class .= $afspraak_modus ? ' mymmo-modal-panel--afspraak' : '';
+// Zonder kop hangt het kruisje over de inhoud; zie mymmo-forms-modal.css.
+$panel_class .= ($heading === '' && !$afspraak_modus) ? ' mymmo-modal-panel--zonder-kop' : '';
 // Met een agenda erbij moet het venster breed genoeg zijn voor de kalender van
 // Calendly IN de rechterkolom. Onder ~640px schakelt Calendly zelf naar zijn
 // smalle weergave, en dan staat de maand onder de uren in plaats van ernaast.

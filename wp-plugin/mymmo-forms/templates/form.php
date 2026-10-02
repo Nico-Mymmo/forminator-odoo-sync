@@ -187,26 +187,21 @@ $knop  = Mymmo_Forms_I18n::text($form, $lang, 'submit_label');
                        autocomplete="off">
             </div>
 
-            <div class="mymmo-form-grid">
-                <?php
-                foreach ((array) ($form['fields'] ?? []) as $index => $veld) {
-                    if (!is_array($veld)) {
-                        continue;
-                    }
-                    echo mymmo_forms_render('partials/field', [
-                        'veld'         => $veld,
-                        'index'        => (int) $index,
-                        'form_id_attr' => $form_id_attr,
-                        'oude_waarden' => $oude_waarden,
-                        'lang'         => $lang,
-                        'teksten'      => $teksten,
-                        'is_standaardtaal' => $is_standaardtaal,
-                    ]);
-                }
-                ?>
-            </div>
-
-            <div class="mymmo-form-actions">
+            <?php
+            // De knop NAAST het laatste veld (submit_layout in de OM): dan staat
+            // de knoprij IN het raster, als buur van dat veld. Zie
+            // mymmo_forms_knop_naast_index().
+            [$naast_index, $naast_verhouding] = mymmo_forms_knop_naast_index($form);
+            ob_start();
+            ?>
+            <?php
+            $naast_veld = $naast_index >= 0 ? (array_values((array) ($form['fields'] ?? []))[$naast_index] ?? []) : [];
+            $naast_klas = $naast_index >= 0
+                ? ' mymmo-form-actions--naast mymmo-form-actions--naast-' . $naast_verhouding
+                    . (!empty($naast_veld['label_hidden']) ? ' mymmo-form-actions--zonder-label' : '')
+                : '';
+            ?>
+            <div class="mymmo-form-actions<?php echo esc_attr($naast_klas); ?>">
                 <?php
                 // Alleen in een stappenreeks: dit formulier is dan de laatste
                 // stap en er is iets om naar terug te gaan. De knop staat IN
@@ -224,6 +219,37 @@ $knop  = Mymmo_Forms_I18n::text($form, $lang, 'submit_label');
                     <?php echo esc_html($knop !== '' ? $knop : 'Versturen'); ?>
                 </button>
             </div>
+            <?php $acties_html = (string) ob_get_clean(); ?>
+
+            <div class="mymmo-form-grid">
+                <?php
+                foreach (array_values((array) ($form['fields'] ?? [])) as $index => $veld) {
+                    if (!is_array($veld)) {
+                        continue;
+                    }
+                    echo mymmo_forms_render('partials/field', [
+                        'veld'         => $veld,
+                        'index'        => (int) $index,
+                        'form_id_attr' => $form_id_attr,
+                        'oude_waarden' => $oude_waarden,
+                        'lang'         => $lang,
+                        'teksten'      => $teksten,
+                        'is_standaardtaal' => $is_standaardtaal,
+                        'naast_knop'   => $index === $naast_index ? $naast_verhouding : '',
+                    ]);
+                    // Meteen ACHTER dat veld, zodat de knop er de rij mee deelt.
+                    if ($index === $naast_index) {
+                        echo $acties_html; // phpcs:ignore -- hierboven ge-escaped
+                    }
+                }
+                ?>
+            </div>
+
+            <?php
+            if ($naast_index < 0) {
+                echo $acties_html; // phpcs:ignore -- hierboven ge-escaped
+            }
+            ?>
         </form>
 
     <?php endif; ?>

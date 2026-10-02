@@ -567,6 +567,17 @@ injectiepad zijn naar elke site die het formulier toont.
 
 ## Versies
 
+**1.20.3** — drie dingen uit de formulierbouwer van de OM komen nu op de site:
+de verstuurknop NAAST het laatste eenregelige veld (1:1, 2:1 of 3:1; wat erna
+komt, zoals een vinkje, staat eronder; op een telefoon altijd eronder), een
+VERBORGEN label (blijft voor schermlezers), en een vinkje dat vooraf
+aangevinkt staat (opt-out). Het raster telt daarvoor 12 kolommen in plaats van
+2; halve en volle velden zijn even breed als voorheen. Een uitgezet opt-out-
+vinkje springt na een mislukte inzending niet meer terug aan. En: zonder kop
+van het venster plakte het paneel tegen de bovenrand en hing het kruisje over
+de hoek; nu is daar ruimte voor. Vraagt de OM-deploy en migratie
+20261003120000 voor de nieuwe instellingen; zonder die blijft alles zoals het was.
+
 **1.20.2** — de pop-up van de academy maak je weer in de pop-upbouwer
 (Mymmo Forms → Popups), niet op het academy-scherm: titel, uitleg, tekening en
 formulier stel je daar in met het voorbeeld ernaast. Instellingen → Mymmo

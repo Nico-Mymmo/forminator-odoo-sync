@@ -565,6 +565,14 @@ html.mymmo-modal-js .mymmo-modal-body--tabs .mymmo-modal-paneel.is-actief {
   transition: color 0.12s ease, background-color 0.12s ease;
 }
 
+/* Zonder kop ("Kop van het venster tonen" uit) gaf de kop ook de ruimte
+   bovenaan: het paneel plakte dan tegen de bovenrand en het kruisje hing over
+   de hoek ervan. Nu krijgt de inhoud zelf die ruimte, net genoeg voor het
+   kruisje (10px + 40px + wat lucht). */
+.mymmo-modal-panel--zonder-kop .mymmo-modal-lijf {
+  padding-top: 56px;
+}
+
 .mymmo-modal-close:hover {
   color: var(--mf-text, #1f2430);
   background: rgba(16, 20, 28, 0.08);
@@ -1142,6 +1150,10 @@ html.mymmo-modal-js .mymmo-modal-body--tabs .mymmo-modal-paneel.is-actief {
   .mymmo-modal-close {
     top: 8px;
     right: 8px;
+  }
+
+  .mymmo-modal-panel--zonder-kop .mymmo-modal-lijf {
+    padding-top: 52px;
   }
 
   .mymmo-modal-button {

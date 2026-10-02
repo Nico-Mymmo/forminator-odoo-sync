@@ -932,6 +932,32 @@ function mymmo_forms_kop_blok(string $titel, string $sub, string $merk): string 
  * de shortcode uitgezet is (`form_heading="no"`). Een [mymmo_form] in een pagina
  * geeft `form_heading` niet mee en houdt zijn eigen titel en inleiding.
  */
+/**
+ * Het veld waar de verstuurknop NAAST komt, of -1 (knop onder de velden).
+ *
+ * Spiegelt SUBMIT_LAYOUTS/KNOP_NAAST_TYPES in forms/schema.js (de OM) en
+ * knopNaastIndex() in public/forminator-sync-v2-form-preview.js. Wijzig ze samen.
+ *
+ * @param array<string,mixed> $form
+ * @return array{0:int,1:string} index en verhouding (`2-1`), of [-1, '']
+ */
+function mymmo_forms_knop_naast_index(array $form): array {
+    $verhoudingen = ['1:1' => '1-1', '2:1' => '2-1', '3:1' => '3-1'];
+    $stand = (string) ($form['submit_layout'] ?? 'below');
+    if (!isset($verhoudingen[$stand])) {
+        return [-1, ''];
+    }
+    // Het laatste EENREGELIGE veld; wat erna komt (een vinkje) staat eronder.
+    $velden = array_values((array) ($form['fields'] ?? []));
+    for ($i = count($velden) - 1; $i >= 0; $i--) {
+        $type = is_array($velden[$i]) ? (string) ($velden[$i]['type'] ?? 'text') : '';
+        if (in_array($type, ['text', 'email', 'tel', 'number', 'date', 'select'], true)) {
+            return [$i, $verhoudingen[$stand]];
+        }
+    }
+    return [-1, ''];
+}
+
 function mymmo_forms_render_form_zonder_stappen(array $form, array $form_args): string {
     if (empty($form_args['form_heading'])) {
         return mymmo_forms_render('form', $form_args);

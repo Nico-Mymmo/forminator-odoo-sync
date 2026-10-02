@@ -159,9 +159,12 @@
 
 /* ── Raster ──────────────────────────────────────────────────────────────── */
 
+/* Twaalf kolommen, niet twee: zo kan de verstuurknop 1:1, 2:1 of 3:1 naast een
+   veld staan. Een half veld is 6 van 12 -- met de tussenruimte meegerekend exact
+   even breed als voorheen de helft van 2. */
 .mymmo-form-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(12, minmax(0, 1fr));
   gap: var(--mf-gap);
 }
 
@@ -170,7 +173,59 @@
 }
 
 .mymmo-form-field--half {
-  grid-column: span 1;
+  grid-column: span 6;
+}
+
+/* ── De verstuurknop NAAST het laatste veld (submit_layout) ─────────────────
+   Twee klassen: de verhouding wint dan van --full/--half op hetzelfde veld. */
+.mymmo-form-grid .mymmo-form-field--naast-knop-1-1 { grid-column: span 6; }
+.mymmo-form-grid .mymmo-form-field--naast-knop-2-1 { grid-column: span 8; }
+.mymmo-form-grid .mymmo-form-field--naast-knop-3-1 { grid-column: span 9; }
+.mymmo-form-grid .mymmo-form-actions--naast-1-1 { grid-column: span 6; }
+.mymmo-form-grid .mymmo-form-actions--naast-2-1 { grid-column: span 4; }
+.mymmo-form-grid .mymmo-form-actions--naast-3-1 { grid-column: span 3; }
+
+/* De knop hoort op de hoogte van het INVOERVELD, niet van het label erboven en
+   niet van een hulptekst eronder. Een onzichtbaar "label" van dezelfde maat
+   duwt hem precies zo ver omlaag; onderaan uitlijnen zou bij een foutmelding
+   onder het veld de knop mee laten zakken. */
+.mymmo-form-grid .mymmo-form-actions--naast {
+  margin-top: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+}
+
+.mymmo-form-grid .mymmo-form-actions--naast::before {
+  content: "\00a0";
+  display: block;
+  margin-bottom: 6px;
+  font-weight: 600;
+  font-size: 0.925rem;
+}
+
+.mymmo-form-grid .mymmo-form-actions--naast .mymmo-form-submit {
+  width: 100%;
+}
+
+/* Het veld ernaast heeft geen zichtbaar label: dan hoort de knop bovenaan. */
+.mymmo-form-grid .mymmo-form-actions--zonder-label::before {
+  content: none;
+}
+
+/* Een verborgen label blijft in de HTML (schermlezers, en de klik op het label
+   zet de cursor in het vak); enkel het zicht verdwijnt. */
+.mymmo-form-wrap .mymmo-form-label--verborgen {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 /* Onder 540px staat alles onder elkaar. Twee kolommen op een telefoon maakt
@@ -179,8 +234,13 @@
   .mymmo-form-grid {
     grid-template-columns: minmax(0, 1fr);
   }
-  .mymmo-form-field--half {
+  .mymmo-form-field--half,
+  .mymmo-form-grid .mymmo-form-field[class*="mymmo-form-field--naast-knop-"],
+  .mymmo-form-grid .mymmo-form-actions--naast {
     grid-column: 1 / -1;
+  }
+  .mymmo-form-grid .mymmo-form-actions--naast::before {
+    content: none;
   }
 }
 

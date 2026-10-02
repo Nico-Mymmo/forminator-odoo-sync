@@ -31,6 +31,10 @@ $key   = (string) ($veld['key'] ?? '');
 // stuk. Zie Mymmo_Forms_I18n::field_text().
 $label = Mymmo_Forms_I18n::field_text($veld, $lang, 'label');
 $breed = ($veld['width'] ?? 'full') === 'half' ? 'mymmo-form-field--half' : 'mymmo-form-field--full';
+// De verstuurknop staat naast dit veld (form.php, mymmo_forms_knop_naast_index()).
+if (!empty($naast_knop) && preg_match('/^[1-3]-1$/', (string) $naast_knop)) {
+    $breed .= ' mymmo-form-field--naast-knop mymmo-form-field--naast-knop-' . $naast_knop;
+}
 
 // ── Opmaakblokken: geen invoer, geen naam, geen label ────────────────────────
 if ($type === 'heading') {
@@ -65,6 +69,12 @@ $validatie = is_array($veld['validation'] ?? null) ? $veld['validation'] : [];
 $waarde = array_key_exists($key, $oude_waarden)
     ? (string) $oude_waarden[$key]
     : (string) ($veld['default_value'] ?? '');
+// Een vinkje dat de bezoeker UITZETTE, zit niet in de POST. Na een mislukte
+// inzending mag het dan niet terug aan springen (opt-out): wie toestemming
+// weigerde, ziet anders opnieuw een vinkje staan.
+if ($type === 'checkbox' && $oude_waarden !== [] && !array_key_exists($key, $oude_waarden)) {
+    $waarde = '';
+}
 
 // De foutmelding hangt ALTIJD aan het veld, ook als ze nog leeg is. Zo hoeft
 // JavaScript straks alleen tekst in te vullen en hoeft het aria-describedby
@@ -153,7 +163,7 @@ if ($type === 'hidden') {
 
     <?php else : ?>
 
-        <label class="mymmo-form-label" for="<?php echo esc_attr($veld_id); ?>">
+        <label class="mymmo-form-label<?php echo !empty($veld['label_hidden']) ? ' mymmo-form-label--verborgen' : ''; ?>" for="<?php echo esc_attr($veld_id); ?>">
             <?php echo esc_html($label); ?><?php echo $verplicht ? ' <span class="mymmo-form-req" aria-hidden="true">*</span>' : ''; ?>
         </label>
 

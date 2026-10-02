@@ -213,6 +213,14 @@ export async function saveForm(env, integrationId, { form, fields }) {
     updated_at:      now,
   };
 
+  // Enkel meeschrijven als de kolom er is (migratie 20261003120000) of als er
+  // iets anders dan de standaard gekozen werd: zo blijft bewaren werken op een
+  // database waar die migratie nog niet draaide.
+  if ((form.submit_layout && form.submit_layout !== 'below')
+      || (existing?.form && Object.prototype.hasOwnProperty.call(existing.form, 'submit_layout'))) {
+    formRow.submit_layout = form.submit_layout || 'below';
+  }
+
   // published_at is het moment van de EERSTE publicatie en wordt daarna niet
   // meer aangeraakt — anders leest het als "laatst gewijzigd", wat updated_at
   // al doet.
@@ -251,6 +259,9 @@ export async function saveForm(env, integrationId, { form, fields }) {
 
   if (fields.length > 0) {
     const rows = fields.map((f, index) => ({
+      // Enkel als het aan staat: zo blijft bewaren werken op een database waar
+      // migratie 20261003120000 nog niet draaide.
+      ...(f.label_hidden ? { label_hidden: true } : {}),
       form_id:         formId,
       order_index:     index,
       field_key:       f.field_key || `blok_${index + 1}`,

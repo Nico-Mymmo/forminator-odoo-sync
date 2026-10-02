@@ -72,6 +72,7 @@
     description: '',
     status: 'draft',
     submit_label: 'Versturen',
+    submit_layout: 'below',
     success_mode: 'message',
     success_message: 'Bedankt, we hebben je bericht goed ontvangen.',
     redirect_url: '',
@@ -153,6 +154,13 @@
     tekenAlles();
   }
 
+  /** De stand van een vinkje, afgeleid uit is_required en default_value. */
+  function toestemmingVan(veld) {
+    if (veld.is_required) return 'optin_required';
+    if (veld.default_value === 'ja' || veld.default_value === '1') return 'optout';
+    return 'optin';
+  }
+
   function normalizeVeld(rij) {
     return {
       field_key: rij.field_key || '',
@@ -162,6 +170,7 @@
       placeholder: rij.placeholder || '',
       is_required: !!rij.is_required,
       default_value: rij.default_value || '',
+      label_hidden: !!rij.label_hidden,
       options: Array.isArray(rij.options) ? rij.options.map(function (o) {
         return { value: o.value || '', label: o.label || '' };
       }) : [],
@@ -910,11 +919,32 @@
             </label>
           </div>
 
+          ${veld.field_type === 'checkbox' ? `
+            <label class="form-control mb-1" ${bewerktStandaardtaal() ? '' : 'hidden'}>
+              <span class="label label-text text-xs">Toestemming</span>
+              <select class="select select-bordered select-sm" data-fb-change="consent">
+                ${[['optin', 'Opt-in — leeg, mag leeg blijven'],
+                   ['optin_required', 'Verplichte opt-in — leeg, aanvinken om te verzenden'],
+                   ['optout', 'Opt-out — vooraf aangevinkt']].map(function (o) {
+                  return `<option value="${o[0]}" ${toestemmingVan(veld) === o[0] ? 'selected' : ''}>${o[1]}</option>`;
+                }).join('')}
+              </select>
+            </label>
+            ${toestemmingVan(veld) === 'optin_required' ? `
+              <p class="text-xs text-base-content/50 mb-2">Gebruik dit enkel voor iets dat echt nodig is om te verzenden (de voorwaarden). Een nieuwsbrief verplicht maken is onder de GDPR geen vrije toestemming.</p>` : ''}
+          ` : `
           <label class="flex items-center gap-2 text-sm cursor-pointer w-fit" ${bewerktStandaardtaal() ? '' : 'hidden'}>
             <input type="checkbox" class="checkbox checkbox-sm" data-fb-change="required"
                    ${veld.is_required ? 'checked' : ''}>
             Verplicht in te vullen
           </label>
+          ${['radio', 'checkbox_group'].indexOf(veld.field_type) === -1 ? `
+            <label class="flex items-center gap-2 text-sm cursor-pointer w-fit mt-1" ${bewerktStandaardtaal() ? '' : 'hidden'}>
+              <input type="checkbox" class="checkbox checkbox-sm" data-fb-change="label-hidden"
+                     ${veld.label_hidden ? 'checked' : ''}>
+              Label verbergen
+            </label>` : ''}
+          `}
 
           ${PREFILL_EXCLUDED_TYPES.indexOf(veld.field_type) === -1 && bewerktStandaardtaal() ? `
             <label class="form-control mt-2">
@@ -1055,6 +1085,15 @@
             <span>De slug staat in de shortcode en is voor alle talen dezelfde. Wil je een
             andere taal op een pagina, dan zet je <code>lang="${esc(B.taal)}"</code> op de shortcode.</span>
           </p>`}
+
+        <label class="form-control mb-2">
+          <span class="label label-text text-xs">Verstuurknop</span>
+          <select class="select select-bordered select-sm" data-fb-change="submit-layout">
+            ${[['below', 'Onder de velden'], ['1:1', 'Naast het laatste veld — 1:1'], ['2:1', 'Naast het laatste veld — 2:1'], ['3:1', 'Naast het laatste veld — 3:1']]
+              .map(function (o) { return `<option value="${o[0]}" ${(B.form.submit_layout || 'below') === o[0] ? 'selected' : ''}>${o[1]}</option>`; }).join('')}
+          </select>
+          ${(B.form.submit_layout || 'below') !== 'below' ? `<span class="label-text-alt text-base-content/50 mt-1">Veld : knop. Enkel naast een eenregelig veld (tekst, e-mail, telefoon, getal, datum, keuzelijst); anders staat de knop eronder. Op een telefoon staat hij altijd eronder.</span>` : ''}
+        </label>
 
         <label class="form-control mb-2">
           <span class="label label-text text-xs">Na het verzenden</span>
@@ -1449,6 +1488,24 @@
       return true;
     }
 
+    // Een label verbergen: in het voorbeeld blijft het staan, maar vager, zodat
+    // je het nog kan aanpassen (het blijft er voor schermlezers).
+    if (soort === 'label-hidden' && veld) {
+      veld.label_hidden = inp.checked;
+      tekenCanvas();
+      return true;
+    }
+
+    // De drie standen van een vinkje, op de bestaande kolommen: verplicht =
+    // is_required, vooraf aangevinkt = default_value "ja".
+    if (soort === 'consent' && veld) {
+      veld.is_required = inp.value === 'optin_required';
+      veld.default_value = inp.value === 'optout' ? 'ja' : '';
+      tekenCanvas();
+      tekenInspector();
+      return true;
+    }
+
     if (soort === 'theme') {
       B.form.theme = Object.assign({}, B.form.theme);
       B.form.theme[inp.dataset.key] = inp.value;
@@ -1458,6 +1515,13 @@
 
     if (soort === 'success-mode') {
       B.form.success_mode = inp.value;
+      tekenInspector();
+      return true;
+    }
+
+    if (soort === 'submit-layout') {
+      B.form.submit_layout = inp.value;
+      tekenCanvas();
       tekenInspector();
       return true;
     }

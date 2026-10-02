@@ -134,6 +134,20 @@ body {
   background: rgba(37, 99, 235, 0.10);
 }
 
+/* Een verborgen label staat in de bouwer WEL, maar vaag: anders kan je het niet
+   meer aanklikken om het aan te passen. Drie selectoren zwaar, zodat het wint
+   van de regel in mymmo-forms.css. */
+html .mymmo-form-wrap .mymmo-form-label--verborgen {
+  position: static;
+  width: auto;
+  height: auto;
+  margin: 0 0 6px;
+  overflow: visible;
+  clip: auto;
+  white-space: normal;
+  opacity: 0.45;
+}
+
 /* ── Sleepgreep ───────────────────────────────────────────────────────────── */
 
 .om-greep {

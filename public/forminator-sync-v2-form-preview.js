@@ -141,7 +141,7 @@
     if (type === 'checkbox') {
       binnen =
         '<div class="mymmo-form-check">' +
-        '<input type="checkbox" disabled>' +
+        '<input type="checkbox"' + (veld.default_value === 'ja' || veld.default_value === '1' ? ' checked' : '') + ' disabled>' +
         '<label>' + labelHtml + '</label>' +
         '</div>';
 
@@ -186,7 +186,7 @@
           esc(veld.default_value) + '" placeholder="' + esc(plaats) + '"' + prefillAttr + ' disabled>';
       }
 
-      binnen = '<label class="mymmo-form-label">' + labelHtml + '</label>' + invoer;
+      binnen = '<label class="mymmo-form-label' + (veld.label_hidden ? ' mymmo-form-label--verborgen' : '') + '">' + labelHtml + '</label>' + invoer;
     }
 
     // De lege foutplaatshouder staat ook in field.php, met hetzelfde id-patroon
@@ -198,6 +198,20 @@
     var foutHtml = '<p class="mymmo-form-error" role="alert" hidden></p>';
 
     return wikkelStart + binnen + hulpHtml + foutHtml + '</div>';
+  }
+
+  // Spiegelt submitLayoutVoor-regel in forms/schema.js (SUBMIT_LAYOUTS,
+  // KNOP_NAAST_TYPES) en mymmo_forms_knop_naast_index() in helpers.php.
+  var KNOP_NAAST_TYPES = ['text', 'email', 'tel', 'number', 'date', 'select'];
+  var KNOP_NAAST = { '1:1': '1-1', '2:1': '2-1', '3:1': '3-1' };
+
+  /** Het laatste eenregelige veld: daar komt de knop naast. -1 = knop onder de velden. */
+  function knopNaastIndex(form, fields) {
+    if (!KNOP_NAAST[form && form.submit_layout]) return -1;
+    for (var i = (fields || []).length - 1; i >= 0; i -= 1) {
+      if (KNOP_NAAST_TYPES.indexOf(fields[i].field_type || 'text') !== -1) return i;
+    }
+    return -1;
   }
 
   /**
@@ -226,8 +240,19 @@
         '</p>';
     }
 
+    var naast = knopNaastIndex(form, fields);
+    var verhouding = naast >= 0 ? KNOP_NAAST[form.submit_layout] : '';
+
+    var acties = '';
     var velden = (fields || []).map(function (veld, index) {
-      return renderVeld(veld, index, bewerkbaar);
+      var html = renderVeld(veld, index, bewerkbaar);
+      if (index === naast) {
+        html = html.replace('class="mymmo-form-field ',
+          'class="mymmo-form-field mymmo-form-field--naast-knop mymmo-form-field--naast-knop-' + verhouding + ' ');
+        // De knoprij meteen ACHTER dit veld, zodat ze er de rij mee deelt.
+        html += '%%KNOPRIJ%%';
+      }
+      return html;
     }).join('');
 
     if (bewerkbaar && (!fields || fields.length === 0)) {
@@ -242,10 +267,19 @@
         leegOf(form._leegSubmit, 'Versturen') + '>' + tekst(form.submit_label) + '</span>'
       : '<button type="button" class="mymmo-form-submit">' + tekst(form.submit_label) + '</button>';
 
+    // Naast het laatste veld: de knoprij staat IN het raster, als buur van dat
+    // veld. Zo deelt ze er de rij mee, zonder dat het veld in een eigen wikkel
+    // moet (de bouwer sleept velden als kinderen van het raster).
+    acties = naast >= 0
+      ? '<div class="mymmo-form-actions mymmo-form-actions--naast mymmo-form-actions--naast-' + verhouding +
+        (fields[naast].label_hidden ? ' mymmo-form-actions--zonder-label' : '') + '">' + knop + '</div>'
+      : '<div class="mymmo-form-actions">' + knop + '</div>';
+    if (naast >= 0) velden = velden.replace('%%KNOPRIJ%%', function () { return acties; });
+
     return '<div class="mymmo-form-wrap">' +
       titel + intro +
       '<div class="mymmo-form-grid"' + (bewerkbaar ? ' data-om-grid' : '') + '>' + velden + '</div>' +
-      '<div class="mymmo-form-actions">' + knop + '</div>' +
+      (naast >= 0 ? '' : acties) +
       '</div>';
   }
 

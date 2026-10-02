@@ -173,6 +173,19 @@ export const FORM_STATUSES = ['draft', 'published'];
 export const SUCCESS_MODES = ['message', 'redirect'];
 
 /**
+ * Waar de verstuurknop staat: onder de velden, of NAAST het laatste EENREGELIGE
+ * veld (tekst, e-mail, ...) in een verhouding veld:knop. Voor een kort formulier
+ * ("e-mail + Naar de cursus"). Wat daarna komt -- een vinkje voor de
+ * nieuwsbrief, een alinea -- staat onder die rij. Naast een tekstvak of een rij
+ * keuzerondjes leest een knop als een fout, dus die tellen niet mee; is er geen
+ * eenregelig veld, dan staat de knop gewoon eronder. Die regel staat op DRIE
+ * plekken die gelijk moeten blijven: hier, knopNaastIndex() in public/forminator-sync-v2-form-preview.js
+ * en mymmo_forms_knop_naast_index() in wp-plugin/mymmo-forms/includes/helpers.php.
+ */
+export const SUBMIT_LAYOUTS = ['below', '1:1', '2:1', '3:1'];
+export const KNOP_NAAST_TYPES = ['text', 'email', 'tel', 'number', 'date', 'select'];
+
+/**
  * Sleutels die de submit-handler zelf zet. Een veld mag ze niet claimen, want
  * dan overschrijft het formulier zijn eigen herkomstgegevens.
  *
@@ -428,6 +441,7 @@ export function validateFormDefinition(input, opts = {}) {
     description: str(rawForm.description) || null,
     status,
     submit_label: str(rawForm.submit_label) || 'Versturen',
+    submit_layout: SUBMIT_LAYOUTS.includes(rawForm.submit_layout) ? rawForm.submit_layout : 'below',
     success_mode: successMode,
     success_message: str(rawForm.success_message) || 'Bedankt, we hebben je bericht goed ontvangen.',
     redirect_url: successMode === 'redirect' ? redirectUrl : null,
@@ -519,6 +533,9 @@ export function validateFormDefinition(input, opts = {}) {
       placeholder: str(raw && raw.placeholder) || null,
       is_required: spec.input ? Boolean(raw && raw.is_required) : false,
       default_value: str(raw && raw.default_value) || null,
+      // Enkel voor een veld met een label BOVEN het invoervak. Bij een vinkje is
+      // het label de tekst naast het vakje, bij een keuzegroep de vraag zelf.
+      label_hidden: Boolean(raw && raw.label_hidden) && !['checkbox', 'radio', 'checkbox_group'].includes(type) && spec.input,
       options,
       width: FIELD_WIDTHS.includes(raw && raw.width) ? raw.width : 'full',
       validation: normalizeValidation(raw && raw.validation),
@@ -640,6 +657,7 @@ export function toPublicFormPayload(form, fields) {
     description: form.description || '',
     version: form.version,
     submit_label: form.submit_label,
+    submit_layout: SUBMIT_LAYOUTS.includes(form.submit_layout) ? form.submit_layout : 'below',
     success_mode: form.success_mode,
     success_message: form.success_message,
     redirect_url: form.success_mode === 'redirect' ? form.redirect_url : null,
@@ -656,6 +674,7 @@ export function toPublicFormPayload(form, fields) {
       placeholder: f.placeholder || '',
       required: Boolean(f.is_required),
       default_value: f.default_value || '',
+      label_hidden: Boolean(f.label_hidden),
       options: Array.isArray(f.options) ? f.options : [],
       width: f.width,
       validation: f.validation || {},
@@ -733,7 +752,11 @@ export function validateSubmissionValues(fields, rawValues, lang = DEFAULT_LANGU
     else if (raw && typeof raw === 'object') raw = '';
     else raw = str(raw);
 
-    if (!raw && field.default_value) raw = str(field.default_value);
+    // Een VINKJE krijgt zijn standaardwaarde nooit hier: die zet het vakje
+    // vooraf aan (opt-out), en een leeg vakje betekent dan juist dat de bezoeker
+    // het UITZETTE. Hier invullen zou dat ongedaan maken -- toestemming die
+    // iemand weigerde, komt dan als gegeven in Odoo.
+    if (!raw && field.default_value && field.field_type !== 'checkbox') raw = str(field.default_value);
     if (raw.length > MAX_TEXT_VALUE) raw = raw.slice(0, MAX_TEXT_VALUE);
 
     // Het label in de taal van de bezoeker: een Franse melding die naar een
