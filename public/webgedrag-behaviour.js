@@ -21,7 +21,27 @@
   var CONV = 64 | 128 | 256;
   var STEPS = 4;
   var TOP_PER_STEP = 5;
-  var ACCENT = '#2563eb';
+  // De primaire kleur van het daisyUI-THEMA, niet een vaste kleur: zo volgt alles
+  // het thema (ook donker). In HTML/SVG rechtstreeks als CSS-variabele; voor de
+  // canvas van Chart.js moet de waarde uitgelezen worden (canvas kent geen var()).
+  // daisyUI 4 bewaart --p als "L C H" (oklch-componenten).
+  var ACCENT = 'oklch(var(--p))';
+  function themeColor(alpha) {
+    var v = '';
+    try { v = getComputedStyle(document.documentElement).getPropertyValue('--p').trim(); } catch (_) { v = ''; }
+    if (!v) return alpha === undefined ? '#2563eb' : 'rgba(37,99,235,' + alpha + ')';
+    return 'oklch(' + v + (alpha === undefined ? '' : ' / ' + alpha) + ')';
+  }
+  /** Vlak onder de lijn: de themakleur bovenaan, naar transparant onderaan. */
+  function areaGradient(context) {
+    var chart = context.chart, area = chart.chartArea;
+    if (!area) return themeColor(0.15);
+    var g = chart.ctx.createLinearGradient(0, area.top, 0, area.bottom);
+    g.addColorStop(0, themeColor(0.35));
+    g.addColorStop(1, themeColor(0));
+    return g;
+  }
+  var sparkId = 0;
   var DEV_LABELS = { desktop: 'Desktop', mobile: 'Mobiel', tablet: 'Tablet' };
   var PERIODS = { '7d': 'laatste 7 dagen', '30d': 'laatste 30 dagen', '90d': 'laatste 90 dagen', '12m': 'laatste 12 maanden' };
 
@@ -197,8 +217,12 @@
     var line = xy.map(function (p) { return p.join(','); }).join(' ');
     var area = xy[0][0] + ',' + (h - 1) + ' ' + line + ' ' + xy[xy.length - 1][0] + ',' + (h - 1);
     return '<svg width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '" aria-hidden="true">'
-      + '<polygon points="' + area + '" fill="' + ACCENT + '" fill-opacity="0.1"></polygon>'
-      + '<polyline points="' + line + '" fill="none" stroke="' + ACCENT + '" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"></polyline></svg>';
+      // Eigen id per lijntje: zes tegels op een pagina, dus zes verlopen.
+      + '<defs><linearGradient id="bhSpark' + (++sparkId) + '" x1="0" y1="0" x2="0" y2="1">'
+      + '<stop offset="0" style="stop-color:' + ACCENT + ';stop-opacity:0.35"></stop>'
+      + '<stop offset="1" style="stop-color:' + ACCENT + ';stop-opacity:0"></stop></linearGradient></defs>'
+      + '<polygon points="' + area + '" fill="url(#bhSpark' + sparkId + ')"></polygon>'
+      + '<polyline points="' + line + '" fill="none" style="stroke:' + ACCENT + '" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"></polyline></svg>';
   }
 
   function tile(label, value, deltaHtml, help, metric, series) {
@@ -309,7 +333,7 @@
       data: {
         labels: labels,
         datasets: [
-          { label: 'Deze periode', data: cur_, borderColor: ACCENT, backgroundColor: ACCENT + '1a', fill: true, borderWidth: 2, tension: 0.3, pointRadius: 0, pointHoverRadius: 5, spanGaps: true },
+          { label: 'Deze periode', data: cur_, borderColor: themeColor(), backgroundColor: areaGradient, fill: true, borderWidth: 2, tension: 0.3, pointRadius: 0, pointHoverRadius: 5, pointBackgroundColor: themeColor(), spanGaps: true },
           { label: 'Vorige periode', data: prev_, borderColor: '#94a3b8', borderWidth: 1.5, tension: 0.3, pointRadius: 0, pointHoverRadius: 4, fill: false, spanGaps: true }
         ]
       },
@@ -429,8 +453,9 @@
     if (kpi.chart) kpi.chart.destroy();
     kpi.chart = new Chart($('bhKpiChart'), {
       type: 'line',
-      data: { labels: labels, datasets: [{ label: m.label, data: vals, borderColor: ACCENT, backgroundColor: ACCENT + '1a', fill: true,
-        borderWidth: 2, tension: 0.3, pointRadius: 4, pointHoverRadius: 6, pointBackgroundColor: ACCENT, pointBorderColor: '#fff', pointBorderWidth: 2, spanGaps: true }] },
+      data: { labels: labels, datasets: [{ label: m.label, data: vals, borderColor: themeColor(), backgroundColor: areaGradient, fill: true,
+        borderWidth: 2, tension: 0.3, pointRadius: 4, pointHoverRadius: 6, pointBackgroundColor: themeColor(),
+        pointBorderColor: getComputedStyle(document.body).backgroundColor || '#fff', pointBorderWidth: 2, spanGaps: true }] },
       options: {
         responsive: true, maintainAspectRatio: false,
         interaction: { mode: 'index', intersect: false },
@@ -493,7 +518,7 @@
           + ' data-bh-action="pin" data-step="' + step + '" data-page="' + k + '" title="' + esc(pageName(k)) + '">'
           + '<div class="flex justify-between gap-2 text-sm"><span class="truncate">' + esc(short(pageName(k))) + '</span>'
           + '<span class="text-base-content/60 shrink-0 tabular-nums">' + pctTxt(pct(counts[k], total)) + '</span></div>'
-          + '<div class="h-1.5 rounded-full bg-base-200 mt-1 overflow-hidden"><div class="h-full rounded-full" style="width:' + Math.max(w, 1.5) + '%;background-color:' + (isPin ? '#1d4ed8' : ACCENT) + '"></div></div>'
+          + '<div class="h-1.5 rounded-full bg-base-200 mt-1 overflow-hidden"><div class="h-full rounded-full" style="width:' + Math.max(w, 1.5) + '%;background-color:' + (isPin ? ACCENT : 'oklch(var(--p) / 0.6)') + '"></div></div>'
           + '<div class="text-[11px] text-base-content/50 mt-0.5">' + nf(counts[k]) + ' bezoeken' + (conv[k] ? ' · ' + pctTxt(pct(conv[k], counts[k])) + ' aanvraag' : '') + '</div>'
           + '</button>';
       }).join('');
