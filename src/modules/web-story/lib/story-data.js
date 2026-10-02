@@ -17,6 +17,20 @@ const ctx = { active_test: false };
 const m2o = v => (Array.isArray(v) ? { id: v[0], name: v[1] } : null);
 const MAX_UUIDS = 50;
 
+// De stand van een lead, zoals Odoo ze zelf afleidt (won_status: won/lost/pending),
+// aangevuld met wat won_status niet zegt: gearchiveerd zonder verloren te zijn, en
+// lead tegenover verkoopkans. Context active_test:false overal, anders vallen de
+// verloren en gearchiveerde leads gewoon weg uit het zoeken.
+const STATUS_FIELDS = ['won_status', 'active', 'type', 'stage_id'];
+export function leadStatus(l) {
+  if (!l) return null;
+  if (l.won_status === 'won') return { key: 'won', label: 'Gewonnen' };
+  if (l.won_status === 'lost') return { key: 'lost', label: 'Verloren' };
+  if (l.active === false) return { key: 'archived', label: 'Gearchiveerd' };
+  if (l.type === 'lead') return { key: 'lead', label: 'Lead' };
+  return { key: 'open', label: 'Lopend' + (Array.isArray(l.stage_id) ? ' · ' + l.stage_id[1] : '') };
+}
+
 /** Koppelingen van een of meer leads, met wat D1 over de bezoeker weet. */
 export async function linksForLeads(env, leadIds) {
   if (!leadIds.length) return [];
@@ -70,7 +84,7 @@ async function assemble(env, links, conversionAt) {
 
 export async function leadStory(env, leadId) {
   const [lead] = await searchRead(env, { model: 'crm.lead', domain: [['id', '=', leadId]],
-    fields: ['id', 'name', 'email_from', 'partner_id', 'user_id', 'create_date', 'stage_id', 'active', 'type'], context: ctx });
+    fields: ['id', 'name', 'email_from', 'partner_id', 'user_id', 'create_date', ...STATUS_FIELDS], context: ctx });
   if (!lead) return null;
   const links = await linksForLeads(env, [leadId]);
   const sheets = await searchRead(env, { model: 'x_sales_action_sheet', domain: [['x_studio_as_opportunity_ids', 'in', [leadId]]],
@@ -80,6 +94,7 @@ export async function leadStory(env, leadId) {
     record: {
       id: lead.id, name: lead.name, email: lead.email_from || null, partner: m2o(lead.partner_id),
       owner: m2o(lead.user_id), stage: m2o(lead.stage_id), created: lead.create_date, active: lead.active, type: lead.type,
+      status: leadStatus(lead),
     },
     sheets: (sheets || []).map(s => ({ id: s.id, name: s.x_name })),
     links,
@@ -93,13 +108,13 @@ export async function sheetStory(env, sheetId) {
   if (!sheet) return null;
   const leadIds = sheet.x_studio_as_opportunity_ids || [];
   const leads = leadIds.length ? await searchRead(env, { model: 'crm.lead', domain: [['id', 'in', leadIds]],
-    fields: ['id', 'name', 'user_id', 'create_date'], context: ctx }) : [];
+    fields: ['id', 'name', 'user_id', 'create_date', ...STATUS_FIELDS], context: ctx }) : [];
   const links = await linksForLeads(env, leadIds);
   const first = (leads || []).map(l => l.create_date).sort()[0] || sheet.create_date;
   return {
     kind: 'sheet',
     record: { id: sheet.id, name: sheet.x_name, created: sheet.create_date },
-    leads: (leads || []).map(l => ({ id: l.id, name: l.name, owner: m2o(l.user_id) })),
+    leads: (leads || []).map(l => ({ id: l.id, name: l.name, owner: m2o(l.user_id), status: leadStatus(l) })),
     links,
     ...(await assemble(env, links, first)),
   };
@@ -113,7 +128,7 @@ export async function visitorStory(env, uuid) {
     `SELECT res_id, bron, sterkte, status, created_at FROM visitor_links WHERE model = 'crm.lead' AND visitor_uuid = ?`, [uuid]);
   const ll = lres.results || [];
   const leads = ll.length ? await searchRead(env, { model: 'crm.lead', domain: [['id', 'in', ll.map(l => l.res_id)]],
-    fields: ['id', 'name', 'user_id'], context: ctx }) : [];
+    fields: ['id', 'name', 'user_id', ...STATUS_FIELDS], context: ctx }) : [];
   const naam = new Map((leads || []).map(l => [l.id, l]));
   const self = [{ visitor_uuid: uuid, email: v.email, is_internal: v.is_internal, is_bot: v.is_bot, status: 'actief' }];
   const myIds = (await readIdentities(env, [uuid])).get(uuid) || [];
@@ -122,7 +137,7 @@ export async function visitorStory(env, uuid) {
     record: { uuid, email: v.email, site: v.site, first_seen: v.first_seen, last_seen: v.last_seen,
       internal: !!v.is_internal, bot: !!v.is_bot, ref_uuid: v.ref_uuid,
       emails: myIds.map(i => ({ email: i.email, first_seen: i.first_seen, last_seen: i.last_seen })), gedeeld: isShared(myIds) },
-    leads: ll.map(l => ({ ...l, name: naam.get(l.res_id)?.name || null, owner: m2o(naam.get(l.res_id)?.user_id) })),
+    leads: ll.map(l => ({ ...l, name: naam.get(l.res_id)?.name || null, owner: m2o(naam.get(l.res_id)?.user_id), status: leadStatus(naam.get(l.res_id)) })),
     ...(await assemble(env, self, null)),
   };
 }
@@ -132,17 +147,20 @@ export async function search(env, q) {
   const s = String(q || '').trim();
   if (!s) return { leads: [], visitors: [] };
   if (/^\d+$/.test(s)) {
-    const leads = await searchRead(env, { model: 'crm.lead', domain: [['id', '=', Number(s)]], fields: ['id', 'name', 'email_from'], context: ctx });
-    return { leads: leads || [], visitors: [] };
+    const leads = await searchRead(env, { model: 'crm.lead', domain: [['id', '=', Number(s)]], fields: ['id', 'name', 'email_from', ...STATUS_FIELDS], context: ctx });
+    return { leads: (leads || []).map(l => ({ ...l, status: leadStatus(l) })), visitors: [] };
   }
   if (/^[0-9a-f-]{36}$/i.test(s)) return { leads: [], visitors: [{ uuid: s.toLowerCase() }] };
   const like = s.toLowerCase();
   const leads = await searchRead(env, { model: 'crm.lead',
-    domain: ['|', ['email_from', 'ilike', like], ['name', 'ilike', like]], fields: ['id', 'name', 'email_from'], limit: 20,
+    domain: ['|', ['email_from', 'ilike', like], ['name', 'ilike', like]], fields: ['id', 'name', 'email_from', ...STATUS_FIELDS], limit: 20,
     order: 'create_date desc', context: ctx });
+  // Op ELK adres dat een browser ooit gebruikte (ook het tweede), ruw of herleid.
   const vis = like.includes('@') ? await readWebEvents(env,
-    `SELECT uuid, email, site, last_seen FROM visitors WHERE email = ? ORDER BY last_seen DESC LIMIT 50`, [like]) : { results: [] };
-  return { leads: leads || [], visitors: vis.results || [] };
+    `SELECT v.uuid, v.email, v.site, v.last_seen FROM visitors v
+     WHERE v.uuid IN (SELECT visitor_uuid FROM visitor_emails WHERE email = ? OR email_norm = ?)
+     ORDER BY v.last_seen DESC LIMIT 50`, [like, like]) : { results: [] };
+  return { leads: (leads || []).map(l => ({ ...l, status: leadStatus(l) })), visitors: vis.results || [] };
 }
 
 /** Twijfelgevallen voor het bulkscherm: koppelingen 'middel' die nog niemand beoordeelde. */
@@ -155,7 +173,7 @@ export async function reviewQueue(env, { limit = 200 } = {}) {
   const rows = res.results || [];
   const ids = [...new Set(rows.map(r => r.res_id))];
   const leads = ids.length ? await searchRead(env, { model: 'crm.lead', domain: [['id', 'in', ids]],
-    fields: ['id', 'name', 'email_from', 'user_id', 'partner_id'], context: ctx }) : [];
+    fields: ['id', 'name', 'email_from', 'user_id', 'partner_id', ...STATUS_FIELDS], context: ctx }) : [];
   const per = new Map((leads || []).map(l => [l.id, l]));
   // Bij een gedeelde browser alle adressen erbij: daarop beslist de beoordelaar.
   const adressen = rows.length ? await readIdentities(env, rows.map(r => r.visitor_uuid)) : new Map();
@@ -163,6 +181,7 @@ export async function reviewQueue(env, { limit = 200 } = {}) {
     const l = per.get(r.res_id);
     const list = adressen.get(r.visitor_uuid) || [];
     return { ...r, lead_name: l?.name || null, lead_email: l?.email_from || null, owner: m2o(l?.user_id), partner: m2o(l?.partner_id),
+      status: leadStatus(l),
       emails: list.map(i => i.email), gedeeld: isShared(list) };
   });
 }

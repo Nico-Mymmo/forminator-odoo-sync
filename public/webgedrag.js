@@ -66,6 +66,13 @@
   function persoonLabel(email, uuid) { return email || ('browser ' + String(uuid || '').slice(0, 8)); }
   function odooLink(model, id) { return ODOO + 'id=' + id + '&model=' + model + '&view_type=form'; }
 
+  // De stand van een lead (leadStatus() in story-data.js): gewonnen, verloren,
+  // gearchiveerd, lead, lopend. Met tekst, nooit enkel een kleur.
+  var STATUS_BADGE = { won: 'badge-success', lost: 'badge-error badge-outline', archived: 'badge-ghost', lead: 'badge-info badge-outline', open: 'badge-primary badge-outline' };
+  function statusBadge(s) {
+    return s ? ' <span class="badge badge-sm whitespace-nowrap ' + (STATUS_BADGE[s.key] || '') + '">' + esc(s.label) + '</span>' : '';
+  }
+
   // ── Laden ──────────────────────────────────────────────────────────────────
 
   async function open(kind, id) {
@@ -99,7 +106,7 @@
     if (r.leads.length) {
       html += '<div class="card bg-base-100 mb-3"><div class="card-body p-4"><h3 class="font-semibold text-sm mb-2">Leads</h3><ul class="menu menu-sm p-0">'
         + r.leads.map(function (l) {
-          return '<li><a data-action="open" data-kind="lead" data-id="' + l.id + '">' + esc(l.name) + ' <span class="opacity-60">' + esc(l.email_from || '') + ' · #' + l.id + '</span></a></li>';
+          return '<li><a data-action="open" data-kind="lead" data-id="' + l.id + '">' + esc(l.name) + statusBadge(l.status) + ' <span class="opacity-60">' + esc(l.email_from || '') + ' · #' + l.id + '</span></a></li>';
         }).join('') + '</ul></div></div>';
     }
     if (r.visitors.length) {
@@ -120,8 +127,7 @@
       titel = r.name;
       if (r.email) meta.push(esc(r.email));
       if (r.owner) meta.push('verantwoordelijke: ' + esc(r.owner.name));
-      if (r.stage) meta.push(esc(r.stage.name));
-      if (!r.active) meta.push('<span class="badge badge-sm">verloren/gearchiveerd</span>');
+      if (r.status) meta.push(statusBadge(r.status).trim());   // bevat de fase bij een lopende verkoopkans
       meta.push('aangemaakt ' + esc(datum(r.created)));
       links = '<a class="btn btn-xs" target="_blank" rel="noopener" href="' + odooLink('crm.lead', r.id) + '">Open in Odoo</a>'
         + (s.sheets || []).map(function (sh) {
@@ -132,7 +138,7 @@
       meta.push((s.leads || []).length + ' lead(s)');
       links = '<a class="btn btn-xs" target="_blank" rel="noopener" href="' + odooLink('x_sales_action_sheet', r.id) + '">Open in Odoo</a>'
         + (s.leads || []).map(function (l) {
-          return '<a class="btn btn-xs btn-ghost" data-action="open" data-kind="lead" data-id="' + l.id + '">' + esc(l.name) + '</a>';
+          return '<a class="btn btn-xs btn-ghost" data-action="open" data-kind="lead" data-id="' + l.id + '">' + esc(l.name) + statusBadge(l.status) + '</a>';
         }).join('');
     } else {
       titel = persoonLabel(r.email, r.uuid);
@@ -143,7 +149,7 @@
       if ((r.emails || []).length > 1) meta.push('adressen: ' + r.emails.map(function (m) { return esc(m.email); }).join(', '));
       if (r.bot) meta.push('<span class="badge badge-sm">bot</span>');
       links = (s.leads || []).map(function (l) {
-        return '<a class="btn btn-xs btn-ghost" data-action="open" data-kind="lead" data-id="' + l.res_id + '">' + esc(l.name || '#' + l.res_id) + '</a>';
+        return '<a class="btn btn-xs btn-ghost" data-action="open" data-kind="lead" data-id="' + l.res_id + '">' + esc(l.name || '#' + l.res_id) + statusBadge(l.status) + '</a>';
       }).join('');
     }
     var push = (s.kind !== 'visitor' && state.boot.mode === 'on')
@@ -273,7 +279,7 @@
       + '<th>Lead</th><th>Bezoeker</th><th>Verantwoordelijke</th><th>Laatst</th></tr></thead><tbody>'
       + state.review.map(function (r, i) {
         return '<tr><td><input type="checkbox" class="checkbox checkbox-xs" data-action="select" data-i="' + i + '"></td>'
-          + '<td><a class="link link-hover" data-action="open" data-kind="lead" data-id="' + r.res_id + '">' + esc(r.lead_name || '#' + r.res_id) + '</a>'
+          + '<td><a class="link link-hover" data-action="open" data-kind="lead" data-id="' + r.res_id + '">' + esc(r.lead_name || '#' + r.res_id) + '</a>' + statusBadge(r.status)
           + '<div class="text-xs opacity-60">' + esc(r.lead_email || '') + (r.partner ? ' · ' + esc(r.partner.name) : '') + '</div></td>'
           + '<td class="text-sm">' + esc(persoonLabel(r.email, r.visitor_uuid))
           + (r.gedeeld ? '<div class="text-xs opacity-70"><span class="badge badge-xs badge-info badge-outline">gedeelde browser</span> ook: '
