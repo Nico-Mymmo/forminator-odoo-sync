@@ -258,10 +258,14 @@ export async function saveForm(env, integrationId, { form, fields }) {
   if (deleteError) throw new Error(`Kon de oude velden niet vervangen: ${deleteError.message}`);
 
   if (fields.length > 0) {
+    // label_hidden: voor ALLE rijen of voor geen enkele. Bij een insert van
+    // meerdere rijen neemt PostgREST de unie van de kolommen en vult een
+    // ontbrekende waarde met NULL, niet met de standaard -- en de kolom is NOT
+    // NULL. Geen enkel verborgen label = de kolom weglaten, zodat bewaren ook
+    // werkt op een database waar migratie 20261003120000 nog niet draaide.
+    const metLabelHidden = fields.some((f) => f.label_hidden);
     const rows = fields.map((f, index) => ({
-      // Enkel als het aan staat: zo blijft bewaren werken op een database waar
-      // migratie 20261003120000 nog niet draaide.
-      ...(f.label_hidden ? { label_hidden: true } : {}),
+      ...(metLabelHidden ? { label_hidden: Boolean(f.label_hidden) } : {}),
       form_id:         formId,
       order_index:     index,
       field_key:       f.field_key || `blok_${index + 1}`,
