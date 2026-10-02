@@ -329,8 +329,36 @@
         kop.setAttribute('data-mymmo-standaard', kop.textContent);
       }
       var waarde = waardeVan(kop.getAttribute('data-mymmo-tabblok-naam'));
-      kop.textContent = waarde || kop.getAttribute('data-mymmo-standaard');
+      var blok = kop.closest('[data-mymmo-tabblok]');
+      var id = blok ? blok.getAttribute('data-mymmo-tabblok') : '';
+      var inGebruik = tabInGebruik(id);
+      kop.textContent = inGebruik
+        ? (waarde || kop.getAttribute('data-mymmo-standaard'))
+        : (ONGEBRUIKT_NAAM[id] || kop.getAttribute('data-mymmo-standaard')) + ' — niet in gebruik';
+      if (!blok) return;
+      blok.classList.toggle('mymmo-groep--ongebruikt', !inGebruik);
+      // Dichtklappen bij het OVERGAAN naar ongebruikt, niet bij elke
+      // aanslag: wie het blok zelf openklapt om het in te vullen, moet het
+      // open kunnen houden.
+      var stand = inGebruik ? 'vol' : 'leeg';
+      if (blok.getAttribute('data-mymmo-stand') !== stand) {
+        blok.open = inGebruik;
+        blok.setAttribute('data-mymmo-stand', stand);
+      }
     });
+  }
+
+  /**
+   * Een venster met enkel een formulier (de academy, een nieuwsbrief) hoort
+   * hier niet drie volle blokken te tonen. Een tabblad bestaat zodra er iets
+   * in staat -- dezelfde voorwaarden als modal.php: extra met een eigen
+   * formulier of stappen, de agenda met een boekingslink. Het formulier altijd.
+   */
+  var ONGEBRUIKT_NAAM = { extra: 'Extra tabblad', calendly: 'Agenda' };
+  function tabInGebruik(id) {
+    if (id === 'extra') return !!(waardeVan('mymmoFormsExtraSteps') || waardeVan('mymmoFormsExtraSlug'));
+    if (id === 'calendly') return !!agendaWaarde();
+    return true;
   }
 
   function waardeVan(id) {

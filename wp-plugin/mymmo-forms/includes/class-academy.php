@@ -57,33 +57,27 @@ final class Mymmo_Forms_Academy {
     }
 
     /**
-     * Het venster van de academy is EEN formulier met EEN kop: geen tabbladen,
-     * geen zijkolom, geen opstelling. Wat er boven de velden staat, stel je hier
-     * in. (Tot 1.20.1 koos je een opstelling uit de bouwer; die bracht de
-     * blokken en tabbladen van een ander venster mee. Een bewaarde opstelling
-     * levert nog haar formulier, zodat niets stilvalt.)
+     * Het venster is een OPSTELLING uit de pop-upbouwer (Instellingen → Mymmo
+     * Forms → Popups). Titel, uitleg, tekening en formulier stel je DAAR in, met
+     * het voorbeeld ernaast -- niet hier. Dit scherm zegt enkel welke opstelling
+     * de academy gebruikt. Een kaal formulier (`slug`, uit 1.20.1) blijft werken
+     * zolang er geen opstelling gekozen is.
      *
-     * @return array{url:string,slug:string,show_title:bool,title:string,text:string}
+     * @return array{url:string,preset:string,slug:string}
      */
     public static function settings(): array {
         $ruw = get_option(self::OPTION, []);
         $ruw = is_array($ruw) ? $ruw : [];
-        $slug = (string) ($ruw['slug'] ?? '');
-        if ($slug === '' && !empty($ruw['preset']) && class_exists('Mymmo_Forms_Presets')) {
-            $slug = sanitize_title((string) (Mymmo_Forms_Presets::atts((string) $ruw['preset'])['slug'] ?? ''));
-        }
         return [
-            'url'        => (string) ($ruw['url'] ?? 'https://openvme-cursus.lovable.app'),
-            'slug'       => $slug,
-            'show_title' => !array_key_exists('show_title', $ruw) || !empty($ruw['show_title']),
-            'title'      => (string) ($ruw['title'] ?? ''),
-            'text'       => (string) ($ruw['text'] ?? ''),
+            'url'    => (string) ($ruw['url'] ?? 'https://openvme-cursus.lovable.app'),
+            'preset' => (string) ($ruw['preset'] ?? ''),
+            'slug'   => (string) ($ruw['slug'] ?? ''),
         ];
     }
 
     public static function is_configured(): bool {
         $s = self::settings();
-        return $s['url'] !== '' && $s['slug'] !== '';
+        return $s['url'] !== '' && ($s['preset'] !== '' || $s['slug'] !== '');
     }
 
     /* ── Instellingen ──────────────────────────────────────────────────────── */
@@ -113,12 +107,12 @@ final class Mymmo_Forms_Academy {
             add_settings_error(self::OPTION, 'url', 'Het adres van de academy moet met https:// beginnen.');
         }
         delete_transient(self::CATALOGUS_CACHE);
+        $preset = sanitize_title((string) ($in['preset'] ?? ''));
         return [
-            'url'        => untrailingslashit($url),
-            'slug'       => sanitize_title((string) ($in['slug'] ?? '')),
-            'show_title' => !empty($in['show_title']),
-            'title'      => sanitize_text_field((string) ($in['title'] ?? '')),
-            'text'       => sanitize_textarea_field((string) ($in['text'] ?? '')),
+            'url'    => untrailingslashit($url),
+            'preset' => $preset,
+            // Een gekozen opstelling wint; het kale formulier van vroeger valt dan weg.
+            'slug'   => $preset !== '' ? '' : sanitize_title((string) ($in['slug'] ?? '')),
         ];
     }
 
@@ -127,7 +121,7 @@ final class Mymmo_Forms_Academy {
             return;
         }
         $s = self::settings();
-        $formulieren = class_exists('Mymmo_Forms_Api_Client') ? Mymmo_Forms_Api_Client::list_forms() : null;
+        $presets = class_exists('Mymmo_Forms_Presets') ? Mymmo_Forms_Presets::all() : [];
         $naam = esc_attr(self::OPTION);
         $cursussen = self::catalogus();
         ?>
@@ -146,38 +140,28 @@ final class Mymmo_Forms_Academy {
                         <td><input id="mymmo-academy-url" type="url" class="regular-text" name="<?php echo esc_attr(self::OPTION); ?>[url]" value="<?php echo esc_attr($s['url']); ?>"></td>
                     </tr>
                     <tr>
-                        <th scope="row"><label for="mymmo-academy-slug">Formulier</label></th>
+                        <th scope="row"><label for="mymmo-academy-preset">Popup</label></th>
                         <td>
-                            <?php if (is_array($formulieren)) : ?>
-                                <select id="mymmo-academy-slug" name="<?php echo $naam; ?>[slug]">
-                                    <option value="">— kies een formulier —</option>
-                                    <?php foreach ($formulieren as $f) : $fslug = (string) ($f['slug'] ?? ''); if ($fslug === '') { continue; } ?>
-                                        <option value="<?php echo esc_attr($fslug); ?>" <?php selected($s['slug'], $fslug); ?>><?php echo esc_html(mymmo_forms_form_label($f)); ?></option>
-                                    <?php endforeach; ?>
-                                </select>
-                            <?php else : ?>
-                                <input id="mymmo-academy-slug" type="text" class="regular-text" name="<?php echo $naam; ?>[slug]" value="<?php echo esc_attr($s['slug']); ?>" placeholder="slug van het formulier">
-                                <p class="description">De lijst met formulieren kon niet opgehaald worden; typ de slug.</p>
-                            <?php endif; ?>
+                            <select id="mymmo-academy-preset" name="<?php echo $naam; ?>[preset]">
+                                <option value="">— kies een popup —</option>
+                                <?php foreach ($presets as $p) : ?>
+                                    <option value="<?php echo esc_attr($p['id']); ?>" <?php selected($s['preset'], $p['id']); ?>><?php echo esc_html($p['name']); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                            <input type="hidden" name="<?php echo $naam; ?>[slug]" value="<?php echo esc_attr($s['slug']); ?>">
+                            <p class="description">
+                                Maak de popup in <a href="<?php echo esc_url(admin_url('options-general.php?page=mymmo-forms')); ?>">Mymmo Forms → Popups</a>:
+                                daar kies je het formulier, en zet je de titel en de uitleg (in het voorbeeld). Het venster opent
+                                altijd op het formulier.
+                            </p>
                             <p class="description">
                                 Het formulier moet in Koppelingen op <strong>Telt in Webgedrag als: Academy</strong> staan,
                                 een e-mailveld hebben en actief zijn -- anders komt er geen inlogbewijs terug en blijft de
                                 bezoeker op het dankjewelscherm staan.
                             </p>
-                        </td>
-                    </tr>
-                    <tr>
-                        <th scope="row">Titel</th>
-                        <td>
-                            <label><input type="checkbox" name="<?php echo $naam; ?>[show_title]" value="1" <?php checked($s['show_title']); ?>> Titel tonen</label><br>
-                            <input type="text" class="regular-text" name="<?php echo $naam; ?>[title]" value="<?php echo esc_attr($s['title']); ?>" placeholder="leeg = de naam van het formulier">
-                        </td>
-                    </tr>
-                    <tr>
-                        <th scope="row"><label for="mymmo-academy-text">Uitleg</label></th>
-                        <td>
-                            <textarea id="mymmo-academy-text" class="large-text" rows="3" name="<?php echo $naam; ?>[text]" placeholder="leeg = de inleiding van het formulier uit de OM"><?php echo esc_textarea($s['text']); ?></textarea>
-                            <p class="description">Staat boven de velden, onder de titel. Ook zonder titel.</p>
+                            <?php if ($s['preset'] === '' && $s['slug'] !== '') : ?>
+                                <p class="description"><strong>Nu nog:</strong> het formulier <code><?php echo esc_html($s['slug']); ?></code> zonder popup. Kies een popup om titel en uitleg zelf te bepalen.</p>
+                            <?php endif; ?>
                         </td>
                     </tr>
                 </table>
@@ -310,18 +294,13 @@ final class Mymmo_Forms_Academy {
         }
         $s = self::settings();
 
-        // Geen kop over het venster (`title=no`): de titel en de uitleg staan
-        // boven de velden, als EEN blok. Zo staat de titel er nooit twee keer.
-        $atts = [
-            'slug'         => $s['slug'],
-            'button'       => 'no',
-            'trigger'      => self::TRIGGER,
-            'tab'          => 'form',
-            'title'        => 'no',
-            'form_heading' => 'yes',
-            'form_title'   => $s['show_title'] ? $s['title'] : 'no',
-            'form_sub'     => $s['text'],
-        ];
+        // Alles van de popup, behalve hoe ze opengaat: dat is de academy-knop.
+        $atts = ['button' => 'no', 'trigger' => self::TRIGGER, 'tab' => 'form'];
+        if ($s['preset'] !== '') {
+            $atts['preset'] = $s['preset'];
+        } else {
+            $atts['slug'] = $s['slug'];
+        }
         $venster = Mymmo_Forms_Shortcodes::render_button($atts);
         if ($venster === '') {
             return;

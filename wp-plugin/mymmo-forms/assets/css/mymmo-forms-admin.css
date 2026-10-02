@@ -218,6 +218,11 @@
   border-radius: 4px;
 }
 
+.mymmo-groep--ongebruikt > summary {
+  color: #757575;
+  font-weight: 400;
+}
+
 .mymmo-groep[hidden] {
   display: none;
 }

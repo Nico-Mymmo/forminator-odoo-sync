@@ -567,6 +567,15 @@ injectiepad zijn naar elke site die het formulier toont.
 
 ## Versies
 
+**1.20.2** — de pop-up van de academy maak je weer in de pop-upbouwer
+(Mymmo Forms → Popups), niet op het academy-scherm: titel, uitleg, tekening en
+formulier stel je daar in met het voorbeeld ernaast. Instellingen → Mymmo
+academy zegt enkel nog WELKE pop-up. Een formulier dat in 1.20.1 gekozen werd,
+blijft werken tot je een pop-up kiest. In de bouwer klappen de tabbladen die
+niet in gebruik zijn (geen extra formulier of stappen, geen agenda) dicht, met
+"niet in gebruik" achter hun naam: een venster met enkel een formulier toonde
+anders drie volle blokken, met opschriften van tabbladen die er niet zijn.
+
 **1.20.1** — het venster van de academy is nu EEN formulier met EEN kop, ingesteld
 op Instellingen → Mymmo academy: welk formulier, titel aan/uit (met eigen tekst
 of de naam uit de OM) en een uitleg boven de velden. Waarom: in 1.20.0 koos je
