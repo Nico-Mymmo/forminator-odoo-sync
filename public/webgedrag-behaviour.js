@@ -33,6 +33,58 @@
     sort: { key: 'n', dir: -1 }, pageQuery: '', pageLimit: 20
   };
 
+  // ── Filters bewaren (per gebruiker, in deze browser) ─────────────────────────
+  // Bij herladen of een later bezoek staat alles terug zoals je het liet, ook de
+  // periode. De cache van de server bepaalt enkel hoe SNEL dat laadt, niet wat.
+  // Keuzelijsten bewaren een NAAM ("Betaald zoeken", "/syndicus-gent/"), geen
+  // volgnummer: dat nummer verschilt per geladen periode. Na het laden wordt de
+  // naam opnieuw opgezocht; bestaat ze in die periode niet, dan valt die ene filter
+  // weg in plaats van alles leeg te maken. Spelden in de padverkenner worden niet
+  // bewaard: dat is verkennen, geen instelling.
+  // localStorage kan ontbreken (privévenster, geblokkeerde site-data): dan werkt
+  // alles gewoon, enkel zonder geheugen.
+  var STORE_KEY = 'webgedrag.gedrag.v1';
+  var NAMED = { site: 'site', ch: 'ch', det: 'det', dev: 'dev', land: 'p', visited: 'p' };
+  var SCALAR = ['purpose', 'who', 'conv', 'visit'];
+  var pendingNames = null;
+
+  function namesOf() {
+    var out = {};
+    Object.keys(NAMED).forEach(function (k) {
+      if (st.f[k] !== null && st.data) out[k] = st.data.dict[NAMED[k]][st.f[k]];
+    });
+    return out;
+  }
+
+  function applyNames(names) {
+    if (!names || !st.data) return;
+    Object.keys(NAMED).forEach(function (k) {
+      if (names[k] === undefined) { st.f[k] = null; return; }
+      var i = st.data.dict[NAMED[k]].indexOf(names[k]);
+      st.f[k] = i >= 0 ? i : null;
+    });
+  }
+
+  function saveState() {
+    try {
+      var f = {};
+      SCALAR.forEach(function (k) { f[k] = st.f[k]; });
+      localStorage.setItem(STORE_KEY, JSON.stringify({ period: st.period, metric: st.metric, sort: st.sort, f: f, names: namesOf() }));
+    } catch (_) { /* geen opslag beschikbaar */ }
+  }
+
+  function restoreState() {
+    try {
+      var s = JSON.parse(localStorage.getItem(STORE_KEY) || 'null');
+      if (!s) return;
+      if (PERIODS[s.period]) st.period = s.period;
+      if (['sessions', 'eng', 'conv'].indexOf(s.metric) >= 0) st.metric = s.metric;
+      if (s.sort && typeof s.sort.key === 'string') st.sort = { key: s.sort.key, dir: s.sort.dir < 0 ? -1 : 1 };
+      SCALAR.forEach(function (k) { if (s.f && typeof s.f[k] === 'string') st.f[k] = s.f[k]; });
+      pendingNames = s.names || null;
+    } catch (_) { /* kapotte of geen opslag: met de standaard beginnen */ }
+  }
+
   // ── Helpers ────────────────────────────────────────────────────────────────
 
   function $(id) { return document.getElementById(id); }
@@ -563,11 +615,14 @@
     $('bhExcluded').textContent = excluded;
     $('bhNote').innerHTML = notes.map(esc).join('<br>');
     icons();
+    saveState();
   }
 
   async function load() {
     if (st.loading) return;
     st.loading = true;
+    // Wat er nu gekozen is, op NAAM -- de volgnummers van de nieuwe periode zijn anders.
+    var names = st.data ? namesOf() : pendingNames;
     var body = $('bhBody');
     body.style.opacity = st.data ? '0.5' : '1';   // vorige weergave houden, geen flits
     if (!st.data) $('bhStatus').innerHTML = '<span class="loading loading-spinner loading-sm"></span> Bezoeken laden…';
@@ -579,8 +634,9 @@
       if (!j.data.available) throw new Error(j.data.reason || 'Geen gegevens');
       st.data = j.data;
       st.F = j.data.flags;
-      // Een filter op een waarde die in de nieuwe periode niet bestaat, zou alles leeg maken.
-      ['det', 'land', 'visited'].forEach(function (k) { st.f[k] = null; });
+      // Filters terugzetten op naam; wat in deze periode niet bestaat, valt weg.
+      applyNames(names);
+      pendingNames = null;
       st.pins = {};
       $('bhStatus').innerHTML = '';
       render();
@@ -632,5 +688,6 @@
     if (st.data) renderPages(split().cur);
   });
 
+  restoreState();
   window.WebGedragBehaviour = { load: function () { if (!st.data) load(); } };
 })();
