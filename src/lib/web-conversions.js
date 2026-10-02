@@ -53,14 +53,18 @@ async function postTracker(env, path, body) {
 }
 
 /**
- * Welke soort actie is een inzending van deze koppeling? Op de naam van de
- * koppeling, omdat er geen apart veld voor bestaat:
+ * Welke soort actie is een inzending van deze koppeling?
+ * Eerst wat op de koppeling gekozen is ("Telt in Webgedrag als", kolom
+ * `web_action`); staat daar niets, dan op de naam:
  *   calendly                        -> aanvraag (kennismaking, demo)
  *   "nieuwsbrief"/"newsletter"      -> nieuwsbrief
  *   "academy"/"cursus"              -> academy
  *   al de rest (contact, offerte...) -> aanvraag
+ * 'geen' = telt nergens als actie; de bezoeker wordt wel herkend (adres, koppeling).
  */
+const WEB_ACTIONS = ['aanvraag', 'nieuwsbrief', 'academy', 'event', 'geen'];
 export function conversieSoort(integration) {
+  if (WEB_ACTIONS.includes(integration?.web_action)) return integration.web_action;
   if (integration?.source_type === 'calendly') return 'aanvraag';
   const naam = String(integration?.name || '').toLowerCase();
   if (/nieuwsbrief|newsletter/.test(naam)) return 'nieuwsbrief';
@@ -107,7 +111,9 @@ export async function reportWebConversion(env, { integration, normalizedForm, su
     const uuid = uuidUit(normalizedForm);
     if (!uuid) return;
 
-    const isCalendly = integration?.source_type === 'calendly';
+    // Een Calendly-koppeling die bewust iets anders dan een aanvraag is (bv. 'geen'
+    // voor een intern overleg), gaat mee als formulier met die soort.
+    const isCalendly = integration?.source_type === 'calendly' && conversieSoort(integration) === 'aanvraag';
     const f = normalizedForm || {};
     const body = {
       uuid,

@@ -105,6 +105,18 @@ export async function updateIntegrationRecord(env, integrationId, payload) {
     updates.tracker_domain = payload.tracker_domain || null;
   }
 
+  // Wat een inzending is voor Webgedrag (migratie 20261003100000_fsv2_web_action.sql).
+  // Leeg = automatisch op de naam; zie conversieSoort() in src/lib/web-conversions.js.
+  if (payload.web_action !== undefined) {
+    const WEB_ACTIONS = ['aanvraag', 'nieuwsbrief', 'academy', 'event', 'geen'];
+    if (payload.web_action !== null && payload.web_action !== '' && !WEB_ACTIONS.includes(payload.web_action)) {
+      const error = new Error(`web_action must be one of: ${WEB_ACTIONS.join(', ')}`);
+      error.code = 'VALIDATION_ERROR';
+      throw error;
+    }
+    updates.web_action = payload.web_action || null;
+  }
+
   if (payload.is_active === true) {
     // Trackers never have resolvers/targets (they don't write to Odoo), so the
     // normal "at least one schrijfdoel" activation-readiness check doesn't apply.

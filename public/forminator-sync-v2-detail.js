@@ -625,10 +625,21 @@
                 '</p>' +
                 stepsHtml +
               '</div>' +
-              '<label class="flex items-center gap-3 cursor-pointer shrink-0">' +
+              '<div class="flex flex-col items-end gap-2 shrink-0">' +
+              '<label class="flex items-center gap-3 cursor-pointer">' +
                 '<span class="font-semibold text-sm">' + (integration.is_active ? 'Actief' : 'Inactief') + '</span>' +
                 '<input id="detailActiveToggle" type="checkbox" class="toggle toggle-success"' + (integration.is_active ? ' checked' : '') + '>' +
               '</label>' +
+              // Wat een inzending is voor Webgedrag (conversieSoort() in src/lib/web-conversions.js).
+              (integration.source_type === 'tracker' ? '' :
+                '<label class="flex items-center gap-2 text-xs text-base-content/70" title="Enkel een aanvraag telt als conversie. Automatisch = op de naam van de koppeling.">' +
+                  '<span>Telt in Webgedrag als</span>' +
+                  '<select id="detailWebAction" class="select select-bordered select-xs">' +
+                    [['', 'Automatisch (op de naam)'], ['aanvraag', 'Aanvraag'], ['nieuwsbrief', 'Nieuwsbrief'], ['academy', 'Academy'], ['event', 'Event'], ['geen', 'Geen actie']]
+                      .map(function (o) { return '<option value="' + o[0] + '"' + ((integration.web_action || '') === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') +
+                  '</select>' +
+                '</label>') +
+              '</div>' +
             '</div>' +
             webhookBlock +
           '</div>' +
@@ -680,6 +691,19 @@
       if (toggle) {
         toggle.addEventListener('change', function (e) {
           window.FSV2.handleToggleActive(e.target.checked).catch(function (err) { window.FSV2.showAlert(err.message, 'error'); });
+        });
+      }
+
+      var webAction = document.getElementById('detailWebAction');
+      if (webAction) {
+        webAction.addEventListener('change', function (e) {
+          var waarde = e.target.value || null;
+          window.FSV2.api('/integrations/' + S().activeId, { method: 'PUT', body: JSON.stringify({ web_action: waarde }) })
+            .then(function () {
+              if (S().detail && S().detail.integration) S().detail.integration.web_action = waarde;
+              window.FSV2.showAlert('Bewaard. Nieuwe inzendingen tellen in Webgedrag als: ' + e.target.options[e.target.selectedIndex].text + '.', 'success');
+            })
+            .catch(function (err) { window.FSV2.showAlert(err.message, 'error'); });
         });
       }
 
