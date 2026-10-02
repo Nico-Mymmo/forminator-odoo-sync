@@ -463,6 +463,14 @@ textarea.mymmo-form-input {
   cursor: progress;
 }
 
+/* Wacht op een verplicht vinkje: grijs, en geen hover die "klik me" zegt. */
+.mymmo-form-wrap .mymmo-form-submit--wacht,
+.mymmo-form-wrap .mymmo-form-submit--wacht:hover {
+  opacity: 0.45;
+  filter: grayscale(1);
+  cursor: not-allowed;
+}
+
 /* ── Ruimte die van het thema komt ───────────────────────────────────────── */
 
 /*

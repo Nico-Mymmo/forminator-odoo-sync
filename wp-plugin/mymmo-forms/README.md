@@ -567,6 +567,14 @@ injectiepad zijn naar elke site die het formulier toont.
 
 ## Versies
 
+**1.20.9** — een VERPLICHT vinkje (verplichte opt-in in de OM) maakt de
+verstuurknop grijs tot het aangevinkt is; een klik zet de focus op het vinkje,
+zonder foutmelding. Geen rood sterretje meer achter een vinkje. En de tekst
+tijdens het verzenden volgt wat de koppeling doet: "We maken je offerte op"
+enkel bij een pdf-stap, "We zetten je cursus klaar" bij de academy, anders
+"Even geduld". Tot nu stond overal de offerte-tekst. Die tekst komt uit de OM
+(deploy nodig); de plugin valt terug op "Even geduld".
+
 **1.20.8** — `Mymmo_Forms_Academy::bestemmingen()`: de pagina's en cursussen
 waar een knop de academy kan laten openen, uit de academy zelf. Een
 academy-knop opent op een PAD (`data-mymmo-academy-pad`).

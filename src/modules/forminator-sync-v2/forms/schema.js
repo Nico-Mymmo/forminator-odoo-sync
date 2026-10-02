@@ -95,7 +95,13 @@ export const MESSAGES = {
     next:           'Volgende',
     step_of:        'Stap {n} van {total}',
     submitting:     'Bezig met versturen…',
-    busy:           'We maken je offerte op',
+    // Tijdens het verzenden. ALGEMEEN, want dit staat in elk formulier; de
+    // varianten hieronder kiest public-api.js op basis van wat de koppeling
+    // doet (busySoort()). Tot 2026-10-03 stond hier voor IEDEREEN "We maken je
+    // offerte op" -- ook in het venster van de academy.
+    busy:           'Even geduld',
+    busy_offerte:   'We maken je offerte op',
+    busy_academy:   'We zetten je cursus klaar',
     check_fields:   'Kijk de gemarkeerde velden na.',
     expired:        'De pagina was verlopen. Probeer het opnieuw.',
     stale_page:     'Deze pagina stond te lang open. Ververs ze en probeer opnieuw.',
@@ -118,7 +124,9 @@ export const MESSAGES = {
     next:           'Suivant',
     step_of:        'Étape {n} sur {total}',
     submitting:     'Envoi en cours…',
-    busy:           'Nous préparons votre offre',
+    busy:           'Un instant',
+    busy_offerte:   'Nous préparons votre offre',
+    busy_academy:   'Nous préparons votre cours',
     check_fields:   'Veuillez vérifier les champs signalés.',
     expired:        'La page avait expiré. Veuillez réessayer.',
     stale_page:     'Cette page est restée ouverte trop longtemps. Actualisez-la et réessayez.',
@@ -141,7 +149,9 @@ export const MESSAGES = {
     next:           'Next',
     step_of:        'Step {n} of {total}',
     submitting:     'Sending…',
-    busy:           'We are preparing your quote',
+    busy:           'One moment',
+    busy_offerte:   'We are preparing your quote',
+    busy_academy:   'We are preparing your course',
     check_fields:   'Please check the highlighted fields.',
     expired:        'The page had expired. Please try again.',
     stale_page:     'This page was open too long. Refresh it and try again.',
@@ -634,7 +644,7 @@ function normalizeValidation(raw) {
  * geen interne id's — die horen niet op een publieke pagina, ook niet als de
  * plugin ze server-side ophaalt.
  */
-export function toPublicFormPayload(form, fields) {
+export function toPublicFormPayload(form, fields, { busy = '' } = {}) {
   const languages = Array.isArray(form.languages) && form.languages.length
     ? form.languages.filter(isLanguage)
     : [DEFAULT_LANGUAGE];
@@ -648,7 +658,12 @@ export function toPublicFormPayload(form, fields) {
   // verloopt de ene taal voor de andere. Eén payload voor alles is een paar
   // honderd bytes groter en heeft geen van die problemen.
   const messages = {};
-  for (const lang of languages) messages[lang] = MESSAGES[lang] || MESSAGES[DEFAULT_LANGUAGE];
+  for (const lang of languages) {
+    const tabel = MESSAGES[lang] || MESSAGES[DEFAULT_LANGUAGE];
+    // De bezig-tekst die past bij wat er na het verzenden gebeurt (offerte,
+    // academy); anders de algemene. De plugin leest enkel `busy`.
+    messages[lang] = busy && tabel[`busy_${busy}`] ? { ...tabel, busy: tabel[`busy_${busy}`] } : tabel;
+  }
 
   return {
     id: form.id,

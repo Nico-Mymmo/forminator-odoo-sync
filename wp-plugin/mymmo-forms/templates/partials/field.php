@@ -123,8 +123,9 @@ if ($type === 'hidden') {
                    value="ja"
                    <?php checked($waarde === 'ja' || $waarde === '1'); ?>
                    <?php echo $req_attr . $beschrijft; ?>>
+            <?php // Geen sterretje bij een vinkje: de grijze knop zegt al dat het moet (mymmo-forms.js). ?>
             <label for="<?php echo esc_attr($veld_id); ?>">
-                <?php echo esc_html($label); ?><?php echo $verplicht ? ' <span class="mymmo-form-req" aria-hidden="true">*</span>' : ''; ?>
+                <?php echo esc_html($label); ?>
             </label>
         </div>
 

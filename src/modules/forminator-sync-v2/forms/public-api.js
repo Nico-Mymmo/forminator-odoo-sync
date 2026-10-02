@@ -20,7 +20,7 @@
  */
 
 import { getFormBySlug, listPublishedForms } from './database.js';
-import { getIntegrationById } from '../database.js';
+import { getIntegrationById, listTargetsByIntegration } from '../database.js';
 import { listPublicCalendlyAppointments } from '../calendly/database.js';
 import { toPublicFormPayload, toPublicFormListItem } from './schema.js';
 import { submitFormEntry } from './submit.js';
@@ -342,8 +342,29 @@ async function handleBookingLink(request, env, ruweSlug) {
     { 'Cache-Control': 'public, max-age=60' });
 }
 
-function handleSchema(request, env, { form, fields }) {
-  const etag = etagForForm(form);
+/**
+ * Wat er na het verzenden gebeurt, voor de tekst tijdens het wachten: een
+ * offerte (een pdf-stap), de academy, of niets bijzonders. Faalt nooit: bij een
+ * fout gewoon de algemene tekst.
+ */
+async function busySoort(env, form) {
+  try {
+    const integration = await getIntegrationById(env, form.integration_id);
+    if (integration?.web_action === 'academy') return 'academy';
+    const stappen = await listTargetsByIntegration(env, form.integration_id);
+    if (stappen.some((s) => s.operation_type === 'generate_pdf')) return 'offerte';
+  } catch (err) {
+    console.warn(`${LOG_PREFIX} bezig-tekst niet bepaald voor "${form.slug}": ${err.message}`);
+  }
+  return '';
+}
+
+async function handleSchema(request, env, { form, fields }) {
+  const busy = await busySoort(env, form);
+  // De soort zit in de ETag: een pdf-stap erbij of de koppeling op Academy
+  // zetten wijzigt het formulier niet (dus ook de versie niet), en zonder dit
+  // bleef de plugin de oude tekst tonen.
+  const etag = etagForForm(form).replace(/"$/, `-${busy || 'gewoon'}"`);
 
   if (request.headers.get('If-None-Match') === etag) {
     return new Response(null, {
@@ -353,7 +374,7 @@ function handleSchema(request, env, { form, fields }) {
   }
 
   return json(
-    { success: true, data: toPublicFormPayload(form, fields) },
+    { success: true, data: toPublicFormPayload(form, fields, { busy }) },
     200, request, env,
     { ETag: etag, 'Cache-Control': 'public, max-age=60' }
   );

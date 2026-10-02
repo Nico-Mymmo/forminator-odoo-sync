@@ -139,10 +139,12 @@
 
     // ── Eén vinkje ───────────────────────────────────────────────────────────
     if (type === 'checkbox') {
+      // Geen sterretje bij een vinkje (zoals field.php): op de site is de
+      // knop grijs zolang het niet aangevinkt is.
       binnen =
         '<div class="mymmo-form-check">' +
         '<input type="checkbox"' + (veld.default_value === 'ja' || veld.default_value === '1' ? ' checked' : '') + ' disabled>' +
-        '<label>' + labelHtml + '</label>' +
+        '<label>' + labelHtml.replace(verplichtSter, '') + '</label>' +
         '</div>';
 
     // ── Keuzegroepen ─────────────────────────────────────────────────────────

@@ -924,7 +924,7 @@
               <span class="label label-text text-xs">Toestemming</span>
               <select class="select select-bordered select-sm" data-fb-change="consent">
                 ${[['optin', 'Opt-in — leeg, mag leeg blijven'],
-                   ['optin_required', 'Verplichte opt-in — leeg, aanvinken om te verzenden'],
+                   ['optin_required', 'Verplichte opt-in — de knop is grijs tot het aangevinkt is'],
                    ['optout', 'Opt-out — vooraf aangevinkt']].map(function (o) {
                   return `<option value="${o[0]}" ${toestemmingVan(veld) === o[0] ? 'selected' : ''}>${o[1]}</option>`;
                 }).join('')}

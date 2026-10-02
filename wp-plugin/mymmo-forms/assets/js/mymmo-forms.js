@@ -153,6 +153,27 @@
     var bezig = false;
     var ooitGevalideerd = false;
 
+    // Een VERPLICHT VINKJE (verplichte opt-in in de OM): zolang het niet
+    // aangevinkt is, is de knop grijs en doet hij niets -- geen foutmelding.
+    // aria-disabled en niet disabled: een schermlezer moet de knop nog kunnen
+    // aanwijzen, en een klik zet de focus op het vinkje dat nog ontbreekt.
+    var toestemmingen = form.querySelectorAll('.mymmo-form-check input[type="checkbox"][required]');
+    function ontbrekendeToestemming() {
+      for (var i = 0; i < toestemmingen.length; i += 1) {
+        if (!toestemmingen[i].checked && !toestemmingen[i].disabled) return toestemmingen[i];
+      }
+      return null;
+    }
+    function werkKnopBij() {
+      if (!knop || bezig || !toestemmingen.length) return;
+      var wacht = !!ontbrekendeToestemming();
+      knop.classList.toggle('mymmo-form-submit--wacht', wacht);
+      if (wacht) knop.setAttribute('aria-disabled', 'true');
+      else knop.removeAttribute('aria-disabled');
+    }
+    werkKnopBij();
+    form.addEventListener('change', werkKnopBij);
+
     // Pas NA een eerste verzendpoging meelopen met wat de bezoeker typt. Iemand
     // corrigeren terwijl hij zijn e-mailadres nog aan het intypen is ("nico@" is
     // nu eenmaal even ongeldig) is het irritantste wat een formulier kan doen.
@@ -176,6 +197,13 @@
         // op een hash van de payload, dus een dubbele inzending zou geen dubbele
         // lead geven — maar de bezoeker twee keer laten wachten wel.
         event.preventDefault();
+        return;
+      }
+
+      var mist = ontbrekendeToestemming();
+      if (mist) {
+        event.preventDefault();
+        mist.focus();
         return;
       }
 
@@ -204,6 +232,7 @@
             knop.removeAttribute('aria-disabled');
             if (knop.dataset.mymmoLabel) knop.textContent = knop.dataset.mymmoLabel;
           }
+          werkKnopBij();
         });
       }
 
@@ -224,6 +253,7 @@
           knop.removeAttribute('aria-disabled');
           if (knop.dataset.mymmoLabel) knop.textContent = knop.dataset.mymmoLabel;
         }
+        werkKnopBij();
       }, 10000);
     });
   }
@@ -357,7 +387,7 @@
     }
     // De puntjes zijn CSS-animatie, dus de tekst zelf zonder puntjes. De
     // terugval staat hier voor een Worker die de sleutel `busy` nog niet kent.
-    overlay.querySelector('.mymmo-form-bezig-tekst').textContent = t.busy || 'We maken je offerte op';
+    overlay.querySelector('.mymmo-form-bezig-tekst').textContent = t.busy || 'Even geduld';
     // De wikkel krijgt een klasse die de inhoud onzichtbaar maakt: het overlay
     // alleen (half doorzichtig) liet de formuliertekst erdoor schemeren.
     wikkel.classList.add('mymmo-form-wrap--bezig');
