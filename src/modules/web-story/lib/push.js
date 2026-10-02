@@ -23,6 +23,7 @@ import { readVisitorSessions } from '../../dashboards/lib/web-visits.js';
 import { runMatching } from './matching.js';
 import { fetchTimeline } from './tracker.js';
 import { buildJourney, journeyHtml } from './journey.js';
+import { readIdentities, isShared, personKey } from './identities.js';
 
 const KV = 'webstory:';
 const MAX_PER_RUN = 120;
@@ -58,8 +59,8 @@ async function linkedUuids(env, leadIds) {
   for (let i = 0; i < leadIds.length; i += 90) {
     const part = leadIds.slice(i, i + 90);
     const res = await readWebEvents(env,
-      `SELECT l.res_id, l.visitor_uuid, v.email, v.last_seen FROM visitor_links l JOIN visitors v ON v.uuid = l.visitor_uuid
-       WHERE l.model = 'crm.lead' AND l.status <> 'afgewezen' AND v.is_internal = 0 AND v.is_bot = 0
+      `SELECT l.res_id, l.visitor_uuid, v.email, v.last_seen, v.is_internal FROM visitor_links l JOIN visitors v ON v.uuid = l.visitor_uuid
+       WHERE l.model = 'crm.lead' AND l.status <> 'afgewezen' AND v.is_bot = 0
          AND l.res_id IN (${part.map(() => '?').join(',')})`, part);
     for (const r of res.results || []) {
       if (!out.has(r.res_id)) out.set(r.res_id, []);
@@ -80,14 +81,25 @@ async function hasFields(env, model, names) {
 async function pushRecord(env, kind, id, rows, conversionAt, { mode, stats, force = false }) {
   const recent = rows.slice().sort((a, b) => (a.last_seen < b.last_seen ? 1 : -1)).slice(0, MAX_UUIDS);
   const uuids = recent.map(r => r.visitor_uuid);
-  const persons = new Map(recent.map(r => [r.visitor_uuid, r.email || r.visitor_uuid]));
-  const sessions = await readVisitorSessions(env, uuids);
+  // Een collega-browser die aan een lead hangt, is bijna altijd een test met een
+  // formulier: tonen (met een label), want dat is net wat je dan wil zien. In de
+  // cijfers telt hij nergens mee.
+  const ids = await readIdentities(env, uuids);
+  const persons = new Map(recent.map(r => [r.visitor_uuid, personKey(ids.get(r.visitor_uuid), r.visitor_uuid)]));
+  const sessions = await readVisitorSessions(env, uuids, { includeInternal: true });
   if (!sessions.length) { stats.leeg++; return; }
-  const tl = await fetchTimeline(env, uuids);
+  const tl = await fetchTimeline(env, uuids, { includeInternal: true });
+  const notes = [];
+  if (recent.some(r => r.is_internal)) notes.push('Bevat bezoeken van een collega-browser (intern / test). Die tellen niet mee in de cijfers.');
+  const gedeeld = recent.filter(r => isShared(ids.get(r.visitor_uuid)));
+  if (gedeeld.length) {
+    const anderen = [...new Set(gedeeld.flatMap(r => ids.get(r.visitor_uuid).map(i => i.email)))].slice(0, 4);
+    notes.push(`Gedeelde browser: gebruikt met ${anderen.join(', ')}. Welke bezoeken van wie zijn, is een benadering.`);
+  }
   if (!tl.timeline_html) { stats.leeg++; return; }
   const journey = buildJourney(sessions, { conversionAt, persons });
   const omUrl = omStoryUrl(env, kind, id);
-  const html = journeyHtml(journey, { titel: kind.titel, omUrl }) + tl.timeline_html;
+  const html = journeyHtml(journey, { titel: kind.titel, omUrl, notes }) + tl.timeline_html;
   const hash = await sha(html + '\u0000' + tl.kpi_html);
   const key = `${KV}hash:${kind.model}:${id}`;
   if (!force && (await env.MAPPINGS_KV.get(key)) === hash) { stats.ongewijzigd++; return; }

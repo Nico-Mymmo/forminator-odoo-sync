@@ -138,7 +138,9 @@
       titel = persoonLabel(r.email, r.uuid);
       meta.push(esc(r.site || ''));
       meta.push('eerste bezoek ' + esc(datum(r.first_seen)) + ', laatste ' + esc(datum(r.last_seen)));
-      if (r.internal) meta.push('<span class="badge badge-sm badge-warning">intern</span>');
+      if (r.internal) meta.push('<span class="badge badge-sm badge-warning">intern / test</span>');
+      if (r.gedeeld) meta.push('<span class="badge badge-sm badge-info badge-outline">gedeelde browser</span>');
+      if ((r.emails || []).length > 1) meta.push('adressen: ' + r.emails.map(function (m) { return esc(m.email); }).join(', '));
       if (r.bot) meta.push('<span class="badge badge-sm">bot</span>');
       links = (s.leads || []).map(function (l) {
         return '<a class="btn btn-xs btn-ghost" data-action="open" data-kind="lead" data-id="' + l.res_id + '">' + esc(l.name || '#' + l.res_id) + '</a>';
@@ -192,7 +194,10 @@
       var status = l.status === 'actief' ? '' : '<span class="badge badge-sm ' + (l.status === 'bevestigd' ? 'badge-success' : 'badge-ghost') + '">' + esc(l.status) + '</span>';
       return '<tr class="' + (l.status === 'afgewezen' ? 'opacity-50' : '') + '">'
         + '<td><a class="link link-hover" data-action="open" data-kind="visitor" data-id="' + l.visitor_uuid + '">' + esc(persoonLabel(l.email, l.visitor_uuid)) + '</a>'
-        + (l.is_internal ? ' <span class="badge badge-sm badge-warning">intern</span>' : '') + '</td>'
+        + (l.is_internal ? ' <span class="badge badge-sm badge-warning" title="Een collega-browser: telt niet mee in de cijfers">intern / test</span>' : '')
+        + (l.gedeeld ? ' <span class="badge badge-sm badge-info badge-outline" title="Deze browser gebruikte meerdere adressen">gedeelde browser</span>'
+          + '<div class="text-xs opacity-60">ook: ' + esc((l.emails || []).filter(function (m) { return m !== l.email; }).join(', ')) + '</div>' : '')
+        + '</td>'
         + '<td class="text-sm">' + esc(BRON[l.bron] || l.bron) + '</td>'
         + '<td><span class="badge badge-sm ' + (STERKTE[l.sterkte] || '') + '">' + esc(l.sterkte) + '</span> ' + status + '</td>'
         + '<td class="text-sm opacity-70 whitespace-nowrap">' + esc(datum(l.last_seen)) + '</td>'
@@ -224,7 +229,10 @@
       if (x.conversions.events) conv.push('<span class="badge badge-sm badge-info">inschrijving</span>');
       var pages = x.pages.slice(0, 3).map(esc).join(', ') + (x.pages.length > 3 ? ' <span class="opacity-50">+' + (x.pages.length - 3) + '</span>' : '');
       return '<tr><td class="whitespace-nowrap text-sm">' + esc(datum(x.start, true)) + '</td>'
-        + '<td class="text-sm">' + esc(persoonLabel(x.person, x.uuid)) + '</td>'
+        + '<td class="text-sm">' + esc(persoonLabel(x.person, x.uuid))
+        + (x.intern ? ' <span class="badge badge-xs badge-warning">intern / test</span>' : '')
+        + (x.gedeeld ? ' <span class="badge badge-xs badge-info badge-outline" title="Gedeelde browser: het adres dat op dat moment in gebruik was">~</span>' : '')
+        + (x.test ? ' <span class="badge badge-xs">testpagina</span>' : '') + '</td>'
         + '<td>' + chip(x.historic && x.channel === 'Direct / onbekend' ? 'Zonder campagne (oude historiek)' : x.channel) + (x.detail ? '<div class="text-xs opacity-60">' + esc(x.detail) + '</div>' : '') + '</td>'
         + '<td class="text-xs">' + pages + '</td><td>' + conv.join(' ') + '</td></tr>';
     }).join('');
@@ -267,7 +275,9 @@
         return '<tr><td><input type="checkbox" class="checkbox checkbox-xs" data-action="select" data-i="' + i + '"></td>'
           + '<td><a class="link link-hover" data-action="open" data-kind="lead" data-id="' + r.res_id + '">' + esc(r.lead_name || '#' + r.res_id) + '</a>'
           + '<div class="text-xs opacity-60">' + esc(r.lead_email || '') + (r.partner ? ' · ' + esc(r.partner.name) : '') + '</div></td>'
-          + '<td class="text-sm">' + esc(persoonLabel(r.email, r.visitor_uuid)) + '</td>'
+          + '<td class="text-sm">' + esc(persoonLabel(r.email, r.visitor_uuid))
+          + (r.gedeeld ? '<div class="text-xs opacity-70"><span class="badge badge-xs badge-info badge-outline">gedeelde browser</span> ook: '
+            + esc((r.emails || []).filter(function (m) { return m !== r.email; }).join(', ')) + '</div>' : '') + '</td>'
           + '<td class="text-sm">' + esc(r.owner ? r.owner.name : '') + '</td>'
           + '<td class="text-sm opacity-70">' + esc(datum(r.last_seen)) + '</td></tr>';
       }).join('') + '</tbody></table>';

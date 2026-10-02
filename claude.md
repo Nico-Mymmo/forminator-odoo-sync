@@ -3885,6 +3885,24 @@ Afspraken die bewust zo zijn:
   valt; het verhaal en de attributie slaan inlogbezoeken over (`buildJourney`).
   De inlogklik en klikken op de cookiebanner (`NOISE_TEXTS`) tellen niet als
   betrokkenheid. Nieuwe knoptekst voor inloggen? Zet ze in `LOGIN_TEXTS`.
+- **Een browser heeft ALLE adressen die hij ooit gebruikte, niet een** (tabel
+  `visitor_emails` in D1, gevuld door de tracker; `src/modules/web-story/lib/identities.js`
+  leest ze). Een adres wordt HERLEID voor het herkennen van een persoon: `+tag`
+  valt weg (nico+test@mymmo.com = nico@mymmo.com) en bij gmail ook de puntjes --
+  zelfde regel als `lib/identity.js` in de tracker, twee repo's, wijzig ze samen.
+  Matching zoekt op het RUWE en het HERLEIDE adres: in Odoo staat wat de klant typte.
+  - **Intern gaat ENKEL op het adres.** Een browser die ooit een intern adres
+    gebruikte (`INTERNAL_DOMAINS_DEFAULT` in de tracker: mymmo.com, openvme.be/.com,
+    syndicoach.be, syndicusonline.com, openacp.be, cindy.eu) is een collega-browser:
+    nergens in de cijfers, ook niet onder een privéadres. Op het verhaal van een LEAD
+    komt hij wel (label "intern / test"), zodat een test met een formulier te volgen is.
+  - **Een testpagina maakt niemand intern** (sinds 2026-10-02). Een BEZOEK met een
+    testpagina (`isTestPage()` in web-visits.js) valt uit alle cijfers en uit het pad;
+    de browser blijft wie hij is.
+  - **Gedeelde browser** = twee herleid verschillende adressen (een koppel, of een
+    collega die test). De matching geeft dan hooguit `middel` (Twijfelgevallen); per
+    bezoek toont het verhaal het adres dat TOEN in gebruik was (`activeEmail()`), met
+    een label, want het is een benadering.
 - **Padverkenner = stappen naast elkaar, geen Sankey.** Een pagina op een stap
   "vastzetten" filtert op wie daar langskwam; herladen van dezelfde pagina telt
   niet als stap. Tijd op een pagina = tot de volgende pagina (de gemeten dwell zit

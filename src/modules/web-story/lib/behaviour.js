@@ -17,7 +17,7 @@
  */
 
 import { hasWebEvents, readWebEvents } from '../../../lib/web-events.js';
-import { readSessionRows, channelOf, CHANNELS, WEB_PERIODS, readFirstLogins, isCustomerSession, isLoginOnly } from '../../dashboards/lib/web-visits.js';
+import { readSessionRows, channelOf, CHANNELS, WEB_PERIODS, readFirstLogins, isCustomerSession, isLoginOnly, isTestPage } from '../../dashboards/lib/web-visits.js';
 
 const CACHE_SECONDS = 600;
 export const FLAGS = {
@@ -63,6 +63,7 @@ export async function getBehaviourData(env, { period }) {
     try { pg = JSON.parse(r.pg || '[]'); pt = JSON.parse(r.pt || '[]'); } catch (_) { pg = []; pt = []; }
     const views = [];
     for (let i = 0; i < pg.length; i++) if (pg[i] && pt[i]) views.push([pt[i], pg[i]]);
+    if (views.some(v => isTestPage(v[1]))) continue;   // een testbezoek telt nergens mee
     views.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
     const st = unix(r.st);
     const [ch, det] = channelOf(r);

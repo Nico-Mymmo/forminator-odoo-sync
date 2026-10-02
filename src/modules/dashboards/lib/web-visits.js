@@ -69,7 +69,7 @@ WITH ev AS (
          (v.email IS NOT NULL AND v.email <> '') AS kn
   FROM events e JOIN visitors v ON v.uuid = e.visitor_uuid
   WHERE __WHERE__
-    AND v.is_internal = 0 AND v.is_bot = 0 AND e.type <> 'scroll'
+    __INTERNAL__ AND v.is_bot = 0 AND e.type <> 'scroll'
 ),
 g AS (
   SELECT ev.*,
@@ -106,7 +106,22 @@ SELECT u,
   MIN(CASE WHEN type = 'page' THEN json_extract(data,'$.cf_country') END) AS co,
   MAX(bron = 'odoo-historiek') AS hi, MAX(kn) AS kn
 FROM s0 GROUP BY u, sid`;
-const SESSIONS_SQL = SESSIONS_SQL_TEMPLATE.replace('__WHERE__', 'e.ts >= ?1 AND e.ts < ?2');
+const ZONDER_INTERN = 'AND v.is_internal = 0';
+const SESSIONS_SQL = SESSIONS_SQL_TEMPLATE.replace('__WHERE__', 'e.ts >= ?1 AND e.ts < ?2').replace('__INTERNAL__', ZONDER_INTERN);
+
+/**
+ * Een testpagina van onze eigen sites. Een BEZOEK met zo'n pagina is een test en
+ * telt nergens mee -- de BROWSER blijft wie hij is (sinds 2026-10-02 maakt een
+ * testpagina niemand meer intern; intern gaat enkel nog op het e-mailadres).
+ * Dezelfde regel als isInternalPage() in de tracker (lib/events-store.js); twee
+ * repo's, wijzig ze samen. Bewust op een PADDEEL, niet "bevat test": anders
+ * valt /video/testimonials/ of een asbestattest-event er ook onder.
+ */
+export function isTestPage(page) {
+  if (!page || typeof page !== 'string') return false;
+  return page.split('?')[0].toLowerCase().split('/').some(seg =>
+    seg === 'test' || seg.startsWith('test-') || seg.endsWith('-test') || seg.includes('updatetest') || seg === 'testevnt');
+}
 
 // ─── Kanalen ─────────────────────────────────────────────────────────────────
 // Eén plek. Volgorde van de bronnen: het touchpoint van de sessie (advertentie-
@@ -240,6 +255,7 @@ export async function getWebVisitsData(env, { period }) {
   for (const r of rows) {
     let pages = [];
     try { pages = JSON.parse(r.pg || '[]').filter(Boolean); } catch (_) { pages = []; }
+    if (pages.some(isTestPage)) continue;
     // Zoektermen in kleine letters: "Syndicus" en "syndicus" zijn dezelfde vraag.
     let zoek = [];
     try { zoek = JSON.parse(r.zq || '[]').filter(Boolean).map(z => String(z).trim().toLowerCase()).filter(Boolean); } catch (_) { zoek = []; }
@@ -305,12 +321,14 @@ export async function readSessionRows(env, startTs, endTs) {
  * kanaalindeling als het dashboard; er bestaat geen tweede versie van een van beide.
  * @returns {Promise<Array<{uuid, start, end, site, channel, detail, pages, conversions, historic}>>}
  */
-export async function readVisitorSessions(env, uuids) {
+export async function readVisitorSessions(env, uuids, { includeInternal = false } = {}) {
   const list = [...new Set(uuids || [])];
   const out = [];
   for (let i = 0; i < list.length; i += 50) {
     const part = list.slice(i, i + 50);
-    const sql = SESSIONS_SQL_TEMPLATE.replace('__WHERE__', `e.visitor_uuid IN (${part.map(() => '?').join(',')})`);
+    // includeInternal: voor het verhaal op een (test)lead -- in de cijfers nooit.
+    const sql = SESSIONS_SQL_TEMPLATE.replace('__WHERE__', `e.visitor_uuid IN (${part.map(() => '?').join(',')})`)
+      .replace('__INTERNAL__', includeInternal ? '' : ZONDER_INTERN);
     const res = await readWebEvents(env, sql, part);
     for (const r of res.results || []) {
       let pages = [];
@@ -321,6 +339,7 @@ export async function readVisitorSessions(env, uuids) {
         pages, conversions: { calendly: r.ca || 0, events: r.er || 0, forms: r.fs || 0 },
         historic: !!r.hi,
         loginOnly: isLoginOnly(r),
+        test: pages.some(isTestPage),
       });
     }
   }

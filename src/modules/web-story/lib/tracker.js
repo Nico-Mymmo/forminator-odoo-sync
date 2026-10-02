@@ -37,6 +37,6 @@ export async function saveLinks(env, links) {
 }
 
 /** Tijdlijn + KPI-HTML voor een set bezoekers (max 50 per aanroep, zie lib/story.js in de tracker). */
-export async function fetchTimeline(env, uuids, { omUrl = null } = {}) {
-  return post(env, '/internal/timeline', { uuids: uuids.slice(0, 50), om_url: omUrl });
+export async function fetchTimeline(env, uuids, { omUrl = null, includeInternal = false } = {}) {
+  return post(env, '/internal/timeline', { uuids: uuids.slice(0, 50), om_url: omUrl, include_internal: includeInternal });
 }

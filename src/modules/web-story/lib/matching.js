@@ -12,8 +12,17 @@
  * gewone leads tellen mee (een verloren lead komt soms terug), en een collega
  * bij de VME wordt als 'middel' gemarkeerd in plaats van ongezien bijgevoegd.
  *
- * Een koppeling wordt nooit afgezwakt en nooit verwijderd door deze ronde; wat
- * een mens bevestigde of afwees, laat de tracker staan.
+ * Er wordt gezocht op ELK adres dat een browser ooit gebruikte (visitor_emails),
+ * zowel zoals het ingetypt werd als herleid (nico+test@x.be -> nico@x.be): in
+ * Odoo staat het zoals de klant het typte, dus beide vormen moeten kunnen matchen.
+ *
+ * Een GEDEELDE BROWSER (twee herleid verschillende adressen -- een koppel, of een
+ * collega die test met een ander adres) haalt hooguit 'middel': welke bezoeken van
+ * wie zijn, is dan niet zeker, en dat hoort een mens te beslissen (Twijfelgevallen).
+ * Een 'zeker' (rechtstreeks uit een inzending) blijft altijd staan.
+ *
+ * Een koppeling wordt nooit verwijderd door deze ronde; wat een mens bevestigde of
+ * afwees, laat de tracker staan.
  */
 
 import { searchRead } from '../../../lib/odoo.js';
@@ -35,21 +44,27 @@ const m2oId = v => (Array.isArray(v) ? v[0] : v || null);
 
 export async function runMatching(env, { dry = false } = {}) {
   const vis = await readWebEvents(env,
-    `SELECT uuid, lower(trim(email)) AS email FROM visitors
-     WHERE email IS NOT NULL AND email <> '' AND is_internal = 0 AND is_bot = 0`);
+    `SELECT ve.visitor_uuid AS uuid, ve.email, ve.email_norm FROM visitor_emails ve
+     JOIN visitors v ON v.uuid = ve.visitor_uuid WHERE v.is_internal = 0 AND v.is_bot = 0`);
   const uuidsPerEmail = new Map();
+  const normsPerUuid = new Map();
+  const add = (k, u) => { if (!uuidsPerEmail.has(k)) uuidsPerEmail.set(k, new Set()); uuidsPerEmail.get(k).add(u); };
   for (const v of vis.results || []) {
-    if (!uuidsPerEmail.has(v.email)) uuidsPerEmail.set(v.email, []);
-    uuidsPerEmail.get(v.email).push(v.uuid);
+    add(v.email, v.uuid);
+    add(v.email_norm, v.uuid);
+    if (!normsPerUuid.has(v.uuid)) normsPerUuid.set(v.uuid, new Set());
+    normsPerUuid.get(v.uuid).add(v.email_norm);
   }
+  const gedeeld = uuid => (normsPerUuid.get(uuid)?.size || 0) > 1;
   const emails = [...uuidsPerEmail.keys()];
 
   const kandidaten = new Map(); // `${uuid}|${leadId}` -> {bron, sterkte}
   function voeg(email, leadId, bron, sterkte) {
     for (const uuid of uuidsPerEmail.get(email) || []) {
+      const s = gedeeld(uuid) && RANG[sterkte] > RANG.middel ? 'middel' : sterkte;
       const key = `${uuid}|${leadId}`;
       const cur = kandidaten.get(key);
-      if (!cur || RANG[sterkte] > RANG[cur.sterkte]) kandidaten.set(key, { uuid, leadId, bron, sterkte });
+      if (!cur || RANG[s] > RANG[cur.sterkte]) kandidaten.set(key, { uuid, leadId, bron, sterkte: s });
     }
   }
 
@@ -105,14 +120,16 @@ export async function runMatching(env, { dry = false } = {}) {
     }
   }
 
-  // Alleen wat nieuw is of sterker wordt naar de tracker sturen.
+  // Enkel wat nieuw is of van sterkte verandert. 'zeker' (een inzending) wordt
+  // nooit door deze ronde aangeraakt; een 'sterk' mag wel naar 'middel' zakken
+  // zodra blijkt dat de browser gedeeld wordt.
   const bestaand = new Map();
   const ex = await readWebEvents(env, `SELECT visitor_uuid, res_id, sterkte FROM visitor_links WHERE model = 'crm.lead'`);
   for (const r of ex.results || []) bestaand.set(`${r.visitor_uuid}|${r.res_id}`, r.sterkte);
   const nieuw = [];
   for (const [key, k] of kandidaten) {
     const cur = bestaand.get(key);
-    if (cur && RANG[cur] >= RANG[k.sterkte]) continue;
+    if (cur && (cur === 'zeker' || cur === k.sterkte)) continue;
     nieuw.push({ uuid: k.uuid, model: 'crm.lead', res_id: k.leadId, bron: k.bron, sterkte: k.sterkte });
   }
   const result = { emails: emails.length, kandidaten: kandidaten.size, nieuw: nieuw.length };

@@ -11,6 +11,7 @@ import { readWebEvents } from '../../../lib/web-events.js';
 import { readVisitorSessions } from '../../dashboards/lib/web-visits.js';
 import { buildJourney } from './journey.js';
 import { fetchTimeline } from './tracker.js';
+import { readIdentities, isShared, activeEmail, personKey } from './identities.js';
 
 const ctx = { active_test: false };
 const m2o = v => (Array.isArray(v) ? { id: v[0], name: v[1] } : null);
@@ -35,21 +36,32 @@ export async function linksForLeads(env, leadIds) {
 
 /** Sessies + verhaal + tijdlijn voor een set koppelingen (afgewezen tellen niet mee). */
 async function assemble(env, links, conversionAt) {
+  // Collega-browsers komen mee (gelabeld als intern / test): een test met een
+  // formulier moet je op zijn lead kunnen volgen. Bots nooit.
   const actief = [];
   const seen = new Set();
   for (const l of links) {
-    if (l.status === 'afgewezen' || l.is_internal || l.is_bot || seen.has(l.visitor_uuid)) continue;
+    if (l.status === 'afgewezen' || l.is_bot || seen.has(l.visitor_uuid)) continue;
     seen.add(l.visitor_uuid);
     actief.push(l);
   }
   const uuids = actief.slice(0, MAX_UUIDS).map(l => l.visitor_uuid);
-  const persons = new Map(actief.map(l => [l.visitor_uuid, l.email || null]));
-  const sessions = uuids.length ? await readVisitorSessions(env, uuids) : [];
-  const journey = buildJourney(sessions, { conversionAt, persons: new Map([...persons].map(([u, e]) => [u, e || u])) });
-  const tl = uuids.length ? await fetchTimeline(env, uuids) : {};
+  const ids = uuids.length ? await readIdentities(env, uuids) : new Map();
+  // Elke koppeling krijgt al haar adressen mee, en of de browser gedeeld is.
+  for (const l of links) {
+    const list = ids.get(l.visitor_uuid) || [];
+    l.emails = list.map(i => i.email);
+    l.gedeeld = isShared(list);
+  }
+  const persons = new Map(uuids.map(u => [u, personKey(ids.get(u), u)]));
+  const sessions = uuids.length ? await readVisitorSessions(env, uuids, { includeInternal: true }) : [];
+  const journey = buildJourney(sessions, { conversionAt, persons });
+  const tl = uuids.length ? await fetchTimeline(env, uuids, { includeInternal: true }) : {};
+  const intern = new Set(actief.filter(l => l.is_internal).map(l => l.visitor_uuid));
   return {
     journey,
-    sessions: sessions.map(s => ({ ...s, person: persons.get(s.uuid) || null })),
+    // Per bezoek het adres dat TOEN in gebruik was (bij een gedeelde browser een benadering).
+    sessions: sessions.map(s => ({ ...s, person: activeEmail(ids.get(s.uuid), s.end), intern: intern.has(s.uuid), gedeeld: isShared(ids.get(s.uuid)) })),
     timeline_html: tl.timeline_html || null,
     kpi_html: tl.kpi_html || null,
     afgekapt: actief.length > MAX_UUIDS ? actief.length - MAX_UUIDS : 0,
@@ -104,10 +116,12 @@ export async function visitorStory(env, uuid) {
     fields: ['id', 'name', 'user_id'], context: ctx }) : [];
   const naam = new Map((leads || []).map(l => [l.id, l]));
   const self = [{ visitor_uuid: uuid, email: v.email, is_internal: v.is_internal, is_bot: v.is_bot, status: 'actief' }];
+  const myIds = (await readIdentities(env, [uuid])).get(uuid) || [];
   return {
     kind: 'visitor',
     record: { uuid, email: v.email, site: v.site, first_seen: v.first_seen, last_seen: v.last_seen,
-      internal: !!v.is_internal, bot: !!v.is_bot, ref_uuid: v.ref_uuid },
+      internal: !!v.is_internal, bot: !!v.is_bot, ref_uuid: v.ref_uuid,
+      emails: myIds.map(i => ({ email: i.email, first_seen: i.first_seen, last_seen: i.last_seen })), gedeeld: isShared(myIds) },
     leads: ll.map(l => ({ ...l, name: naam.get(l.res_id)?.name || null, owner: m2o(naam.get(l.res_id)?.user_id) })),
     ...(await assemble(env, self, null)),
   };
@@ -143,8 +157,12 @@ export async function reviewQueue(env, { limit = 200 } = {}) {
   const leads = ids.length ? await searchRead(env, { model: 'crm.lead', domain: [['id', 'in', ids]],
     fields: ['id', 'name', 'email_from', 'user_id', 'partner_id'], context: ctx }) : [];
   const per = new Map((leads || []).map(l => [l.id, l]));
+  // Bij een gedeelde browser alle adressen erbij: daarop beslist de beoordelaar.
+  const adressen = rows.length ? await readIdentities(env, rows.map(r => r.visitor_uuid)) : new Map();
   return rows.map(r => {
     const l = per.get(r.res_id);
-    return { ...r, lead_name: l?.name || null, lead_email: l?.email_from || null, owner: m2o(l?.user_id), partner: m2o(l?.partner_id) };
+    const list = adressen.get(r.visitor_uuid) || [];
+    return { ...r, lead_name: l?.name || null, lead_email: l?.email_from || null, owner: m2o(l?.user_id), partner: m2o(l?.partner_id),
+      emails: list.map(i => i.email), gedeeld: isShared(list) };
   });
 }

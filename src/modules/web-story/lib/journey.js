@@ -47,7 +47,8 @@ function dag(ts) {
  */
 export function buildJourney(sessions, { conversionAt = null, persons = new Map(), atConversion = null } = {}) {
   // Een bezoek dat enkel om in te loggen was, zegt niets over hoe iemand bij ons kwam.
-  sessions = sessions.filter(s => !s.loginOnly);
+  // Een testbezoek (testpagina) evenmin.
+  sessions = sessions.filter(s => !s.loginOnly && !s.test);
   if (!sessions.length) return null;
   sessions = sessions.map(s => (s.historic && s.channel === 'Direct / onbekend' ? { ...s, channel: ONBEKEND_OUD } : s));
   const firstConv = sessions.find(s => s.conversions.calendly + s.conversions.events + s.conversions.forms > 0);
@@ -93,7 +94,7 @@ function regel(label, inhoud) {
     + `<div style="color:#222;">${inhoud}</div></div>`;
 }
 
-export function journeyHtml(j, { omUrl = null, titel = 'Hoe deze lead bij ons kwam' } = {}) {
+export function journeyHtml(j, { omUrl = null, titel = 'Hoe deze lead bij ons kwam', notes = [] } = {}) {
   if (!j) return '';
   const aanraking = t => t
     ? `${chip(t.channel)}${t.detail ? `<span style="color:#555;">${esc(t.detail)}</span> ` : ''}<span style="color:#999;">· ${esc(dag(t.ts))}</span>`
@@ -115,5 +116,7 @@ export function journeyHtml(j, { omUrl = null, titel = 'Hoe deze lead bij ons kw
     + regel('Laatste aanraking', aanraking(j.laatste))
     + regel('Pad', pad)
     + regel('Samengevat', esc(feiten.join(' · ')))
+    // Wat de lezer moet weten om het verhaal juist te lezen (intern/test, gedeelde browser).
+    + notes.map(n => `<div style="font-size:11px;color:#92400e;background-color:#fffbeb;border-radius:6px;padding:4px 8px;margin-top:6px;">${esc(n)}</div>`).join('')
     + `</div>`;
 }
