@@ -368,7 +368,7 @@ function renderContent(webinar, snapshot, state, regCount, isArchived, hasMappin
       </div>
 
       <!-- Info (default open) -->
-      <details class="pt-2 border-t border-base-200" data-expander open>
+      <details class="pt-2 border-t border-base-content/10" data-expander open>
         <summary class="font-semibold text-sm flex items-center justify-between cursor-pointer list-none pb-3">
           <span class="flex items-center gap-2">
             <i data-lucide="info" class="w-4 h-4 text-primary"></i>
@@ -390,7 +390,7 @@ function renderContent(webinar, snapshot, state, regCount, isArchived, hasMappin
       </details>
 
       <!-- ── Beschrijving (inline, geen modal) ── -->
-      <details class="pt-4 border-t border-base-200" data-expander>
+      <details class="pt-4 border-t border-base-content/10" data-expander>
         <summary class="font-semibold text-sm flex items-center justify-between cursor-pointer list-none pb-3">
           <span class="flex items-center gap-2">
             <i data-lucide="file-text" class="w-4 h-4 text-primary"></i>
@@ -473,7 +473,7 @@ function renderContent(webinar, snapshot, state, regCount, isArchived, hasMappin
       </dialog>
 
       <!-- ── Webinar Recap ── -->
-      <details class="pt-4 border-t border-base-200" data-expander>
+      <details class="pt-4 border-t border-base-content/10" data-expander>
         <summary class="font-semibold text-sm flex items-center justify-between cursor-pointer list-none pb-3">
           <span class="flex items-center gap-2">
             <i data-lucide="video" class="w-4 h-4 text-primary"></i>
@@ -694,7 +694,7 @@ function renderRegistrationStatsBadges(registrationStats) {
   }
 
   return `
-    <div class="flex flex-wrap gap-2 pt-2 border-t border-base-200">
+    <div class="flex flex-wrap gap-2 pt-2 border-t border-base-content/10">
       ${badges.join('')}
     </div>
   `;

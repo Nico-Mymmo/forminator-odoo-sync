@@ -303,7 +303,7 @@
     li.dataset.addRootFolder = '1';
     var a = document.createElement('a');
     a.href = '#';
-    a.className = 'gap-2 text-primary mt-1 pt-2 border-t border-base-200';
+    a.className = 'gap-2 text-primary mt-1 pt-2 border-t border-base-content/10';
     a.innerHTML = SVG_PLUS_SM;
     var span = document.createElement('span');
     span.textContent = 'Nieuwe hoofdmap';
@@ -1054,7 +1054,7 @@
 
     if (state.canAdmin || isOwnKey(obj.key)) {
       var divLi = document.createElement('li');
-      divLi.innerHTML = '<hr class="my-1 border-base-200" />';
+      divLi.innerHTML = '<hr class="my-1 border-base-content/10" />';
       ul.appendChild(divLi);
       addItem('Verwijderen', function() { openDeleteModal(obj.key); }, 'text-error');
     }
@@ -1089,7 +1089,7 @@
     itemDefs.forEach(function(def) {
       if (def.divider) {
         var divLi = document.createElement('li');
-        divLi.innerHTML = '<hr class="my-1 border-base-200" />';
+        divLi.innerHTML = '<hr class="my-1 border-base-content/10" />';
         ul.appendChild(divLi);
         return;
       }

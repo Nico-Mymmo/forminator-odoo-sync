@@ -28,8 +28,20 @@
  * conversie niet, hangt de bezoeker niet aan zijn lead, en zie je zijn weg naar
  * ons nergens. Een koppeling heeft daar GEEN aparte stap voor nodig.
  *
- * SOORT (`soort`): aanvraag | nieuwsbrief | academy | event. Zie conversieSoort().
+ * SOORT (`soort`): aanvraag | offerte | nieuwsbrief | academy | event. Zie conversieSoort().
+ * Een OFFERTE is een aanvraag (ze telt mee in "Aanvraag") die apart zichtbaar is.
+ * Welke inzendingen een offerte zijn, wordt bij het LEZEN bepaald
+ * (offerteFormulieren() hieronder + de sessie-SQL in dashboards/lib/web-visits.js),
+ * zodat het ook geldt voor wat al in D1 stond voor iemand "Offerte" aanduidde.
+ *
+ * INHAALRONDE: een melding die mislukte (tracker weg, of vóór 29-09-2026, toen dit
+ * nog niet bestond), wordt elk uur alsnog gedaan -- web-story/lib/conversion-catchup.js,
+ * met buildWebConversion() en conversionEventId() hieronder. Daarom bouwt
+ * buildWebConversion() de melding los van het versturen: de inhaalronde moet
+ * EXACT dezelfde `ref` maken, anders telt dezelfde inzending twee keer.
  */
+
+import { getSupabaseClient } from './database.js';
 
 const TRACKER_PUBLIC = 'https://website-tracker.openvme-odoo.workers.dev';
 
@@ -52,17 +64,67 @@ async function postTracker(env, path, body) {
   }
 }
 
+/** Een melding naar de tracker, voor de inhaalronde. Geeft true als de tracker ze aannam. */
+export async function postConversion(env, body) {
+  if (!env.WEB_CONVERSION_SECRET) return false;
+  try { return await postTracker(env, '/internal/conversion', body); } catch (e) {
+    console.warn('[web-conversion] inhaal niet doorgegeven:', e?.message || e);
+    return false;
+  }
+}
+
+/**
+ * De id die de tracker een melding geeft: sha256('conv|' + ref), de eerste 16 bytes
+ * in hex. ZELFDE REGEL als storeServerConversion() in website-tracker/lib/events-store.js
+ * -- twee repo's, wijzig ze samen. De inhaalronde kijkt hiermee of een inzending al in
+ * D1 staat.
+ */
+export async function conversionEventId(ref) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('conv|' + ref));
+  return [...new Uint8Array(buf)].slice(0, 16).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * Welke koppelingen zijn een OFFERTE (web_action 'offerte')? Hun namen en de slugs
+ * van hun OM-formulieren: daarop herkent de sessie-SQL een offerte, ook in oude
+ * inzendingen (die dragen `form_name` en `form_slug`, maar nog geen soort 'offerte').
+ * Een minuut in het geheugen. Mislukt het lezen: geen offertes, nooit een fout.
+ */
+let offerteMemo = null;
+export async function offerteFormulieren(env) {
+  if (offerteMemo && Date.now() - offerteMemo.at < 60 * 1000) return offerteMemo.v;
+  let v = { names: [], slugs: [] };
+  try {
+    const sb = getSupabaseClient(env);
+    const { data: ints, error } = await sb.from('fs_v2_integrations').select('id, name').eq('web_action', 'offerte');
+    if (error) throw error;
+    const ids = (ints || []).map(i => i.id);
+    let slugs = [];
+    if (ids.length) {
+      const { data: forms, error: e2 } = await sb.from('fs_v2_forms').select('slug').in('integration_id', ids);
+      if (e2) throw e2;
+      slugs = (forms || []).map(f => f.slug).filter(Boolean);
+    }
+    v = { names: (ints || []).map(i => i.name).filter(Boolean), slugs };
+  } catch (e) {
+    console.warn('[web-conversion] offerteformulieren niet gelezen:', e?.message || e);
+  }
+  offerteMemo = { at: Date.now(), v };
+  return v;
+}
+
 /**
  * Welke soort actie is een inzending van deze koppeling?
  * Eerst wat op de koppeling gekozen is ("Telt in Webgedrag als", kolom
- * `web_action`); staat daar niets, dan op de naam:
+ * `web_action`; 'offerte' = een aanvraag die apart zichtbaar is); staat daar niets,
+ * dan op de naam:
  *   calendly                        -> aanvraag (kennismaking, demo)
  *   "nieuwsbrief"/"newsletter"      -> nieuwsbrief
  *   "academy"/"cursus"              -> academy
  *   al de rest (contact, offerte...) -> aanvraag
  * 'geen' = telt nergens als actie; de bezoeker wordt wel herkend (adres, koppeling).
  */
-const WEB_ACTIONS = ['aanvraag', 'nieuwsbrief', 'academy', 'event', 'geen'];
+const WEB_ACTIONS = ['aanvraag', 'offerte', 'nieuwsbrief', 'academy', 'event', 'geen'];
 export function conversieSoort(integration) {
   if (WEB_ACTIONS.includes(integration?.web_action)) return integration.web_action;
   if (integration?.source_type === 'calendly') return 'aanvraag';
@@ -102,14 +164,14 @@ function uuidUit(form) {
 }
 
 /**
- * @param {object} env
+ * De melding voor één inzending, of null als er geen bezoeker-UUID in zit.
+ * Los van het versturen, zodat de inhaalronde (conversion-catchup.js) exact dezelfde
+ * melding -- en dus dezelfde `ref` -- kan maken.
  * @param {{integration: object, normalizedForm: object, submissionId: string|number, receivedAt?: string}} args
  */
-export async function reportWebConversion(env, { integration, normalizedForm, submissionId, receivedAt }) {
-  try {
-    if (!env.WEB_CONVERSION_SECRET) return;
+export function buildWebConversion({ integration, normalizedForm, submissionId, receivedAt }) {
     const uuid = uuidUit(normalizedForm);
-    if (!uuid) return;
+    if (!uuid) return null;
 
     // Een Calendly-koppeling die bewust iets anders dan een aanvraag is (bv. 'geen'
     // voor een intern overleg), gaat mee als formulier met die soort.
@@ -140,6 +202,18 @@ export async function reportWebConversion(env, { integration, normalizedForm, su
             email: emailUit(f),
           },
     };
+    return body;
+}
+
+/**
+ * @param {object} env
+ * @param {{integration: object, normalizedForm: object, submissionId: string|number, receivedAt?: string}} args
+ */
+export async function reportWebConversion(env, args) {
+  try {
+    if (!env.WEB_CONVERSION_SECRET) return;
+    const body = buildWebConversion(args);
+    if (!body) return;
     await postTracker(env, '/internal/conversion', body);
   } catch (e) {
     console.warn('[web-conversion] niet doorgegeven:', e?.message || e);

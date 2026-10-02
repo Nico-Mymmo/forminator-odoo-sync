@@ -635,7 +635,8 @@
                 '<label class="flex items-center gap-2 text-xs text-base-content/70" title="Enkel een aanvraag telt als conversie. Automatisch = op de naam van de koppeling.">' +
                   '<span>Telt in Webgedrag als</span>' +
                   '<select id="detailWebAction" class="select select-bordered select-xs">' +
-                    [['', 'Automatisch (op de naam)'], ['aanvraag', 'Aanvraag'], ['nieuwsbrief', 'Nieuwsbrief'], ['academy', 'Academy'], ['event', 'Event'], ['geen', 'Geen actie']]
+                    // 'offerte' = een aanvraag die in Webgedrag apart zichtbaar is ("Offerte aangevraagd").
+                    [['', 'Automatisch (op de naam)'], ['aanvraag', 'Aanvraag'], ['offerte', 'Offerte (aanvraag)'], ['nieuwsbrief', 'Nieuwsbrief'], ['academy', 'Academy'], ['event', 'Event'], ['geen', 'Geen actie']]
                       .map(function (o) { return '<option value="' + o[0] + '"' + ((integration.web_action || '') === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') +
                   '</select>' +
                 '</label>') +

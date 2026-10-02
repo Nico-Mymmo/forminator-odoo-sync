@@ -231,7 +231,9 @@ function lookupFormValue(normalizedForm, sourceValue) {
   return '';
 }
 
-function normalizeFormValues(payload) {
+// Geëxporteerd voor de inhaalronde van Webgedrag (web-story/lib/conversion-catchup.js):
+// die moet een bewaarde inzending EXACT zo lezen als de pipeline, anders klopt de ref niet.
+export function normalizeFormValues(payload) {
   const raw = payload && typeof payload === 'object' ? payload : {};
   const candidate = raw.form_fields || raw.form_data || raw.data || raw.submission || raw;
   const source = candidate && typeof candidate === 'object' ? candidate : {};

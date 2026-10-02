@@ -17,6 +17,7 @@ import { KLEUR } from './lib/journey.js';
 import { getBehaviourCached } from './lib/behaviour.js';
 import { WEB_PERIODS } from '../dashboards/lib/web-visits.js';
 import { loadExclusions, dropExcluded, listRules, describeRules, addRule, removeRule } from './lib/exclusions.js';
+import { hasModuleSubRoleAccess } from '../registry.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const STATUSSEN = new Set(['actief', 'bevestigd', 'afgewezen']);
@@ -25,6 +26,11 @@ function json(body, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 }
 const isAdmin = user => user?.role === 'admin';
+// Uitsluiten uit de cijfers (lib/exclusions.js) raakt ieders cijfers, en élke
+// gebruiker heeft deze module (zie de migratie). Daarom niet "iedereen", maar
+// beheerders én marketing: de bestaande rol `marketing_signature`, dezelfde als in
+// de handtekeningdesigner (hasModuleSubRoleAccess laat een beheerder altijd toe).
+const mayExclude = user => hasModuleSubRoleAccess(user, 'marketing_signature');
 
 async function guard(env, fn) {
   if (!hasWebEvents(env)) return json({ success: false, error: 'De D1-binding WEB_EVENTS ontbreekt.' }, 503);
@@ -50,7 +56,7 @@ export const routes = {
   'GET /api/bootstrap': async ({ env, user }) => json({
     success: true,
     // De kanaalkleuren komen van de server: dezelfde als in het verhaal in Odoo.
-    data: { is_admin: isAdmin(user), mode: env.WEB_STORY_MODE || '', d1: hasWebEvents(env), colors: KLEUR },
+    data: { is_admin: isAdmin(user), can_exclude: mayExclude(user), mode: env.WEB_STORY_MODE || '', d1: hasWebEvents(env), colors: KLEUR },
   }),
 
   // Trends en flows over alle bezoeken (lib/behaviour.js): compacte sessies, de
@@ -65,15 +71,16 @@ export const routes = {
 
   // ── Uitgesloten personen en browsers (lib/exclusions.js) ──────────────────
   // Lezen mag iedereen met de module: wie de cijfers bekijkt, moet kunnen zien wie
-  // er niet in zit. Wijzigen raakt ieders cijfers (ook het dashboard): beheerders.
+  // er niet in zit. Wijzigen raakt ieders cijfers (ook het dashboard): beheerders
+  // en marketing (mayExclude).
   'GET /api/exclusions': async ({ env, user }) => guard(env, async () => {
     const rules = await listRules(env);
-    return json({ success: true, data: { is_admin: isAdmin(user), rules: await describeRules(env, rules) } });
+    return json({ success: true, data: { can_exclude: mayExclude(user), rules: await describeRules(env, rules) } });
   }),
 
   /** body: { kind: 'email' | 'visitor', value, reason? } */
   'POST /api/exclusions': async ({ env, user, request }) => guard(env, async () => {
-    if (!isAdmin(user)) return json({ success: false, error: 'Alleen een beheerder kan iemand uitsluiten.' }, 403);
+    if (!mayExclude(user)) return json({ success: false, error: 'Alleen een beheerder of marketing kan iemand uitsluiten.' }, 403);
     const body = await request.json().catch(() => ({}));
     try {
       return json({ success: true, data: await addRule(env, user, body || {}) });
@@ -83,7 +90,7 @@ export const routes = {
   }),
 
   'DELETE /api/exclusions/:id': async ({ env, user, params }) => guard(env, async () => {
-    if (!isAdmin(user)) return json({ success: false, error: 'Alleen een beheerder kan iemand weer laten meetellen.' }, 403);
+    if (!mayExclude(user)) return json({ success: false, error: 'Alleen een beheerder of marketing kan iemand weer laten meetellen.' }, 403);
     await removeRule(env, params.id);
     return json({ success: true });
   }),

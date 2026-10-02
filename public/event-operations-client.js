@@ -255,7 +255,7 @@ function renderDetailPanelContent(webinar, snapshot, state, regCount) {
 
   return `
     <div class="space-y-4">
-      <div class="border-b border-base-200 pb-4">
+      <div class="border-b border-base-content/10 pb-4">
         <h2 class="text-xl font-bold mb-2">${escapeHtml(webinar.x_name || 'Untitled')}</h2>
         <span class="badge ${badge.css} badge-sm">${badge.label}</span>
       </div>
@@ -269,7 +269,7 @@ function renderDetailPanelContent(webinar, snapshot, state, regCount) {
         ${wpId ? renderMetaRow('external-link', 'WordPress', `<a href="https://openvme.be/wp-admin/post.php?post=${wpId}&action=edit" target="_blank" class="link link-primary">WP #${wpId}</a>`) : ''}
       </div>
       
-      <div class="space-y-2 pt-4 border-t border-base-200">
+      <div class="space-y-2 pt-4 border-t border-base-content/10">
         <button 
           data-action="edit"
           data-webinar-id="${webinar.id}"
@@ -302,7 +302,7 @@ function renderDetailPanelContent(webinar, snapshot, state, regCount) {
       </div>
 
       <!-- ── Webinar Recap ── -->
-      <details class="pt-4 border-t border-base-200">
+      <details class="pt-4 border-t border-base-content/10">
         <summary class="font-semibold text-sm flex items-center justify-between cursor-pointer list-none pb-3">
           <span class="flex items-center gap-2">
             <i data-lucide="video" class="w-4 h-4 text-primary"></i>

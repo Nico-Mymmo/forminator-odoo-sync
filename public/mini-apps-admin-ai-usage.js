@@ -154,7 +154,7 @@ async function loadMiniAppsAiUsage() {
       (d.truncated ? ' <span class="text-warning">Let op: meer dan 20.000 rijen in deze periode, rapport is afgekapt.</span>' : '') +
       '</p>';
 
-    var stats = '<div class="stats stats-vertical sm:stats-horizontal border border-base-200 shadow-sm w-full mb-6">' +
+    var stats = '<div class="stats stats-vertical sm:stats-horizontal border border-base-content/10 shadow-sm w-full mb-6">' +
       '<div class="stat py-3"><div class="stat-title text-xs">Aanroepen</div><div class="stat-value text-xl">' + d.totals.calls + '</div>' +
       '<div class="stat-desc">' + d.totals.failed + ' mislukt</div></div>' +
       '<div class="stat py-3"><div class="stat-title text-xs">Geschatte kost</div><div class="stat-value text-xl text-primary">' + formatUsd(d.totals.cost) + '</div>' +
@@ -163,10 +163,10 @@ async function loadMiniAppsAiUsage() {
       '</div>';
 
     var chartsGrid = '<div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">' +
-      '<div class="border border-base-200 rounded-box p-3"><p class="text-xs font-semibold text-base-content/60 mb-2">Top mini-apps naar kost</p><div style="height:220px;"><canvas id="aiUsageByAppChart"></canvas></div></div>' +
-      '<div class="border border-base-200 rounded-box p-3"><p class="text-xs font-semibold text-base-content/60 mb-2">Top gebruikers naar kost</p><div style="height:220px;"><canvas id="aiUsageByUserChart"></canvas></div></div>' +
+      '<div class="border border-base-content/10 rounded-box p-3"><p class="text-xs font-semibold text-base-content/60 mb-2">Top mini-apps naar kost</p><div style="height:220px;"><canvas id="aiUsageByAppChart"></canvas></div></div>' +
+      '<div class="border border-base-content/10 rounded-box p-3"><p class="text-xs font-semibold text-base-content/60 mb-2">Top gebruikers naar kost</p><div style="height:220px;"><canvas id="aiUsageByUserChart"></canvas></div></div>' +
       '</div>' +
-      '<div class="border border-base-200 rounded-box p-3 mb-6"><p class="text-xs font-semibold text-base-content/60 mb-2">Kost &amp; aanroepen per dag</p><div style="height:240px;"><canvas id="aiUsageDailyChart"></canvas></div></div>';
+      '<div class="border border-base-content/10 rounded-box p-3 mb-6"><p class="text-xs font-semibold text-base-content/60 mb-2">Kost &amp; aanroepen per dag</p><div style="height:240px;"><canvas id="aiUsageDailyChart"></canvas></div></div>';
 
     var appsHeader = '<h3 class="text-sm font-semibold mb-2">Per mini-app</h3>';
     var usersHeader = '<h3 class="text-sm font-semibold mb-2 mt-6">Per gebruiker</h3>';

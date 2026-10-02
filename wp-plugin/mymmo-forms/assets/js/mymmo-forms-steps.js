@@ -423,6 +423,30 @@
     knop.classList.toggle('is-uit', !mag);
   };
 
+  /**
+   * Webgedrag (1.22.0): een stap verder of terug, als 'mymmo:track' op document.
+   * Zelfde vorm als meldUi() in mymmo-forms-modal.js; de tracker-snippet stuurt het
+   * door. `form` = de slug van het formulier aan het einde van de reeks.
+   */
+  Reeks.prototype.meldStap = function (i) {
+    try {
+      var vorm = this.formulier && this.formulier.closest ? this.formulier : this.wikkel;
+      var slugEl = vorm.closest('[data-mymmo-slug]') || this.wikkel;
+      var paneel = vorm.closest('[data-mymmo-paneel]');
+      var venster = vorm.closest('[data-mymmo-modal]');
+      var stap = this.stappen[i];
+      document.dispatchEvent(new CustomEvent('mymmo:track', { detail: {
+        act: 'stap',
+        venster: venster ? ((venster.id || '').replace(/^mymmo-modal-/, '').replace(/-\d+$/, '') || null) : null,
+        tab: paneel ? paneel.getAttribute('data-mymmo-paneel') : null,
+        form: slugEl ? slugEl.getAttribute('data-mymmo-slug') : null,
+        stap: stap ? stap.getAttribute('data-mymmo-stap-naam') : null,
+        stap_n: i,
+        stappen: this.stappen.length
+      } }));
+    } catch (_) { /* meten mag nooit iets tegenhouden */ }
+  };
+
   Reeks.prototype.volgende = function () {
     if (!this.klaar(this.nu)) {
       var stap = this.stapEl(this.nu);
@@ -469,6 +493,7 @@
     this.roep(i, 'tonen');
 
     if (eerste) return;
+    this.meldStap(i);
 
     // Naar boven van de reeks, niet naar het midden van de nieuwe stap: de
     // voortgangsbolletjes staan bovenaan en zijn precies wat je wil zien als er

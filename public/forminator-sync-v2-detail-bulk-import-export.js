@@ -178,7 +178,7 @@
     var visibleColumns = columns.filter(function (field) { return bulkVisible[field] !== false; });
     var hiddenCount = columns.length - visibleColumns.length;
     var html = '<div class="space-y-3">' +
-      '<div class="rounded-box border border-base-300 bg-base-100 p-3">' +
+      '<div class="rounded-box border border-base-content/20 bg-base-100 p-3">' +
         '<div class="flex items-center justify-between gap-2 mb-3">' +
           '<div class="font-semibold text-sm">Nieuwe rij</div>' +
           '<button class="btn btn-xs btn-outline" type="button" data-action="add-bulk-import-row">Rij toevoegen</button>' +

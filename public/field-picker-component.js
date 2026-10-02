@@ -102,7 +102,7 @@
         '<input type="hidden"' +
           (inputName !== '--unused--' ? ' name="' + esc(inputName) + '"' : '') +
           ' id="fsp-val-' + esc(id) + '" value="' + esc(selectedName || '') + '" />' +
-        '<div class="fsp-panel rounded-lg shadow-xl bg-base-100 border border-base-300 hidden"' +
+        '<div class="fsp-panel rounded-lg shadow-xl bg-base-100 border border-base-content/20 hidden"' +
           ' id="fsp-panel-' + esc(id) + '" data-fsp-panel-id="' + esc(id) + '" style="position:absolute;z-index:9999;min-width:420px;overflow:hidden;">' +
           '<div class="p-2 border-b border-base-200 bg-base-100 sticky top-0">' +
             '<input class="input input-sm input-bordered w-full fsp-search"' +

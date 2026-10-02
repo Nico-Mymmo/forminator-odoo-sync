@@ -576,6 +576,16 @@ injectiepad zijn naar elke site die het formulier toont.
 
 ## Versies
 
+**1.22.0** — de popup meldt wat er gebeurt, voor Webgedrag in de OM: venster
+geopend (en via welke knop), tabblad gekozen, stap bereikt (naam en nummer),
+formulier gestart (eerste ingevulde veld) en een verzendpoging. Als CustomEvent
+`mymmo:track` op `document`; de snippet van de website-tracker stuurt het door
+als `form_ui`. De plugin kent de tracker niet. Waarom: Webgedrag zag enkel de
+inzending, niet hoeveel bezoekers de popup openden, en ook niet in welke stap ze
+afhaakten. VOLGORDE: eerst de tracker deployen (die kent het type `form_ui`
+sinds snippet 2026-10-02.1), dan deze versie -- een oudere tracker maakt van een
+onbekend event een paginaweergave.
+
 **1.21.0** — onzichtbare botcontrole met Cloudflare Turnstile op elk formulier
 waarvoor de OM een sitesleutel meegeeft (`turnstile.site_key` in de payload;
 zolang die ontbreekt verandert er niets). Het token gaat als `turnstile` mee

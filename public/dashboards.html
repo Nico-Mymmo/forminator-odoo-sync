@@ -45,7 +45,7 @@
         </div>
       </div>
 
-      <div class="card bg-base-100 border border-base-300 shadow-sm mb-6">
+      <div class="card bg-base-100 border border-base-content/10 shadow-sm mb-6">
         <div class="card-body">
 
           <div class="flex flex-wrap items-center justify-between gap-4 mb-1">
@@ -66,7 +66,7 @@
             afgezet tegen de target voor diezelfde periode.
           </p>
 
-          <div class="border border-base-300 rounded-box bg-base-200/40 p-4">
+          <div class="border border-base-content/10 rounded-box bg-base-200/40 p-4">
             <div class="flex flex-col md:flex-row gap-4 md:gap-0">
 
               <div class="md:flex-1 md:pr-6">
@@ -99,7 +99,7 @@
 
             <!-- Realisatie tegen target, per maand: 30 dagen = 1 KPI, 3 maanden = 3 KPI's,
                  6 en 12 maanden = twee grafieken (zie renderTargetBreakdown). -->
-            <div class="border-t border-base-300 mt-4 pt-4">
+            <div class="border-t border-base-content/10 mt-4 pt-4">
               <div id="targetKpis" class="grid gap-3"></div>
               <div id="targetCharts" class="hidden grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
@@ -134,7 +134,7 @@
         </div>
       </div>
 
-      <div class="card bg-base-100 border border-base-300 shadow-sm">
+      <div class="card bg-base-100 border border-base-content/10 shadow-sm">
         <div class="card-body">
           <h2 class="text-base font-semibold mb-2" id="dailyChartTitle">Aanvragen per dag</h2>
           <div style="height: 320px;">
@@ -189,14 +189,14 @@
         <div id="webKpis" class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6"></div>
 
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-          <div class="card bg-base-100 border border-base-300 shadow-sm lg:col-span-2">
+          <div class="card bg-base-100 border border-base-content/10 shadow-sm lg:col-span-2">
             <div class="card-body">
               <h2 class="text-base font-semibold" id="webTrendTitle">Sessies per dag, per kanaal</h2>
               <p class="grow-0 text-xs text-base-content/50 -mt-1">Klik op een kleur om op dat kanaal te filteren. De zwarte lijn zijn conversies.</p>
               <div style="height: 300px;"><canvas id="webTrendChart"></canvas></div>
             </div>
           </div>
-          <div class="card bg-base-100 border border-base-300 shadow-sm">
+          <div class="card bg-base-100 border border-base-content/10 shadow-sm">
             <div class="card-body">
               <h2 class="text-base font-semibold">Van bezoek naar conversie</h2>
               <p class="grow-0 text-xs text-base-content/50 -mt-1 mb-2">Hoeveel sessies halen elke stap.</p>
@@ -206,7 +206,7 @@
         </div>
 
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-          <div class="card bg-base-100 border border-base-300 shadow-sm">
+          <div class="card bg-base-100 border border-base-content/10 shadow-sm">
             <div class="card-body">
               <h2 class="text-base font-semibold">Kanalen</h2>
               <p class="grow-0 text-xs text-base-content/50 -mt-1">Groen = duidelijk beter dan gemiddeld, rood = duidelijk slechter.</p>
@@ -218,7 +218,7 @@
               </div>
             </div>
           </div>
-          <div class="card bg-base-100 border border-base-300 shadow-sm">
+          <div class="card bg-base-100 border border-base-content/10 shadow-sm">
             <div class="card-body">
               <h2 class="text-base font-semibold" id="webDetailsTitle">Bronnen en campagnes</h2>
               <p class="grow-0 text-xs text-base-content/50 -mt-1">Campagne, bron of verwijzende site.</p>
@@ -233,7 +233,7 @@
         </div>
 
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-          <div class="card bg-base-100 border border-base-300 shadow-sm">
+          <div class="card bg-base-100 border border-base-content/10 shadow-sm">
             <div class="card-body">
               <h2 class="text-base font-semibold">Landingspagina's</h2>
               <p class="grow-0 text-xs text-base-content/50 -mt-1">De eerste pagina van een sessie. Klik om te filteren.</p>
@@ -245,7 +245,7 @@
               </div>
             </div>
           </div>
-          <div class="card bg-base-100 border border-base-300 shadow-sm">
+          <div class="card bg-base-100 border border-base-content/10 shadow-sm">
             <div class="card-body">
               <h2 class="text-base font-semibold">Wat bekijken ze voor ze converteren?</h2>
               <p class="grow-0 text-xs text-base-content/50 -mt-1">
@@ -262,7 +262,7 @@
           </div>
         </div>
 
-        <div class="card bg-base-100 border border-base-300 shadow-sm mb-6">
+        <div class="card bg-base-100 border border-base-content/10 shadow-sm mb-6">
           <div class="card-body">
             <h2 class="text-base font-semibold">Wat leidde tot de conversie</h2>
             <p class="grow-0 text-xs text-base-content/50 -mt-1" id="webAttrNote">
@@ -285,7 +285,7 @@
         </div>
 
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-          <div class="card bg-base-100 border border-base-300 shadow-sm lg:col-span-2">
+          <div class="card bg-base-100 border border-base-content/10 shadow-sm lg:col-span-2">
             <div class="card-body">
               <h2 class="text-base font-semibold">Tijd tot conversie</h2>
               <p class="grow-0 text-xs text-base-content/50 -mt-1" id="webTtcNote"></p>
@@ -295,7 +295,7 @@
               </div>
             </div>
           </div>
-          <div class="card bg-base-100 border border-base-300 shadow-sm">
+          <div class="card bg-base-100 border border-base-content/10 shadow-sm">
             <div class="card-body">
               <h2 class="text-base font-semibold">Toestel</h2>
               <p class="grow-0 text-xs text-base-content/50 -mt-1" id="webDevicesNote"></p>
@@ -309,7 +309,7 @@
         </div>
 
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-          <div class="card bg-base-100 border border-base-300 shadow-sm">
+          <div class="card bg-base-100 border border-base-content/10 shadow-sm">
             <div class="card-body">
               <h2 class="text-base font-semibold">Meest bekeken pagina's</h2>
               <p class="grow-0 text-xs text-base-content/50 -mt-1">Conv.-ratio = aandeel van de sessies met die pagina waarin een conversie gebeurde.</p>
@@ -321,7 +321,7 @@
               </div>
             </div>
           </div>
-          <div class="card bg-base-100 border border-base-300 shadow-sm">
+          <div class="card bg-base-100 border border-base-content/10 shadow-sm">
             <div class="card-body">
               <h2 class="text-base font-semibold">Zoektermen op de site</h2>
               <p class="grow-0 text-xs text-base-content/50 -mt-1">Wat bezoekers in de zoekfunctie typten. Conv.-ratio = aandeel van die sessies met een conversie.</p>
@@ -336,7 +336,7 @@
         </div>
 
         <div class="grid grid-cols-1 gap-6 mb-6">
-          <div class="card bg-base-100 border border-base-300 shadow-sm">
+          <div class="card bg-base-100 border border-base-content/10 shadow-sm">
             <div class="card-body">
               <h2 class="text-base font-semibold">Wanneer komen ze?</h2>
               <p class="grow-0 text-xs text-base-content/50 -mt-1 mb-2">Start van een sessie, per weekdag en uur (Belgische tijd). Hoe donkerder, hoe drukker.</p>

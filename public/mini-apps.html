@@ -121,7 +121,7 @@
       <div id="miniAppsConfigPanel" class="hidden">
 
         <!-- ======= Chat-kanalen ======= -->
-        <div class="mb-10 pb-8 border-b border-base-200">
+        <div class="mb-10 pb-8 border-b border-base-content/10">
           <h2 class="text-sm font-semibold text-base-content/70 mb-1">Chat-kanalen</h2>
           <p class="text-xs text-base-content/40 mb-3 max-w-2xl">Koppel Google Chat-kanalen (incoming webhook) zodat mini-apps er via window.platform.sendChat(channelId, message) een bericht naartoe kunnen sturen.</p>
           <button type="button" class="btn btn-sm gap-2" data-action="openChatChannelsModal">
@@ -159,7 +159,7 @@
       <h3 class="font-bold text-base mb-1">Nieuwe mini-app uploaden</h3>
       <p class="text-xs text-base-content/50 mb-4">Upload een bestaand .html-bestand, of laat Claude er eerst één voor je bouwen.</p>
 
-      <div class="alert bg-base-200 border border-base-300 py-2.5 px-3 mb-4 flex items-start gap-2">
+      <div class="alert bg-base-200 border border-base-content/10 py-2.5 px-3 mb-4 flex items-start gap-2">
         <i data-lucide="sparkles" class="w-4 h-4 mt-0.5 shrink-0 text-primary"></i>
         <div class="flex-1 text-xs leading-relaxed">
           Nog geen bestand? Kopieer de bouw-prompt en plak hem in een Claude-gesprek -- Claude stelt je een paar vragen en levert het kant-en-klare .html-bestand.
@@ -188,14 +188,14 @@
       <div class="form-control mb-3">
         <label class="label pb-1"><span class="label-text text-xs font-semibold">Icoon</span></label>
         <div class="dropdown w-full" id="uploadIconPicker">
-          <div tabindex="0" role="button" id="uploadIconTrigger" class="flex items-center gap-3 border border-base-300 rounded-lg px-3 py-1.5 bg-base-100 hover:border-primary/40 cursor-pointer">
+          <div tabindex="0" role="button" id="uploadIconTrigger" class="flex items-center gap-3 border border-base-content/10 rounded-lg px-3 py-1.5 bg-base-100 hover:border-primary/40 cursor-pointer">
             <div id="uploadIconPreviewWrap" class="w-9 h-9 rounded-lg bg-base-200 flex items-center justify-center shrink-0">
               <i data-lucide="puzzle" class="w-4 h-4"></i>
             </div>
             <span id="uploadIconTriggerLabel" class="flex-1 text-sm text-left">Puzzelstuk (standaard)</span>
             <i data-lucide="chevron-down" class="w-3.5 h-3.5 text-base-content/40 shrink-0"></i>
           </div>
-          <div tabindex="0" class="dropdown-content z-30 mt-1 bg-base-100 rounded-lg shadow-lg border border-base-200 p-3 w-80 max-h-72 overflow-y-auto">
+          <div tabindex="0" class="dropdown-content z-30 mt-1 bg-base-100 rounded-lg shadow-lg border border-base-content/10 p-3 w-80 max-h-72 overflow-y-auto">
             <div id="uploadIconGrid" class="grid grid-cols-4 gap-1.5"></div>
           </div>
           <input type="hidden" id="uploadIcon" value="puzzle" />
@@ -234,7 +234,7 @@
 
       <div class="form-control mb-4 hidden" id="uploadColleaguesWrap">
         <label class="label pb-1"><span class="label-text text-xs font-semibold">Collega's</span></label>
-        <div id="uploadColleaguesList" class="max-h-40 overflow-y-auto border border-base-300 rounded-lg p-2 flex flex-col gap-1">
+        <div id="uploadColleaguesList" class="max-h-40 overflow-y-auto border border-base-content/10 rounded-lg p-2 flex flex-col gap-1">
           <span class="text-xs text-base-content/40">Laden…</span>
         </div>
       </div>
@@ -264,11 +264,11 @@
         <span class="text-xs text-base-content/40">Laden…</span>
       </div>
 
-      <p id="chatChannelNonAdminNote" class="hidden text-xs text-base-content/40 border-t border-base-300 pt-3">
+      <p id="chatChannelNonAdminNote" class="hidden text-xs text-base-content/40 border-t border-base-content/10 pt-3">
         Enkel een admin kan kanalen koppelen of verwijderen.
       </p>
 
-      <div id="chatChannelAddWrap" class="hidden border-t border-base-300 pt-4">
+      <div id="chatChannelAddWrap" class="hidden border-t border-base-content/10 pt-4">
         <div class="form-control mb-3">
           <label class="label pb-1"><span class="label-text text-xs font-semibold">Naam</span></label>
           <input type="text" id="chatChannelName" class="input input-bordered input-sm" placeholder="bv. algemeen" />
@@ -294,7 +294,7 @@
   <dialog id="appModal" class="modal">
     <div class="modal-box max-w-5xl w-11/12 h-[85vh] flex flex-col p-0 overflow-hidden">
 
-      <div class="flex items-center justify-between px-5 py-3 border-b border-base-300 shrink-0">
+      <div class="flex items-center justify-between px-5 py-3 border-b border-base-content/10 shrink-0">
         <div class="min-w-0">
           <h3 class="font-bold text-base truncate" id="appModalTitle">—</h3>
           <p class="text-xs text-base-content/50 truncate" id="appModalSubtitle"></p>
@@ -327,7 +327,7 @@
       <!-- Code -->
       <div id="appPaneCode" class="flex-1 min-h-0 hidden flex-col">
         <div class="flex-1 min-h-0" id="appCodeEditor"></div>
-        <div class="flex items-center justify-between px-4 py-2 border-t border-base-300 shrink-0">
+        <div class="flex items-center justify-between px-4 py-2 border-t border-base-content/10 shrink-0">
           <span class="text-xs text-base-content/50" id="appCodeStatus"></span>
           <div class="flex items-center gap-2">
             <button class="btn btn-outline btn-sm gap-2" data-action="generateUpdatePrompt" title="Kopieert een prompt met de huidige code + een tijdelijke leeslink waarmee Claude zelf de actuele Odoo-queries opvraagt, klaar om de app te laten bijwerken">
@@ -355,14 +355,14 @@
         <div class="form-control mb-3">
           <label class="label pb-1"><span class="label-text text-xs font-semibold">Icoon</span></label>
           <div class="dropdown w-full" id="settingsIconPicker">
-            <div tabindex="0" role="button" id="settingsIconTrigger" class="flex items-center gap-3 border border-base-300 rounded-lg px-3 py-1.5 bg-base-100 hover:border-primary/40 cursor-pointer">
+            <div tabindex="0" role="button" id="settingsIconTrigger" class="flex items-center gap-3 border border-base-content/10 rounded-lg px-3 py-1.5 bg-base-100 hover:border-primary/40 cursor-pointer">
               <div id="settingsIconPreviewWrap" class="w-9 h-9 rounded-lg bg-base-200 flex items-center justify-center shrink-0">
                 <i data-lucide="puzzle" class="w-4 h-4"></i>
               </div>
               <span id="settingsIconTriggerLabel" class="flex-1 text-sm text-left">Puzzelstuk (standaard)</span>
               <i data-lucide="chevron-down" class="w-3.5 h-3.5 text-base-content/40 shrink-0"></i>
             </div>
-            <div tabindex="0" class="dropdown-content z-30 mt-1 bg-base-100 rounded-lg shadow-lg border border-base-200 p-3 w-80 max-h-72 overflow-y-auto">
+            <div tabindex="0" class="dropdown-content z-30 mt-1 bg-base-100 rounded-lg shadow-lg border border-base-content/10 p-3 w-80 max-h-72 overflow-y-auto">
               <div id="settingsIconGrid" class="grid grid-cols-4 gap-1.5"></div>
             </div>
             <input type="hidden" id="settingsIcon" value="puzzle" />
@@ -387,7 +387,7 @@
         </div>
         <div class="form-control mb-4 hidden" id="settingsColleaguesWrap">
           <label class="label pb-1"><span class="label-text text-xs font-semibold">Collega's</span></label>
-          <div id="settingsColleaguesList" class="max-h-40 overflow-y-auto border border-base-300 rounded-lg p-2 flex flex-col gap-1"></div>
+          <div id="settingsColleaguesList" class="max-h-40 overflow-y-auto border border-base-content/10 rounded-lg p-2 flex flex-col gap-1"></div>
         </div>
 
         <div class="form-control mb-4 hidden" id="settingsExternalUrlWrap">
@@ -409,7 +409,7 @@
           <span class="label-text-alt text-base-content/50 mt-1">Data die deze app opslaat via window.sharedStorage -- gedeeld tussen alle gebruikers die de app mogen draaien.</span>
         </div>
 
-        <div class="flex items-center justify-between border-t border-base-300 pt-4 mt-2">
+        <div class="flex items-center justify-between border-t border-base-content/10 pt-4 mt-2">
           <button class="btn btn-error btn-outline btn-sm gap-2" data-action="deleteApp">
             <i data-lucide="trash-2" class="w-4 h-4"></i>
             App verwijderen

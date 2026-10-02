@@ -379,6 +379,25 @@
     return veld;
   }
 
+  /**
+   * Webgedrag (1.22.0): het formulier is gestart of wordt verstuurd, als
+   * 'mymmo:track' op document. Zelfde vorm als meldUi() in mymmo-forms-modal.js.
+   * Of de inzending echt aankwam, meldt de OM zelf (server-side): dit is de POGING.
+   */
+  function meldUi(act, form) {
+    try {
+      var slugEl = form.closest('[data-mymmo-slug]');
+      var paneel = form.closest('[data-mymmo-paneel]');
+      var venster = form.closest('[data-mymmo-modal]');
+      document.dispatchEvent(new CustomEvent('mymmo:track', { detail: {
+        act: act,
+        venster: venster ? ((venster.id || '').replace(/^mymmo-modal-/, '').replace(/-\d+$/, '') || null) : null,
+        tab: paneel ? paneel.getAttribute('data-mymmo-paneel') : null,
+        form: slugEl ? slugEl.getAttribute('data-mymmo-slug') : null
+      } }));
+    } catch (_) { /* meten mag nooit iets tegenhouden */ }
+  }
+
   function koppel(form) {
     var knop = form.querySelector('.mymmo-form-submit');
     var t = teksten(form);
@@ -388,6 +407,18 @@
 
     var ts = maakTurnstile(form);
     if (ts) form.addEventListener('focusin', ts.voorbereid);
+
+    // Webgedrag: GESTART bij de eerste keer dat de bezoeker zelf iets invult.
+    // Verborgen velden niet: die vult een stappenreeks of de plugin zelf.
+    var gestart = false;
+    var opStart = function (event) {
+      var veld = event.target;
+      if (gestart || !veld || !veld.name || veld.type === 'hidden') return;
+      gestart = true;
+      meldUi('start', form);
+    };
+    form.addEventListener('input', opStart);
+    form.addEventListener('change', opStart);
 
     // Een VERPLICHT VINKJE (verplichte opt-in in de OM): zolang het niet
     // aangevinkt is, is de knop grijs en doet hij niets -- geen foutmelding.
@@ -505,6 +536,7 @@
      */
     function verstuur(event) {
       zetKnopBezig();
+      meldUi('submit', form);
 
       // In de pop-up: versturen zonder de pagina te herladen, en meteen het
       // dankjewelscherm van dit tabblad tonen. Zie verstuurInVenster().

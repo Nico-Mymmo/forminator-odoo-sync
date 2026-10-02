@@ -1067,7 +1067,7 @@ async function renderStep1() {
           const periodOptions = [null, 'week', 'month', 'quarter', 'year'];
 
           return `
-          <div class="px-4 py-3 rounded-xl border border-base-200 bg-base-50 hover:border-primary/20 transition-all">
+          <div class="px-4 py-3 rounded-xl border border-base-content/10 bg-base-50 hover:border-primary/20 transition-all">
             ${isRenaming ? `
               <div class="flex gap-2 items-center">
                 <input id="rename-input-${s.id}" type="text" class="input input-bordered input-sm flex-1"
@@ -1119,7 +1119,7 @@ async function renderStep1() {
                   ${periodOptions.map(p => {
                     const isActive = activePeriod === p;
                     const pStr = p === null ? 'null' : `'${p}'`;
-                    return `<button class="btn btn-xs ${isActive ? 'btn-accent' : 'btn-ghost border border-base-300'}"
+                    return `<button class="btn btn-xs ${isActive ? 'btn-accent' : 'btn-ghost border border-base-content/10'}"
                       onclick="event.stopPropagation(); setSavedSearchPeriod('${s.id}', ${pStr});">
                       ${periodLabels[p]}
                     </button>`;
@@ -1149,7 +1149,7 @@ async function renderStep1() {
               <button class="group relative flex flex-col items-start gap-3 p-5 rounded-2xl border-2 text-left transition-all cursor-pointer
                 ${sel
                   ? 'border-primary bg-primary/5 shadow-md'
-                  : 'border-base-200 bg-base-100 hover:border-primary/50 hover:bg-base-200/50 hover:shadow-sm'}"
+                  : 'border-base-content/10 bg-base-100 hover:border-primary/50 hover:bg-base-200/50 hover:shadow-sm'}"
                 onclick="wizardState.selectModel('${key}'); wizardState.currentStep = 2; renderWizard();">
                 <div class="flex items-center justify-between w-full">
                   <div class="p-2 rounded-xl ${sel ? 'bg-primary/15' : 'bg-base-200 group-hover:bg-primary/10'} transition-colors">
@@ -1241,7 +1241,7 @@ function renderCenterInfoChips(sets) {
     }
     return `<div class="mb-1">
       <div class="flex items-start gap-0.5">
-        <button class="btn btn-xs flex-1 justify-start gap-1.5 min-h-0 h-auto py-1.5 text-left overflow-hidden ${active ? 'btn-primary' : 'btn-ghost border border-base-300 text-base-content/55 hover:text-base-content'}"
+        <button class="btn btn-xs flex-1 justify-start gap-1.5 min-h-0 h-auto py-1.5 text-left overflow-hidden ${active ? 'btn-primary' : 'btn-ghost border border-base-content/10 text-base-content/55 hover:text-base-content'}"
           onclick="wizardState.toggleSet('${set.id}', ${!active}); renderWizard();"
           title="${(set.description||'').replace(/"/g,'&quot;')}">
           <i data-lucide="${active ? 'check-circle' : 'circle'}" class="w-3.5 h-3.5 shrink-0 mt-px"></i>
@@ -1253,7 +1253,7 @@ function renderCenterInfoChips(sets) {
 
       </div>
       ${previewing && fields.length ? `
-        <div class="mx-0.5 mt-0.5 mb-1 bg-base-200/60 border border-base-300/60 rounded-lg px-2 py-1.5">
+        <div class="mx-0.5 mt-0.5 mb-1 bg-base-200/60 border border-base-content/10 rounded-lg px-2 py-1.5">
           <div class="text-xs text-base-content/40 font-semibold uppercase tracking-wide mb-1">Velden</div>
           <div class="flex flex-wrap gap-1">
             ${fields.map(f => `<span class="badge badge-sm badge-ghost font-mono text-xs">${f.label || f.field_key}</span>`).join('')}
@@ -1280,7 +1280,7 @@ function renderSubInfoChips(parentModel, submodelKey, sets, chipActiveClass = 'b
     }
     return `<div class="mb-0.5">
       <div class="flex items-start gap-0.5">
-        <button class="btn btn-xs flex-1 flex-row items-center justify-start gap-1 min-h-0 h-7 py-0 text-left overflow-hidden ${active ? chipActiveClass : 'btn-ghost border border-base-200 text-base-content/45 hover:text-base-content/80'}"
+        <button class="btn btn-xs flex-1 flex-row items-center justify-start gap-1 min-h-0 h-7 py-0 text-left overflow-hidden ${active ? chipActiveClass : 'btn-ghost border border-base-content/10 text-base-content/45 hover:text-base-content/80'}"
           onclick="event.stopPropagation(); ${toggleCode}"
           title="${(set.description||'').replace(/"/g,'&quot;')}">
           <i data-lucide="${active ? 'check-circle' : 'circle'}" class="w-3 h-3 shrink-0 pointer-events-none"></i>
@@ -1574,7 +1574,7 @@ async function renderStep2() {
     // ── Altijd opgehaald ──
     const alwaysRaw = alwaysFn ? alwaysFn() : '';
     const alwaysHtml = alwaysRaw ? (isCenter
-      ? `<div class="px-3 pt-2 pb-2 border-b border-base-200">
+      ? `<div class="px-3 pt-2 pb-2 border-b border-base-content/10">
           <div class="text-xs font-semibold text-base-content/35 uppercase tracking-wide mb-0.5">Altijd opgehaald</div>
           <div class="text-xs text-base-content/45 leading-snug">${alwaysRaw}</div>
         </div>`
@@ -1589,7 +1589,7 @@ async function renderStep2() {
     // Voor data-nodes: stateKey = modelKey, en pills zijn disabled als model uit staat.
     const commStateKey = isCenter ? null : modelKey;
     const toevoegenHtml = isCenter
-      ? `<div class="px-3 py-1 flex items-center gap-1 border-b border-base-200">
+      ? `<div class="px-3 py-1 flex items-center gap-1 border-b border-base-content/10">
           <span class="text-xs text-base-content/40">Toevoegen</span>
           ${renderCommPills(commStateKey, true)}
         </div>`
@@ -2200,7 +2200,7 @@ function renderL2Submodels(parentKey, excludeKeys = []) {
   }).join('');
 
   return `
-    <div class="mt-4 pt-3 border-t border-base-200">
+    <div class="mt-4 pt-3 border-t border-base-content/10">
       <div class="text-xs font-semibold text-secondary/60 uppercase tracking-wide mb-2 flex items-center gap-1">
         <i data-lucide="layers" class="w-3 h-3"></i>
         Subdata van ${MODEL_CONFIG[parentKey]?.label || parentKey}
@@ -2303,7 +2303,7 @@ async function renderAdminModal() {
       </tr>`;
 
     return `
-      <div class="collapse collapse-arrow border border-base-300 rounded-lg mb-2" id="acollapse-${set.id}">
+      <div class="collapse collapse-arrow border border-base-content/10 rounded-lg mb-2" id="acollapse-${set.id}">
         <input type="checkbox" class="peer" />
         <div class="collapse-title py-2.5 px-3 flex items-center gap-2 min-h-0">
           <span class="font-semibold text-sm flex-1">${set.label}</span>
@@ -2316,7 +2316,7 @@ async function renderAdminModal() {
           <span class="text-xs text-base-content/30 font-mono ml-1">${set.id}</span>
         </div>
         <div class="collapse-content px-0 pt-0">
-          <div id="aset-edit-${set.id}" class="hidden px-3 pb-2 pt-1 bg-info/5 border-b border-base-200">
+          <div id="aset-edit-${set.id}" class="hidden px-3 pb-2 pt-1 bg-info/5 border-b border-base-content/10">
             <div class="flex gap-2 items-end">
               <div class="flex-1"><label class="label label-text text-xs">Label</label>
                 <input type="text" id="ase-lbl-${set.id}" value="${set.label.replace(/"/g,'&quot;')}" class="input input-bordered input-xs w-full" /></div>
@@ -2338,7 +2338,7 @@ async function renderAdminModal() {
               <tbody>${fieldRows}</tbody>
             </table>
           </div>` : '<div class="px-3 py-2 text-xs text-base-content/30 italic">Nog geen velden</div>'}
-          <div class="border-t border-base-200 mt-1">
+          <div class="border-t border-base-content/10 mt-1">
             <table class="table table-xs w-full">
               <thead><tr class="text-base-content/40 bg-success/5">
                 <th class="py-1 px-2 w-36">Veldsleutel *</th>
@@ -2370,7 +2370,7 @@ async function renderAdminModal() {
   const html = `
     <div id="admin-modal-overlay" class="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onclick="if(event.target===this)closeAdminModal()">
       <div class="bg-base-100 rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col">
-        <div class="flex items-center gap-3 px-5 py-4 border-b border-base-200 shrink-0">
+        <div class="flex items-center gap-3 px-5 py-4 border-b border-base-content/10 shrink-0">
           <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
           <div class="flex-1">
             <div class="font-bold text-base">Categorieën & properties beheren</div>
@@ -2484,7 +2484,7 @@ function renderMultiPillFilter({ label, hint, options, state, toggleFn, allCode,
     const active = state.includes(opt.value);
     const valStr = typeof opt.value === 'string' ? `'${opt.value}'` : opt.value;
     return `
-      <button class="btn btn-sm gap-1 transition-all ${active ? 'btn-primary' : 'btn-ghost border border-base-300 opacity-50'}"
+      <button class="btn btn-sm gap-1 transition-all ${active ? 'btn-primary' : 'btn-ghost border border-base-content/10 opacity-50'}"
         onclick="${toggleFn}(${valStr}); renderWizard();">
         ${opt.badge ? `<span class="badge badge-xs ${opt.badge}"></span>` : ''}
         ${opt.label}
@@ -2590,7 +2590,7 @@ async function renderStep3() {
     const ibFiltered = ib !== 'include';
     const bounceFiltered = pbFiltered || ibFiltered;
     const modeBtn = (field, mode, current, label, style) =>
-      `<button class="btn btn-sm ${current === mode ? style : 'btn-ghost border border-base-300 opacity-60'}"
+      `<button class="btn btn-sm ${current === mode ? style : 'btn-ghost border border-base-content/10 opacity-60'}"
         onclick="wizardState.webVisitorFilter.${field}='${mode}'; renderWizard();">${label}</button>`;
     bounceHtml = `
       <div class="bg-base-200/60 rounded-xl p-4 mb-3">
@@ -2794,7 +2794,7 @@ async function renderStep3() {
               { k: 'from',  l: 'Vanaf datum',  icon: 'calendar-days' },
               { k: 'range', l: 'Eigen bereik', icon: 'calendar-range' }
             ].map(o => `
-              <button class="btn btn-sm gap-1 ${tf.mode === o.k ? 'btn-primary' : 'btn-ghost border border-base-300'}"
+              <button class="btn btn-sm gap-1 ${tf.mode === o.k ? 'btn-primary' : 'btn-ghost border border-base-content/10'}"
                 onclick="wizardState.timeFilter.mode = ${o.k === null ? 'null' : `'${o.k}'`}; ${o.k === 'quick' ? `wizardState.timeFilter.quickPeriod = wizardState.timeFilter.quickPeriod || 'month';` : ''} renderWizard();">
                 <i data-lucide="${o.icon}" class="w-3 h-3"></i>${o.l}
               </button>`).join('')}
@@ -2804,7 +2804,7 @@ async function renderStep3() {
           ${tf.mode === 'quick' ? `
             <div class="flex flex-wrap gap-2 mb-3">
               ${quickPeriods.map(p => `
-                <button class="btn btn-sm ${tf.quickPeriod === p.key ? 'btn-accent' : 'btn-outline border-base-300'}"
+                <button class="btn btn-sm ${tf.quickPeriod === p.key ? 'btn-accent' : 'btn-outline border-base-content/10'}"
                   onclick="wizardState.timeFilter.quickPeriod = '${p.key}'; renderWizard();">
                   ${p.label}
                 </button>`).join('')}
@@ -2839,12 +2839,12 @@ async function renderStep3() {
 
           <!-- Samenvatting van actief filter -->
           ${periodLabel ? `
-            <div class="flex items-center gap-2 mt-1 pt-3 border-t border-base-300">
+            <div class="flex items-center gap-2 mt-1 pt-3 border-t border-base-content/10">
               <i data-lucide="check-circle" class="w-4 h-4 text-success shrink-0"></i>
               <span class="text-xs text-base-content/60">Actief filter:</span>
               <span class="badge badge-success badge-sm font-mono">${periodLabel}</span>
             </div>` : `
-            <div class="flex items-center gap-2 mt-1 pt-3 border-t border-base-300">
+            <div class="flex items-center gap-2 mt-1 pt-3 border-t border-base-content/10">
               <i data-lucide="minus-circle" class="w-4 h-4 text-base-content/30 shrink-0"></i>
               <span class="text-xs text-base-content/40">Geen tijdsfilter actief — alle records worden opgehaald.</span>
             </div>`}

@@ -346,7 +346,7 @@
       '<div class="text-xs font-semibold text-base-content/60 uppercase tracking-wide">Voorbeeld in Odoo</div>' +
       '<div id="chatterTopNav-' + esc(tid) + '" class="flex items-center gap-1 text-xs text-base-content/40"></div>' +
       '</div>';
-    html += '<div class="border border-base-300 rounded-lg overflow-hidden shadow-sm">' +
+    html += '<div class="border border-base-content/20 rounded-lg overflow-hidden shadow-sm">' +
       '<div style="background:#875a7b;padding:6px 12px;display:flex;align-items:center;gap:8px">' +
         '<div style="width:28px;height:28px;border-radius:50%;background:rgba(255,255,255,0.3);display:flex;align-items:center;justify-content:center;font-size:11px;color:#fff;font-weight:bold">FS</div>' +
         '<div>' +

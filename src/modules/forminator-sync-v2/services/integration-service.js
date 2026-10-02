@@ -108,7 +108,7 @@ export async function updateIntegrationRecord(env, integrationId, payload) {
   // Wat een inzending is voor Webgedrag (migratie 20261003100000_fsv2_web_action.sql).
   // Leeg = automatisch op de naam; zie conversieSoort() in src/lib/web-conversions.js.
   if (payload.web_action !== undefined) {
-    const WEB_ACTIONS = ['aanvraag', 'nieuwsbrief', 'academy', 'event', 'geen'];
+    const WEB_ACTIONS = ['aanvraag', 'offerte', 'nieuwsbrief', 'academy', 'event', 'geen'];
     if (payload.web_action !== null && payload.web_action !== '' && !WEB_ACTIONS.includes(payload.web_action)) {
       const error = new Error(`web_action must be one of: ${WEB_ACTIONS.join(', ')}`);
       error.code = 'VALIDATION_ERROR';

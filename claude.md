@@ -177,6 +177,13 @@ document.addEventListener('click', e => {
 
 `tabs-active`-toggling via data-attributen + centrale listener (REGEL 3), nooit inline `onclick` (dat mag enkel in de legacy `ui.js`-bestanden). Dit is herhaaldelijk fout gegaan (`tabs-bordered` gebruikt i.p.v. `tabs-boxed`, bv. `campaign-funnels.html` 2026-07-31) — bij twijfel over tab-styling altijd eerst een bestaande `tabs-boxed`-implementatie opzoeken en 1:1 overnemen, niet een andere daisyUI-tabsvariant kiezen.
 
+**REGEL 7 — Randen en scheidingslijnen: `border-base-content/10`, nooit `border-base-200`/`-300`.** In een donker daisyUI-thema zijn base-200 en base-300 DONKERDER dan de kaart (base-100), dus een rand in die kleur leest als een zwart lijntje rond een donkere kaart. In een licht thema zie je dat niet, en daarom sloop het er telkens weer in. De tekstkleur met een lage dekking valt in beide thema's de goede kant op.
+
+- Wat het CDN-bestand van daisyUI kent (er is geen Tailwind-config, dus enkel dat werkt): `border-base-content/10`, `/15`, `/20`, `/30`, ... (ook met `hover:`/`focus:`), en `bg-base-content/5`, `/10`, `/20` voor een lijntje van 1px (`w-px h-4`) of het lege deel van een balk. GEEN `divide-base-content/N`: daarvoor een eigen klasse in de `<style>` van de pagina (`.om-lijnen` in `webgedrag.html` en `xpath-converter.html`).
+- Koppelingen (`forminator-sync-v2.html`) en Eventbeheer (`events-v2.html`) overschrijven `.border-base-200` al per pagina met `oklch(var(--bc) / 0.2) !important`. In de scripts van die twee pagina's is `border-base-300` daarom `border-base-content/20` geworden, zodat het gelijk loopt; overal elders is het `/10`.
+- Een VLAK (`bg-base-200` als ingezonken paneel, de bak achter knoppengroepen) is geen rand en mag blijven.
+- Rechtgezet op 2026-10-02 in alle bestanden in `public/` en in `navbar.js`, behalve `forminator-sync-v2-wizard.js` (legacy) en de server-gerenderde `ui.js`-modules in `src/`.
+
 ## Modules — status
 
 | Module | Route | Code | UI | Status |
@@ -3870,6 +3877,9 @@ schrijver), de OM is de enige die met Odoo praat.** Volledige onderbouwing:
 | Scherm per lead / actieblad / bezoeker, bevestigen, twijfelgevallen | `src/modules/web-story/routes.js` + `lib/story-data.js`, `public/webgedrag.html` + `.js` (`/webgedrag?lead=<id>`) |
 | Uitgesloten uit de cijfers (lijst, filter, tabblad) | `src/modules/web-story/lib/exclusions.js`, tabel `web_story_exclusions` (migratie `20261003110000`), `/webgedrag?tab=uitgesloten` |
 | Heropende advertentielink = geen nieuwe klik | `readReopenedClicks()` + `channelOf()` in `src/modules/dashboards/lib/web-visits.js` |
+| Offerte (web_action 'offerte'), bij het LEZEN herkend | `offerteFormulieren()` in `src/lib/web-conversions.js` + `offerteSql()` in web-visits.js |
+| Inhaalronde: ontbrekende conversies alsnog melden | `src/modules/web-story/lib/conversion-catchup.js` (elk uur, in `runWebStoryCron`) |
+| Popup-trechter (geopend, gestart, stappen, verstuurd) | plugin mymmo-forms >= 1.22 (`mymmo:track`) -> tracker-snippet (`form_ui`) -> `fu` in web-visits.js -> `funnelVan()` in behaviour.js -> `renderForms()` |
 | Moduleregistratie | `supabase/migrations/20261001120000_web_story_module.sql` |
 | Dashboard: wat leidde tot de conversie (eerste / laatste / assist / positie, paden) | `src/modules/dashboards/lib/web-attribution.js` (server, per persoon over de hele historiek), kaart in `dashboards.html` + `loadAttribution()` in `dashboards-web.js` |
 | Koppelingen bewaren, tijdlijn renderen | tracker: `POST /internal/links`, `POST /internal/timeline` (`lib/story.js`), via de binding `TRACKER` |
@@ -4009,6 +4019,38 @@ Afspraken die bewust zo zijn:
   vanaf de instap een lange weg naar de aanvraag gewoon afknipt.
   Het bezoeknummer telt enkel wat geladen is (de periode en die daarvoor); wat
   ouder is, heet "eerder langer geleden" en wordt niet geraden.
+- **Een pagina kan IN HET MIDDEN van de padverkenner staan** (stand "Rond een
+  pagina", 2026-10-02). Uitgelijnd op de EERSTE keer dat die pagina in een bezoek
+  bekeken werd, met 1-6 stappen ervoor en erna (`pb`/`pa`). Zo zie je bij elke
+  pagina hoe bezoekers er komen en wat eruit voortvloeit, ook als ze geen instap is;
+  de filter "Instappagina" kan dat niet. In die stand is de pagina zelf een speld:
+  paden, per pagina en de recente bezoeken tonen enkel bezoeken met die pagina, en
+  de zijkolom zegt dat. Bewaard op het RUWE pad (`st.flow.page`, dus "/" en niet
+  "Homepage" -- `pageName()` vertaalt "/" en `focusPage()` zoekt in `dict.p`).
+  Kiezen kan in de bediening, met het vizier in "Per pagina", of met "Zet in het
+  midden". In de uitgelijnde standen (ook "naar het doel toe") staat in elke kolom
+  ervoor een kaart "Komt binnen": bezoeken die daar beginnen. Zonder die kaart leek
+  het alsof iedereen van een andere pagina kwam. Token `ENTRY` (-100): geen pagina
+  en geen actie; vastzetten erop kan.
+- **Een vastgezette pagina houdt haar oordeel in "Waar het stokt".** In haar kolom
+  staat ze na het vastzetten alleen, dus ze is haar eigen gemiddelde: "Waar het
+  stokt" werd leeg terwijl "Wat werkt" bleef staan, en dat las als goed nieuws
+  (melding marketing, 2026-10-02, syndicus-tarieven). Het oordeel komt daarom van
+  BUITEN het vastgezette pad (`pinVerdicts()`): vooruit tegen alle pagina's op die
+  stap bij dezelfde spelden ERVOOR (spelden erna maken stoppen onmogelijk); rond een
+  pagina tegen elke pagina op dezelfde plaats in een bezoek, instap of later,
+  gewogen naar haar eigen mix (`pageRoles()`). Een instappagina verliest van nature
+  meer bezoekers dan een pagina waar iemand naartoe klikte: vergelijk nooit tegen
+  een gemiddelde over alle plaatsen samen.
+  Daaronder de kaart "Pagina onder de loep" (`renderFocus()`): de rol van de pagina
+  in het hele segment (instap / later, stopt hier en doet daarna het doel, elk
+  tegen het gemiddelde), wie er stopt per kanaal, bron, toestel en eerste/terug
+  (klik = segmentfilter), hoe lang stoppers bleven, of ze scrolden/klikten (enkel
+  bij wie niets anders bekeek: scroll en klik gelden voor het hele BEZOEK) en waar
+  ze vandaan komen en heen gaan. De "lezing" (binnen 10 s weg = de verwachting
+  klopt niet; lang lezen en dan weg = geen volgende stap) verschijnt pas vanaf 10
+  stoppers. Vastzetten gebeurt altijd met `mergeTok()`: een pad uit de lijst kan een
+  "gestart"-token (-8/-9/-10) bevatten, en dat matchte eerst nooit.
 - **Een HEROPENDE advertentielink is GEEN nieuwe klik** (2026-10-02). Google maakt
   bij elke klik een nieuwe gclid; dezelfde gclid later opnieuw is een bladwijzer, de
   adresbalk, een herstelde tab of een doorgestuurde link. De tracker maakt bij ELKE
@@ -4030,9 +4072,49 @@ Afspraken die bewust zo zijn:
   bovenaan, op de tegel Bezoeken, bij "volgen dit pad" en boven de recente bezoeken,
   en per recent bezoek wie het was. Persoon = het eerste herleide adres van een browser
   (`persons` + `dict.pe` uit behaviour.js, zelfde regel als `personKey()`); een anonieme
-  browser telt als eigen persoon. Komen minstens 3 bezoeken en een kwart van wat
-  getoond wordt van één persoon, dan staat er bovenaan een waarschuwing met "Bekijk
-  traject" en (beheerders) "Uitsluiten" (`renderConcentration()`).
+  browser telt als eigen persoon. Komen minstens 3 bezoeken en een kwart van het
+  geheel van één persoon, dan staat er een waarschuwing met "Bekijk traject" en
+  (beheerders) "Uitsluiten" (`renderScope()`). Die waarschuwing hoort bij een NIVEAU:
+  het segment (kerncijfers, trend) of het vastgezette pad (padverkenner, paden, per
+  pagina, recente bezoeken), en staat onder de beschrijving van dat niveau. De eerste
+  versie zette "7 van de 7 bezoeken op dit pad" bovenaan, onder de zin "31 bezoeken
+  door 18 prospecten": dat las als een tegenspraak.
+- **De lijst onderaan Gedrag is om MENSEN te vinden, niet om te tellen**
+  (`renderSessions()` in webgedrag-behaviour.js, 2026-10-02). Per bezoek: wie
+  (anoniem / gekend / lead / klant + adres), het hoeveelste bezoek van die browser
+  (`_vx`: alleen een nummer als we zijn allereerste bezoek zien, anders
+  "terugkerend"), de route MET de acties erin, en etiketten voor wat er gebeurde.
+  Gestart-niet-verstuurd en enkel-geopend komen uit de popup-trechter (kolom 14),
+  met tot welke stap; verstuurd uit de acties (kolom 12). Een streepje links geeft
+  het niveau (`LVL`): aanvraag > begonnen-niet-verstuurd > andere actie > popup
+  geopend. Begonnen staat bewust BOVEN een nieuwsbrief: het is een onafgemaakte
+  aanvraag. "Per persoon" voegt de bezoeken samen (`personsOf()`, zelfde
+  `personKey()`); wat in een ander bezoek alsnog verstuurd werd, telt daar niet
+  meer als gestart. Sorteren op "Verst gekomen" en zoeken (adres, pagina,
+  kanaal, campagne) gebeuren in de browser; er is geen extra serververzoek.
+- **Gedrag heeft drie kolommen** (2026-10-02). Links, sticky: "Je bekijkt" (de zin
+  over het segment, het vastgezette pad met wat het filtert, de waarschuwingen, wie er
+  buiten valt) en daaronder de filters. Midden: de analyse. Rechts, ook sticky: de
+  kerncijfers onder elkaar. Vanaf `lg` twee kolommen (kerncijfers bovenaan het midden),
+  vanaf `2xl` drie, op een telefoon alles onder elkaar. De pagina is daarvoor
+  `max-w-[1800px]`; de andere tabbladen houden `max-w-7xl`. In de zijkolom geen
+  daisyUI-`tooltip`: `overflow-y: auto` snijdt die af aan de rand, dus de uitleg bij
+  een filtergroep is een gewone `title`.
+  Beide zijkolommen moeten in een gewoon scherm PASSEN; de schuifbalk (`.om-scroll`,
+  smal en pas zichtbaar bij hover) is een vangnet, geen ontwerp. Daarom: knopgroepen
+  in de zijkolom krijgen `pills(..., side)` (vanaf `lg` compact en over de volle
+  breedte verdeeld -- anders liep een los woord naar een tweede regel, en daarom heet
+  de langste periode "1 jaar"), de keuzelijsten staan per twee, en vanaf `2xl` zijn de
+  kerncijfers LIJSTREGELS in plaats van tegels (`tile()` met `KPI_COMPACT`; over de
+  grens heen tekent `render()` opnieuw). Tien tegels onder elkaar waren te hoog.
+- **Het mini-verloop is EXACT de grafiek die het opent.** Zelfde periode, zelfde
+  emmers (`periodKeys()` + `bucketOf()`, ook gebruikt door de trend), lege emmers als 0
+  of als gat. Het venster opent daarom op "de gekozen periode" en biedt het langere
+  verloop (`LONG`) aan als keuze bovenaan; eerst opende het meteen op 12 maanden en
+  liet het mini-verloop lege weken weg, en dan leken die twee elkaar tegen te spreken.
+  De lijn is vloeiend maar monotoon (`smoothPath()`, Fritsch-Carlson): een gewone
+  Bezier schiet onder nul. Is er in de vorige periode niets om mee te vergelijken, dan
+  zegt de tegel "vorige periode: geen bezoeken" in plaats van niets te tonen.
 - **Uitgesloten uit de cijfers** (`lib/exclusions.js`). Voor een partner of vaste klant
   die de site intensief gebruikt. De lijst staat in Supabase (`web_story_exclusions`),
   NIET in D1: daar is de tracker de enige schrijver, en dit is een keuze van de OM over
@@ -4042,10 +4124,55 @@ Afspraken die bewust zo zijn:
   Gedrag, dashboard Website-bezoeken, attributie. Het traject en het verhaal in Odoo
   blijven volledig, met een badge. Het filter werkt NA de edge-cache (`dropExcluded()`),
   zodat een wijziging meteen telt; de attributie heeft de lijst in haar cachesleutel.
-  Lezen mag iedereen met de module, wijzigen enkel beheerders. Mislukt het lezen van de
+  Lezen mag iedereen met de module; wijzigen mogen beheerders en MARKETING (de
+  bestaande rol `marketing_signature`, via `hasModuleSubRoleAccess()` -- niet "iedereen",
+  want elke gebruiker heeft deze module en dit raakt ieders cijfers). Mislukt het lezen van de
   lijst, dan telt iedereen mee en zegt het scherm dat. Hoeveel er buiten valt staat
   ALTIJD onder de cijfers (`excluded` in het antwoord): stil weglaten leest als een
   kleiner segment.
+- **Een OFFERTE is een aanvraag die apart zichtbaar is** (2026-10-02). Op de koppeling:
+  "Telt in Webgedrag als: Offerte (aanvraag)" (`web_action = 'offerte'`, migratie
+  `20261004090000`). Ze telt mee in Aanvraag en heeft daarnaast een eigen actie (7),
+  vlag, filter, doel en kerncijfer. Welke inzending een offerte is, wordt bij het
+  LEZEN bepaald: soort 'offerte', of de slug of naam van een koppeling met die
+  waarde (`offerteSql()`). Zo geldt het ook voor wat al in D1 stond -- een inzending
+  draagt `form_slug` en `form_name` sinds de eerste melding. De tracker bewaart de
+  soort 'offerte' voortaan ook, maar het type blijft `form_submission`.
+- **Een conversie die niet aankwam, wordt alsnog gemeld** (`conversion-catchup.js`).
+  `reportWebConversion()` slikt elke fout in, dus een melding die mislukt is stil
+  weg. Dat gebeurde voor ALLES van voor 29-09-2026 (de melding bestond nog niet; de
+  popup draaide al sinds half september) en voor 29-09 tot 03-10. Elk uur, vóór de
+  matching: de inzendingen van de laatste dagen, EXACT dezelfde melding als de
+  pipeline (`buildWebConversion()` + `normalizeFormValues()`), de id die de tracker
+  eraan zou geven (`conversionEventId()` = sha256('conv|' + ref), zelfde regel als
+  `storeServerConversion()` in de tracker -- wijzig ze samen), en enkel wat nog niet
+  in D1 staat. Eerste ronde 60 dagen terug, daarna 7. Niet gemeld, net als in de
+  pipeline: `received` (koppeling uit), `duplicate_inflight` en oude replay-rijen.
+- **De popup meldt zelf wat er gebeurt** (mymmo-forms 1.22): venster geopend (en via
+  welke knop), tabblad, stap (naam, nummer, totaal), formulier gestart (eerste
+  ingevulde veld), verzendpoging, venster dicht. Als CustomEvent `mymmo:track` op
+  `document`; de snippet van de tracker stuurt het door als type `form_ui`. De plugin
+  kent de tracker niet. In de tracker: `normalizeEvent()` (gesloten lijst `act`,
+  korte tekst), `shouldStore()`, `liveEventData()`; een `form_ui` gaat NIET naar de
+  Durable Object/Odoo en staat niet in `readEventRows()` (de tijdlijn kent het niet).
+  **VOLGORDE: eerst de tracker deployen, dan de plugin** -- een oudere tracker maakt
+  van elk onbekend type een PAGINAWEERGAVE.
+- **De trechter is EXACT vanaf het eerste `form_ui`-event, daarvoor GESCHAT**, en dat
+  staat er altijd bij. `funnelVan()` in behaviour.js: per bezoek en per formulier
+  geopend / gestart / poging / verstuurd / verste stap (kolom 14). De schatting geldt
+  enkel voor de OFFERTEpopup, uit de klikken in `POPUP_KLIKKEN` (web-visits.js): "vraag
+  je offerte aan"/"Bereken je prijsofferte" = geopend, "Volgende"/"Vorige" daarna = een
+  stap, "Versturen" = een poging. Die teksten bestaan enkel in die popup; voeg er geen
+  toe die ook elders op de site staat. Andere formulieren krijgen voor die datum geen
+  trechter: enkel een inzending zou dan als 100% conversie lezen.
+- **"4 gestart · 2 verstuurd" is EEN kaart in de padverkenner.** Een formulier dat
+  gestart en in dat bezoek niet verstuurd werd, is een eigen stap in het pad (acties
+  8, 9 en 10 = geschat), op het moment van de eerste invoer. `mergeTok()` smelt die
+  samen met 1 (formulier) en 7 (offerte): in de knopen, de linten EN de spelden --
+  vastzetten op de kaart geldt voor wie begon en wie verstuurde. "Gestart" telt wie
+  verstuurde mee. De kaart "Formulieren en popups" (`renderForms()`) toont per
+  formulier geopend -> gestart -> stappen -> verstuurd over het SEGMENT, met de stap
+  waar de meesten afhaakten en het aandeel dat geschat is.
 - **Eén chatter-notitie per record**, bij de eerste schrijfactie, met de link
   naar `/webgedrag` (`webstory:noted:*` in KV). Nooit bij elke update.
 - **Inline stijl: altijd `background-color`, nooit `background`** -- Odoo's

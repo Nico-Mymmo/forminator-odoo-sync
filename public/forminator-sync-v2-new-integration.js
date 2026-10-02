@@ -96,7 +96,7 @@
           var actief = sleutel === keuze;
           return `
             <button type="button"
-                    class="text-left border-2 rounded-box p-3 transition-colors ${actief ? 'border-primary bg-primary/5' : 'border-base-200 hover:border-base-300'}"
+                    class="text-left border-2 rounded-box p-3 transition-colors ${actief ? 'border-primary bg-primary/5' : 'border-base-200 hover:border-base-content/30'}"
                     data-action="new-integration-pick" data-kind="${esc(sleutel)}">
               <div class="flex items-start gap-2.5">
                 <i data-lucide="${actief ? 'check-circle' : s.icoon}" class="w-4 h-4 mt-0.5 shrink-0 ${actief ? 'text-primary' : s.kleur}"></i>

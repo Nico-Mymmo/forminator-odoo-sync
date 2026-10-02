@@ -2126,7 +2126,7 @@
             '<i data-lucide="refresh-cw" class="w-3 h-3"></i> Verversen</button>' +
           '<button class="btn btn-xs btn-outline gap-1" data-action="add-registration" data-event-id="' + eventId + '">' +
             '<i data-lucide="user-plus" class="w-3 h-3"></i> Handmatig toevoegen</button>' +
-          '<div class="w-px h-4 bg-base-300 mx-1"></div>' +
+          '<div class="w-px h-4 bg-base-content/20 mx-1"></div>' +
           '<button class="btn btn-xs btn-outline gap-1" data-action="export-registrations" data-format="xlsx" data-event-id="' + eventId + '"' +
             ' title="Volledige lijst downloaden als Excel">' +
             '<i data-lucide="file-spreadsheet" class="w-3 h-3"></i> Excel</button>' +

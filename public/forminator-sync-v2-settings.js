@@ -60,7 +60,7 @@
 
         var tableHtml;
         if (models.length === 0) {
-            tableHtml = `<div class="rounded-xl border border-dashed border-base-300 py-8 text-center mb-4">
+            tableHtml = `<div class="rounded-xl border border-dashed border-base-content/20 py-8 text-center mb-4">
                 <i data-lucide="database" class="w-7 h-7 text-base-content/20 mx-auto mb-2"></i>
                 <p class="text-sm text-base-content/50">Geen modellen geconfigureerd.</p>
             </div>`;
@@ -120,7 +120,7 @@
                                     }
                                     var rows = odooFields.map(function(f) {
                                         var isHidden = !!hiddenSet[f.name];
-                                        return '<div class="flex items-center gap-2 py-1 border-b border-base-200/40 last:border-0 hover:bg-base-200/30 px-1 rounded"' +
+                                        return '<div class="flex items-center gap-2 py-1 border-b border-base-content/10 last:border-0 hover:bg-base-200/30 px-1 rounded"' +
                                             ' data-field-item="' + esc((f.label || f.name).toLowerCase() + ' ' + f.name.toLowerCase()) + '">' +
                                             '<button type="button"' +
                                             ' class="btn btn-ghost btn-xs p-0 w-6 h-6 min-h-0 shrink-0 ' + (isHidden ? 'text-base-content/25' : 'text-success/70') + '"' +
@@ -251,7 +251,7 @@
 
         var tableHtml;
         if (links.length === 0) {
-            tableHtml = `<div class="rounded-xl border border-dashed border-base-300 py-8 text-center mb-4">
+            tableHtml = `<div class="rounded-xl border border-dashed border-base-content/20 py-8 text-center mb-4">
                 <i data-lucide="link-2" class="w-7 h-7 text-base-content/20 mx-auto mb-2"></i>
                 <p class="text-sm text-base-content/50">Nog geen koppelingen gedefinieerd.</p>
                 <p class="text-xs text-base-content/40 mt-1">Voeg hieronder een koppeling toe.</p>
@@ -400,7 +400,7 @@
 
         var tableHtml;
         if (templates.length === 0) {
-            tableHtml = `<div class="rounded-xl border border-dashed border-base-300 py-8 text-center mb-4">
+            tableHtml = `<div class="rounded-xl border border-dashed border-base-content/20 py-8 text-center mb-4">
                 <i data-lucide="file-text" class="w-7 h-7 text-base-content/20 mx-auto mb-2"></i>
                 <p class="text-sm text-base-content/50">Nog geen pdf-sjablonen.</p>
             </div>`;

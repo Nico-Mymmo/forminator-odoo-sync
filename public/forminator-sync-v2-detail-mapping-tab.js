@@ -1149,7 +1149,7 @@
       return '<option value="' + esc(f.name) + '">' + esc(f.label || f.name) + ' (' + esc(f.name) + ')</option>';
     }).join('');
 
-    return '<div class="mt-2 pt-2 border-t border-base-300/60">' +
+    return '<div class="mt-2 pt-2 border-t border-base-content/10">' +
       '<p class="text-xs font-semibold opacity-50 mb-1.5">Zelf een koppeling instellen</p>' +
       '<div class="flex flex-wrap items-end gap-2">' +
         '<div class="form-control">' +

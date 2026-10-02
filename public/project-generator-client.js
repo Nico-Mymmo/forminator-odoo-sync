@@ -2722,7 +2722,7 @@ function renderTaskItem(task, level, container, isGrouped = false, sorting = 'ma
   if (level > 0) {
     div.style.marginLeft = isGrouped ? '3.5rem' : '2rem';
     div.className = div.className.replace('bg-base-200', 'bg-base-100');
-    div.className += ' border-l-2 border-base-300';
+    div.className += ' border-l-2 border-base-content/10';
   }
   
   // Left: Task info
@@ -3316,7 +3316,7 @@ function openTaskDependenciesModal(taskId) {
   
   // Task list with checkboxes
   const taskListContainer = document.createElement('div');
-  taskListContainer.className = 'max-h-96 overflow-y-auto border border-base-300 rounded-lg p-3 mb-4';
+  taskListContainer.className = 'max-h-96 overflow-y-auto border border-base-content/10 rounded-lg p-3 mb-4';
   
   // Get available tasks (exclude self and subtasks of current task)
   const availableTasks = blueprintState.tasks.filter(t => 
@@ -3950,7 +3950,7 @@ async function showGenerationPreviewModal(generationModel, templateId, projectSt
   taskSection.appendChild(taskLabel);
   
   const taskList = document.createElement('div');
-  taskList.className = 'space-y-2 max-h-96 overflow-y-auto border border-base-300 rounded-lg p-4';
+  taskList.className = 'space-y-2 max-h-96 overflow-y-auto border border-base-content/10 rounded-lg p-4';
   taskList.id = 'previewTaskList';
   
   // Render tasks hierarchically
@@ -4153,7 +4153,7 @@ function renderPreviewTasks(container, generationModel) {
  */
 function createPreviewTaskRow(task, generationModel, isSubtask) {
   const row = document.createElement('div');
-  row.className = 'flex items-center gap-2 p-3 border border-base-300 rounded hover:bg-base-200';
+  row.className = 'flex items-center gap-2 p-3 border border-base-content/10 rounded hover:bg-base-200';
   row.dataset.taskId = task.blueprint_id;
   
   if (isSubtask) {

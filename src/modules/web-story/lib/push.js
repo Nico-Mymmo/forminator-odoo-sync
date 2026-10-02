@@ -21,6 +21,7 @@ import { searchRead, write, executeKw, messagePost } from '../../../lib/odoo.js'
 import { readWebEvents, hasWebEvents } from '../../../lib/web-events.js';
 import { readVisitorSessions } from '../../dashboards/lib/web-visits.js';
 import { runMatching } from './matching.js';
+import { catchUpConversions } from './conversion-catchup.js';
 import { fetchTimeline } from './tracker.js';
 import { buildJourney, journeyHtml } from './journey.js';
 import { readIdentities, isShared, personKey } from './identities.js';
@@ -156,6 +157,9 @@ export async function runWebStoryCron(env, { scheduledTime } = {}) {
   let todo = pending;
   let startedAt = await env.MAPPINGS_KV.get(`${KV}run_started`);
   if (!todo.length) {
+    // Eerst wat aan meldingen ontbrak (conversion-catchup.js), zodat de matching
+    // hieronder die bezoekers meteen aan hun lead kan hangen. Faalt nooit de ronde.
+    log.inhaal = await catchUpConversions(env).catch(e => ({ fout: e.message }));
     log.matching = await runMatching(env);
     if (mode === 'match') { console.log('[web-story]', JSON.stringify(log)); return log; }
     // Leads waarvan een gekoppelde bezoeker iets deed, of die een nieuwe koppeling kregen.

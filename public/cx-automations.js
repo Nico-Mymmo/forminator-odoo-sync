@@ -451,7 +451,7 @@ function renderMergerCategories() {
 
   var html = mergerCategories.map(function(cat, catIdx) {
     var fieldRows = (cat.fields || []).map(function(f, fIdx) {
-      return '<div class="flex items-center gap-2 py-1 border-b border-base-200 last:border-0">'
+      return '<div class="flex items-center gap-2 py-1 border-b border-base-content/10 last:border-0">'
         + '<span class="text-xs font-mono text-base-content/50 w-48 truncate flex-shrink-0">' + mergerEsc(f[0]) + '</span>'
         + '<input type="text" class="input input-bordered input-xs flex-1 merger-field-label" '
         +   'data-cat-idx="' + catIdx + '" data-field-idx="' + fIdx + '" value="' + mergerEsc(f[1]) + '" />'
@@ -461,7 +461,7 @@ function renderMergerCategories() {
         + '</div>';
     }).join('');
 
-    return '<div class="card bg-base-100 shadow-sm border border-base-200 mb-4" data-cat-idx="' + catIdx + '">'
+    return '<div class="card bg-base-100 shadow-sm border border-base-content/10 mb-4" data-cat-idx="' + catIdx + '">'
       + '<div class="card-body p-4">'
       + '<div class="flex items-start gap-3 mb-3">'
       + '<div class="flex-1 min-w-0">'
@@ -507,7 +507,7 @@ function renderUnmappedFields() {
   }
 
   var rows = unmapped.slice(0, 80).map(function(f) {
-    return '<div class="flex items-center justify-between py-1 border-b border-base-200 last:border-0">'
+    return '<div class="flex items-center justify-between py-1 border-b border-base-content/10 last:border-0">'
       + '<div class="min-w-0 flex-1 mr-2">'
       +   '<div class="text-xs font-mono truncate" title="' + mergerEsc(f.name) + '">' + mergerEsc(f.name) + '</div>'
       +   '<div class="text-xs text-base-content/50 truncate">' + mergerEsc(f.label) + ' <span class="opacity-40">(' + mergerEsc(f.type) + ')</span></div>'

@@ -38,14 +38,14 @@
 
         <!-- Tab 1: Mijn Koppelingen -->
         <input type="radio" name="claude_tabs" role="tab" class="tab" aria-label="Mijn Koppelingen" checked />
-        <div role="tabpanel" class="tab-content bg-base-100 border-base-300 rounded-box p-6">
+        <div role="tabpanel" class="tab-content bg-base-100 border-base-content/10 rounded-box p-6">
           <div class="flex justify-between items-center mb-6">
             <h2 class="text-xl font-bold">Mijn Koppelingen</h2>
             <button class="btn btn-primary btn-sm gap-1" onclick="document.querySelector('[aria-label=\'Nieuwe Koppeling\']').click()">
               <i data-lucide="plus" class="w-4 h-4"></i> Nieuw
             </button>
           </div>
-          <div class="alert bg-base-200 border border-base-300 mb-6 text-sm">
+          <div class="alert bg-base-200 border border-base-content/10 mb-6 text-sm">
             <i data-lucide="info" class="w-5 h-5 shrink-0 text-info"></i>
             <div>
               <p class="font-medium mb-1">Hoe werkt het?</p>
@@ -63,7 +63,7 @@
 
         <!-- Tab 2: Nieuwe Koppeling -->
         <input type="radio" name="claude_tabs" role="tab" class="tab" aria-label="Nieuwe Koppeling" />
-        <div role="tabpanel" class="tab-content bg-base-100 border-base-300 rounded-box p-6">
+        <div role="tabpanel" class="tab-content bg-base-100 border-base-content/10 rounded-box p-6">
           <h2 class="text-xl font-bold mb-6">Nieuwe Koppeling Aanmaken</h2>
           <form id="createForm" class="max-w-lg">
             <div class="form-control mb-4">
@@ -127,7 +127,7 @@
 
         <!-- Tab 3: Gebruik Log -->
         <input type="radio" name="claude_tabs" role="tab" class="tab" aria-label="Gebruik Log" />
-        <div role="tabpanel" class="tab-content bg-base-100 border-base-300 rounded-box p-6">
+        <div role="tabpanel" class="tab-content bg-base-100 border-base-content/10 rounded-box p-6">
           <div class="flex justify-between items-center mb-4">
             <div>
               <h2 class="text-xl font-bold">Gebruik Log</h2>
@@ -144,7 +144,7 @@
 
         <!-- Tab 4: Datasets (admin only, hidden by default) -->
         <input type="radio" name="claude_tabs" role="tab" class="tab" aria-label="Datasets" id="adminDatasetTab" style="display:none" />
-        <div role="tabpanel" class="tab-content bg-base-100 border-base-300 rounded-box p-6" id="adminDatasetTabPanel" style="display:none">
+        <div role="tabpanel" class="tab-content bg-base-100 border-base-content/10 rounded-box p-6" id="adminDatasetTabPanel" style="display:none">
           <div class="flex justify-between items-center mb-6">
             <div>
               <h2 class="text-xl font-bold">Dataset Templates</h2>
@@ -259,7 +259,7 @@
   <!-- Modal: Dataset Editor (admin) -->
   <dialog id="datasetEditorModal" class="modal">
     <div class="modal-box w-11/12 max-w-6xl h-5/6 max-h-screen flex flex-col p-0">
-      <div class="flex items-center justify-between px-4 py-3 border-b border-base-300 shrink-0">
+      <div class="flex items-center justify-between px-4 py-3 border-b border-base-content/10 shrink-0">
         <div class="flex items-center gap-3">
           <i data-lucide="database" class="w-5 h-5 text-primary"></i>
           <span id="editorTemplateName" class="font-bold text-lg"></span>
@@ -269,12 +269,12 @@
           <i data-lucide="x" class="w-4 h-4"></i>
         </button>
       </div>
-      <div class="px-4 py-2 bg-base-200 border-b border-base-300 shrink-0">
+      <div class="px-4 py-2 bg-base-200 border-b border-base-content/10 shrink-0">
         <div class="flex items-center gap-2 flex-wrap" id="editorCategoriesBar"></div>
       </div>
       <div class="flex flex-1 min-h-0 overflow-hidden">
         <div class="flex-1 overflow-y-auto p-4" id="editorModelTree"></div>
-        <div class="w-72 border-l border-base-300 overflow-y-auto p-4 bg-base-50 shrink-0">
+        <div class="w-72 border-l border-base-content/10 overflow-y-auto p-4 bg-base-50 shrink-0">
           <h4 class="font-semibold text-sm mb-3 flex items-center gap-2">
             <i data-lucide="eye" class="w-4 h-4 text-base-content/40"></i> Wat gaat naar Claude
           </h4>
@@ -452,7 +452,7 @@
         return;
       }
       el.innerHTML = templates.map(t =>
-        `<label class="flex items-start gap-3 p-3 border border-base-300 rounded-box cursor-pointer hover:bg-base-200 has-[:checked]:border-primary has-[:checked]:bg-primary/5 transition-colors">
+        `<label class="flex items-start gap-3 p-3 border border-base-content/10 rounded-box cursor-pointer hover:bg-base-200 has-[:checked]:border-primary has-[:checked]:bg-primary/5 transition-colors">
           <input type="radio" name="dataset_template_id" value="${t.id}" class="radio radio-sm radio-primary mt-0.5"${t.is_default ? ' checked' : ''} required />
           <div class="flex-1 min-w-0">
             <div class="flex items-center gap-2 font-medium text-sm">
@@ -515,7 +515,7 @@
         expiryBadge = `<span class="badge badge-warning badge-xs" title="Vervalt ${fmtDate(i.expires_at)}">Vervalt binnenkort</span>`;
       }
 
-      return `<div class="card bg-base-50 border border-base-300 mb-3">
+      return `<div class="card bg-base-50 border border-base-content/10 mb-3">
         <div class="card-body p-4">
           <div class="flex items-start justify-between gap-3 flex-wrap">
             <div class="flex-1 min-w-0">
@@ -862,7 +862,7 @@
     }
 
     function renderTemplateCard(t) {
-      return `<div class="card bg-base-50 border border-base-300 mb-3">
+      return `<div class="card bg-base-50 border border-base-content/10 mb-3">
         <div class="card-body p-4">
           <div class="flex items-start justify-between gap-3 flex-wrap">
             <div class="flex-1 min-w-0">
@@ -1010,7 +1010,7 @@
       const marginStyle = depth > 0 ? ` style="margin-left:${depth * 1.5}rem"` : '';
       const enabledCount = (mc.fields || []).filter(f => f.enabled).length;
       const totalCount = (mc.fields || []).length;
-      return `<div class="card border border-base-300 mb-2 bg-base-100"${marginStyle}>
+      return `<div class="card border border-base-content/10 mb-2 bg-base-100"${marginStyle}>
         <div class="card-body p-3">
           <div class="flex items-center gap-2 cursor-pointer select-none" data-action="toggleModelExpand" data-key="${mc.key}">
             <i data-lucide="${isExpanded ? 'chevron-down' : 'chevron-right'}" class="w-4 h-4 text-base-content/40 shrink-0"></i>
@@ -1085,7 +1085,7 @@
       const allEnabled = mergedFields.length > 0 && mergedFields.every(f => f.enabled);
 
       let html = `<div class="mt-2 ml-6 space-y-2">
-        <div class="flex items-center gap-2 mb-2 pb-2 border-b border-base-200">
+        <div class="flex items-center gap-2 mb-2 pb-2 border-b border-base-content/10">
           <label class="flex items-center gap-1.5 cursor-pointer text-xs text-base-content/60">
             <input type="checkbox" class="checkbox checkbox-xs"${allEnabled ? ' checked' : ''}
               data-change-action="toggleAllFields" data-key="${mc.key}" />
@@ -1448,7 +1448,7 @@
         const ms = m.depth > 0 ? ' style="margin-left:' + (m.depth * 1.5) + 'rem"' : '';
         const en = (m.fields || []).filter(f => f.enabled).length;
         const tot = (m.fields || []).length;
-        html += '<div class="card border border-base-300 mb-2 bg-base-100"' + ms + '>'
+        html += '<div class="card border border-base-content/10 mb-2 bg-base-100"' + ms + '>'
           + '<div class="card-body p-3">'
           + '<div class="flex items-center gap-2 flex-wrap mb-2">'
           + '<span class="font-semibold text-sm">' + (m.label || m.key) + '</span>'
@@ -1539,7 +1539,7 @@
         if (!ef.length) return;
         anyEnabled = true;
         const ms = m.depth > 0 ? ' style="margin-left:' + (m.depth * 1.5) + 'rem"' : '';
-        html += '<div class="card border border-base-300 mb-2 bg-base-100"' + ms + '>'
+        html += '<div class="card border border-base-content/10 mb-2 bg-base-100"' + ms + '>'
           + '<div class="card-body p-3">'
           + '<p class="font-semibold text-sm mb-2">' + (m.label || m.key)
           + ' <code class="text-xs text-base-content/40 font-mono">' + m.odoo_model + '</code></p>';

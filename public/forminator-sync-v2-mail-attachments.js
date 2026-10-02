@@ -171,7 +171,7 @@
   function lijstHtml(tid) {
     var lijst = getMailAttachments(tid);
     if (lijst.length === 0) {
-      return `<div class="text-xs text-base-content/40 border border-dashed border-base-300 rounded-lg px-3 py-2">
+      return `<div class="text-xs text-base-content/40 border border-dashed border-base-content/20 rounded-lg px-3 py-2">
         Geen bijlagen. De mail vertrekt met alleen de tekst.
       </div>`;
     }

@@ -19,6 +19,7 @@
  * honderdduizenden rijen, tegen 25 miljard inbegrepen per maand.
  */
 import { readWebEvents, hasWebEvents } from '../../../lib/web-events.js';
+import { offerteFormulieren } from '../../../lib/web-conversions.js';
 
 export const WEB_PERIODS = { '7d': 7, '30d': 30, '90d': 90, '12m': 365 };
 const CACHE_SECONDS = 600;
@@ -102,6 +103,15 @@ export async function readReopenedClicks(env) {
   return map;
 }
 
+// ─── Popup en formulieren (mymmo-forms >= 1.22) ──────────────────────────────
+// `fu` hieronder: per sessie de popup-events (type form_ui: open, tab, stap, start,
+// submit, close), de inzendingen (verstuurd, met de formulier-slug) en -- voor de
+// tijd van VOOR die events bestonden -- de klikken waaruit de offertetrechter
+// GESCHAT wordt (web-story/lib/behaviour.js, funnelVan). Bewust enkel de teksten van
+// de offertepopup op syndicoach.be: die bestaan nergens anders op de site. Een
+// tekst die ook buiten de popup voorkomt, zou de schatting vervalsen.
+export const POPUP_KLIKKEN = ['vraag je offerte aan', 'bereken je prijsofferte', 'volgende', 'vorige', 'versturen'];
+
 // __WHERE__ wordt ingevuld: een periode voor het dashboard, een set bezoekers
 // voor het verhaal op een lead (readVisitorSessions). Dezelfde sessie-indeling.
 // ACTIES (2026-10-03). Een AANVRAAG = fs + ca. De rest zijn eigen acties:
@@ -117,6 +127,12 @@ export async function readReopenedClicks(env) {
 //       hieronder: wijzig je een voorwaarde, wijzig ze op beide plekken.
 //   tk  "tijdstip|klik-sleutel" van het eerste touchpoint: is het een heropende
 //       advertentielink? (readReopenedClicks hierboven, channelOf hieronder)
+//   fu  popup en formulieren: "tijdstip~act~form~stap_n~stappen~stap" per event (zie
+//       POPUP_KLIKKEN hierboven); gelezen door funnelVan() in web-story/lib/behaviour.js.
+//   oq  OFFERTE: een form_submission van een koppeling met web_action 'offerte'.
+//       Telt OOK in fs (een offerte is een aanvraag) en staat in cv als '~offerte'.
+//       __OFFERTE__ wordt ingevuld door offerteSql() hieronder, bij het LEZEN: zo
+//       geldt het ook voor inzendingen van voor iemand "Offerte" aanduidde.
 // De soort van een formulier komt uit conversieSoort() in src/lib/web-conversions.js.
 // (Bewust geen SQL-commentaar in de query zelf: een '--' op een samengevoegde regel
 // zou de rest van de query uitschakelen.)
@@ -146,8 +162,17 @@ SELECT u,
   json_group_array(CASE WHEN type = 'page' THEN page END) AS pg,
   json_group_array(CASE WHEN type = 'page' THEN ts END) AS pt,
   json_group_array(CASE WHEN type = 'page' THEN json_extract(data,'$.search') END) AS zq,
-  GROUP_CONCAT(CASE WHEN type IN ('form_submission','calendly','event_registration','newsletter_signup','academy_signup') THEN ts || '~' || type
+  GROUP_CONCAT(CASE WHEN type = 'form_submission' AND (__OFFERTE__) THEN ts || '~offerte'
+                    WHEN type IN ('form_submission','calendly','event_registration','newsletter_signup','academy_signup') THEN ts || '~' || type
                     WHEN type = 'click' AND json_extract(data,'$.exit_type') = 'register' THEN ts || '~register' END, ',') AS cv,
+  GROUP_CONCAT(CASE
+      WHEN type = 'form_ui' THEN ts || '~' || COALESCE(json_extract(data,'$.act'),'') || '~' || COALESCE(json_extract(data,'$.form'),'')
+           || '~' || COALESCE(json_extract(data,'$.stap_n'),'') || '~' || COALESCE(json_extract(data,'$.stappen'),'') || '~' || COALESCE(json_extract(data,'$.stap'),'')
+      WHEN type IN ('form_submission','newsletter_signup','academy_signup','form_other') THEN ts || '~verstuurd~' || COALESCE(json_extract(data,'$.form_slug'),'') || '~~~'
+      WHEN type = 'calendly' THEN ts || '~verstuurd~calendly~~~'
+      WHEN type = 'click' AND lower(COALESCE(json_extract(data,'$.text'),'')) IN (${sqlList(POPUP_KLIKKEN)})
+           THEN ts || '~klik~' || lower(json_extract(data,'$.text')) || '~~~'
+    END, ',') AS fu,
   MIN(CASE WHEN type IN ('touchpoint','ai_referral','email_referral')
       THEN ts || '|' || COALESCE(json_extract(data,'$.medium'),'') || '|' || COALESCE(json_extract(data,'$.source'),'')
            || '|' || COALESCE(json_extract(data,'$.campaign'),'') END) AS tp,
@@ -160,6 +185,7 @@ SELECT u,
   SUM(type = 'page' AND page <> '/') AS op,
   SUM(type = 'click' AND (json_extract(data,'$.text') LIKE '%+32%' OR json_extract(data,'$.text') LIKE '%@%')) AS ct,
   SUM(type = 'calendly') AS ca, SUM(type = 'event_registration') AS er, SUM(type = 'form_submission') AS fs,
+  SUM(type = 'form_submission' AND (__OFFERTE__)) AS oq,
   SUM(type = 'newsletter_signup') AS nb, SUM(type = 'academy_signup') AS ac,
   SUM(type = 'click' AND json_extract(data,'$.exit_type') = 'register') AS rg,
   SUM(type = 'partner_login') AS pl, SUM(type = 'resume') AS rs,
@@ -171,7 +197,25 @@ SELECT u,
   MAX(bron = 'odoo-historiek') AS hi, MAX(kn) AS kn
 FROM s0 GROUP BY u, sid`;
 const ZONDER_INTERN = 'AND v.is_internal = 0';
-const SESSIONS_SQL = SESSIONS_SQL_TEMPLATE.replace('__WHERE__', 'e.ts >= ?1 AND e.ts < ?2').replace('__INTERNAL__', ZONDER_INTERN);
+const PERIODE_WHERE = 'e.ts >= ?1 AND e.ts < ?2';
+
+/**
+ * Wanneer is een form_submission een OFFERTE? Een eigen soort (de tracker bewaart
+ * 'offerte' vanaf nu), of de naam of formulier-slug van een koppeling met
+ * web_action 'offerte' (offerteFormulieren() in src/lib/web-conversions.js). De
+ * namen komen uit de database: sqlList() escapet de aanhalingstekens.
+ */
+export function offerteSql({ names = [], slugs = [] } = {}) {
+  return "json_extract(data,'$.soort') = 'offerte'"
+    + (slugs.length ? ` OR json_extract(data,'$.form_slug') IN (${sqlList(slugs)})` : '')
+    + (names.length ? ` OR json_extract(data,'$.form_name') IN (${sqlList(names)})` : '');
+}
+
+/** De sessie-SQL, ingevuld. Eén plek; een functie als vervanging, zodat een `$` in een naam niets doet. */
+function sessionsSql(where, internal, offerte) {
+  return SESSIONS_SQL_TEMPLATE.replace('__WHERE__', () => where).replace('__INTERNAL__', () => internal)
+    .replace(/__OFFERTE__/g, () => offerteSql(offerte || {}));
+}
 
 /**
  * Een testpagina van onze eigen sites. Een BEZOEK met zo'n pagina is een test en
@@ -319,8 +363,9 @@ export async function getWebVisitsData(env, { period }) {
   const start = new Date(end.getTime() - days * 86400000);
   const prevStart = new Date(start.getTime() - days * 86400000);
 
+  const offerte = await offerteFormulieren(env);
   const [res, firstLogins, reopened] = await Promise.all([
-    readWebEvents(env, SESSIONS_SQL, [fmt(prevStart), fmt(end)]),
+    readWebEvents(env, sessionsSql(PERIODE_WHERE, ZONDER_INTERN, offerte), [fmt(prevStart), fmt(end)]),
     readFirstLogins(env),
     readReopenedClicks(env),
   ]);
@@ -403,7 +448,7 @@ export async function getWebVisitsData(env, { period }) {
  * dashboard genegeerd.
  */
 export async function readSessionRows(env, startTs, endTs) {
-  const res = await readWebEvents(env, SESSIONS_SQL, [startTs, endTs]);
+  const res = await readWebEvents(env, sessionsSql(PERIODE_WHERE, ZONDER_INTERN, await offerteFormulieren(env)), [startTs, endTs]);
   return { rows: res.results || [], meta: res.meta || {} };
 }
 
@@ -417,11 +462,11 @@ export async function readVisitorSessions(env, uuids, { includeInternal = false 
   const list = [...new Set(uuids || [])];
   const out = [];
   const reopened = list.length ? await readReopenedClicks(env) : null;
+  const offerte = list.length ? await offerteFormulieren(env) : null;
   for (let i = 0; i < list.length; i += 50) {
     const part = list.slice(i, i + 50);
     // includeInternal: voor het verhaal op een (test)lead -- in de cijfers nooit.
-    const sql = SESSIONS_SQL_TEMPLATE.replace('__WHERE__', `e.visitor_uuid IN (${part.map(() => '?').join(',')})`)
-      .replace('__INTERNAL__', includeInternal ? '' : ZONDER_INTERN);
+    const sql = sessionsSql(`e.visitor_uuid IN (${part.map(() => '?').join(',')})`, includeInternal ? '' : ZONDER_INTERN, offerte);
     const res = await readWebEvents(env, sql, part);
     for (const r of res.results || []) {
       let pages = [];
@@ -430,7 +475,7 @@ export async function readVisitorSessions(env, uuids, { includeInternal = false 
       out.push({
         uuid: r.u, start: r.st, end: r.en, site: r.site || null, channel, detail: detail || '',
         reopened: (meta && meta.reopened) || null, klikOnbekend: !!(meta && meta.klikOnbekend),
-        pages, conversions: { calendly: r.ca || 0, events: r.er || 0, forms: r.fs || 0, newsletter: r.nb || 0, academy: r.ac || 0, register: r.rg || 0 },
+        pages, conversions: { calendly: r.ca || 0, events: r.er || 0, forms: r.fs || 0, offerte: r.oq || 0, newsletter: r.nb || 0, academy: r.ac || 0, register: r.rg || 0 },
         historic: !!r.hi,
         loginOnly: isLoginOnly(r),
         test: pages.some(isTestPage),

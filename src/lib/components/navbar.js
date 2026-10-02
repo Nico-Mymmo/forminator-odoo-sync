@@ -121,7 +121,7 @@ export function navbar(user) {
       + '<summary class="btn btn-sm btn-ghost gap-2 font-normal">'
       + ICONS.grid + 'Modules' + '<span class="opacity-60">' + ICONS.chevron + '</span>'
       + '</summary>'
-      + '<ul class="dropdown-content z-[60] menu p-2 shadow-lg bg-base-100 rounded-box w-64 border border-base-200">'
+      + '<ul class="dropdown-content z-[60] menu p-2 shadow-lg bg-base-100 rounded-box w-64 border border-base-content/10">'
       + moduleItems
       + '</ul>'
       + '</details>'
@@ -142,7 +142,7 @@ export function navbar(user) {
     : '';
 
   const mobileMenu = hasMobileItems
-    ? '<nav data-role="mobileMenu" class="hidden md:hidden bg-base-100 border-b border-base-200 shadow-lg" style="position: fixed; top: 48px; left: 0; right: 0; z-index: 49;">'
+    ? '<nav data-role="mobileMenu" class="hidden md:hidden bg-base-100 border-b border-base-content/10 shadow-lg" style="position: fixed; top: 48px; left: 0; right: 0; z-index: 49;">'
       + '<ul class="menu p-2">'
       + (gridModules.length > 0 ? '<li class="menu-title text-xs">Modules</li>' + moduleItems : '')
       + (mobileUtilityItems ? '<div class="divider my-1"></div>' + mobileUtilityItems : '')
@@ -171,13 +171,13 @@ export function navbar(user) {
   const favoriteApps = (user && Array.isArray(user.favoriteMiniApps)) ? user.favoriteMiniApps : [];
   const favoritesMenu = '<div id="navbarFavorites" class="hidden md:flex items-center gap-1">'
     + favoriteApps.map(function (a) {
-        return '<a href="/mini-apps?app=' + encodeURIComponent(a.id) + '" class="btn btn-xs btn-ghost border border-base-300 gap-1.5 font-normal text-base-content/70 hover:text-base-content hover:border-primary/40 max-w-[9rem]" title="' + escapeHtml(a.title) + '">'
+        return '<a href="/mini-apps?app=' + encodeURIComponent(a.id) + '" class="btn btn-xs btn-ghost border border-base-content/10 gap-1.5 font-normal text-base-content/70 hover:text-base-content hover:border-primary/40 max-w-[9rem]" title="' + escapeHtml(a.title) + '">'
           + '<i data-lucide="' + safeIconName(a.icon) + '" class="w-3 h-3"></i>'
           + '<span class="truncate">' + escapeHtml(a.title) + '</span>'
           + '</a>';
       }).join('')
     + '</div>'
-    + '<div id="navbarFavoritesDivider" class="w-px h-4 bg-base-300 mx-1' + (favoriteApps.length > 0 ? '' : ' hidden') + '"></div>';
+    + '<div id="navbarFavoritesDivider" class="w-px h-4 bg-base-content/10 mx-1' + (favoriteApps.length > 0 ? '' : ' hidden') + '"></div>';
 
   // Thema-selector (alle 29 daisyUI-thema's) als sub-lijst in het avatar-menu
   const themeItems = THEMES.map(function (t) {
@@ -197,7 +197,7 @@ export function navbar(user) {
     + '<summary class="btn btn-ghost btn-sm btn-circle avatar placeholder" aria-label="Account-menu">'
     + '<div class="bg-primary text-primary-content rounded-full w-7"><span class="text-xs">' + initials + '</span></div>'
     + '</summary>'
-    + '<ul class="dropdown-content z-[60] menu p-2 shadow-lg bg-base-100 rounded-box w-60 border border-base-200">'
+    + '<ul class="dropdown-content z-[60] menu p-2 shadow-lg bg-base-100 rounded-box w-60 border border-base-content/10">'
     + '<li class="menu-title px-4 py-2">'
     + '<div class="text-sm font-semibold text-base-content normal-case">' + displayName + adminBadge + '</div>'
     + '<div class="text-xs text-base-content/50 normal-case">' + userEmail + '</div>'
@@ -457,20 +457,20 @@ export function navbar(user) {
   ].join('\n');
 
   // ---------- Samenstellen ----------
-  return '<header class="flex items-center justify-between bg-base-100 border-b border-base-200 px-4" style="position: fixed; top: 0; left: 0; right: 0; height: 48px; z-index: 50;">'
+  return '<header class="flex items-center justify-between bg-base-100 border-b border-base-content/10 px-4" style="position: fixed; top: 0; left: 0; right: 0; height: 48px; z-index: 50;">'
     + '<div class="flex items-center gap-3">'
     + mobileToggle
     + '<a href="/" class="flex items-center gap-2 hover:opacity-75 transition-opacity">'
     + ICONS.home
     + '<span class="text-sm font-semibold tracking-tight">OpenVME Operations Manager</span>'
     + '</a>'
-    + (gridModules.length > 0 ? '<div class="w-px h-4 bg-base-300 hidden md:block"></div>' : '')
+    + (gridModules.length > 0 ? '<div class="w-px h-4 bg-base-content/10 hidden md:block"></div>' : '')
     + modulesMenu
     + '</div>'
     + '<div id="saveIndicator" class="flex items-center gap-1 text-xs text-base-content/50"></div>'
     + '<div class="flex items-center gap-1">'
     + favoritesMenu
-    + (utilityButtons ? '<div class="hidden md:flex items-center gap-1">' + utilityButtons + '<div class="w-px h-4 bg-base-300 mx-1"></div></div>' : '')
+    + (utilityButtons ? '<div class="hidden md:flex items-center gap-1">' + utilityButtons + '<div class="w-px h-4 bg-base-content/10 mx-1"></div></div>' : '')
     + avatarMenu
     + '</div>'
     + '</header>'

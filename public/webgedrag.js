@@ -84,7 +84,7 @@
       + esc('Telt niet mee in de cijfers' + (r.reason ? ': ' + r.reason : '')) + '">uitgesloten</span>' : '';
   }
   function uitKnop(r, uuid, norms, label) {
-    if (!state.boot || !state.boot.is_admin) return '';
+    if (!state.boot || !state.boot.can_exclude) return '';   // beheerders en marketing
     if (r) {
       return '<button class="btn btn-xs btn-ghost" data-action="excl-remove" data-id="' + esc(r.id) + '" title="'
         + esc('Uitgesloten via ' + r.label) + '">Weer laten meetellen</button>';
@@ -252,7 +252,9 @@
     };
     var rows = lijst.map(function (x) {
       var conv = [];
-      if (x.conversions.forms) conv.push('<span class="badge badge-sm badge-warning">formulier</span>');
+      // Een offerte is ook een formulier: enkel het formulier tonen als er meer was dan de offerte.
+      if (x.conversions.offerte) conv.push('<span class="badge badge-sm badge-warning">offerte</span>');
+      if (x.conversions.forms > (x.conversions.offerte || 0)) conv.push('<span class="badge badge-sm badge-warning">formulier</span>');
       if (x.conversions.calendly) conv.push('<span class="badge badge-sm badge-success">afspraak</span>');
       if (x.conversions.events) conv.push('<span class="badge badge-sm badge-info">inschrijving</span>');
       var pages = x.pages.slice(0, 3).map(esc).join(', ') + (x.pages.length > 3 ? ' <span class="opacity-50">+' + (x.pages.length - 3) + '</span>' : '');
@@ -343,7 +345,7 @@
     $('exclChoices').innerHTML = (norms.length > 1
       ? '<p class="text-xs rounded-lg bg-info/10 p-2">Gedeelde browser: hier werden ' + norms.length + ' adressen gebruikt. Kies welke persoon je uitsluit, of enkel deze browser.</p>' : '')
       + keuzes.map(function (k, i) {
-        return '<label class="flex items-start gap-3 rounded-lg border border-base-300 p-3 cursor-pointer hover:bg-base-200">'
+        return '<label class="flex items-start gap-3 rounded-lg border border-base-content/10 p-3 cursor-pointer om-hover">'
           + '<input type="radio" name="exclScope" class="radio radio-sm radio-primary mt-0.5" value="' + i + '"' + (i === standaard ? ' checked' : '') + '>'
           + '<span><span class="block text-sm font-medium">' + esc(k[2]) + '</span><span class="block text-xs opacity-60">' + esc(k[3]) + '</span></span></label>';
       }).join('');
@@ -388,7 +390,7 @@
     host.innerHTML = '<span class="loading loading-spinner"></span>';
     var d = await api('/exclusions');
     state.excl = d;
-    if ($('exclAddForm')) $('exclAddForm').classList.toggle('hidden', !d.is_admin);
+    if ($('exclAddForm')) $('exclAddForm').classList.toggle('hidden', !d.can_exclude);
     if (!d.rules.length) { host.innerHTML = '<p class="opacity-70 text-sm">Niemand uitgesloten: iedereen telt mee.</p>'; return; }
     host.innerHTML = '<table class="table table-sm"><thead><tr><th>Wie</th><th>Wat</th><th>Waarom</th><th>Door</th><th>Sinds</th><th>Laatst op de site</th><th></th></tr></thead><tbody>'
       + d.rules.map(function (r) {
@@ -400,7 +402,7 @@
           + '<td class="text-xs opacity-70 whitespace-nowrap">' + esc(r.last_seen ? datum(r.last_seen) : '—') + '</td>'
           + '<td class="text-right whitespace-nowrap">'
           + (r.visitor ? '<button class="btn btn-xs btn-ghost" data-action="open" data-kind="visitor" data-id="' + esc(r.visitor) + '">Traject</button>' : '')
-          + (d.is_admin ? '<button class="btn btn-xs btn-ghost" data-action="excl-remove" data-id="' + esc(r.id) + '">Weer laten meetellen</button>' : '')
+          + (d.can_exclude ? '<button class="btn btn-xs btn-ghost" data-action="excl-remove" data-id="' + esc(r.id) + '">Weer laten meetellen</button>' : '')
           + '</td></tr>';
       }).join('') + '</tbody></table>';
   }
@@ -491,7 +493,8 @@
     colors: {},
     // Uitsluiten vanuit Gedrag (de waarschuwing "komt van één persoon").
     exclude: function (t) { openUitsluiten(t); },
-    isAdmin: function () { return !!(state.boot && state.boot.is_admin); },
+    // Mag deze gebruiker uitsluiten? Beheerders en marketing (mayExclude in routes.js).
+    canExclude: function () { return !!(state.boot && state.boot.can_exclude); },
   };
 
   // ── Start ──────────────────────────────────────────────────────────────────

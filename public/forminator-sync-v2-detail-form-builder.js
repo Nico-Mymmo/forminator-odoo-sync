@@ -1148,7 +1148,7 @@
             ${KLEUREN.map(function (k) {
               var actief = String(thema.accent || '#2563eb').toLowerCase() === k.waarde.toLowerCase();
               return `<button type="button" title="${esc(k.naam)}"
-                        class="w-6 h-6 rounded-full border-2 ${actief ? 'border-base-content' : 'border-base-300'}"
+                        class="w-6 h-6 rounded-full border-2 ${actief ? 'border-base-content' : 'border-base-content/20'}"
                         style="background:${esc(k.waarde)}"
                         data-action="form-builder-theme" data-key="accent" data-value="${esc(k.waarde)}"></button>`;
             }).join('')}

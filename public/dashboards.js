@@ -217,7 +217,7 @@ function kpiTileHtml(w, heading) {
   var bar = hasTarget
     ? `<progress class="progress ${reached ? 'progress-success' : 'progress-error'} w-full mt-2" value="${Math.min(Math.round(w.pct), 100)}" max="100"></progress>`
     : '';
-  return `<div class="rounded-box border border-base-300 bg-base-100 p-3">
+  return `<div class="rounded-box border border-base-content/10 bg-base-100 p-3">
       <div class="text-xs text-base-content/60">${esc(heading)}</div>
       <div class="flex items-end gap-5 mt-1">
         <div><div class="text-xs text-base-content/50">Target</div><div class="text-xl font-bold">${hasTarget ? formatNumber(w.target) : '—'}</div></div>
@@ -456,7 +456,7 @@ function renderLegend(data) {
     return `<div>
         <button type="button" data-action="toggleLegendGroup" data-group="${esc(group.key)}"
           title="Klik om de hele kolom aan of uit te zetten"
-          class="flex items-center gap-2 w-full text-left text-sm font-semibold border-b border-base-300 pb-1 mb-1 hover:text-primary ${allHidden ? 'opacity-40' : ''}">
+          class="flex items-center gap-2 w-full text-left text-sm font-semibold border-b border-base-content/10 pb-1 mb-1 hover:text-primary ${allHidden ? 'opacity-40' : ''}">
           <span>${esc(group.label)}</span>
           <span class="ml-auto text-base-content/50 font-normal tabular-nums">${formatNumber(groupTotal)}</span>
         </button>

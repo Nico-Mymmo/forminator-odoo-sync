@@ -167,7 +167,7 @@
   }
 
   function tile(label, value, delta, sub, help) {
-    return '<div class="rounded-box border border-base-300 bg-base-100 p-4" title="' + esc(help || '') + '">'
+    return '<div class="rounded-box border border-base-content/10 bg-base-100 p-4" title="' + esc(help || '') + '">'
       + '<div class="text-xs text-base-content/60">' + esc(label) + '</div>'
       + '<div class="text-2xl font-bold mt-1 tabular-nums">' + value + '</div>'
       + '<div class="text-xs mt-1">' + delta + '</div>'

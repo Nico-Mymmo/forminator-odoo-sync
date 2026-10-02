@@ -853,7 +853,7 @@ function appendNavbarBackLink(container) {
   // href is een fallback (bv. midden-klik/nieuw tabblad); de gewone klik
   // sluit de fullscreen-viewer in-page, zonder herladen.
   a.href = '/mini-apps';
-  a.className = 'btn btn-xs btn-ghost border border-base-300 gap-1.5 font-normal text-base-content/70 hover:text-base-content hover:border-primary/40';
+  a.className = 'btn btn-xs btn-ghost border border-base-content/10 gap-1.5 font-normal text-base-content/70 hover:text-base-content hover:border-primary/40';
   a.innerHTML = '<i data-lucide="arrow-left" class="w-3 h-3"></i> Terug';
   a.addEventListener('click', function(e) {
     e.preventDefault();
@@ -976,7 +976,7 @@ function renderNavbarFavoriteOptimistic(fav) {
   a.dataset.optimisticFav = fav.id;
   a.dataset.favId = fav.id;   // zodat bindFavoritesDragAndDrop('navbarFavorites') 'm meteen als draggable-tegel herkent
   a.draggable = true;
-  a.className = 'btn btn-xs btn-ghost border border-base-300 gap-1.5 font-normal text-base-content/70 hover:text-base-content hover:border-primary/40 max-w-[9rem]';
+  a.className = 'btn btn-xs btn-ghost border border-base-content/10 gap-1.5 font-normal text-base-content/70 hover:text-base-content hover:border-primary/40 max-w-[9rem]';
   a.title = fav.title;
   a.innerHTML = `<i data-lucide="${fav.icon || 'puzzle'}" class="w-3 h-3"></i><span class="truncate">${escapeHtml(fav.title)}</span>`;
 

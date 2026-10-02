@@ -177,7 +177,7 @@ function externalUrlBadge(app) {
 }
 
 var ADD_APP_TILE = `
-  <button type="button" class="card border-2 border-dashed border-base-300 bg-transparent hover:border-primary hover:bg-base-100 transition-colors flex items-center justify-center min-h-[132px]" data-action="openUploadModal">
+  <button type="button" class="card border-2 border-dashed border-base-content/10 bg-transparent hover:border-primary hover:bg-base-100 transition-colors flex items-center justify-center min-h-[132px]" data-action="openUploadModal">
     <div class="flex flex-col items-center gap-1.5 text-base-content/50 hover:text-primary">
       <i data-lucide="plus" class="w-6 h-6"></i>
       <span class="text-sm font-medium">Nieuwe mini-app</span>
@@ -239,7 +239,7 @@ function renderAppCard(app) {
          <button type="button" tabindex="0" class="btn btn-ghost btn-sm btn-square${mainColorClass}" title="Favoriet-opties">
            <i data-lucide="${mainIcon}" class="w-3.5 h-3.5${(globalFavActive || favActive) ? ' fill-current' : ''}"></i>
          </button>
-         <ul tabindex="0" class="dropdown-content menu menu-sm z-10 p-2 shadow bg-base-100 rounded-box w-56 border border-base-200">
+         <ul tabindex="0" class="dropdown-content menu menu-sm z-10 p-2 shadow bg-base-100 rounded-box w-56 border border-base-content/10">
            <li><a data-action="toggleFavorite" data-id="${app.id}" data-favorite="${favActive ? '1' : '0'}">
              <i data-lucide="heart" class="w-3.5 h-3.5${favActive ? ' fill-current text-error' : ''}"></i>
              ${favActive ? 'Favoriet verwijderen (voor mij)' : 'Favoriet voor mezelf'}
@@ -253,7 +253,7 @@ function renderAppCard(app) {
   }
 
   return `
-    <div class="card bg-base-100 shadow-sm border border-base-200 hover:border-primary/40 transition-colors h-full">
+    <div class="card bg-base-100 shadow-sm border border-base-content/10 hover:border-primary/40 transition-colors h-full">
       <div class="card-body p-4 h-full">
         <div class="flex items-start justify-between gap-2">
           <div class="flex items-center gap-1.5 min-w-0">
@@ -367,7 +367,7 @@ Technische vereisten voor de uiteindelijke app (belangrijk, hou hier rekening me
     <script src="https://unpkg.com/lucide@latest"></script>
   Gebruik Tailwind-utility-classes + daisyUI-componenten (btn, card, input, badge, ...) en Lucide-icons (<i data-lucide="...">, gevolgd door lucide.createIcons() na render).
 - Plaats je enige <script>-blok altijd vlak vóór </body>, NA alle HTML (ook na <dialog>-elementen of andere UI die pas verderop in het bestand staat) -- of wrap alle initialisatiecode (getElementById-aanroepen, addEventListener op paginaelementen, ...) in document.addEventListener("DOMContentLoaded", function() { ... }). Een <script> hoger in het bestand (bv. in <head> of bovenaan <body>) draait namelijk voordat de browser de rest van de HTML heeft ingelezen, waardoor getElementById(...) op een element dat pas verderop staat null teruggeeft en een addEventListener-aanroep daarop een crash geeft. Ga er sowieso nooit van uit dat getElementById(...) een element teruggeeft -- check dat (of laat de fout duidelijk zien) voor je er iets mee doet.
-- De omgeving zet automatisch het daisyUI-thema (data-theme) dat de gebruiker zelf heeft ingesteld in de Operations Manager. Gebruik daarom overal thema-bewuste daisyUI-kleuren (bv. bg-base-100/200/300, text-base-content, btn-primary/secondary/accent, border-base-300) i.p.v. hardcoded kleuren -- dan volgt jouw app automatisch het gekozen thema.
+- De omgeving zet automatisch het daisyUI-thema (data-theme) dat de gebruiker zelf heeft ingesteld in de Operations Manager. Gebruik daarom overal thema-bewuste daisyUI-kleuren (bv. bg-base-100/200/300, text-base-content, btn-primary/secondary/accent, border-base-content/10) i.p.v. hardcoded kleuren -- dan volgt jouw app automatisch het gekozen thema.
 - Extra CDN-links mag je aanvullend gebruiken als dat nodig is, dat werkt gewoon.
 - De app draait in een gesandboxte iframe zonder toegang tot de bovenliggende pagina of de sessie van de gebruiker. localStorage/sessionStorage worden vervangen door een in-memory variant die NIET bewaard blijft na een herlaad en NIET gedeeld wordt tussen gebruikers -- ga er dus niet van uit dat opgeslagen data blijft bestaan of zichtbaar is voor anderen.
 - Moet de app kleine of middelgrote data bewaren of delen TUSSEN GEBRUIKERS (bv. een teller, een instelling, een recurring schema per medewerker)? Gebruik dan window.sharedStorage in plaats van localStorage -- die is wél persistent en gedeeld over alle gebruikers die deze mini-app mogen draaien:

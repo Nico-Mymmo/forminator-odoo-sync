@@ -409,8 +409,8 @@
     el('mailHeaderSlots').innerHTML = ['openvme', 'syndicoach', 'fallback'].map(function (slot) {
       var value = header[slot];
       var beeld = value && value.src
-        ? '<img src="' + esc(value.src) + '" alt="" class="w-full aspect-[3/1] object-cover rounded border border-base-300">'
-        : '<div class="w-full aspect-[3/1] rounded border border-dashed border-base-300 flex items-center justify-center">' +
+        ? '<img src="' + esc(value.src) + '" alt="" class="w-full aspect-[3/1] object-cover rounded border border-base-content/20">'
+        : '<div class="w-full aspect-[3/1] rounded border border-dashed border-base-content/20 flex items-center justify-center">' +
           '<span class="text-xs opacity-50">geen afbeelding</span></div>';
 
       return '<button class="text-left group" data-action="mail-header-open" data-mail-slot="' + slot + '">' +
@@ -992,7 +992,7 @@
       var actief = huidig === waarde;
       return '<button type="button" data-action="mail-color-pick" data-color="' + esc(waarde) + '" ' +
         'title="' + esc(label) + '" ' +
-        'class="w-8 h-8 rounded-full border border-base-300 shrink-0 flex items-center justify-center ' +
+        'class="w-8 h-8 rounded-full border border-base-content/20 shrink-0 flex items-center justify-center ' +
         'text-[10px] font-bold ' + (actief ? 'ring-2 ring-offset-2 ring-primary' : '') + '" ' +
         'style="background:' + esc(kleur) + ';color:' + esc(leesbaar(kleur)) + ';">' + (letter || '') + '</button>';
     }
@@ -1010,7 +1010,7 @@
         voorstellen.map(function (voorstel) {
           return staal(voorstel.value, voorstel.label, voorstel.value, '');
         }).join('') +
-        '<label class="w-8 h-8 rounded-full border border-base-300 shrink-0 cursor-pointer overflow-hidden ' +
+        '<label class="w-8 h-8 rounded-full border border-base-content/20 shrink-0 cursor-pointer overflow-hidden ' +
           (eigenVrij ? 'ring-2 ring-offset-2 ring-primary' : '') + '" title="Eigen kleur kiezen">' +
           '<input type="color" data-mail-color-free class="w-12 h-12 -m-1 cursor-pointer border-0 bg-transparent p-0" ' +
             'value="' + esc(/^#[0-9a-f]{6}$/.test(huidig) ? huidig : categorieKleur) + '">' +

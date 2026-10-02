@@ -273,6 +273,38 @@
    * hoort het kaartje dan al te staan. Andersom zie je een kwart seconde een
    * leeg kaartje.
    */
+  /**
+   * Webgedrag (1.22.0): wat er IN een venster gebeurt, als CustomEvent 'mymmo:track'
+   * op document. De snippet van de website-tracker stuurt het door (type form_ui);
+   * deze plugin weet niets van die tracker, en de tracker niets van deze plugin.
+   * Velden: act (open | tab | stap | start | submit | close), venster, tab, form
+   * (slug, of 'calendly'), stap, stap_n, stappen, ingang. Zelfde vorm in
+   * mymmo-forms-steps.js (stap) en mymmo-forms.js (start, submit).
+   * `venster` = het id zonder voorvoegsel en zonder volgnummer: twee exemplaren van
+   * hetzelfde venster op een pagina tellen samen.
+   * Foutbestendig: meten mag nooit iets tegenhouden.
+   */
+  function meldUi(act, venster, extra) {
+    try {
+      var tabEl = venster.querySelector('.mymmo-modal-tab.is-active');
+      var tab = tabEl ? tabEl.getAttribute('data-mymmo-tab') : 'form';
+      var paneel = venster.querySelector('[data-mymmo-paneel="' + tab + '"]') || venster;
+      var slugEl = paneel.querySelector('[data-mymmo-slug]');
+      var detail = {
+        act: act,
+        venster: (venster.id || '').replace(/^mymmo-modal-/, '').replace(/-\d+$/, '') || null,
+        tab: tab,
+        form: tab === 'calendly' ? 'calendly' : (slugEl ? slugEl.getAttribute('data-mymmo-slug') : null)
+      };
+      if (extra) {
+        for (var k in extra) {
+          if (Object.prototype.hasOwnProperty.call(extra, k)) detail[k] = extra[k];
+        }
+      }
+      document.dispatchEvent(new CustomEvent('mymmo:track', { detail: detail }));
+    } catch (_) { /* oudere browser, of geen venster: niets melden */ }
+  }
+
   function meldVenster(venster, open) {
     try {
       venster.dispatchEvent(new CustomEvent('mymmo:venster', {
@@ -292,6 +324,7 @@
     // Vóór het openen: een callout verhuist zijn stap nu naar het venster, en
     // dat hoort gebeurd te zijn voordat de bezoeker het paneel ziet.
     meldVenster(venster, true);
+    meldUi('open', venster, { ingang: knop ? ((knop.innerText || knop.textContent || '').trim().slice(0, 80) || null) : null });
 
     // Na de melding: die borrelt nog op door de wikkel waarin het venster
     // gerenderd werd. De stappenreeks luistert daarnaast ook op het venster
@@ -325,6 +358,7 @@
     if (venster.classList.contains('is-sluiten')) return;
 
     meldVenster(venster, false);
+    meldUi('close', venster);
     zetUitgeklapt(venster, false);
 
     // Het venster blijft staan tot de beweging klaar is. Pas daarna gaat
@@ -474,6 +508,7 @@
 
     event.preventDefault();
     toon(venster, namen[doel]);
+    meldUi('tab', venster);
     tabs[doel].focus();
   }
 
@@ -987,6 +1022,7 @@
         if (eigenaar) {
           event.preventDefault();
           toon(eigenaar, tab.getAttribute('data-mymmo-tab'));
+          meldUi('tab', eigenaar);
         }
         return;
       }

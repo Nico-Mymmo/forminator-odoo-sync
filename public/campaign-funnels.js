@@ -89,7 +89,7 @@ function renderFunnelList() {
   }
   container.innerHTML = state.funnels.map(function (f) {
     return '' +
-      '<div class="card bg-base-100 border border-base-300 hover:border-primary cursor-pointer transition" data-action="openFunnel" data-id="' + f.id + '">' +
+      '<div class="card bg-base-100 border border-base-content/10 hover:border-primary cursor-pointer transition" data-action="openFunnel" data-id="' + f.id + '">' +
       '  <div class="card-body p-4">' +
       '    <div class="flex items-center justify-between">' +
       '      <h3 class="font-semibold">' + escapeHtml(f.name) + '</h3>' +
@@ -163,7 +163,7 @@ function renderSwimlaneGrid() {
       var cards = lane.cards.filter(function (c) { return c.stage === stage; });
       var cardsHtml = cards.map(function (card) {
         return '' +
-          '<div class="bg-base-100 border border-base-300 rounded-md p-2 mb-2 text-xs cursor-pointer hover:border-primary" ' +
+          '<div class="bg-base-100 border border-base-content/10 rounded-md p-2 mb-2 text-xs cursor-pointer hover:border-primary" ' +
           'data-action="editCard" data-swimlane-id="' + lane.id + '" data-stage="' + stage + '" data-card-id="' + card.id + '">' +
           (card.card_type ? '<span class="badge badge-ghost badge-xs mb-1">' + escapeHtml(card.card_type) + '</span><br/>' : '') +
           escapeHtml(card.content) +
@@ -182,7 +182,7 @@ function renderSwimlaneGrid() {
     }).join('');
 
     return '' +
-      '<div class="border border-base-300 rounded-lg p-3">' +
+      '<div class="border border-base-content/10 rounded-lg p-3">' +
       '  <div class="flex items-center justify-between mb-2">' +
       '    <div>' +
       '      <h3 class="font-semibold">' + escapeHtml(lane.title) + '</h3>' +
@@ -228,7 +228,7 @@ function renderInboxList() {
   }
   list.innerHTML = state.inbox.map(function (item) {
     return '' +
-      '<div class="flex items-start justify-between gap-2 bg-base-100 border border-base-300 rounded-md p-2 text-sm">' +
+      '<div class="flex items-start justify-between gap-2 bg-base-100 border border-base-content/10 rounded-md p-2 text-sm">' +
       '  <div>' +
       (item.card_type ? '<span class="badge badge-ghost badge-xs mr-2">' + escapeHtml(CARD_TYPE_LABELS[item.card_type] || item.card_type) + '</span>' : '') +
       escapeHtml(item.content) +
@@ -317,7 +317,7 @@ function renderProposal() {
     }).join('');
 
     return '' +
-      '<div class="card bg-base-100 border border-base-300">' +
+      '<div class="card bg-base-100 border border-base-content/10">' +
       '  <div class="card-body p-4">' +
       '    <input class="input input-bordered input-sm font-semibold mb-1" data-proposal-field="title" data-group="' + gIdx + '" value="' + escapeHtml(group.title) + '" placeholder="Kernboodschap" />' +
       '    <textarea class="textarea textarea-bordered textarea-sm mb-1" rows="2" data-proposal-field="description" data-group="' + gIdx + '" placeholder="Samenvatting van het onderzoek">' + escapeHtml(group.description) + '</textarea>' +

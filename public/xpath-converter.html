@@ -8,12 +8,15 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     textarea { font-family: 'Courier New', monospace; font-size: 12px; }
+    /* divide-* heeft in daisyUI geen variant met dekking; base-200 is in een donker
+       thema donkerder dan de kaart en gaf daar zwarte lijntjes. */
+    .om-lijnen > :not([hidden]) ~ :not([hidden]) { border-color: oklch(var(--bc) / 0.1); }
   </style>
 </head>
 <body class="bg-base-200 min-h-screen">
 
   <!-- Navbar -->
-  <div class="navbar bg-base-100 border-b border-base-300 px-4">
+  <div class="navbar bg-base-100 border-b border-base-content/10 px-4">
     <div class="flex-1">
       <a href="/" class="btn btn-ghost text-sm font-normal">← Operations Manager</a>
     </div>
@@ -114,7 +117,7 @@
       ></textarea>
 
       <!-- Log -->
-      <div id="logSection" class="collapse collapse-arrow bg-base-100 border border-base-300 rounded-lg mt-2">
+      <div id="logSection" class="collapse collapse-arrow bg-base-100 border border-base-content/10 rounded-lg mt-2">
         <input type="checkbox" class="peer"/>
         <div class="collapse-title text-sm font-medium peer-checked:bg-base-200">
           Conversie log
@@ -135,7 +138,7 @@
         </div>
         <button id="removeRedundantBtn" class="btn btn-sm btn-warning">Verwijder overbodige XPaths</button>
       </div>
-      <div id="redundantList" class="bg-base-100 border border-base-300 rounded-lg mt-2 divide-y divide-base-200"></div>
+      <div id="redundantList" class="bg-base-100 border border-base-content/10 rounded-lg mt-2 divide-y om-lijnen"></div>
     </div>
 
   </div>

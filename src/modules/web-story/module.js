@@ -18,5 +18,12 @@ export default {
   isActive: true,
   requiresAuth: true,
   requiresAdmin: false,
+  /**
+   * Sub-rollen (waarden van users.role), afgedwongen in routes.js:
+   *   'user'                – lezen (elke gebruiker heeft deze module)
+   *   'marketing_signature' – ook uitsluiten uit de cijfers / weer laten meetellen
+   *   'admin'               – alles, ook Twijfelgevallen
+   */
+  subRoles: ['user', 'marketing_signature', 'admin'],
   routes,
 };

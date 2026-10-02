@@ -538,7 +538,7 @@
         ${sourceOptions}
       </select>
       <div class="dropdown">
-        <button tabindex="0" type="button" class="btn btn-sm btn-ghost border border-base-300 gap-1.5">
+        <button tabindex="0" type="button" class="btn btn-sm btn-ghost border border-base-content/20 gap-1.5">
           <i data-lucide="tag" class="w-3.5 h-3.5"></i>Tags${f.tagIds.length ? ' (' + f.tagIds.length + ')' : ''}
         </button>
         <ul tabindex="0" class="dropdown-content z-[10] menu p-1 shadow-lg bg-base-100 rounded-xl w-52 mt-1 border border-base-200 max-h-64 overflow-y-auto flex-nowrap">
@@ -926,7 +926,7 @@
           '<input type="text" id="fixed-m2o-search-' + esc(mKey) + '" class="input input-bordered input-sm flex-1" placeholder="Zoeken..." autocomplete="off">' +
           '<input type="hidden" id="fixed-new-val-' + esc(mKey) + '" value="">' +
         '</div>' +
-        '<div id="fixed-m2o-results-' + esc(mKey) + '" class="mt-1 rounded-lg border border-base-300 bg-base-100 shadow-lg text-sm hidden max-h-44 overflow-y-auto"></div>';
+        '<div id="fixed-m2o-results-' + esc(mKey) + '" class="mt-1 rounded-lg border border-base-content/20 bg-base-100 shadow-lg text-sm hidden max-h-44 overflow-y-auto"></div>';
     } else {
       var ph = fd.type === 'integer' || fd.type === 'float' ? 'bv. 42' : 'bv. opportunity';
       inputHtml = '<input type="text" id="fixed-new-val-' + esc(mKey) + '" class="input input-bordered input-sm" placeholder="' + ph + '">';

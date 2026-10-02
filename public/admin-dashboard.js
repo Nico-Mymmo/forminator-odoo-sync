@@ -166,7 +166,7 @@ function renderModulesTable() {
   }
 
   container.innerHTML = allModules.map(m =>
-    '<div class="flex items-center justify-between gap-4 p-3 border border-base-200 rounded-lg mb-2' + (!m.inRegistry ? ' opacity-60' : '') + '">' +
+    '<div class="flex items-center justify-between gap-4 p-3 border border-base-content/10 rounded-lg mb-2' + (!m.inRegistry ? ' opacity-60' : '') + '">' +
       '<div class="flex items-center gap-3 min-w-0">' +
         '<div class="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">' +
           '<i data-lucide="' + escapeHtml(m.icon || 'package') + '" class="w-4 h-4 text-primary"></i>' +

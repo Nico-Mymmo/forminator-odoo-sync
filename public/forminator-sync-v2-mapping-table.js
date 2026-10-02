@@ -132,7 +132,7 @@
     var _current = options.find(function (o) { return o.value === (currentOpType || 'upsert'); }) || options[0];
     var _isNonDefault = currentOpType && currentOpType !== 'upsert';
 
-    return `<details class="w-full rounded-xl border border-base-300 bg-base-200/40"${_isNonDefault ? ' open' : ''}>
+    return `<details class="w-full rounded-xl border border-base-content/20 bg-base-200/40"${_isNonDefault ? ' open' : ''}>
       <summary class="flex items-center gap-2 px-3.5 py-2.5 cursor-pointer rounded-xl select-none list-none">
         <i data-lucide="settings-2" class="w-3.5 h-3.5 text-primary shrink-0"></i>
         <span class="text-xs font-semibold text-base-content/70">Gedrag bij verwerking</span>
@@ -141,7 +141,7 @@
         </span>
         <i data-lucide="chevron-right" class="w-3.5 h-3.5 ml-auto details-chevron text-base-content/40 shrink-0"></i>
       </summary>
-      <div class="px-3 pb-2.5 pt-1.5 border-t border-base-300">
+      <div class="px-3 pb-2.5 pt-1.5 border-t border-base-content/20">
         <div class="flex flex-col gap-0.5">
           ${options.map(function (o) {
             var checked = (currentOpType || 'upsert') === o.value ? ' checked' : '';
@@ -157,13 +157,13 @@
           var _idf = identifierFields || [];
           if (_idf.length === 0) return '';
           if (_idf.length === 1) {
-            return `<div class="mt-2 pt-2 border-t border-base-300 flex items-center gap-2 px-1">
+            return `<div class="mt-2 pt-2 border-t border-base-content/20 flex items-center gap-2 px-1">
               <i data-lucide="key" class="w-3.5 h-3.5 text-base-content/40"></i>
               <span class="text-xs text-base-content/50">Zoekcriterium:</span>
               <span class="text-xs font-medium">${esc(_idf[0].label || _idf[0].name)}</span>
             </div>`;
           }
-          return `<div class="mt-2 pt-2 border-t border-base-300 flex items-center gap-2 px-1">
+          return `<div class="mt-2 pt-2 border-t border-base-content/20 flex items-center gap-2 px-1">
             <i data-lucide="key" class="w-3.5 h-3.5 text-base-content/40"></i>
             <span class="text-xs text-base-content/50 shrink-0">Zoekcriterium:</span>
             <select class="select select-xs select-bordered flex-1" data-action="set-step-identifier" data-target-id="${esc(String(cfg.targetId || ''))}">
@@ -346,6 +346,28 @@
     // (forminator-sync-v2-round-robin-picker.js) -- hier enkel de badge + het openen ervan.
     var ROUND_ROBIN_SENTINEL_PREFIX = '__om_round_robin__:';
 
+    // Welke Odoo-velden een poule kunnen krijgen: precies de relaties die
+    // pickRoundRobinResolvedId() in worker-handler.js kan vullen. De knop stond
+    // eerst enkel bij een TEKSTveld, want de many2one-tak hieronder keerde vroeg
+    // terug met alleen het zoekvak. Gevolg: hij ontbrak juist bij Salesperson
+    // (user_id -> res.users), het veld waarvoor round robin bestaat, en stond
+    // wel bij bv. de naam van een lead, waar de server hem weigert. Wijzig je de
+    // lijst, wijzig dan ook pickRoundRobinResolvedId().
+    var ROUND_ROBIN_RELATIONS = ['res.users', 'hr.employee', 'res.partner'];
+
+    function roundRobinAllowed(odooField) {
+      if (!odooField) return true; // vrije rij zonder veld: pas na de keuze weten we het
+      var meta = odooCache.find(function(f) { return f.name === odooField; });
+      if (!meta) return true;      // velden nog niet geladen: niet verbergen op een gok
+      return meta.type === 'many2one' && ROUND_ROBIN_RELATIONS.indexOf(meta.relation) !== -1;
+    }
+
+    function roundRobinToggle() {
+      return `<button type="button" class="btn btn-ghost btn-xs px-1 round-robin-toggle" title="Round robin: kies uit een poule medewerkers" tabindex="-1">
+          <i data-lucide="shuffle" class="w-3.5 h-3.5 text-base-content/40"></i>
+        </button>`;
+    }
+
     function roundRobinBadge(val) {
       var cfg = { pool: [], mode: 'rotation' };
       try { cfg = JSON.parse(val.slice(ROUND_ROBIN_SENTINEL_PREFIX.length)); } catch (_) {}
@@ -391,13 +413,15 @@
         </select>`;
       }
       if (ftype === 'many2one' && meta && meta.relation) {
-        return `<div class="relative flex flex-col gap-0.5" data-m2o-wrap data-m2o-relation="${esc(meta.relation)}">
+        var m2oHtml = `<div class="relative flex flex-col gap-0.5 flex-1 min-w-0" data-m2o-wrap data-m2o-relation="${esc(meta.relation)}">
           <input type="text" class="${cls}" data-m2o-search
             value="${esc(val || '')}"
             placeholder="Zoeken…" autocomplete="off" />
           <input type="hidden" data-map-col="2" data-m2o-id value="${esc(val || '')}" />
-          <div class="m2o-results absolute top-full left-0 right-0 z-50 mt-0.5 rounded-lg border border-base-300 bg-base-100 shadow-lg text-xs hidden max-h-40 overflow-y-auto"></div>
+          <div class="m2o-results absolute top-full left-0 right-0 z-50 mt-0.5 rounded-lg border border-base-content/20 bg-base-100 shadow-lg text-xs hidden max-h-40 overflow-y-auto"></div>
         </div>`;
+        if (!roundRobinAllowed(odooField)) return m2oHtml;
+        return `<div class="flex items-center gap-0.5">${m2oHtml}${roundRobinToggle()}</div>`;
       }
       // Placeholder dropdown (only when flatFields available)
       var _phHtml = '';
@@ -411,7 +435,7 @@
           '<button type="button" class="btn btn-ghost btn-xs px-1 ph-toggle" title="Placeholder invoegen" tabindex="-1">' +
             '<i data-lucide="braces" class="w-3.5 h-3.5 text-base-content/40"></i>' +
           '</button>' +
-          '<div class="ph-drop hidden absolute right-0 top-full z-50 mt-0.5 bg-base-100 border border-base-300 rounded-xl shadow-lg w-64 max-h-52 overflow-y-auto">' +
+          '<div class="ph-drop hidden absolute right-0 top-full z-50 mt-0.5 bg-base-100 border border-base-content/20 rounded-xl shadow-lg w-64 max-h-52 overflow-y-auto">' +
             _phItems +
           '</div>' +
         '</div>';
@@ -420,9 +444,7 @@
         '<button type="button" class="btn btn-ghost btn-xs px-1 set-generated-id-toggle" title="Unieke identifier genereren bij versturen" tabindex="-1">' +
           '<i data-lucide="fingerprint" class="w-3.5 h-3.5 text-base-content/40"></i>' +
         '</button>' +
-        '<button type="button" class="btn btn-ghost btn-xs px-1 round-robin-toggle" title="Round robin: kies uit een poule medewerkers" tabindex="-1">' +
-          '<i data-lucide="shuffle" class="w-3.5 h-3.5 text-base-content/40"></i>' +
-        '</button>' +
+        (roundRobinAllowed(odooField) ? roundRobinToggle() : '') +
         _phHtml + '</div>';
     }
 
@@ -597,7 +619,7 @@
       return `<tr data-map-row data-row-type="required" data-odoo-field="${esc(r.odooField)}" data-row-is-required="false">
         <td class="py-2 pr-2">${col1Def}</td>
         <td class="py-2 pr-2">${col2Def}</td>
-        <td class="py-2 pr-2">${fixedOdooTag(r.odooField, 'bg-base-200 border border-base-300', 'circle-dot')}</td>
+        <td class="py-2 pr-2">${fixedOdooTag(r.odooField, 'bg-base-200 border border-base-content/20', 'circle-dot')}</td>
         <td class="py-2 pl-1">${notUpdateChk(r.isUpdateField !== false)}</td>
       </tr>`;
     }).join('');
@@ -699,8 +721,7 @@
     }
     function _lockC2(row, c2El, lock) {
       _lockEl(c2El, lock);
-      var phTgl = row.querySelector('.ph-toggle');
-      if (phTgl) _lockEl(phTgl, lock);
+      row.querySelectorAll('.ph-toggle, .round-robin-toggle, .set-generated-id-toggle').forEach(function(b) { _lockEl(b, lock); });
     }
 
     // ── Initial col1/col2 opacity + pointer-events ────────────────────────────
@@ -749,9 +770,12 @@
           // robin) is type-onafhankelijk -- niets in de badge hangt af van welk
           // Odoo-veld er gekozen is, dus die blijft staan. Zonder deze uitzondering
           // verdween een net ingestelde round-robin-poule zodra je daarna pas het
-          // Odoo-veld (bv. Salesperson) koos op een vrije rij.
+          // Odoo-veld (bv. Salesperson) koos op een vrije rij. Een poule blijft
+          // wel enkel staan als het NIEUWE veld er een kan hebben -- anders bewaar
+          // je een instelling die de server bij elke inzending weigert.
           var oldC2Val  = c2.value || '';
-          var preserved = (oldC2Val === GENERATED_ID_SENTINEL || oldC2Val.indexOf(ROUND_ROBIN_SENTINEL_PREFIX) === 0) ? oldC2Val : '';
+          var keepRr    = oldC2Val.indexOf(ROUND_ROBIN_SENTINEL_PREFIX) === 0 && roundRobinAllowed(e.target.value);
+          var preserved = (oldC2Val === GENERATED_ID_SENTINEL || keepRr) ? oldC2Val : '';
           td2.innerHTML = col2Input(e.target.value, preserved);
           if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons({ context: td2 });
           var newC2 = row.querySelector('[data-map-col="2"]');
