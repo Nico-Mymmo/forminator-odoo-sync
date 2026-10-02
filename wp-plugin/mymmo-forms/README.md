@@ -567,6 +567,11 @@ injectiepad zijn naar elke site die het formulier toont.
 
 ## Versies
 
+**1.20.6** — een academy-knop is een GEWONE knop: kies bij "Opent een venster"
+(Mymmo Componenten 1.8.5) de popup van de academy en daaronder waar ze opent.
+Het blok "Mymmo academy-knop" staat daarom niet meer in de lijst met blokken;
+een knop die ermee gemaakt werd, blijft werken.
+
 **1.20.5** — de academy is duidelijker in te stellen. Instellingen → Mymmo
 academy zegt bij de gekozen popup welk formulier erin zit en of de keten
 klopt (koppeling op "Academy", een e-mailveld), in het groen of in het rood.

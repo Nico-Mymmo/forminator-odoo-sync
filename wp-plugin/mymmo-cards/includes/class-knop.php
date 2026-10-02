@@ -60,6 +60,8 @@ final class Mymmo_Cards_Knop {
     /** Het blok dat we uitbreiden, en het attribuut dat we eraan hangen. */
     private const BLOK      = 'core/button';
     private const ATTRIBUUT = 'mymmoVenster';
+    /** Waar de academy opent (cursus-slug, leeg = overzicht). Enkel bij de academy-popup. */
+    private const ACADEMY_ATTRIBUUT = 'mymmoAcademyCursus';
 
     /** Het attribuut van 1.6.0, toen de keuze nog een INGANG was. */
     private const OUD_ATTRIBUUT = 'mymmoIngang';
@@ -109,6 +111,15 @@ final class Mymmo_Cards_Knop {
             // Een lege keuzelijst zonder uitleg leest als een storing.
             'actief'   => class_exists('Mymmo_Forms_Presets'),
             'vensters' => self::vensters(),
+            // De popup van de academy (Instellingen -> Mymmo academy) en haar
+            // cursussen: kies je die popup, dan vraagt het paneel waar de
+            // academy opent.
+            'academy'  => class_exists('Mymmo_Forms_Academy')
+                ? [
+                    'preset'  => Mymmo_Forms_Academy::settings()['preset'],
+                    'courses' => Mymmo_Forms_Academy::catalogus() ?? [],
+                ]
+                : ['preset' => '', 'courses' => []],
         ]);
     }
 
@@ -166,6 +177,18 @@ final class Mymmo_Cards_Knop {
                 'Het gekozen tabblad staat niet meer in de opstelling "'
                 . esc_html($opstelling) . '". Kies opnieuw in de zijbalk.'
             );
+        }
+
+        /*
+         * De popup van de ACADEMY. Die heeft een eigen venster (in de voettekst,
+         * Mymmo_Forms_Academy) dat na het verzenden de cursus opent, en dat
+         * wie al aangemeld is meteen naar de cursus stuurt. Een eigen kopie van
+         * het venster hier zou dat niet doen: dan blijft de bezoeker op het
+         * dankjewelscherm staan. Dus: enkel de knop markeren als academy-knop.
+         */
+        if (class_exists('Mymmo_Forms_Academy') && Mymmo_Forms_Academy::is_academy_preset($opstelling)) {
+            $cursus = sanitize_title((string) ($block['attrs'][self::ACADEMY_ATTRIBUUT] ?? ''));
+            return self::knop_klaarmaken($html, '', ['data-mymmo-academy' => $cursus]);
         }
 
         $klasse = self::KLASSE_PREFIX . $opstelling . '-' . $tab;
@@ -235,7 +258,10 @@ final class Mymmo_Cards_Knop {
      * niet naar boven springt, regelt mymmo-forms-modal.js: die roept
      * `preventDefault()` aan op elke klik op een openknop.
      */
-    private static function knop_klaarmaken(string $html, string $klasse): string {
+    /**
+     * @param array<string,string> $extra  extra attributen (bv. data-mymmo-academy)
+     */
+    private static function knop_klaarmaken(string $html, string $klasse, array $extra = []): string {
         if (!class_exists('WP_HTML_Tag_Processor')) {
             return $html;
         }
@@ -248,7 +274,12 @@ final class Mymmo_Cards_Knop {
                 continue;
             }
 
-            $p->add_class($klasse);
+            if ($klasse !== '') {
+                $p->add_class($klasse);
+            }
+            foreach ($extra as $naam => $waarde) {
+                $p->set_attribute($naam, $waarde);
+            }
 
             if ($tag === 'A' && (string) $p->get_attribute('href') === '') {
                 $p->set_attribute('href', '#');

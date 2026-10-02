@@ -338,6 +338,13 @@ cache-busting van CSS en JS. Het script controleert dat en weigert anders.
 
 ## Versies
 
+**1.8.5** — "Opent een venster" op een gewone knop werkt met de popup van de
+academy (Mymmo Forms 1.20.6): kies je die popup, dan vraagt het paneel waar de
+academy opent (het overzicht of een cursus), en wordt de knop een academy-knop.
+Waarom: de knop schreef een EIGEN kopie van het venster uit, en die kopie
+kende de academy niet -- na het verzenden bleef de bezoeker op het
+dankjewelscherm staan, en wie al aangemeld was kreeg het formulier opnieuw.
+
 **1.8.4** — de keienwolk is volledig in te stellen voor een telefoon.
 
 - Per kei: grootte, scheef, links/rechts en hoger/lager op een telefoon. Per

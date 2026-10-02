@@ -75,6 +75,12 @@ final class Mymmo_Forms_Academy {
         ];
     }
 
+    /** Is dit de popup die bij de academy hoort? (mymmo-cards gebruikt dit voor zijn knop.) */
+    public static function is_academy_preset(string $id): bool {
+        $s = self::settings();
+        return $id !== '' && $s['url'] !== '' && $s['preset'] === sanitize_title($id);
+    }
+
     public static function is_configured(): bool {
         $s = self::settings();
         return $s['url'] !== '' && ($s['preset'] !== '' || $s['slug'] !== '');
@@ -171,9 +177,10 @@ final class Mymmo_Forms_Academy {
 
             <h2>Knoppen</h2>
             <p style="max-width:720px">
-                Gebruik het blok <strong>Mymmo academy-knop</strong> en kies daar of het overzicht of een bepaalde cursus
-                opent. Bestaande knoppen met de klasse <code>ovme-exit-cursus</code> (en eventueel
-                <code>ovme-cursus-&lt;slug&gt;</code>) blijven werken.
+                Zet een gewone knop op de pagina en kies in de zijbalk bij <strong>Opent een venster</strong> de popup
+                hierboven. Daaronder kies je of het overzicht of een bepaalde cursus opent. Bestaande knoppen met de
+                klasse <code>ovme-exit-cursus</code> (en eventueel <code>ovme-cursus-&lt;slug&gt;</code>) blijven werken;
+                die klassen mogen weg zodra je de knop zo ingesteld hebt.
             </p>
             <p style="max-width:720px">
                 <strong>Haal het oude script weg</strong> (het blok <code>&lt;!-- OVME CURSUS POPUP --&gt;</code> in de kop
@@ -292,6 +299,11 @@ final class Mymmo_Forms_Academy {
         register_block_type(self::BLOK, [
             'api_version'     => 2,
             'editor_script'   => 'mymmo-forms-academy-block',
+            // Niet meer in de lijst met blokken (1.20.6): een GEWONE knop met
+            // "Opent een venster" -> de academy-popup doet hetzelfde, met de
+            // stijl van de knoppen van de site. Het blok blijft bestaan zodat
+            // een knop die er al mee gemaakt werd, blijft werken.
+            'supports'        => ['inserter' => false],
             'attributes'      => [
                 'label'  => ['type' => 'string', 'default' => 'Start de cursus'],
                 'course' => ['type' => 'string', 'default' => ''],

@@ -57,6 +57,8 @@
          bij de eerste bewaaractie weg -- en dan kan class-knop.php niet meer
          zeggen dat die knop opnieuw ingesteld moet worden. */
       attrs.mymmoIngang = { type: 'string', 'default': '' };
+      /* Waar de academy opent, als de gekozen popup die van de academy is. */
+      attrs.mymmoAcademyCursus = { type: 'string', 'default': '' };
 
       return Object.assign({}, settings, {
         attributes: Object.assign({}, settings.attributes, attrs)
@@ -112,7 +114,30 @@
       return 'Kies wat deze knop opent. Zonder keuze blijft het een gewone knop.';
     }
 
+    if (isAcademy(huidig)) {
+      return 'Dit is de popup van de academy. Wie nog niet aangemeld is, krijgt het formulier; '
+        + 'daarna, en de volgende keer meteen, opent de academy.';
+    }
+
     return 'De knop opent de pop-up meteen op dit tabblad.';
+  }
+
+  var ACADEMY = C.academy || { preset: '', courses: [] };
+
+  /** Is de gekozen popup die van de academy (Instellingen → Mymmo academy)? */
+  function isAcademy(huidig) {
+    return !!ACADEMY.preset && String(huidig || '').split('|')[0] === ACADEMY.preset;
+  }
+
+  function cursusOpties(huidig) {
+    var uit = [{ label: 'Het overzicht van alle cursussen', value: '' }];
+    var gevonden = false;
+    (ACADEMY.courses || []).forEach(function (c) {
+      if (c.slug === huidig) gevonden = true;
+      uit.push({ label: c.title, value: c.slug });
+    });
+    if (huidig && !gevonden) uit.push({ label: huidig + ' — niet gevonden in de academy', value: huidig });
+    return uit;
   }
 
   var metPaneel = compose.createHigherOrderComponent(function (BlockEdit) {
@@ -150,6 +175,15 @@
                 props.setAttributes(nieuw);
               }
             }),
+            isAcademy(huidig)
+              ? el(SelectControl, {
+                  label: 'Opent op',
+                  value: props.attributes.mymmoAcademyCursus || '',
+                  options: cursusOpties(props.attributes.mymmoAcademyCursus || ''),
+                  help: (ACADEMY.courses || []).length ? '' : 'De cursuslijst kon niet geladen worden; het overzicht werkt altijd.',
+                  onChange: function (v) { props.setAttributes({ mymmoAcademyCursus: v }); }
+                })
+              : null,
             huidig
               ? el('p', { style: { marginTop: '12px', fontSize: '12px', color: '#757575' } },
                   'De link van de knop blijft de terugval voor wie geen JavaScript heeft. '
