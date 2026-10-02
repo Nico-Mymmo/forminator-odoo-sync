@@ -75,10 +75,25 @@ final class Mymmo_Forms_Academy {
         ];
     }
 
-    /** Is dit de popup die bij de academy hoort? (mymmo-cards gebruikt dit voor zijn knop.) */
+    /**
+     * Is dit de popup die bij de academy hoort? (mymmo-cards gebruikt dit voor
+     * zijn knop.) De gekozen popup, of -- staat er op het academy-scherm nog
+     * enkel een FORMULIER (zo werkte 1.20.1) -- elke popup met dat formulier.
+     * Zonder die terugval bleef een knop met de juiste popup een gewone knop.
+     */
     public static function is_academy_preset(string $id): bool {
-        $s = self::settings();
-        return $id !== '' && $s['url'] !== '' && $s['preset'] === sanitize_title($id);
+        $s  = self::settings();
+        $id = sanitize_title($id);
+        if ($id === '' || $s['url'] === '') {
+            return false;
+        }
+        if ($s['preset'] !== '') {
+            return $s['preset'] === $id;
+        }
+        if ($s['slug'] === '' || !class_exists('Mymmo_Forms_Presets')) {
+            return false;
+        }
+        return sanitize_title((string) (Mymmo_Forms_Presets::atts($id)['slug'] ?? '')) === $s['slug'];
     }
 
     public static function is_configured(): bool {

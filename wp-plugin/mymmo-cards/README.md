@@ -338,6 +338,11 @@ cache-busting van CSS en JS. Het script controleert dat en weigert anders.
 
 ## Versies
 
+**1.8.7** — de academy-popup wordt ook herkend als op Instellingen → Mymmo
+academy nog enkel een formulier staat (en geen popup): elke popup met dat
+formulier telt dan. Zonder dat bleef de knop een gewone knop, zonder de keuze
+waar de academy opent.
+
 **1.8.6** — bij de academy-popup kies je ook een les (optioneel), en kan je de
 cursus intypen als de lijst met cursussen niet geladen kon worden. Zonder dat
 kon je in dat geval enkel het overzicht openen.

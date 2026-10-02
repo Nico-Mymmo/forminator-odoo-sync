@@ -567,6 +567,9 @@ injectiepad zijn naar elke site die het formulier toont.
 
 ## Versies
 
+**1.20.7** — `is_academy_preset()` herkent ook een popup met het formulier dat
+op het academy-scherm staat, als daar nog geen popup gekozen is.
+
 **1.20.6** — een academy-knop is een GEWONE knop: kies bij "Opent een venster"
 (Mymmo Componenten 1.8.5) de popup van de academy en daaronder waar ze opent.
 Het blok "Mymmo academy-knop" staat daarom niet meer in de lijst met blokken;

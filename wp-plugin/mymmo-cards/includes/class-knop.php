@@ -328,6 +328,9 @@ final class Mymmo_Cards_Knop {
                 'id'        => (string) $opstelling['id'],
                 'name'      => (string) $opstelling['name'],
                 'tabbladen' => $tabbladen,
+                // De popup van de academy? Dan vraagt het paneel waar ze opent.
+                'academy'   => class_exists('Mymmo_Forms_Academy')
+                    && Mymmo_Forms_Academy::is_academy_preset((string) $opstelling['id']),
             ];
         }
 

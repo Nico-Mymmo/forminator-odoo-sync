@@ -128,7 +128,12 @@
 
   /** Is de gekozen popup die van de academy (Instellingen → Mymmo academy)? */
   function isAcademy(huidig) {
-    return !!ACADEMY.preset && String(huidig || '').split('|')[0] === ACADEMY.preset;
+    var id = String(huidig || '').split('|')[0];
+    if (!id) return false;
+    for (var i = 0; i < VENSTERS.length; i += 1) {
+      if (VENSTERS[i].id === id && VENSTERS[i].academy) return true;
+    }
+    return !!ACADEMY.preset && id === ACADEMY.preset;
   }
 
   function cursusOpties(huidig) {
