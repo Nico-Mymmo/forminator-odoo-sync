@@ -148,6 +148,29 @@
     </section>
   </main>
 
+  <!-- Het verloop van een kerncijfer over een langere periode (webgedrag-behaviour.js, openKpi) -->
+  <dialog id="bhKpiDialog" class="modal">
+    <div class="modal-box max-w-4xl">
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <h3 class="font-semibold text-lg" id="bhKpiTitle">Verloop</h3>
+          <p class="text-xs text-base-content/60" id="bhKpiSub"></p>
+        </div>
+        <form method="dialog"><button class="btn btn-sm btn-ghost" aria-label="Sluiten"><i data-lucide="x" class="w-4 h-4"></i></button></form>
+      </div>
+      <div class="flex flex-wrap items-center justify-between gap-2 mt-3">
+        <div id="bhKpiMetrics"></div>
+        <button class="btn btn-xs btn-ghost" data-bh-action="kpi-table" title="Toon de waarden als tabel"><i data-lucide="table" class="w-3.5 h-3.5"></i> Tabel</button>
+      </div>
+      <div id="bhKpiStatus" class="mt-2"></div>
+      <div id="bhKpiBody" class="transition-opacity">
+        <div style="height: 320px;" class="mt-3"><canvas id="bhKpiChart" aria-label="Verloop van het gekozen kerncijfer"></canvas></div>
+        <div id="bhKpiTable" class="overflow-x-auto max-h-64"></div>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>sluiten</button></form>
+  </dialog>
+
   <div id="toastHost" class="toast toast-end z-50"></div>
 
   <script src="/webgedrag.js"></script>

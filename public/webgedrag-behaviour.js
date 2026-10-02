@@ -126,8 +126,9 @@
 
   // ── Segment ────────────────────────────────────────────────────────────────
 
-  function matches(s, ignorePurpose) {
-    var f = st.f, fl = s[C.flags], F = st.F;
+  function matches(s, ignorePurpose) { return matchesF(s, st.f, ignorePurpose); }
+  function matchesF(s, f, ignorePurpose) {
+    var fl = s[C.flags], F = st.F;
     if (!ignorePurpose && f.purpose === 'prospect' && (fl & F.customer)) return false;
     if (!ignorePurpose && f.purpose === 'customer' && !(fl & F.customer)) return false;
     if (f.site !== null && s[C.site] !== f.site) return false;
@@ -186,11 +187,50 @@
       + '<span class="text-xs text-base-content/50"> vs vorige</span>';
   }
 
-  function tile(label, value, deltaHtml, help) {
-    return '<div class="rounded-xl border border-base-300 bg-base-100 p-4" title="' + esc(help || '') + '">'
-      + '<div class="text-xs text-base-content/60">' + esc(label) + '</div>'
+  /** Een mini-verloop: enkel de vorm, geen as. Een klik opent het venster met de echte grafiek. */
+  function sparkline(values) {
+    var pts = values.map(function (v, i) { return [i, v]; }).filter(function (p) { return p[1] !== null && p[1] !== undefined; });
+    if (pts.length < 2) return '';
+    var w = 72, h = 24, max = Math.max.apply(null, pts.map(function (p) { return p[1]; })), min = Math.min.apply(null, pts.map(function (p) { return p[1]; }));
+    var n = values.length - 1 || 1, span = max - min || 1;
+    var xy = pts.map(function (p) { return [(p[0] / n * (w - 4) + 2).toFixed(1), (h - 3 - (p[1] - min) / span * (h - 6)).toFixed(1)]; });
+    var line = xy.map(function (p) { return p.join(','); }).join(' ');
+    var area = xy[0][0] + ',' + (h - 1) + ' ' + line + ' ' + xy[xy.length - 1][0] + ',' + (h - 1);
+    return '<svg width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '" aria-hidden="true">'
+      + '<polygon points="' + area + '" fill="' + ACCENT + '" fill-opacity="0.1"></polygon>'
+      + '<polyline points="' + line + '" fill="none" stroke="' + ACCENT + '" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"></polyline></svg>';
+  }
+
+  function tile(label, value, deltaHtml, help, metric, series) {
+    var spark = series ? sparkline(series) : '';
+    return '<div class="relative rounded-xl border border-base-300 bg-base-100 p-4">'
+      + (spark ? '<button type="button" class="absolute top-2 right-2 rounded-md p-1 hover:bg-base-200 focus:outline-none focus:ring-2 focus:ring-primary/40" '
+        + 'data-bh-action="kpi-chart" data-metric="' + metric + '" title="Toon het verloop" aria-label="Toon het verloop van ' + esc(label) + '">' + spark + '</button>' : '')
+      + '<div class="text-xs text-base-content/60 pr-20" title="' + esc(help || '') + '">' + esc(label) + '</div>'
       + '<div class="text-2xl font-semibold mt-1">' + value + '</div>'
       + '<div class="mt-1 min-h-[1rem]">' + deltaHtml + '</div></div>';
+  }
+
+  // De zes kerncijfers, op een plek: tegel, mini-verloop en venster lezen hier.
+  var METRICS = [
+    { key: 'n', label: 'Bezoeken', fmt: function (v) { return nf(v); } },
+    { key: 'dur', label: 'Duur (mediaan)', fmt: durTxt },
+    { key: 'pages', label: 'Pagina\'s per bezoek', fmt: function (v) { return v === null ? '—' : nf(v, 1); } },
+    { key: 'eng', label: 'Doet er iets mee', fmt: pctTxt, pct: true },
+    { key: 'bounce', label: 'Haakt meteen af', fmt: pctTxt, pct: true },
+    { key: 'conv', label: 'Aanvraag', fmt: pctTxt, pct: true }
+  ];
+  function metricOf(key) { return METRICS.filter(function (m) { return m.key === key; })[0]; }
+
+  /** Per metriek de waarden per dag/week/maand van de gekozen periode (zelfde indeling als de trend). */
+  function sparkSeries(cur) {
+    var groups = {}, keys = [];
+    cur.forEach(function (s) { var k = bucketOf(s[C.start]); if (!groups[k]) { groups[k] = []; keys.push(k); } groups[k].push(s); });
+    keys.sort();
+    var per = keys.map(function (k) { return stats(groups[k]); });
+    var out = {};
+    METRICS.forEach(function (m) { out[m.key] = per.map(function (x) { return x[m.key]; }); });
+    return out;
   }
 
   function renderSummary(cur, prev) {
@@ -208,13 +248,14 @@
         + (top !== undefined ? ' en begint het vaakst op <a class="link link-primary" data-bh-action="filter" data-key="land" data-value="' + top + '">' + esc(short(pageName(top), 48)) + '</a> (' + pctTxt(pct(land[top], a.n)) + ')' : '')
         + '. <strong>' + pctTxt(a.eng) + '</strong> doet er iets mee; <strong>' + pctTxt(a.conv) + '</strong> eindigt in een aanvraag.</p>';
     }
+    var sp = sparkSeries(cur);
     $('bhTiles').innerHTML =
-      tile('Bezoeken', nf(a.n), delta(a.n, b.n, 'n', true), 'Sessies in dit segment') +
-      tile('Duur (mediaan)', durTxt(a.dur), delta(a.dur, b.dur, 'n', true), 'De helft van de bezoeken duurt korter, de helft langer') +
-      tile('Pagina\'s per bezoek', a.pages === null ? '—' : nf(a.pages, 1), delta(a.pages, b.pages, 'n', true), 'Herladen van dezelfde pagina telt niet') +
-      tile('Doet er iets mee', pctTxt(a.eng), delta(a.eng, b.eng, 'pct', true), 'Meer dan één pagina, een klik, scrollen, of langer dan 5 seconden') +
-      tile('Haakt meteen af', pctTxt(a.bounce), delta(a.bounce, b.bounce, 'pct', false), 'Eén pagina en verder niets') +
-      tile('Aanvraag', pctTxt(a.conv), delta(a.conv, b.conv, 'pct', true), nf(a.convN) + ' formulieren, afspraken of inschrijvingen');
+      tile('Bezoeken', nf(a.n), delta(a.n, b.n, 'n', true), 'Sessies in dit segment', 'n', sp.n) +
+      tile('Duur (mediaan)', durTxt(a.dur), delta(a.dur, b.dur, 'n', true), 'De helft van de bezoeken duurt korter, de helft langer', 'dur', sp.dur) +
+      tile('Pagina\'s per bezoek', a.pages === null ? '—' : nf(a.pages, 1), delta(a.pages, b.pages, 'n', true), 'Herladen van dezelfde pagina telt niet', 'pages', sp.pages) +
+      tile('Doet er iets mee', pctTxt(a.eng), delta(a.eng, b.eng, 'pct', true), 'Meer dan één pagina, een klik, scrollen, of langer dan 5 seconden', 'eng', sp.eng) +
+      tile('Haakt meteen af', pctTxt(a.bounce), delta(a.bounce, b.bounce, 'pct', false), 'Eén pagina en verder niets', 'bounce', sp.bounce) +
+      tile('Aanvraag', pctTxt(a.conv), delta(a.conv, b.conv, 'pct', true), nf(a.convN) + ' formulieren, afspraken of inschrijvingen', 'conv', sp.conv);
   }
 
   // ── Trend ──────────────────────────────────────────────────────────────────
@@ -292,6 +333,124 @@
         + labels.map(function (l, i) { return '<tr><td>' + esc(l) + '</td><td class="text-right">' + (cur_[i] === null ? '—' : nf(cur_[i], 1)) + '</td><td class="text-right">' + (prev_[i] === null ? '—' : nf(prev_[i], 1)) + '</td></tr>'; }).join('')
         + '</tbody></table>' : '';
     document.querySelectorAll('[data-bh-action="metric"]').forEach(function (b) { b.classList.toggle('btn-active', b.dataset.value === st.metric); });
+  }
+
+  // ── Venster: het verloop van een kerncijfer over een langere periode ───────
+  // Welke periode bij welke keuze hoort. `data` is de serverperiode waaruit we
+  // lezen: elke serverperiode levert ook de vorige, even lange mee, dus 90d dekt
+  // 6 maanden en 12m dekt 24 maanden. Zo is er geen nieuwe route nodig.
+  var LONG = {
+    '7d': { data: '90d', unit: 'week', count: 8, label: 'voorbije 8 weken, per week' },
+    '30d': { data: '90d', unit: 'week', count: 13, label: 'voorbije 3 maanden, per week' },
+    '90d': { data: '12m', unit: 'month', count: 12, label: 'voorbije 12 maanden, per maand' },
+    '12m': { data: '12m', unit: 'month', count: 12, label: 'voorbije 12 maanden, per maand' }
+  };
+  var longCache = {};
+  var kpi = { metric: 'n', chart: null, table: false };
+
+  function weekKey(unix) {
+    var x = new Date(keyDay.format(new Date(unix * 1000)) + 'T00:00:00Z'), wd = (x.getUTCDay() + 6) % 7;
+    x.setUTCDate(x.getUTCDate() - wd);
+    return x.toISOString().slice(0, 10);
+  }
+  function monthKey(unix) { return keyDay.format(new Date(unix * 1000)).slice(0, 7); }
+
+  /** Dezelfde filters, maar met de volgnummers van een ANDERE dataset (op naam omgezet). */
+  function filtersFor(ds) {
+    var f = Object.assign({}, st.f);
+    Object.keys(NAMED).forEach(function (k) {
+      if (st.f[k] === null) return;
+      var name = st.data.dict[NAMED[k]][st.f[k]];
+      var i = ds.dict[NAMED[k]].indexOf(name);
+      f[k] = i >= 0 ? i : -2;   // -2 = bestaat daar niet: niets past
+    });
+    return f;
+  }
+
+  async function longData(period) {
+    if (period === st.period && st.data) return st.data;
+    if (longCache[period]) return longCache[period];
+    var res = await fetch('/webgedrag/api/behaviour?period=' + period, { credentials: 'include' });
+    if (res.status === 401) { window.location.href = '/'; throw new Error('Niet aangemeld'); }
+    var j = await res.json();
+    if (!j.success || !j.data.available) throw new Error(j.error || (j.data && j.data.reason) || 'Geen gegevens');
+    longCache[period] = j.data;
+    return j.data;
+  }
+
+  async function openKpi(metric) {
+    kpi.metric = metric;
+    var dlg = $('bhKpiDialog');
+    if (!dlg.open) dlg.showModal();
+    $('bhKpiBody').style.opacity = '0.5';
+    $('bhKpiStatus').innerHTML = '<span class="loading loading-spinner loading-sm"></span> Verloop laden…';
+    try {
+      var cfg = LONG[st.period];
+      var ds = await longData(cfg.data);
+      renderKpi(ds, cfg);
+      $('bhKpiStatus').innerHTML = '';
+    } catch (e) {
+      $('bhKpiStatus').innerHTML = '<div class="alert alert-error text-sm">Kon het verloop niet laden: ' + esc(e.message) + '</div>';
+    }
+    $('bhKpiBody').style.opacity = '1';
+  }
+
+  function renderKpi(ds, cfg) {
+    var m = metricOf(kpi.metric), f = filtersFor(ds);
+    var keyOf = cfg.unit === 'week' ? weekKey : monthKey;
+    // De reeks perioden, ook die zonder bezoeken: een gat hoort zichtbaar te zijn.
+    var now = Date.now() / 1000, keys = [];
+    for (var i = cfg.count - 1; i >= 0; i--) {
+      var t;
+      if (cfg.unit === 'week') t = now - i * 7 * 86400;
+      else { var d = new Date(); d.setUTCDate(15); d.setUTCMonth(d.getUTCMonth() - i); t = d.getTime() / 1000; }
+      var k = keyOf(t);
+      if (keys.indexOf(k) < 0) keys.push(k);
+    }
+    var groups = {};
+    keys.forEach(function (k) { groups[k] = []; });
+    ds.sessions.forEach(function (s) {
+      if (!matchesF(s, f)) return;
+      var k = keyOf(s[C.start]);
+      if (groups[k]) groups[k].push(s);
+    });
+    var vals = keys.map(function (k) { var x = stats(groups[k]); return kpi.metric === 'n' ? x.n : x[kpi.metric]; });
+    var labels = keys.map(function (k, i) {
+      var lbl = cfg.unit === 'week' ? 'wk ' + fmtDay.format(new Date(k + 'T12:00:00Z'))
+        : new Date(k + '-15T12:00:00Z').toLocaleDateString('nl-BE', { month: 'short', year: '2-digit' });
+      return i === keys.length - 1 ? lbl + ' (lopend)' : lbl;
+    });
+
+    $('bhKpiTitle').textContent = m.label;
+    $('bhKpiSub').textContent = cfg.label + (active() ? ' · met het segment van hierboven' : ' · alle bezoeken van prospecten');
+    $('bhKpiMetrics').innerHTML = pills('kpi-metric', null, METRICS.map(function (x) { return [x.key, x.label]; }), kpi.metric);
+
+    var ink = getComputedStyle(document.body).color || '#374151';
+    if (kpi.chart) kpi.chart.destroy();
+    kpi.chart = new Chart($('bhKpiChart'), {
+      type: 'line',
+      data: { labels: labels, datasets: [{ label: m.label, data: vals, borderColor: ACCENT, backgroundColor: ACCENT + '1a', fill: true,
+        borderWidth: 2, tension: 0.3, pointRadius: 4, pointHoverRadius: 6, pointBackgroundColor: ACCENT, pointBorderColor: '#fff', pointBorderWidth: 2, spanGaps: true }] },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        scales: {
+          x: { grid: { display: false }, ticks: { color: ink, maxRotation: 0, autoSkip: true, font: { size: 11 } } },
+          y: { beginAtZero: true, grid: { color: 'rgba(127,127,127,0.12)' }, border: { display: false },
+            ticks: { color: ink, font: { size: 11 }, callback: function (v) { return m.pct ? v + '%' : kpi.metric === 'dur' ? durTxt(v) : nf(v, kpi.metric === 'pages' ? 1 : 0); } } }
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: { callbacks: { label: function (c) { return ' ' + m.label + ': ' + (c.parsed.y === null ? '—' : m.fmt(c.parsed.y)); },
+            afterLabel: function (c) { return ' ' + nf(groups[keys[c.dataIndex]].length) + ' bezoeken'; } } }
+        }
+      }
+    });
+    $('bhKpiTable').innerHTML = kpi.table
+      ? '<table class="table table-xs mt-3"><thead><tr><th>' + (cfg.unit === 'week' ? 'Week' : 'Maand') + '</th><th class="text-right">' + esc(m.label)
+        + '</th><th class="text-right">Bezoeken</th></tr></thead><tbody>'
+        + labels.map(function (l, i) { return '<tr><td>' + esc(l) + '</td><td class="text-right">' + (vals[i] === null ? '—' : m.fmt(vals[i])) + '</td><td class="text-right">' + nf(groups[keys[i]].length) + '</td></tr>'; }).join('')
+        + '</tbody></table>' : '';
   }
 
   // ── Padverkenner ───────────────────────────────────────────────────────────
@@ -654,6 +813,9 @@
     if (!el) return;
     var a = el.dataset.bhAction, v = el.dataset.value;
     if (a === 'period') { st.period = v; load(); return; }
+    if (a === 'kpi-chart') { openKpi(el.dataset.metric); return; }
+    if (a === 'kpi-metric') { openKpi(v); return; }
+    if (a === 'kpi-table') { kpi.table = !kpi.table; openKpi(kpi.metric); return; }
     if (a === 'seg') { st.f[el.dataset.key] = v; }
     else if (a === 'filter') { var k = el.dataset.key, n = Number(v); st.f[k] = st.f[k] === n ? null : n; }
     else if (a === 'reset') { st.f = Object.assign({}, DEFAULTS); st.pins = {}; }
