@@ -3,9 +3,10 @@
  */
 
 import { GoogleAuthError, getServiceAccountClientId } from '../../lib/google-auth.js';
-import { bouwSlides } from './lib/layout.js';
-import { verzamelBronnen, nieuweInhoud, vernieuwInhoud } from './lib/sources.js';
+import { bouwSlides, DEFAULT_ICON, DEFAULT_DECOR } from './lib/layout.js';
+import { verzamelBronnen, nieuweInhoud, vernieuwInhoud, TEKENING_EIGEN } from './lib/sources.js';
 import { verzamelInzichten } from './lib/insights.js';
+import { lijstTekeningen, tekeningZoeker, pngSleutel, vergeetTekeningen } from './lib/thingies.js';
 import { zetInPresentatie, SlidesError, SLIDES_SCOPE } from './lib/slides-api.js';
 import {
   EditionError, geldigeMaand, geldigeDatum, normaliseerInhoud,
@@ -13,6 +14,7 @@ import {
 } from './lib/editions.js';
 
 const MAX_BEELD = 10 * 1024 * 1024;
+const MAX_TEKENING = 2 * 1024 * 1024;
 const BEELD_TYPES = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif' };
 // Een prikbord van ongeveer vijf weken: tot net na de volgende AV.
 const VENSTER_DAGEN = 34;
@@ -114,12 +116,16 @@ export const routes = {
   },
 
   /** Het voorbeeld: exact de vormen die ook naar Google Slides gaan. */
-  'POST /api/layout': async ({ request }) => {
+  'POST /api/layout': async ({ env, request }) => {
     try {
       const body = await leesBody(request);
       const inhoud = normaliseerInhoud(body && body.content);
       const origin = new URL(request.url).origin;
-      return json({ success: true, data: bouwSlides(inhoud, { imageUrl: beeldUrl(inhoud, origin) }) });
+      const lijst = await lijstTekeningen(env).catch(() => []);
+      return json({
+        success: true,
+        data: bouwSlides(inhoud, { imageUrl: beeldUrl(inhoud, origin), tekening: tekeningZoeker(lijst, origin) }),
+      });
     } catch (err) { return fout(err); }
   },
 
@@ -149,13 +155,63 @@ export const routes = {
       if (!editie) throw new EditionError('Er is voor deze maand nog niets klaargezet.', 404);
       const inhoud = normaliseerInhoud(editie.content);
       const origin = new URL(request.url).origin;
+
+      // Google Slides kent geen SVG. Welke tekeningen vraagt de opmaak, en heeft
+      // elk daarvan al een PNG-kopie? Zo niet: 409 met de namen, en het scherm
+      // maakt ze (canvas) en probeert opnieuw. Een naam die niet (meer) in de
+      // Asset Manager staat, telt niet mee: die kaart toont dan haar emoji.
+      const lijst = await lijstTekeningen(env, { vers: true });
+      const perNaam = new Map(lijst.map((t) => [t.name, t]));
+      const gevraagd = new Set();
+      bouwSlides(inhoud, { tekening: (naam) => { if (naam) gevraagd.add(naam); return null; } });
+      const ontbreekt = [...gevraagd].filter((n) => perNaam.has(n) && !perNaam.get(n).pngKey);
+      if (ontbreekt.length) {
+        return json({ success: false, code: 'DRAWINGS_MISSING', missing: ontbreekt, error: 'Er ontbreken nog PNG-kopieen van tekeningen.' }, 409);
+      }
+
+      const tekening = tekeningZoeker(lijst, origin, { enkelPng: true });
       const uitkomst = await zetInPresentatie(env, {
         email: user.email,
         invoer: body.presentation_url,
-        bouw: (scale) => bouwSlides(inhoud, { scale, imageUrl: beeldUrl(inhoud, origin) }),
+        bouw: (scale) => bouwSlides(inhoud, { scale, imageUrl: beeldUrl(inhoud, origin), tekening }),
       });
       await markeerIngevoegd(env, user, params.month, `https://docs.google.com/presentation/d/${uitkomst.presentationId}/edit`);
       return json({ success: true, data: uitkomst });
+    } catch (err) { return fout(err); }
+  },
+
+  /** De tekeningetjes uit de Asset Manager (brand/thingies), voor de keuzelijsten. */
+  'GET /api/thingies': async ({ env }) => {
+    try {
+      const lijst = await lijstTekeningen(env);
+      return json({
+        success: true,
+        data: lijst.map((t) => ({
+          name: t.name,
+          label: t.label,
+          svg: `/assets/${t.svgKey}`,
+          png: t.pngKey ? `/assets/${t.pngKey}` : null,
+        })),
+        // De standaardkeuzes, zodat het scherm ze niet zelf hoeft te kennen.
+        defaults: { icon: DEFAULT_ICON, decor: DEFAULT_DECOR, custom: TEKENING_EIGEN },
+      });
+    } catch (err) { return fout(err); }
+  },
+
+  /** De PNG-kopie van een tekening, gemaakt door de browser (zie thingies.js). */
+  'PUT /api/thingies/:name': async ({ env, params, request }) => {
+    try {
+      const type = String(request.headers.get('Content-Type') || '').split(';')[0].trim().toLowerCase();
+      if (type !== 'image/png') throw new EditionError('Enkel een PNG.');
+      const lijst = await lijstTekeningen(env, { vers: true });
+      const t = lijst.find((x) => x.name === params.name);
+      if (!t) throw new EditionError('Die tekening bestaat niet in de Asset Manager.', 404);
+      const bytes = await request.arrayBuffer();
+      if (!bytes.byteLength || bytes.byteLength > MAX_TEKENING) throw new EditionError('De PNG is leeg of groter dan 2 MB.');
+      const key = pngSleutel(t.name, t.tag);
+      await env.R2_ASSETS.put(key, bytes, { httpMetadata: { contentType: 'image/png' } });
+      vergeetTekeningen();
+      return json({ success: true, data: { png: `/assets/${key}` } });
     } catch (err) { return fout(err); }
   },
 

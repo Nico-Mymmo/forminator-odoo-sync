@@ -15,7 +15,7 @@ import { searchRead } from '../../../lib/odoo.js';
 import { listEvents, listEventTypes } from '../../event-operations-v2/lib/events-service.js';
 import { EVENT_FIELDS } from '../../event-operations-v2/odoo-contract.js';
 import { feestdagenTussen } from './holidays.js';
-import { DEFAULT_STYLE } from './layout.js';
+import { DEFAULT_STYLE, DEFAULT_ICON, DEFAULT_DECOR } from './layout.js';
 
 const TYPE_EMOJI = {
   webinar: '📺',
@@ -26,12 +26,25 @@ const TYPE_EMOJI = {
 };
 const VERJAARDAG_EMOJI = ['🎁', '🎂', '🎉', '🥳', '🎈'];
 
+// Standaardtekening per soort, uit de thingies van de Asset Manager (zie
+// thingies.js). Bestaat een naam daar niet (meer), dan toont de kaart haar
+// emoji. Per kaart te wijzigen in het scherm.
+const TYPE_TEKENING = {
+  webinar: 'telefoon',
+  infosessie: 'vergrootglas',
+  'q&a': 'openstaande-vraag',
+  'live event': 'sfeer',
+  groepsopleiding: 'aktentas',
+};
+const TEKENING_FEESTDAG = 'tuin';
+export const TEKENING_EIGEN = 'calendar1';
+
 const TINT_VERJAARDAG = '#e0f2fe';
 const TINT_FEESTDAG = '#ccfbf1';
 export const TINT_EIGEN = '#fef3c7';
 
 /** Een lichte tint van een categoriekleur, voor de kop van een kaart. */
-export function tint(hex, aandeelWit = 0.78) {
+export function tint(hex, aandeelWit = 0.72) {
   const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || '').trim());
   if (!m) return '#e0f2fe';
   const n = parseInt(m[1], 16);
@@ -151,6 +164,7 @@ export async function leesEventKaarten(env, van, tot) {
       span: 2,
       include: true,
       edited: false,
+      thingy: TYPE_TEKENING[soort.toLowerCase()] || TEKENING_EIGEN,
       meta: { type: soort, brand: e.brand || '' },
     });
   }
@@ -163,6 +177,7 @@ export function verjaardagKaarten(verjaardagen) {
     kind: 'birthday',
     date: v.date,
     emoji: VERJAARDAG_EMOJI[v.id % VERJAARDAG_EMOJI.length],
+    thingy: '',
     tint: TINT_VERJAARDAG,
     title: v.first,
     text: '',
@@ -178,6 +193,7 @@ export function feestdagKaarten(van, tot) {
     kind: 'holiday',
     date: f.date,
     emoji: '🏖️',
+    thingy: TEKENING_FEESTDAG,
     tint: TINT_FEESTDAG,
     title: f.name,
     text: '',
@@ -218,16 +234,16 @@ export function nieuweInhoud({ van, tot, bronnen, inzichten }) {
       title: 'Wist-je-weetje-wist-je-datje',
       image: null,
       blocks: [
-        { key: 'birthdays', type: 'text', style: 'mint', title: '🥳 Hipperdepiep', text: verjaardagTekst(bronnen.verjaardagen), include: true, edited: false },
-        { key: 'weetje', type: 'text', style: 'sky', title: '💡 Wist je dat…', text: (inzichten[0] && inzichten[0].text) || '', include: true, edited: false },
+        { key: 'birthdays', type: 'text', style: 'mint', title: '🥳 Hipperdepiep', text: verjaardagTekst(bronnen.verjaardagen), thingy: 'vlieger', include: true, edited: false },
+        { key: 'weetje', type: 'text', style: 'sky', title: '💡 Wist je dat…', text: (inzichten[0] && inzichten[0].text) || '', thingy: 'vergrootglas', include: true, edited: false },
         { key: 'review', type: 'review', style: 'white', name: '', source: 'Google', stars: 5, when: '', text: '', include: true },
       ],
     },
-    prikbord: { title: 'Prikbord', from: van, until: tot, cards: bronnen.kaarten },
+    prikbord: { title: 'Prikbord', icon: DEFAULT_ICON, decor: DEFAULT_DECOR, from: van, until: tot, cards: bronnen.kaarten },
   };
 }
 
-const KAART_VELDEN = ['date', 'emoji', 'tint', 'title', 'text', 'span'];
+const KAART_VELDEN = ['date', 'emoji', 'thingy', 'tint', 'title', 'text', 'span'];
 
 /**
  * Opnieuw ophalen ZONDER weg te gooien wat iemand al deed: het beeld, de
@@ -240,8 +256,10 @@ export function vernieuwInhoud(oud, vers) {
   const uit = { ...vers, style: oud.style || vers.style };
 
   const versBlok = new Map(vers.wist.blocks.map((b) => [b.key, b]));
-  const blokken = (oud.wist.blocks || []).map((b) => {
-    const v = versBlok.get(b.key);
+  const blokken = (oud.wist.blocks || []).map((oudBlok) => {
+    const v = versBlok.get(oudBlok.key);
+    // Een blok van voor de tekeningetjes krijgt de standaardtekening.
+    const b = v && oudBlok.thingy === undefined ? { ...oudBlok, thingy: v.thingy } : oudBlok;
     if (v && b.key === 'birthdays' && !b.edited) return { ...b, text: v.text };
     if (v && b.key === 'weetje' && !b.edited && !String(b.text || '').trim()) return { ...b, text: v.text };
     return b;
@@ -261,6 +279,12 @@ export function vernieuwInhoud(oud, vers) {
     return bewaard;
   });
   const eigen = (oud.prikbord.cards || []).filter((k) => k.kind === 'custom');
-  uit.prikbord = { ...vers.prikbord, title: oud.prikbord.title || vers.prikbord.title, cards: [...kaarten, ...eigen] };
+  uit.prikbord = {
+    ...vers.prikbord,
+    title: oud.prikbord.title || vers.prikbord.title,
+    icon: oud.prikbord.icon === undefined ? vers.prikbord.icon : oud.prikbord.icon,
+    decor: oud.prikbord.decor === undefined ? vers.prikbord.decor : oud.prikbord.decor,
+    cards: [...kaarten, ...eigen],
+  };
   return uit;
 }

@@ -14,6 +14,7 @@ const HEX = /^#[0-9a-f]{6}$/i;
 const BEELD_SLEUTEL = /^av-slides\/[0-9a-f-]{36}\.(png|jpe?g|gif)$/;
 const LETTERTYPE = /^[A-Za-z0-9 ]{2,40}$/;
 const SOORTEN = ['event', 'birthday', 'holiday', 'custom'];
+const TEKENING = /^[a-z0-9-]{1,40}$/;
 
 export class EditionError extends Error {
   constructor(message, status = 400) {
@@ -36,6 +37,9 @@ export function beeldSleutelGeldig(key) {
 
 const tekst = (v, max) => String(v ?? '').replace(/\r\n?/g, '\n').slice(0, max);
 const bool = (v, standaard = true) => (v === undefined || v === null ? standaard : v === true);
+// Een tekeningetje: een naam uit brand/thingies, of '' voor geen. ONTBREKEND
+// (undefined) blijft ontbrekend: dan neemt de opmaak de standaardtekening.
+const tekening = (v) => (v === undefined ? undefined : (TEKENING.test(String(v)) ? String(v) : ''));
 
 function blok(b) {
   if (!b || typeof b !== 'object') return null;
@@ -55,6 +59,7 @@ function blok(b) {
     uit.when = tekst(b.when, 40);
   } else {
     uit.title = tekst(b.title, 80);
+    uit.thingy = tekening(b.thingy);
   }
   return uit;
 }
@@ -66,6 +71,7 @@ function kaart(k) {
     kind: SOORTEN.includes(k.kind) ? k.kind : 'custom',
     date: k.date,
     emoji: tekst(k.emoji, 16),
+    thingy: tekening(k.thingy),
     tint: HEX.test(String(k.tint || '')) ? k.tint : '#e0f2fe',
     title: tekst(k.title, 120),
     text: tekst(k.text, 200),
@@ -116,6 +122,8 @@ export function normaliseerInhoud(c) {
     },
     prikbord: {
       title: tekst(p.title, 60),
+      icon: tekening(p.icon),
+      decor: tekening(p.decor),
       from: geldigeDatum(p.from) ? p.from : null,
       until: geldigeDatum(p.until) ? p.until : null,
       cards: (Array.isArray(p.cards) ? p.cards : []).map(kaart).filter(Boolean).slice(0, 80),
