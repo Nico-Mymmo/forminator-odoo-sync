@@ -4745,6 +4745,7 @@ in het scherm en de verzoeken naar Google zijn er allebei maar een omzetting van
 | Weetjes (lijst die mag groeien) | `lib/insights.js` (`BRONNEN`) |
 | Opslag per maand + vorm van de inhoud | `lib/editions.js`, tabel `av_slide_editions` |
 | Google Slides: invoegen, vervangen | `lib/slides-api.js` |
+| Tekeningetjes (thingies) uit de Asset Manager + hun PNG-kopie | `lib/thingies.js` |
 | Google-token met domeinbrede delegatie (gedeeld, voor nieuwe code) | `src/lib/google-auth.js` |
 | Scherm | `public/av-slides.html` + `.js` |
 | Migratie | `supabase/migrations/20261006140000_av_slides.sql` |
@@ -4760,6 +4761,22 @@ Afspraken die bewust zo zijn:
   daarom zoveel groter gemaakt), en tekst krimpt niet vanzelf: `pasGrootte()`
   schat de tekenbreedte en kiest de lettergrootte. Geen tekstschaduw, geen
   omlijnde letters. Het voorbeeld rekent met dezelfde straal en marge.
+- **Een kaart op het prikbord heeft GEEN aparte kopbalk** maar is egaal gekleurd
+  (de tint van de eventcategorie), met de datum links en een tekeningetje rechts.
+  Een smallere balk bovenin krijgt een kleinere straal dan de kaart (1/6 van
+  ZIJN kortste zijde), en die hoeken lopen nooit gelijk -- dat was de eerste
+  versie, en het zag er scheef uit. Elke rij loopt tot de rand (de kaarten worden
+  uitgevuld en over de rijen gelijk verdeeld, `verdeel()`), en kaarten van
+  dezelfde soort krijgen DEZELFDE lettergrootte. Een woord wordt nooit
+  afgebroken: dan liever kleiner ("Allerheilige-n" stond er eerst).
+- **De tekeningetjes zijn de thingies van de Asset Manager** (`brand/thingies/`
+  in R2, dezelfde als in mymmo-forms en de keienwolk). De lijst wordt GELEZEN,
+  niet bijgehouden. Google Slides kent geen SVG: de browser van wie op "In
+  presentatie zetten" klikt, maakt er een PNG van (canvas) en bewaart die als
+  `av-slides/thingies/<naam>-<etag>.png`. De server zegt welke nog ontbreken
+  (409 `DRAWINGS_MISSING`), het scherm maakt ze en probeert opnieuw. De etag in
+  de naam zorgt dat een vervangen tekening een nieuwe kopie krijgt. Een naam die
+  niet (meer) bestaat, valt terug op de emoji van de kaart.
 - **Invoegen gebeurt NAMENS de gebruiker** (subject = zijn @mymmo.com-adres), dus
   met zijn eigen rechten op de presentatie. Eenmalig nodig: de Google Slides API
   aan in het Cloud-project van het service-account, en de scope

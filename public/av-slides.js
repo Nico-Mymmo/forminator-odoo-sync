@@ -31,7 +31,9 @@
     saveTimer: null,
     previewTimer: null,
     saving: null,
-    fonts: {}
+    fonts: {},
+    thingies: [],
+    thingyDefaults: {}
   };
 
   // ── Helpers ────────────────────────────────────────────────────────────────
@@ -62,6 +64,7 @@
     if (!res.ok || data.success === false) {
       var err = new Error(data.error || ('Fout ' + res.status));
       err.code = data.code || null;
+      err.data = data;
       throw err;
     }
     return data;
@@ -244,6 +247,25 @@
     return '<div class="card bg-base-100"><div class="card-body p-4 gap-2">' + inhoud + '</div></div>';
   }
 
+  function tekeningUrl(naam) {
+    var t = state.thingies.find(function (x) { return x.name === naam; });
+    return t ? (t.png || t.svg) : '';
+  }
+
+  /** Keuzelijst met de tekeningetjes uit de Asset Manager, met een miniatuur ervoor. */
+  function tekeningKeuze(attrs, huidig, leegLabel) {
+    var url = tekeningUrl(huidig);
+    var bekend = !huidig || state.thingies.some(function (t) { return t.name === huidig; });
+    return `<span class="inline-flex items-center gap-1">
+      <span class="w-6 h-6 inline-flex items-center justify-center shrink-0">${url ? `<img src="${esc(url)}" alt="" class="w-6 h-6 object-contain">` : ''}</span>
+      <select class="select select-bordered select-xs" ${attrs} title="Tekening">
+        <option value="" ${!huidig ? 'selected' : ''}>${esc(leegLabel || 'Geen tekening')}</option>
+        ${bekend ? '' : `<option value="${esc(huidig)}" selected>${esc(huidig)} (niet gevonden)</option>`}
+        ${state.thingies.map(function (t) { return `<option value="${esc(t.name)}" ${t.name === huidig ? 'selected' : ''}>${esc(t.label)}</option>`; }).join('')}
+      </select>
+    </span>`;
+  }
+
   function stijlKeuze(b) {
     return `<select class="select select-bordered select-xs" data-block-key="${esc(b.key)}" data-block-field="style" title="Kleur">
       ${STIJLEN.map(function (s) { return `<option value="${s[0]}" ${b.style === s[0] ? 'selected' : ''}>${s[1]}</option>`; }).join('')}
@@ -306,6 +328,7 @@
     if (b.key === 'weetje') extra = weetjesLijst();
     return kaart(kop + `
       <input class="input input-bordered input-sm w-full" placeholder="Kop" data-block-key="${k}" data-block-field="title" value="${esc(b.title)}">
+      <div class="flex items-center gap-2 text-xs"><span class="opacity-70">Tekening rechtsboven</span>${tekeningKeuze(`data-block-key="${k}" data-block-field="thingy"`, b.thingy || '', 'Geen')}</div>
       <textarea class="textarea textarea-bordered textarea-sm w-full" rows="5" data-block-key="${k}" data-block-field="text">${esc(b.text)}</textarea>
       ${extra}`);
   }
@@ -360,10 +383,12 @@
     return `<div class="py-2 border-t border-base-content/10 space-y-1 ${k.include === false ? 'opacity-50' : ''}" data-card-row="${key}">
       <div class="flex flex-wrap items-center gap-2">
         <input type="checkbox" class="checkbox checkbox-sm" data-card-key="${key}" data-card-field="include" ${k.include !== false ? 'checked' : ''} title="Op het prikbord">
-        <input class="input input-bordered input-xs w-12 text-center" data-card-key="${key}" data-card-field="emoji" value="${esc(k.emoji)}" title="Emoji">
         <input type="date" class="input input-bordered input-xs" data-card-key="${key}" data-card-field="date" value="${esc(k.date)}">
         <span class="badge badge-ghost badge-sm">${esc(soort)}</span>
-        <select class="select select-bordered select-xs ml-auto" data-card-key="${key}" data-card-field="span" title="Breedte">
+        <span class="ml-auto"></span>
+        ${tekeningKeuze(`data-card-key="${key}" data-card-field="thingy"`, k.thingy || '', 'Emoji')}
+        ${k.thingy ? '' : `<input class="input input-bordered input-xs w-12 text-center" data-card-key="${key}" data-card-field="emoji" value="${esc(k.emoji)}" title="Emoji (als er geen tekening is)">`}
+        <select class="select select-bordered select-xs" data-card-key="${key}" data-card-field="span" title="Breedte">
           <option value="1" ${k.span !== 2 ? 'selected' : ''}>Smal</option>
           <option value="2" ${k.span === 2 ? 'selected' : ''}>Breed</option>
         </select>
@@ -382,6 +407,10 @@
         <span class="label-text text-xs mb-1">Titel</span>
         <input class="input input-bordered input-sm w-full" data-field="prikbord.title" value="${esc(p.title)}">
       </label>
+      <div class="flex flex-wrap gap-x-4 gap-y-2 text-xs">
+        <div class="flex items-center gap-2"><span class="opacity-70">Bij de titel</span>${tekeningKeuze('data-field="prikbord.icon"', p.icon === undefined ? (state.thingyDefaults.icon || '') : p.icon, 'Geen')}</div>
+        <div class="flex items-center gap-2"><span class="opacity-70">Rechtsboven</span>${tekeningKeuze('data-field="prikbord.decor"', p.decor === undefined ? (state.thingyDefaults.decor || '') : p.decor, 'Geen')}</div>
+      </div>
       <p class="text-xs opacity-60">Venster: ${esc(p.from || '?')} tot en met ${esc(p.until || '?')}. Pas het bovenaan aan en klik op "Gegevens ophalen".</p>`);
 
     html += kaart(`<div class="flex items-center justify-between">
@@ -499,10 +528,23 @@
     $('insertResult').innerHTML = '<p class="text-xs opacity-60">Bezig… dit duurt een paar seconden.</p>';
     try {
       await bewaarNu();
-      var r = (await api('/editions/' + state.month + '/insert', {
-        method: 'POST',
-        body: JSON.stringify({ presentation_url: url })
-      })).data;
+      var voegIn = function () {
+        return api('/editions/' + state.month + '/insert', {
+          method: 'POST',
+          body: JSON.stringify({ presentation_url: url })
+        }).then(function (res) { return res.data; });
+      };
+      var r;
+      try {
+        r = await voegIn();
+      } catch (err) {
+        // Google Slides kent geen SVG: de server zegt welke tekeningen nog een
+        // PNG-kopie nodig hebben, die maken we hier en dan opnieuw.
+        if (err.code !== 'DRAWINGS_MISSING') throw err;
+        $('insertResult').innerHTML = '<p class="text-xs opacity-60">Tekeningen omzetten naar PNG…</p>';
+        await maakPngs((err.data && err.data.missing) || []);
+        r = await voegIn();
+      }
       $('insertResult').innerHTML = `<div class="alert alert-success text-sm py-2">
         <span>Staat erin${r.title ? ' (' + esc(r.title) + ')' : ''}${r.replaced ? ', de vorige versie is vervangen' : ''}.</span>
         <a class="btn btn-xs" href="${esc(r.url)}" target="_blank" rel="noopener">Open presentatie</a>
@@ -513,6 +555,54 @@
     } finally {
       knop.disabled = false;
       knop.classList.remove('loading');
+    }
+  }
+
+  // ── Tekeningen: SVG -> PNG ─────────────────────────────────────────────────
+
+  async function svgNaarPng(url, maat) {
+    var tekst = await (await fetch(url, { credentials: 'include' })).text();
+    var svg = new DOMParser().parseFromString(tekst, 'image/svg+xml').documentElement;
+    var vb = (svg.getAttribute('viewBox') || '').split(/[\s,]+/).map(Number);
+    var w = vb.length === 4 && vb[2] > 0 ? vb[2] : (parseFloat(svg.getAttribute('width')) || maat);
+    var h = vb.length === 4 && vb[3] > 0 ? vb[3] : (parseFloat(svg.getAttribute('height')) || maat);
+    var s = maat / Math.max(w, h);
+    var bw = Math.round(w * s);
+    var bh = Math.round(h * s);
+    // Een SVG met enkel een viewBox heeft geen eigen maat: die zetten we erop.
+    svg.setAttribute('width', String(bw));
+    svg.setAttribute('height', String(bh));
+    var objUrl = URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(svg)], { type: 'image/svg+xml' }));
+    try {
+      var img = new Image();
+      img.src = objUrl;
+      await img.decode();
+      var c = document.createElement('canvas');
+      c.width = bw;
+      c.height = bh;
+      c.getContext('2d').drawImage(img, 0, 0, bw, bh);
+      return await new Promise(function (ok, nok) {
+        c.toBlob(function (b) { if (b) ok(b); else nok(new Error('geen PNG')); }, 'image/png');
+      });
+    } finally {
+      URL.revokeObjectURL(objUrl);
+    }
+  }
+
+  async function maakPngs(namen) {
+    for (var i = 0; i < namen.length; i++) {
+      var t = state.thingies.find(function (x) { return x.name === namen[i]; });
+      if (!t) continue;
+      var png = await svgNaarPng(t.svg, 512);
+      var res = await fetch(BASE + '/thingies/' + encodeURIComponent(t.name), {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'image/png' },
+        body: png
+      });
+      var data = await res.json().catch(function () { return {}; });
+      if (!res.ok || data.success === false) throw new Error('Tekening "' + t.label + '" omzetten mislukt: ' + (data.error || res.status));
+      t.png = data.data.png;
     }
   }
 
@@ -587,6 +677,7 @@
       kind: 'custom',
       date: p.from || $('fAvDate').value,
       emoji: '📌',
+      thingy: state.thingyDefaults.custom || '',
       tint: '#fef3c7',
       title: '',
       text: '',
@@ -664,6 +755,11 @@
       if (t.value) { state.edition.av_date = t.value; planBewaren(); }
       return;
     }
+    if (t.dataset.field === 'prikbord.icon' || t.dataset.field === 'prikbord.decor') {
+      renderPrik();
+      refreshIcons();
+      return;
+    }
     if (t.dataset.field && t.dataset.field.indexOf('style.') === 0) {
       if (t.value.trim()) { zetPad(C(), t.dataset.field, t.value.trim()); gewijzigd(); }
       return;
@@ -673,6 +769,7 @@
       if (!b) return;
       var veld = t.dataset.blockField;
       b[veld] = t.type === 'checkbox' ? t.checked : (veld === 'stars' ? Number(t.value) : t.value);
+      if (veld === 'thingy') { renderWist(); refreshIcons(); }
       gewijzigd();
     } else if (t.dataset.cardKey && (t.type === 'checkbox' || t.type === 'date' || t.tagName === 'SELECT')) {
       var k = kaartVan(t.dataset.cardKey);
@@ -681,7 +778,8 @@
       if (v === 'include') k.include = t.checked;
       else if (v === 'span') { k.span = Number(t.value) === 2 ? 2 : 1; k.edited = true; }
       else if (v === 'date') { if (!t.value) return; k.date = t.value; k.edited = true; }
-      if (v === 'date') { renderPrik(); refreshIcons(); }
+      else if (v === 'thingy') { k.thingy = t.value; k.edited = true; }
+      if (v === 'date' || v === 'thingy') { renderPrik(); refreshIcons(); }
       else if (v === 'include') {
         var rij = t.closest('[data-card-row]');
         if (rij) rij.classList.toggle('opacity-50', !k.include);
@@ -735,6 +833,12 @@
       var me = await res.json();
       if (window.renderSharedNavbar) window.renderSharedNavbar(me.navbarHtml);
     } catch (_) { /* navbar is niet kritisch */ }
+
+    try {
+      var th = await api('/thingies');
+      state.thingies = th.data || [];
+      state.thingyDefaults = th.defaults || {};
+    } catch (_) { /* zonder lijst: enkel emoji */ }
 
     api('/setup').then(function (r) {
       $('setupClientId').textContent = r.data.client_id || '(onbekend: GOOGLE_SERVICE_ACCOUNT_KEY ontbreekt)';
