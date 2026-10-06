@@ -22,6 +22,8 @@ import {
   channelOf, isLoginOnly, isCustomerSession, isTestPage,
 } from '../../dashboards/lib/web-visits.js';
 import { loadExclusions } from '../../web-story/lib/exclusions.js';
+import { listEvents } from '../../event-operations-v2/lib/events-service.js';
+import { EVENT_FIELDS } from '../../event-operations-v2/odoo-contract.js';
 
 // Live meten begon op 29-09-2026; alles daarvoor is gesaneerde oude historiek.
 const LIVE_SINDS = '2026-09-29';
@@ -111,7 +113,7 @@ function siteNaam(site) {
 }
 
 function telSessies(rows, firstLogins, reopened, excl, grens) {
-  const leeg = () => ({ bezoeken: 0, aanvragen: 0, kanalen: {}, paginas: {}, zoek: {} });
+  const leeg = () => ({ bezoeken: 0, aanvragen: 0, nieuwsbrief: 0, kanalen: {}, paginas: {}, zoek: {}, toestel: {}, landen: {} });
   const per = { nu: leeg(), vorige: leeg() };
   for (const r of rows) {
     let pages = [];
@@ -122,6 +124,9 @@ function telSessies(rows, firstLogins, reopened, excl, grens) {
     const b = r.st >= grens ? per.nu : per.vorige;
     b.bezoeken++;
     b.aanvragen += (Number(r.fs) || 0) + (Number(r.ca) || 0);
+    b.nieuwsbrief += Number(r.nb) || 0;
+    if (r.dv) b.toestel[String(r.dv).toLowerCase()] = (b.toestel[String(r.dv).toLowerCase()] || 0) + 1;
+    if (r.co) b.landen[String(r.co).toUpperCase()] = (b.landen[String(r.co).toUpperCase()] || 0) + 1;
     const [kanaal] = channelOf(r, reopened);
     b.kanalen[kanaal] = (b.kanalen[kanaal] || 0) + 1;
     const site = siteNaam(r.site);
@@ -228,10 +233,132 @@ async function website(env, m1, m0) {
       text: `Waar zochten bezoekers in ${naam(m1)} het meest naar op onze sites? "${zoekterm[0]}" (${getal(zoekterm[1])} keer).`,
     });
   }
+  const toestellen = Object.values(nu.toestel).reduce((a, v) => a + v, 0);
+  if (toestellen >= 20) {
+    const mobiel = Object.entries(nu.toestel)
+      .filter(([k]) => /mobile|phone/.test(k))
+      .reduce((a, [, v]) => a + v, 0);
+    uit.push({
+      id: 'toestel',
+      group: 'website',
+      label: 'Bezoeken op een smartphone',
+      text: `${Math.round((mobiel / toestellen) * 100)}% van de websitebezoeken in ${naam(m1)} gebeurde op een smartphone.`,
+    });
+  }
+
+  // Cloudflare zet XX (onbekend) en T1 (Tor): dat zijn geen landen.
+  const buitenland = Object.entries(nu.landen).filter(([k]) => k && k !== 'BE' && k !== 'XX' && k !== 'T1');
+  if (buitenland.length) {
+    const top = buitenland.sort((a, b) => b[1] - a[1])[0];
+    const aantalLanden = buitenland.length + (nu.landen.BE ? 1 : 0);
+    uit.push({
+      id: 'landen',
+      group: 'website',
+      label: 'Bezoekers uit het buitenland',
+      text: `In ${naam(m1)} kwamen er bezoekers uit ${getal(aantalLanden)} landen; na België het vaakst uit ${landNaam(top[0])} (${getal(top[1])} bezoeken).`,
+    });
+  }
+
+  const ai = nu.kanalen['AI-assistenten'] || 0;
+  if (ai >= 3) {
+    uit.push({
+      id: 'ai',
+      group: 'website',
+      label: 'Bezoekers via AI-assistenten',
+      text: `In ${naam(m1)} stuurden AI-assistenten zoals ChatGPT ${getal(ai)} bezoekers naar onze sites${procent(ai, vorige.kanalen['AI-assistenten'] || 0, m0)}.`,
+      note: noot,
+    });
+  }
+
+  if (nu.nieuwsbrief) {
+    uit.push({
+      id: 'nieuwsbrief',
+      group: 'website',
+      label: 'Inschrijvingen op de nieuwsbrief',
+      text: `In ${naam(m1)} schreven ${getal(nu.nieuwsbrief)} mensen zich in op onze nieuwsbrief${verschil(nu.nieuwsbrief, vorige.nieuwsbrief, m0)}.`,
+      note: 'Enkel inschrijvingen die aan een websitebezoek hangen.',
+    });
+  }
   return uit;
 }
 
-const BRONNEN = [leads, inschrijvingen, website];
+function landNaam(code) {
+  try {
+    return new Intl.DisplayNames(['nl'], { type: 'region' }).of(code) || code;
+  } catch {
+    return code;
+  }
+}
+
+async function gewonnen(env, m1, m0) {
+  const telWon = (m) => {
+    const g = grenzen(m);
+    return executeKw(env, {
+      model: 'crm.lead',
+      method: 'search_count',
+      args: [[['date_closed', '>=', g.start], ['date_closed', '<', g.end], ['stage_id.is_won', '=', true]]],
+      kwargs: { context: { active_test: false } },
+    });
+  };
+  const [n, p] = await Promise.all([telWon(m1), telWon(m0)]);
+  if (!n) return [];
+  return [{
+    id: 'gewonnen',
+    group: 'cijfer',
+    label: 'Gewonnen verkoopkansen',
+    text: `In ${naam(m1)} wonnen we ${getal(n)} verkoopkansen${verschil(n, p, m0)}.`,
+  }];
+}
+
+async function nieuws(env, m1, m0) {
+  // Zelfde voorwaarde als de publieke feed: status 'published' (content-feed).
+  const telBerichten = (m) => executeKw(env, {
+    model: 'x_content_snippet',
+    method: 'search_count',
+    args: [[
+      ['x_studio_article_status', '=', 'published'],
+      ['x_studio_content_snippet_publication_date', '>=', `${m}-01`],
+      ['x_studio_content_snippet_publication_date', '<', `${volgendeMaand(m)}-01`],
+    ]],
+    kwargs: {},
+  });
+  const [n, p] = await Promise.all([telBerichten(m1), telBerichten(m0)]);
+  if (!n) return [];
+  return [{
+    id: 'nieuws',
+    group: 'cijfer',
+    label: 'Berichten in de nieuwsfeed',
+    text: `In ${naam(m1)} verschenen er ${getal(n)} nieuwe berichten in onze nieuwsfeed${verschil(n, p, m0)}.`,
+  }];
+}
+
+/** Het komende event met de meeste inschrijvingen (vanaf vandaag, gepubliceerd). */
+async function populairEvent(env) {
+  const vandaag = new Date().toISOString().slice(0, 10);
+  const { events } = await listEvents(env, {
+    filters: { from: `${vandaag}T00:00:00Z`, publication_states: ['published'] },
+    order: `${EVENT_FIELDS.STARTS_AT} asc`,
+    limit: 50,
+  });
+  let top = null;
+  for (const e of events || []) {
+    const n = (e.registration && e.registration.count) || 0;
+    if (n > 0 && (!top || n > top.n)) top = { e, n };
+  }
+  if (!top) return [];
+  const titel = String(top.e.title || '').replace(/\s*\|\s*\d{1,2}\/\d{1,2}(\/\d{2,4})?\s*$/, '').trim();
+  const datum = top.e.starts_at
+    ? new Intl.DateTimeFormat('nl-BE', { timeZone: 'Europe/Brussels', day: 'numeric', month: 'long' }).format(new Date(top.e.starts_at))
+    : '';
+  return [{
+    id: 'populair-event',
+    group: 'cijfer',
+    label: 'Populairste komende event',
+    text: `Het komende event met de meeste inschrijvingen: "${titel}"${datum ? ` op ${datum}` : ''}, met al ${getal(top.n)} inschrijvingen.`,
+  }];
+}
+
+const BRONNEN = [leads, gewonnen, inschrijvingen, populairEvent, nieuws, website];
 
 /**
  * @param {object} env

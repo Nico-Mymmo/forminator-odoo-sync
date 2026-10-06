@@ -116,7 +116,24 @@
                   <i data-lucide="send" class="w-4 h-4"></i> In presentatie zetten
                 </button>
               </div>
+              <label id="googleAsRow" class="form-control hidden">
+                <span class="label-text text-xs mb-1">Namens Google-account <span class="opacity-60">(enkel beheerders; leeg = je eigen adres)</span></span>
+                <input type="email" id="fGoogleAs" class="input input-bordered input-sm" placeholder="naam@mymmo.com">
+              </label>
               <div id="insertResult"></div>
+              <div class="flex flex-wrap items-center gap-2 pt-3 border-t border-base-content/10">
+                <span class="text-xs opacity-70 mr-auto">Of zonder Google-koppeling downloaden:</span>
+                <button class="btn btn-sm btn-outline" data-action="export-png">
+                  <i data-lucide="image-down" class="w-4 h-4"></i> PNG
+                </button>
+                <button class="btn btn-sm btn-outline" data-action="export-pptx">
+                  <i data-lucide="file-down" class="w-4 h-4"></i> PowerPoint
+                </button>
+              </div>
+              <p class="text-xs opacity-60">
+                De PowerPoint zet je in Google Slides via <strong>Bestand &rarr; Slides importeren &rarr; Uploaden</strong>: dan zijn het
+                gewone, bewerkbare vormen. De PNG's (een per slide) sleep je er als afbeelding in.
+              </p>
               <details class="collapse collapse-arrow bg-base-200" id="setupHelp">
                 <summary class="collapse-title text-sm font-medium min-h-0 py-2">Eenmalige instelling in Google</summary>
                 <div class="collapse-content text-xs space-y-2">
@@ -129,6 +146,13 @@
                       Vervang de lijst niet: de handtekeningen en de Gmail-koppelingen gebruiken de andere scopes.</li>
                   </ol>
                   <p>Daarnaast moet je zelf bewerkrechten hebben op de presentatie.</p>
+                  <div class="flex items-center gap-2 pt-1">
+                    <button class="btn btn-xs" data-action="check-setup">
+                      <i data-lucide="stethoscope" class="w-3.5 h-3.5"></i> Controleer de instelling
+                    </button>
+                    <span class="opacity-60">Vraagt Google enkel om een token, wijzigt niets.</span>
+                  </div>
+                  <div id="setupCheck" class="space-y-1"></div>
                 </div>
               </details>
             </div>

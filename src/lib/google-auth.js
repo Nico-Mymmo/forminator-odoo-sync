@@ -111,16 +111,23 @@ export async function getGoogleAccessToken(env, subject, scopes) {
   });
   const tekst = await res.text();
   if (!res.ok) {
+    let google = '';
+    try {
+      const j = JSON.parse(tekst);
+      google = [j.error, j.error_description].filter(Boolean).join(': ');
+    } catch {
+      google = tekst.slice(0, 200);
+    }
     if (/unauthorized_client/.test(tekst)) {
       throw new GoogleAuthError(
-        `Het service-account mag de scope ${scope} nog niet gebruiken. Voeg ze in de Google Admin Console toe bij domeinbrede delegatie voor client-ID ${sa.client_id || '(onbekend)'} -- samen met de scopes die er al staan.`,
+        `Het service-account mag de scope ${scope} nog niet gebruiken. Voeg ze in de Google Admin Console toe bij domeinbrede delegatie voor client-ID ${sa.client_id || '(onbekend)'} -- samen met de scopes die er al staan. Staat ze er al, dan is de wijziging bij Google nog niet doorgevoerd (dat kan tot 24 uur duren). Google zei: ${google}`,
         'SCOPE_NOT_AUTHORIZED',
       );
     }
     if (/invalid_grant/.test(tekst)) {
-      throw new GoogleAuthError(`Google kent ${subject} niet als gebruiker in de Workspace.`, 'UNKNOWN_SUBJECT');
+      throw new GoogleAuthError(`Google kent ${subject} niet als gebruiker in de Workspace. Google zei: ${google}`, 'UNKNOWN_SUBJECT');
     }
-    throw new GoogleAuthError(`Google weigerde het token (${res.status}): ${tekst.slice(0, 300)}`, 'TOKEN_FAILED');
+    throw new GoogleAuthError(`Google weigerde het token (${res.status}): ${google}`, 'TOKEN_FAILED');
   }
   const json = JSON.parse(tekst);
   memo.set(sleutel, { token: json.access_token, exp: Date.now() + (Number(json.expires_in) || 3600) * 1000 });

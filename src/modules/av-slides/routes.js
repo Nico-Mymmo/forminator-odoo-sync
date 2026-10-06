@@ -2,7 +2,7 @@
  * AV-slides -- routes. Alleen JSON, behalve `GET /`.
  */
 
-import { GoogleAuthError, getServiceAccountClientId } from '../../lib/google-auth.js';
+import { GoogleAuthError, getServiceAccountClientId, getGoogleAccessToken } from '../../lib/google-auth.js';
 import { bouwSlides, DEFAULT_ICON, DEFAULT_DECOR } from './lib/layout.js';
 import { verzamelBronnen, nieuweInhoud, vernieuwInhoud, TEKENING_EIGEN } from './lib/sources.js';
 import { verzamelInzichten } from './lib/insights.js';
@@ -15,6 +15,9 @@ import {
 
 const MAX_BEELD = 10 * 1024 * 1024;
 const MAX_TEKENING = 2 * 1024 * 1024;
+// Een scope die het service-account al lang mag gebruiken (de handtekeningen):
+// de controle in 'GET /api/setup/check'.
+const CONTROLE_SCOPE = 'https://www.googleapis.com/auth/gmail.settings.basic';
 const BEELD_TYPES = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif' };
 // Een prikbord van ongeveer vijf weken: tot net na de volgende AV.
 const VENSTER_DAGEN = 34;
@@ -55,6 +58,27 @@ function standaard(maand) {
 }
 
 /** De URL van het beeld zoals Google en de browser hem ophalen (publieke R2-route). */
+/**
+ * Namens welk Google-account? Standaard het eigen OM-adres. Een BEHEERDER mag
+ * een ander adres opgeven (bv. aangemeld als admin@, invoegen als nico@), maar
+ * enkel binnen zijn eigen domein: met domeinbrede delegatie betekent "namens"
+ * echt namens, met alle rechten van die persoon op zijn presentaties.
+ *
+ * Bewust NIET het veld "Google Workspace primair e-mailadres" uit Profiel: dat
+ * stuurt ook de push van de handtekeningen, en dan zou de handtekening van
+ * admin@ in de Gmail van iemand anders belanden.
+ */
+function googleAdres(user, gevraagd) {
+  const eigen = String(user?.email || '').toLowerCase();
+  const g = String(gevraagd || '').trim().toLowerCase();
+  if (!g || g === eigen || user?.role !== 'admin') return eigen;
+  const domein = eigen.split('@')[1];
+  if (!domein || !/^[^\s@]+@[^\s@]+$/.test(g) || g.split('@')[1] !== domein) {
+    throw new EditionError(`Je kan enkel namens een adres op @${domein || '?'} werken.`);
+  }
+  return g;
+}
+
 function beeldUrl(content, origin) {
   const key = content && content.wist && content.wist.image && content.wist.image.key;
   return key ? `${origin}/assets/${key}` : null;
@@ -171,7 +195,7 @@ export const routes = {
 
       const tekening = tekeningZoeker(lijst, origin, { enkelPng: true });
       const uitkomst = await zetInPresentatie(env, {
-        email: user.email,
+        email: googleAdres(user, body.google_email),
         invoer: body.presentation_url,
         bouw: (scale) => bouwSlides(inhoud, { scale, imageUrl: beeldUrl(inhoud, origin), tekening }),
       });
@@ -215,9 +239,38 @@ export const routes = {
     } catch (err) { return fout(err); }
   },
 
+  /**
+   * Geeft Google een token voor Slides, namens jou? Met een scope die al lang
+   * werkt als controle: lukt die wel en Slides niet, dan is enkel de nieuwe
+   * scope (nog) niet actief; lukt geen van beide, dan klopt het service-account
+   * zelf niet. Vraagt niets aan Slides en wijzigt niets.
+   */
+  'GET /api/setup/check': async ({ env, user, request }) => {
+    let email;
+    try {
+      email = googleAdres(user, new URL(request.url).searchParams.get('als'));
+    } catch (err) { return fout(err); }
+    const proef = async (scope) => {
+      try {
+        await getGoogleAccessToken(env, email, scope);
+        return { scope, ok: true };
+      } catch (err) {
+        return { scope, ok: false, error: err.message, code: err.code || null };
+      }
+    };
+    const [slides, controle] = await Promise.all([proef(SLIDES_SCOPE), proef(CONTROLE_SCOPE)]);
+    return json({ success: true, data: { email, client_id: getServiceAccountClientId(env), slides, controle } });
+  },
+
   /** Wat er in Google ingesteld moet zijn, voor de uitleg in het scherm. */
-  'GET /api/setup': async ({ env }) => json({
+  'GET /api/setup': async ({ env, user }) => json({
     success: true,
-    data: { client_id: getServiceAccountClientId(env), scope: SLIDES_SCOPE },
+    data: {
+      client_id: getServiceAccountClientId(env),
+      scope: SLIDES_SCOPE,
+      email: user.email,
+      // Enkel een beheerder mag namens een ander adres werken (googleAdres()).
+      can_choose_google: user.role === 'admin',
+    },
   }),
 };

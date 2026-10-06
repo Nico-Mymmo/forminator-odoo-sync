@@ -272,12 +272,37 @@
     </select>`;
   }
 
+  // Het weetjesblok bewaart één weetje per regel in `text`; op de slide wordt
+  // dat een opsomming (layout.js, blokRegels).
+  function weetjesRegels(b) {
+    var t = String((b && b.text) || '');
+    return t === '' ? [] : t.split('\n');
+  }
+
+  function staatErin(tekst) {
+    return weetjesRegels(blokVan('weetje')).some(function (r) { return r.trim() === String(tekst).trim(); });
+  }
+
+  function weetjesInvoer(b) {
+    var regels = weetjesRegels(b);
+    var rijen = regels.map(function (r, i) {
+      return `<div class="flex gap-1 items-start">
+        <textarea class="textarea textarea-bordered textarea-sm flex-1 leading-snug" rows="2" data-weetje-index="${i}">${esc(r)}</textarea>
+        <button class="btn btn-ghost btn-xs btn-square mt-1" data-action="weetje-remove" data-index="${i}" title="Weghalen"><i data-lucide="x" class="w-3.5 h-3.5"></i></button>
+      </div>`;
+    }).join('');
+    return `<div class="space-y-1">
+      ${rijen || '<p class="text-xs opacity-60">Nog geen weetjes. Voeg er een toe uit de voorstellen hieronder, of schrijf er zelf een.</p>'}
+      <button class="btn btn-xs" data-action="weetje-add-own"><i data-lucide="plus" class="w-3.5 h-3.5"></i> Eigen weetje</button>
+    </div>`;
+  }
+
   function weetjesLijst() {
     var lijst = C().insights || [];
     if (!lijst.length) {
       return '<p class="text-xs opacity-60">Geen weetjes gevonden voor de vorige maand. Klik op "Gegevens ophalen".</p>';
     }
-    var html = '<div class="text-xs font-medium opacity-70 mt-1">Kies een weetje (je kan het daarna herschrijven):</div>';
+    var html = '<div class="text-xs font-medium opacity-70 mt-2">Voorstellen, uit de cijfers van vorige maand. Wat je toevoegt, kan je hierboven herschrijven.</div>';
     ['cijfer', 'website'].forEach(function (groep) {
       var deel = lijst.map(function (w, i) { return { w: w, i: i }; }).filter(function (x) { return x.w.group === groep; });
       if (!deel.length) return;
@@ -288,8 +313,9 @@
           <div>${esc(x.w.text)}</div>
           ${x.w.note ? `<div class="opacity-60 italic">${esc(x.w.note)}</div>` : ''}
           <div class="flex gap-1 pt-1">
-            <button class="btn btn-xs" data-action="insight-use" data-index="${x.i}">Gebruiken</button>
-            <button class="btn btn-xs btn-ghost" data-action="insight-add" data-index="${x.i}">Erbij zetten</button>
+            ${staatErin(x.w.text)
+              ? '<span class="badge badge-success badge-sm">staat erin</span>'
+              : `<button class="btn btn-xs" data-action="insight-add" data-index="${x.i}"><i data-lucide="plus" class="w-3 h-3"></i> Toevoegen</button>`}
           </div>
         </div>`;
       }).join('');
@@ -329,7 +355,9 @@
     return kaart(kop + `
       <input class="input input-bordered input-sm w-full" placeholder="Kop" data-block-key="${k}" data-block-field="title" value="${esc(b.title)}">
       <div class="flex items-center gap-2 text-xs"><span class="opacity-70">Tekening rechtsboven</span>${tekeningKeuze(`data-block-key="${k}" data-block-field="thingy"`, b.thingy || '', 'Geen')}</div>
-      <textarea class="textarea textarea-bordered textarea-sm w-full" rows="5" data-block-key="${k}" data-block-field="text">${esc(b.text)}</textarea>
+      ${b.key === 'weetje'
+        ? weetjesInvoer(b)
+        : `<textarea class="textarea textarea-bordered textarea-sm w-full" rows="5" data-block-key="${k}" data-block-field="text">${esc(b.text)}</textarea>`}
       ${extra}`);
   }
 
@@ -531,7 +559,7 @@
       var voegIn = function () {
         return api('/editions/' + state.month + '/insert', {
           method: 'POST',
-          body: JSON.stringify({ presentation_url: url })
+          body: JSON.stringify({ presentation_url: url, google_email: namensAdres() })
         }).then(function (res) { return res.data; });
       };
       var r;
@@ -555,6 +583,38 @@
     } finally {
       knop.disabled = false;
       knop.classList.remove('loading');
+    }
+  }
+
+  // Namens welk Google-account (enkel voor beheerders zichtbaar; de server
+  // controleert het opnieuw). Onthouden in deze browser.
+  function namensAdres() {
+    var el = $('fGoogleAs');
+    var v = el && !$('googleAsRow').classList.contains('hidden') ? el.value.trim().toLowerCase() : '';
+    try { localStorage.setItem('av-slides-google-as', v); } catch (_) { /* geen opslag */ }
+    return v;
+  }
+
+  async function controleerInstelling() {
+    var el = $('setupCheck');
+    el.innerHTML = '<p class="opacity-60">Bezig…</p>';
+    try {
+      var d = (await api('/setup/check' + (namensAdres() ? '?als=' + encodeURIComponent(namensAdres()) : ''))).data;
+      var regel = function (naam, r) {
+        return `<div class="flex gap-2 items-start">
+          <span class="${r.ok ? 'text-success' : 'text-error'} font-bold">${r.ok ? '✓' : '✗'}</span>
+          <span><strong>${esc(naam)}</strong>${r.ok ? '' : ': ' + esc(r.error)}</span>
+        </div>`;
+      };
+      var uitleg = d.slides.ok
+        ? 'Alles klopt: je kan de slides invoegen.'
+        : d.controle.ok
+          ? 'Het service-account werkt, alleen de scope voor Slides is (nog) niet actief. Staat ze al in de Admin Console, dan heeft Google de wijziging nog niet doorgevoerd: dat kan tot 24 uur duren.'
+          : 'Ook een scope die al lang werkt, wordt geweigerd: dan klopt het service-account zelf niet (een ander client-ID of een andere sleutel).';
+      el.innerHTML = regel('Slides (presentations)', d.slides) + regel('Controle (gmail.settings.basic)', d.controle) +
+        `<p class="pt-1">${esc(uitleg)}</p><p class="opacity-60">Getest namens ${esc(d.email)}, client-ID ${esc(d.client_id || '?')}.</p>`;
+    } catch (err) {
+      el.innerHTML = '<p class="text-error">' + esc(err.message) + '</p>';
     }
   }
 
@@ -604,6 +664,155 @@
       if (!res.ok || data.success === false) throw new Error('Tekening "' + t.label + '" omzetten mislukt: ' + (data.error || res.status));
       t.png = data.data.png;
     }
+  }
+
+  // ── Exporteren, zonder Google-koppeling ───────────────────────────────────
+  //
+  // Beide gaan uit van dezelfde vormen als het voorbeeld (POST /api/layout):
+  // de PNG is het voorbeeld zelf, gefotografeerd; de PowerPoint zet elke vorm om
+  // naar een PowerPoint-vorm. Google Slides maakt er bij "Slides importeren"
+  // gewone, bewerkbare vormen van.
+
+  var SLIDES = [['wist', 'Wist-je-weetje'], ['prik', 'Prikbord']];
+  var INCH = 10 / 960;   // een 16:9-dia is 10 x 5,625 inch
+  var PPT_H = { START: 'left', CENTER: 'center', END: 'right' };
+  var PPT_V = { TOP: 'top', MIDDLE: 'middle', BOTTOM: 'bottom' };
+
+  function laadScript(src, globaal) {
+    if (window[globaal]) return Promise.resolve(window[globaal]);
+    return new Promise(function (ok, nok) {
+      var s = document.createElement('script');
+      s.src = src;
+      s.onload = function () { if (window[globaal]) ok(window[globaal]); else nok(new Error(globaal + ' niet geladen')); };
+      s.onerror = function () { nok(new Error('Kon ' + src + ' niet laden')); };
+      document.head.appendChild(s);
+    });
+  }
+
+  async function metKnop(knop, fn, gelukt) {
+    knop.disabled = true;
+    knop.classList.add('loading');
+    try {
+      await fn();
+      toast(gelukt);
+    } catch (err) {
+      toast(err.message, 'error');
+    } finally {
+      knop.disabled = false;
+      knop.classList.remove('loading');
+    }
+  }
+
+  async function verseLayout() {
+    await bewaarNu();
+    state.layout = (await api('/layout', { method: 'POST', body: JSON.stringify({ content: C() }) })).data;
+    return state.layout;
+  }
+
+  function download(href, naam) {
+    var a = document.createElement('a');
+    a.href = href;
+    a.download = naam;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+
+  async function exportPng() {
+    var lib = await laadScript('https://cdn.jsdelivr.net/npm/html-to-image@1.11.11/dist/html-to-image.js', 'htmlToImage');
+    var layout = await verseLayout();
+    for (var i = 0; i < SLIDES.length; i++) {
+      // Buiten beeld, op ware grootte: niet het geschaalde voorbeeld fotograferen.
+      var host = document.createElement('div');
+      host.className = 'av-slide';
+      host.style.cssText = 'position:fixed;left:-20000px;top:0;width:960px;';
+      document.body.appendChild(host);
+      try {
+        schilder(host, layout[SLIDES[i][0]]);
+        var binnen = host.querySelector('.av-slide-binnen');
+        binnen.style.transform = 'none';
+        await document.fonts.ready;
+        await Promise.all(Array.prototype.map.call(host.querySelectorAll('img'), function (img) {
+          return img.decode().catch(function () { /* een beeld dat niet laadt, valt weg */ });
+        }));
+        var png = await lib.toPng(binnen, { width: 960, height: 540, pixelRatio: 2, backgroundColor: '#ffffff' });
+        download(png, 'AV ' + state.month + ' - ' + SLIDES[i][1] + '.png');
+      } finally {
+        host.remove();
+      }
+    }
+  }
+
+  function pptKleur(hex) {
+    return String(hex || '#000000').replace('#', '').toUpperCase();
+  }
+
+  async function beeldVoorPptx(url) {
+    var blob = /\.svg(\?|$)/i.test(url) ? await svgNaarPng(url, 512) : await (await fetch(url, { credentials: 'include' })).blob();
+    if (['image/png', 'image/jpeg', 'image/gif'].indexOf(blob.type) < 0) blob = await naarPng(blob);
+    var bmp = await createImageBitmap(blob);
+    var data = await new Promise(function (ok) {
+      var r = new FileReader();
+      r.onload = function () { ok(r.result); };
+      r.readAsDataURL(blob);
+    });
+    return { data: String(data).replace(/^data:/, ''), w: bmp.width, h: bmp.height };
+  }
+
+  async function exportPptx() {
+    var Pptx = await laadScript('https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js', 'PptxGenJS');
+    var layout = await verseLayout();
+    var pptx = new Pptx();
+    pptx.layout = 'LAYOUT_16x9';
+    var beelden = {};
+    for (var i = 0; i < SLIDES.length; i++) {
+      var dia = pptx.addSlide();
+      var els = layout[SLIDES[i][0]] || [];
+      for (var j = 0; j < els.length; j++) {
+        var el = els[j];
+        if (el.type === 'shape') {
+          // Een roundRect zonder eigen straal krijgt de standaard van 1/6 van de
+          // kortste zijde: exact ROUND_RATIO uit layout.js.
+          dia.addShape(el.shape === 'ELLIPSE' ? pptx.ShapeType.ellipse : (el.shape === 'ROUND_RECTANGLE' ? pptx.ShapeType.roundRect : pptx.ShapeType.rect), {
+            x: el.x * INCH, y: el.y * INCH, w: el.w * INCH, h: el.h * INCH,
+            fill: { color: pptKleur(el.fill) },
+            line: el.line ? { color: pptKleur(el.line.color), width: el.line.weight * 0.75 } : { type: 'none' },
+            rotate: el.rotate || 0
+          });
+        } else if (el.type === 'text') {
+          // Op het vlak waarin de tekst moet staan, zonder binnenmarge: zo hangt
+          // het niet af van welke standaardmarge het programma invult.
+          dia.addText(el.runs.map(function (r) {
+            return { text: r.text, options: { fontFace: r.font, fontSize: Math.round(r.size * 0.75 * 10) / 10, bold: Boolean(r.bold), color: pptKleur(r.color) } };
+          }), {
+            x: (el.x + el.inset) * INCH, y: (el.y + el.inset) * INCH,
+            w: (el.w - 2 * el.inset) * INCH, h: (el.h - 2 * el.inset) * INCH,
+            margin: 0,
+            align: PPT_H[el.align] || 'left',
+            valign: PPT_V[el.valign] || 'top',
+            lineSpacingMultiple: (el.lineSpacing || 100) / 100,
+            paraSpaceBefore: 0,
+            paraSpaceAfter: 0,
+            fit: 'none',
+            wrap: true,
+            rotate: el.rotate || 0
+          });
+        } else if (el.type === 'image') {
+          var b = beelden[el.url] || (beelden[el.url] = await beeldVoorPptx(el.url));
+          // Passend in het vak, zoals Google Slides en het voorbeeld (contain).
+          var f = Math.min(el.w / b.w, el.h / b.h);
+          var bw = b.w * f;
+          var bh = b.h * f;
+          dia.addImage({
+            data: b.data,
+            x: (el.x + (el.w - bw) / 2) * INCH, y: (el.y + (el.h - bh) / 2) * INCH,
+            w: bw * INCH, h: bh * INCH,
+            rotate: el.rotate || 0
+          });
+        }
+      }
+    }
+    await pptx.writeFile({ fileName: 'AV-slides ' + state.month + '.pptx' });
   }
 
   // ── Beeld ──────────────────────────────────────────────────────────────────
@@ -657,17 +866,41 @@
     gewijzigd();
   }
 
-  function gebruikWeetje(index, erbij) {
-    var w = (C().insights || [])[index];
-    var b = blokVan('weetje');
-    if (!w || !b) return;
-    var huidig = String(b.text || '').trim();
-    b.text = erbij && huidig ? huidig + '\n' + w.text : w.text;
+  function zetWeetjes(b, regels) {
+    b.text = regels.join('\n');
     b.edited = true;
-    b.include = true;
     renderWist();
     refreshIcons();
     gewijzigd();
+  }
+
+  function gebruikWeetje(index) {
+    var w = (C().insights || [])[index];
+    var b = blokVan('weetje');
+    if (!w || !b) return;
+    var regels = weetjesRegels(b).filter(function (r) { return r.trim(); });
+    if (regels.indexOf(w.text) < 0) regels.push(w.text);
+    b.include = true;
+    zetWeetjes(b, regels);
+  }
+
+  function verwijderWeetje(index) {
+    var b = blokVan('weetje');
+    if (!b) return;
+    var regels = weetjesRegels(b);
+    regels.splice(index, 1);
+    zetWeetjes(b, regels);
+  }
+
+  function eigenWeetje() {
+    var b = blokVan('weetje');
+    if (!b) return;
+    var regels = weetjesRegels(b).filter(function (r) { return r.trim(); });
+    regels.push('');
+    b.include = true;
+    zetWeetjes(b, regels);
+    var velden = document.querySelectorAll('[data-weetje-index]');
+    if (velden.length) velden[velden.length - 1].focus();
   }
 
   function nieuweKaart() {
@@ -702,6 +935,7 @@
     var a = el.dataset.action;
     if (a === 'generate') haalGegevens();
     else if (a === 'insert') zetInPresentatie();
+    else if (a === 'check-setup') controleerInstelling();
     else if (a === 'pick-image') $('imageInput').click();
     else if (a === 'remove-image') { C().wist.image = null; renderWist(); refreshIcons(); gewijzigd(); }
     else if (a === 'block-up') verplaatsBlok(el.dataset.key, -1);
@@ -710,8 +944,11 @@
       var b = blokVan('birthdays');
       if (b) { b.text = C().birthdaysText || ''; b.edited = false; renderWist(); refreshIcons(); gewijzigd(); }
     }
-    else if (a === 'insight-use') gebruikWeetje(Number(el.dataset.index), false);
-    else if (a === 'insight-add') gebruikWeetje(Number(el.dataset.index), true);
+    else if (a === 'insight-add') gebruikWeetje(Number(el.dataset.index));
+    else if (a === 'weetje-remove') verwijderWeetje(Number(el.dataset.index));
+    else if (a === 'weetje-add-own') eigenWeetje();
+    else if (a === 'export-png') metKnop(el, exportPng, 'De PNG\'s zijn gedownload.');
+    else if (a === 'export-pptx') metKnop(el, exportPptx, 'De PowerPoint is gedownload.');
     else if (a === 'card-add') nieuweKaart();
     else if (a === 'card-delete') {
       C().prikbord.cards = C().prikbord.cards.filter(function (k) { return k.key !== el.dataset.key; });
@@ -725,6 +962,16 @@
   document.addEventListener('input', function (e) {
     var t = e.target;
     if (!state.edition) return;
+    if (t.dataset.weetjeIndex !== undefined) {
+      var wb = blokVan('weetje');
+      if (!wb) return;
+      var regels = weetjesRegels(wb);
+      regels[Number(t.dataset.weetjeIndex)] = t.value.replace(/\s*\n+\s*/g, ' ');
+      wb.text = regels.join('\n');
+      wb.edited = true;
+      gewijzigd();
+      return;
+    }
     // Lettertypes pas bij het verlaten van het veld: anders laadt elke
     // tussenstand ("Yo", "You", ...) een eigen Google Fonts-link.
     if (t.dataset.field && t.dataset.field.indexOf('style.') !== 0) {
@@ -843,6 +1090,11 @@
     api('/setup').then(function (r) {
       $('setupClientId').textContent = r.data.client_id || '(onbekend: GOOGLE_SERVICE_ACCOUNT_KEY ontbreekt)';
       $('setupScope').textContent = r.data.scope;
+      if (r.data.can_choose_google) {
+        $('googleAsRow').classList.remove('hidden');
+        $('fGoogleAs').placeholder = r.data.email || '';
+        try { $('fGoogleAs').value = localStorage.getItem('av-slides-google-as') || ''; } catch (_) { /* geen opslag */ }
+      }
     }).catch(function () { /* enkel uitleg */ });
 
     var gevraagd = new URLSearchParams(window.location.search).get('maand');

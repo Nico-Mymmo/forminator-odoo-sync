@@ -4789,6 +4789,31 @@ Afspraken die bewust zo zijn:
   maand (een kopie houdt de id's). Volgorde: eerst twee nieuwe slides, dan in één
   batch vullen en de oude weghalen; faalt het vullen, dan gaan de nieuwe weg en
   staat de vorige versie er nog.
+- **Namens wie:** standaard het eigen OM-adres. Een BEHEERDER mag in het scherm
+  een ander adres opgeven ("Namens Google-account", bv. aangemeld als admin@,
+  invoegen als nico@), enkel binnen zijn eigen domein; de server controleert het
+  (`googleAdres()` in routes.js). Bewust NIET het Profiel-veld "Google Workspace
+  primair e-mailadres": dat stuurt ook de push van de handtekeningen, en dan
+  belandt de handtekening van admin@ in de Gmail van iemand anders.
+  "Controleer de instelling" vraagt Google enkel een token voor Slides en voor
+  een scope die al lang werkt (gmail.settings.basic), en zegt welke van de twee
+  faalt.
+- **Zonder Google-koppeling kan het ook:** "PNG" fotografeert het voorbeeld
+  (html-to-image, een PNG per slide) en "PowerPoint" zet elke vorm om naar een
+  PowerPoint-vorm (PptxGenJS, `roundRect` zonder eigen straal = dezelfde 1/6,
+  tekst zonder binnenmarge op het tekstvlak). Allebei in de browser, allebei uit
+  dezelfde `POST /api/layout`. Een .pptx importeren in Google Slides geeft
+  gewone, bewerkbare vormen.
+- **Wist-je-weetje is een bento die zich naar het BEELD schikt:** het kader volgt
+  de verhouding van het beeld (`beeldKader()`), zodat er geen lege witte band
+  rond een liggende screenshot staat. Liggend beeld + review: beeld en
+  tekstblokken naast elkaar, de review over de volle breedte eronder. Staand
+  beeld: beeld links over de volle hoogte. De afmetingen van het beeld worden
+  bij het opladen bewaard (`wist.image.width/height`). Alle tekstblokken krijgen
+  dezelfde lettergrootte.
+- **Het weetjesblok is een lijst:** één weetje per regel in `text`, op de slide
+  een opsomming zodra er meer dan één is (`blokRegels()`). Het scherm toont elke
+  regel als eigen veld; voorstellen voeg je toe, je herschrijft ze daarna.
 - **Bronnen, geen kopieën:** verjaardagen uit `hr.employee.birthday`, events via
   `listEvents()` van Eventbeheer (published + done), de kopkleur uit de
   eventcategorie, feestdagen uitgerekend (`resource.calendar.leaves` is leeg in
@@ -4800,7 +4825,11 @@ Afspraken die bewust zo zijn:
   VORIGE kalendermaand tegenover de maand daarvoor. De websitecijfers gebruiken
   dezelfde sessies, kanaalindeling en uitsluitingen als het dashboard en
   Webgedrag (prospecten: geen klanten, geen enkel-inloggen, geen testpagina's,
-  geen uitgeslotenen) -- er komt geen tweede definitie van een bezoek. Valt een
+  geen uitgeslotenen) -- er komt geen tweede definitie van een bezoek. Nu:
+  nieuwe leads, gewonnen verkoopkansen, event-inschrijvingen, het populairste
+  komende event, berichten in de nieuwsfeed, websitebezoeken, aanvragen via de
+  site, populairste pagina, grootste en snelst groeiende kanaal, zoektermen,
+  smartphone-aandeel, landen, AI-assistenten en nieuwsbrief. Valt een
   maand (deels) voor 29-09-2026, dan krijgt het weetje een noot over de oude
   historiek; het wordt niet weggelaten. Een nieuw weetje = een functie in
   `BRONNEN`; faalt ze, dan valt enkel zij weg met een melding.

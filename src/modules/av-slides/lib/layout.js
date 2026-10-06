@@ -204,62 +204,133 @@ function heeftInhoud(b) {
   return Boolean(String(b.text || '').trim() || String(b.title || '').trim());
 }
 
-function blokNodig(b, w) {
-  const binnen = w - 44;
-  if (b.type === 'review') {
-    return Math.max(130, 44 + 72 + aantalRegels(b.text, binnen, 14) * 14 * LINE_HEIGHT);
-  }
-  const kop = String(b.title || '').trim() ? 42 : 0;
-  return Math.max(110, 44 + kop + aantalRegels(b.text, binnen - (b.thingy ? 80 : 0), 18) * 18 * LINE_HEIGHT * 1.15);
+const BLOK_PAD = 22;
+const REVIEW_KOP = 50;
+const BLOK_LH = LINE_HEIGHT * 1.15 * 1.04;
+
+/**
+ * De tekst van een blok zoals hij op de slide komt. Het weetjesblok is een
+ * opsomming zodra er meer dan één weetje in staat (één per regel in `text`).
+ */
+function blokRegels(b) {
+  const regels = String(b.text || '').split('\n').map((r) => r.trim()).filter(Boolean);
+  if (b.key === 'weetje' && regels.length > 1) return regels.map((r) => `• ${r}`).join('\n');
+  return regels.join('\n');
 }
 
-function tekenTekstblok(t, b, x, y, w, h, st, tekening) {
+function blokPad(b) {
+  const s = BLOK_STIJLEN[b.style] || (b.type === 'review' ? BLOK_STIJLEN.white : BLOK_STIJLEN.mint);
+  return BLOK_PAD + (s.line ? 4 : 0);
+}
+
+/** Hoe hoog een blok wil zijn bij zijn gewone lettergrootte: de verdeling volgt dit. */
+function blokNodig(b, w) {
+  const pad = blokPad(b);
+  if (b.type === 'review') {
+    return Math.max(140, 2 * pad + REVIEW_KOP + aantalRegels(String(b.text || ''), w - 2 * pad, 15) * 15 * BLOK_LH);
+  }
+  const kop = String(b.title || '').trim() ? 22 * LINE_HEIGHT + 8 : 0;
+  const bw = w - 2 * pad - (b.thingy ? 70 : 0);
+  return Math.max(100, 2 * pad + kop + aantalRegels(blokRegels(b), bw, 17) * 17 * BLOK_LH);
+}
+
+/** Waar in een tekstblok de kop, het tekeningetje en de tekst komen. */
+function tekstblokMaten(b, x, y, w, h, tekening) {
   const s = BLOK_STIJLEN[b.style] || BLOK_STIJLEN.mint;
-  t.vorm('ROUND_RECTANGLE', x, y, w, h, s.fill, s.line);
-  const pad = clamp(h * 0.12, 16, 26) + (s.line ? 4 : 0);
-  // Een tekeningetje rechtsboven; de tekst blijft er links van.
+  const pad = blokPad(b);
   const url = tekening(b.thingy);
   const ico = url ? clamp(h * 0.42, 44, 84) : 0;
-  if (url) t.beeld(x + w - pad - ico, y + pad - 6, ico, ico, url);
   const bw = w - 2 * pad - (ico ? ico + 10 : 0);
-  let ty = y + pad;
   const titel = String(b.title || '').trim();
-  if (titel) {
-    const ts = pasOpRegel(titel, bw, 22, 13, true);
-    t.tekst(x + pad, ty, bw, ts * LINE_HEIGHT, [{ text: titel, size: ts, bold: true, font: st.bodyFont, color: INK }], { valign: 'MIDDLE' });
-    ty += ts * LINE_HEIGHT + 8;
-  }
-  const bh = y + h - pad - ty;
-  const tekst = String(b.text || '').trim();
-  const fs = pasGrootte(tekst, bw, bh, 19, 8, { lineSpacing: 115 });
-  t.tekst(x + pad, ty, bw, bh, [{ text: tekst, size: fs, font: st.bodyFont, color: INK }], { lineSpacing: 115 });
+  const ts = titel ? pasOpRegel(titel, bw, 22, 13, true) : 0;
+  const ty = y + pad + (titel ? ts * LINE_HEIGHT + 8 : 0);
+  return { s, pad, url, ico, bw, titel, ts, ty, bh: y + h - pad - ty };
 }
 
+function tekenTekstblok(t, b, x, y, w, h, st, tekening, fs) {
+  const m = tekstblokMaten(b, x, y, w, h, tekening);
+  t.vorm('ROUND_RECTANGLE', x, y, w, h, m.s.fill, m.s.line);
+  // Een tekeningetje rechtsboven; de tekst blijft er links van.
+  if (m.url) t.beeld(x + w - m.pad - m.ico, y + m.pad - 6, m.ico, m.ico, m.url);
+  if (m.titel) {
+    t.tekst(x + m.pad, y + m.pad, m.bw, m.ts * LINE_HEIGHT, [{ text: m.titel, size: m.ts, bold: true, font: st.bodyFont, color: INK }], { valign: 'MIDDLE' });
+  }
+  t.tekst(x + m.pad, m.ty, m.bw, m.bh, [{ text: blokRegels(b), size: fs, font: st.bodyFont, color: INK }], { lineSpacing: 115 });
+}
+
+/**
+ * Een review: kop met initiaal, naam en bron links en de sterren rechts, de
+ * tekst eronder op leesbare grootte (nooit kleiner dan 9: dan krijgt het blok
+ * eerder meer hoogte, zie blokNodig).
+ */
 function tekenReview(t, b, x, y, w, h, st) {
   const s = BLOK_STIJLEN[b.style] || BLOK_STIJLEN.white;
   t.vorm('ROUND_RECTANGLE', x, y, w, h, s.fill, s.line);
-  const pad = 22 + (s.line ? 4 : 0);
+  const pad = blokPad(b);
   const naam = String(b.name || '').trim();
   const sterren = clamp(Math.round(Number(b.stars) || 5), 1, 5);
-  const kleur = AVATAR_KLEUREN[zaad(naam) % AVATAR_KLEUREN.length];
-  t.vorm('ELLIPSE', x + pad, y + pad, 34, 34, kleur);
-  t.tekst(x + pad, y + pad, 34, 34, [{ text: (naam[0] || '?').toUpperCase(), size: 15, bold: true, font: st.bodyFont, color: '#ffffff' }], { align: 'CENTER', valign: 'MIDDLE' });
-  const nx = x + pad + 46;
-  const nw = w - 2 * pad - 46;
-  t.tekst(nx, y + pad - 1, nw, 18, [{ text: naam.toUpperCase(), size: 13, bold: true, font: st.bodyFont, color: INK }], { valign: 'MIDDLE' });
-  t.tekst(nx, y + pad + 18, nw, 15, [{ text: `Review via ${String(b.source || 'Google').trim() || 'Google'}`, size: 11, font: st.bodyFont, color: MUTED }], { valign: 'MIDDLE' });
+  const bron = String(b.source || 'Google').trim() || 'Google';
   const wanneer = String(b.when || '').trim();
-  t.tekst(x + pad, y + pad + 44, w - 2 * pad, 20, [
-    { text: '★'.repeat(sterren) + '☆'.repeat(5 - sterren), size: 15, font: st.bodyFont, color: '#f59e0b' },
-    { text: `  ${sterren}/5${wanneer ? ` · ${wanneer}` : ''}`, size: 12, font: st.bodyFont, color: MUTED },
-  ], { valign: 'MIDDLE' });
-  const ty = y + pad + 74;
+  const kleur = AVATAR_KLEUREN[zaad(naam) % AVATAR_KLEUREN.length];
+
+  const av = 38;
+  t.vorm('ELLIPSE', x + pad, y + pad, av, av, kleur);
+  t.tekst(x + pad, y + pad, av, av, [{ text: (naam[0] || '?').toUpperCase(), size: 16, bold: true, font: st.bodyFont, color: '#ffffff' }], { align: 'CENTER', valign: 'MIDDLE' });
+  const sterW = 110;
+  const nx = x + pad + av + 12;
+  const nw = w - 2 * pad - av - 12 - sterW;
+  t.tekst(nx, y + pad, nw, 20, [{ text: naam, size: 14, bold: true, font: st.bodyFont, color: INK }], { valign: 'MIDDLE' });
+  t.tekst(nx, y + pad + 20, nw, 16, [{ text: `Review via ${bron}${wanneer ? ` · ${wanneer}` : ''}`, size: 11.5, font: st.bodyFont, color: MUTED }], { valign: 'MIDDLE' });
+  t.tekst(x + w - pad - sterW, y + pad, sterW, 20, [{ text: '★'.repeat(sterren) + '☆'.repeat(5 - sterren), size: 17, font: st.bodyFont, color: '#f59e0b' }], { align: 'END', valign: 'MIDDLE' });
+  t.tekst(x + w - pad - sterW, y + pad + 20, sterW, 16, [{ text: `${sterren}/5`, size: 11.5, font: st.bodyFont, color: MUTED }], { align: 'END', valign: 'MIDDLE' });
+
+  const ty = y + pad + REVIEW_KOP;
   const bh = y + h - pad - ty;
   const tekst = String(b.text || '').trim();
-  const fs = pasGrootte(tekst, w - 2 * pad, bh, 15, 8, { lineSpacing: 110 });
-  t.tekst(x + pad, ty, w - 2 * pad, bh, [{ text: tekst, size: fs, font: st.bodyFont, color: '#374151' }], { lineSpacing: 110 });
+  const fs = pasGrootte(tekst, w - 2 * pad, bh, 16, 9, { lineSpacing: 115 });
+  t.tekst(x + pad, ty, w - 2 * pad, bh, [{ text: tekst, size: fs, font: st.bodyFont, color: INK }], { lineSpacing: 115 });
 }
 
+const WIST = { x: 48, y: 106, w: 864, h: 404, gap: 18 };
+const KADER_RAND = 16;   // ruimte tussen het kader en het beeld erin
+
+/**
+ * Een kader dat de VERHOUDING van het beeld volgt, zodat er geen lege witte band
+ * boven en onder een liggend beeld staat. Past het beeld bij de toegelaten
+ * breedte niet in de hoogte, dan wordt het kader lager en verticaal gecentreerd.
+ */
+function beeldKader(x, y, h, verhouding, minW, maxW) {
+  const w = clamp((h - 2 * KADER_RAND) * verhouding + 2 * KADER_RAND, minW, maxW);
+  const binnenW = w - 2 * KADER_RAND;
+  const binnenH = Math.min(h - 2 * KADER_RAND, binnenW / verhouding);
+  const kh = binnenH + 2 * KADER_RAND;
+  const ky = y + (h - kh) / 2;
+  return { x, y: ky, w, h: kh, binnen: { x: x + KADER_RAND, y: ky + KADER_RAND, w: binnenW, h: binnenH } };
+}
+
+/** Blokken onder elkaar, elk zo hoog als het nodig heeft (naar verhouding). */
+function stapel(plaatsen, blokken, x, y, w, h, gap) {
+  if (!blokken.length) return;
+  const beschikbaar = h - gap * (blokken.length - 1);
+  const nodig = blokken.map((b) => blokNodig(b, w));
+  const som = nodig.reduce((a, n) => a + n, 0) || 1;
+  let yy = y;
+  blokken.forEach((b, i) => {
+    const bh = i === blokken.length - 1 ? y + h - yy : Math.round((beschikbaar * nodig[i]) / som);
+    plaatsen.push({ b, x, y: yy, w, h: bh });
+    yy += bh + gap;
+  });
+}
+
+/**
+ * De indeling:
+ *   - liggend beeld + een review: beeld links naast de tekstblokken, de review
+ *     over de volle breedte eronder;
+ *   - staand beeld (of geen review): beeld links over de volle hoogte, alle
+ *     blokken rechts onder elkaar;
+ *   - geen beeld: alle blokken onder elkaar over de volle breedte.
+ * Alle tekstblokken krijgen dezelfde lettergrootte (de kleinste die overal past).
+ */
 export function wistLayout(content, { scale = DEFAULT_SCALE, imageUrl = null, tekening = geenTekening } = {}) {
   const st = stijlVan(content);
   const wist = (content && content.wist) || {};
@@ -270,27 +341,44 @@ export function wistLayout(content, { scale = DEFAULT_SCALE, imageUrl = null, te
   t.vorm('ELLIPSE', 830, 330, 300, 300, '#e0eefb');
   t.tekst(60, 28, 840, 52, [{ text: String(wist.title || 'Wist-je-weetje-wist-je-datje'), size: 30, font: st.titleFont, color: INK }], { align: 'CENTER', valign: 'MIDDLE' });
 
-  const top = 106;
-  const bodem = 510;
-  let kolX = 48;
-  if (imageUrl) {
-    t.vorm('ROUND_RECTANGLE', 48, top, 272, bodem - top, '#ffffff', { color: MINT, weight: 6 });
-    t.beeld(68, top + 20, 232, bodem - top - 40, imageUrl);
-    kolX = 344;
-  }
-  const kolW = 912 - kolX;
+  const A = WIST;
   const blokken = (wist.blocks || []).filter((b) => b && b.include !== false && heeftInhoud(b)).slice(0, 3);
-  const gap = 18;
-  const beschikbaar = bodem - top - gap * Math.max(0, blokken.length - 1);
-  const nodig = blokken.map((b) => blokNodig(b, kolW));
-  const som = nodig.reduce((a, b) => a + b, 0) || 1;
-  let y = top;
-  blokken.forEach((b, i) => {
-    const h = i === blokken.length - 1 ? bodem - y : Math.round((beschikbaar * nodig[i]) / som);
-    if (b.type === 'review') tekenReview(t, b, kolX, y, kolW, h, st);
-    else tekenTekstblok(t, b, kolX, y, kolW, h, st, tekening);
-    y += h + gap;
-  });
+  const review = blokken.find((b) => b.type === 'review') || null;
+  const tekstblokken = blokken.filter((b) => b !== review);
+  const plaatsen = [];
+
+  if (imageUrl) {
+    const im = wist.image || {};
+    const verhouding = im.width > 0 && im.height > 0 ? im.width / im.height : 0.75;
+    let kader;
+    if (verhouding >= 1 && review && tekstblokken.length) {
+      const reviewH = clamp(blokNodig(review, A.w), 120, 190);
+      const bovenH = A.h - reviewH - A.gap;
+      kader = beeldKader(A.x, A.y, bovenH, verhouding, A.w * 0.34, A.w * 0.6);
+      const kolX = A.x + kader.w + A.gap;
+      stapel(plaatsen, tekstblokken, kolX, A.y, A.x + A.w - kolX, bovenH, A.gap);
+      plaatsen.push({ b: review, x: A.x, y: A.y + bovenH + A.gap, w: A.w, h: reviewH });
+    } else {
+      kader = beeldKader(A.x, A.y, A.h, verhouding, 220, A.w * 0.5);
+      const kolX = A.x + kader.w + A.gap;
+      stapel(plaatsen, blokken, kolX, A.y, A.x + A.w - kolX, A.h, A.gap);
+    }
+    t.vorm('ROUND_RECTANGLE', kader.x, kader.y, kader.w, kader.h, '#ffffff', { color: MINT, weight: 6 });
+    t.beeld(kader.binnen.x, kader.binnen.y, kader.binnen.w, kader.binnen.h, imageUrl);
+  } else {
+    stapel(plaatsen, blokken, A.x, A.y, A.w, A.h, A.gap);
+  }
+
+  let fs = 19;
+  for (const p of plaatsen) {
+    if (p.b.type === 'review') continue;
+    const m = tekstblokMaten(p.b, p.x, p.y, p.w, p.h, tekening);
+    fs = Math.min(fs, pasGrootte(blokRegels(p.b), m.bw, m.bh, 19, 9, { lineSpacing: 115 }));
+  }
+  for (const p of plaatsen) {
+    if (p.b.type === 'review') tekenReview(t, p.b, p.x, p.y, p.w, p.h, st);
+    else tekenTekstblok(t, p.b, p.x, p.y, p.w, p.h, st, tekening, fs);
+  }
   return t.els;
 }
 
