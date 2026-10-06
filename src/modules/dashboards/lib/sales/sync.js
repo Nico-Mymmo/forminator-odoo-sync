@@ -17,7 +17,7 @@
  * derive.js) en, één keer per dag, de momentopname van de abonnementen.
  */
 
-import { searchRead, executeKw } from '../../../../lib/odoo.js';
+import { searchRead, executeKw, search } from '../../../../lib/odoo.js';
 import { hasSalesDb, readSales, upsertRows, deleteMissing, runSales } from '../../../../lib/sales-db.js';
 
 export const SALES_VERSION_KEY = 'sales:version';
@@ -119,15 +119,20 @@ const PARTNER = {
   key: 'partners', table: 'partners', model: 'res.partner', context: { active_test: false },
   fields: ['name', 'is_company', 'parent_id', 'commercial_partner_id', 'x_studio_company_type', 'x_studio_contact_type', 'x_studio_company_status',
     'x_studio_current_syndic_type', 'x_studio_number_of_plots', 'x_studio_number_of_apartments', 'x_studio_parent_expert',
-    'x_studio_invoiced_by_partner', 'x_studio_non_invoiced_customer', 'lang', 'zip', 'city', 'active', 'create_date', 'write_date'],
+    'x_studio_invoiced_by_partner', 'x_studio_non_invoiced_customer', 'lang', 'zip', 'city', 'active', 'create_date', 'write_date',
+    'x_syndicoach_pack'],
   columns: ['id', 'name', 'is_company', 'parent_id', 'commercial_id', 'company_type_id', 'contact_type_id', 'company_status', 'current_syndic_type',
     'number_of_plots', 'number_of_apartments', 'parent_expert_id', 'invoiced_by_partner', 'non_invoiced', 'lang', 'zip', 'city', 'active',
-    'create_date', 'write_date'],
+    'create_date', 'write_date', 'syndicoach_pack'],
   row: (r) => [r.id, val(r.name), bool(r.is_company), m2o(r.parent_id), m2o(r.commercial_partner_id), m2o(r.x_studio_company_type),
     m2o(r.x_studio_contact_type), val(r.x_studio_company_status), val(r.x_studio_current_syndic_type), val(r.x_studio_number_of_plots),
     val(r.x_studio_number_of_apartments), m2o(r.x_studio_parent_expert), bool(r.x_studio_invoiced_by_partner), bool(r.x_studio_non_invoiced_customer),
-    val(r.lang), val(r.zip), val(r.city), bool(r.active), val(r.create_date), val(r.write_date)]
+    val(r.lang), val(r.zip), val(r.city), bool(r.active), val(r.create_date), val(r.write_date), val(r.x_syndicoach_pack)]
 };
+// Schema van de partnerrijen. Komt er een kolom bij, verhoog dit: dan haalt de
+// volgende ronde ALLE gekende partners opnieuw op, en niet enkel wat in Odoo
+// veranderde -- anders blijft de nieuwe kolom leeg tot iemand die partner wijzigt.
+const PARTNER_SCHEMA = 2; // 2: syndicoach_pack
 
 // Kleine lijsten: elke ronde volledig opnieuw (samen een paar honderd rijen).
 const LOOKUPS = [
@@ -146,7 +151,7 @@ const LOOKUPS = [
   { kind: 'payment_term', model: 'account.payment.term', fields: ['name'], context: { active_test: false } }
 ];
 const SELECTIONS = [
-  ['crm.lead', 'x_studio_brand_origin'], ['crm.lead', 'x_studio_lead_channel'], ['crm.lead', 'x_syndicoach_pack'],
+  ['crm.lead', 'x_studio_brand_origin'], ['crm.lead', 'x_studio_lead_channel'], ['crm.lead', 'x_syndicoach_pack'], ['res.partner', 'x_syndicoach_pack'],
   ['res.partner', 'x_studio_company_status'], ['res.partner', 'x_studio_current_syndic_type'],
   ['x_sales_action_sheet', 'x_studio_current_syndic_type']
 ];
@@ -159,8 +164,9 @@ async function getState(env) {
 async function setState(env, model, patch) {
   const cur = (await readSales(env, 'SELECT * FROM sync_state WHERE model = ?', [model]))[0] || { model };
   const next = { ...cur, ...patch };
-  await upsertRows(env, 'sync_state', ['model', 'last_write_date', 'last_run_at', 'last_full_at', 'rows', 'last_error'],
-    [[model, next.last_write_date || null, next.last_run_at || null, next.last_full_at || null, next.rows || 0, next.last_error || null]], ['model']);
+  await upsertRows(env, 'sync_state', ['model', 'last_write_date', 'last_run_at', 'last_full_at', 'rows', 'last_error', 'schema'],
+    [[model, next.last_write_date || null, next.last_run_at || null, next.last_full_at || null, next.rows || 0, next.last_error || null,
+      next.schema || null]], ['model']);
 }
 
 function nowUtc() { return new Date().toISOString().slice(0, 19).replace('T', ' '); }
@@ -207,9 +213,21 @@ async function syncPartners(env, full) {
   for (const [table, col] of REFS) {
     (await readSales(env, `SELECT DISTINCT ${col} AS id FROM ${table} WHERE ${col} IS NOT NULL`)).forEach((r) => wanted.add(r.id));
   }
+  // Ook ELK gebouw en elke professional, met of zonder order of lead. Een gebouw
+  // dat via zijn expert gefactureerd wordt heeft geen eigen abonnement en kwam
+  // anders nooit in D1 (2026-10-06: 29 van de 290 VME's in beheer). Zonder die
+  // gebouwen kan het dashboard niet tonen hoeveel kavels een professional zou
+  // moeten factureren. Een paar duizend id's, één aanroep.
+  try {
+    const ids = await search(env, { model: 'res.partner', domain: ['|', ['x_studio_company_type', '!=', false], ['x_studio_invoiced_by_partner', '=', true]] });
+    (ids || []).forEach((id) => wanted.add(id));
+  } catch (err) {
+    console.error('[sales-sync] gebouwen en professionals', err.message);
+  }
   const known = new Set((await readSales(env, 'SELECT id FROM partners')).map((r) => r.id));
   const state = (await getState(env)).partners;
   const since = state?.last_write_date || null;
+  const allesOpnieuw = full || !since || state?.schema !== PARTNER_SCHEMA;
   let read = 0, maxWrite = since || '';
 
   const fetchIds = async (list, extraDomain) => {
@@ -232,9 +250,9 @@ async function syncPartners(env, full) {
     missing.forEach((id) => known.add(id));
   }
   // Al gekend: enkel wat veranderde (of alles, bij de dagelijkse ronde).
-  await fetchIds([...known], full || !since ? [] : [['write_date', '>=', since]]);
+  await fetchIds([...known], allesOpnieuw ? [] : [['write_date', '>=', since]]);
   await setState(env, 'partners', { last_write_date: maxWrite || since, last_run_at: nowUtc(), rows: read, last_error: null,
-    ...(full ? { last_full_at: nowUtc() } : {}) });
+    schema: PARTNER_SCHEMA, ...(allesOpnieuw ? { last_full_at: nowUtc() } : {}) });
   return { read };
 }
 

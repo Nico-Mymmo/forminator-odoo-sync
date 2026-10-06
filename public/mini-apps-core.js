@@ -263,7 +263,7 @@ var MINI_APP_SHIM = '<script>(function(){'
   +   'window.addEventListener("message",function(e){'
   +     'var d=e.data;if(!d||!d.__miniAppStorageResult)return;'
   +     'var p=pending[d.id];if(!p)return;delete pending[d.id];'
-  +     'if(d.ok)p.resolve(d.value);else p.reject(new Error(d.error||"sharedStorage-fout"));'
+  +     'if(d.ok)p.resolve(d.value);else{var er=new Error(d.error||"sharedStorage-fout");if(d.code)er.code=d.code;p.reject(er);}'
   +   '});'
   +   'window.platform={'
   +     'listColleagues:function(){return send("listColleagues",{});},'
@@ -310,7 +310,11 @@ var MINI_APP_SHIM = '<script>(function(){'
   +         'return aiSend(opts(prompt,options)).then(function(r){return r.json;});};'
   +       'return{ask:ask};'
   +     '})(),'
+  // schedule.ensure(key, config): "zo moet taak <key> eruitzien" -- de server
+  // vergelijkt de HELE instelling en maakt de taak aan of werkt ze ter plekke
+  // bij. Resolvet met { task, created, changed }. Zie lib/scheduler.js.
   +     'schedule:{'
+  +       'ensure:function(key,config){var c={};for(var k in (config||{}))c[k]=config[k];c.key=key;return send("scheduleEnsure",{config:c});},'
   +       'create:function(config){return send("scheduleCreate",{config:config});},'
   +       'list:function(){return send("scheduleList",{});},'
   +       'update:function(id,config){return send("scheduleUpdate",{scheduleId:id,config:config});},'
@@ -335,7 +339,12 @@ var MINI_APP_SHIM = '<script>(function(){'
   +     'remove:function(key){return send("remove",{key:key});},'
   +     'list:function(){return send("list",{});},'
   +     'usage:function(){return send("usage",{});},'
-  +     'listItems:function(collection){return send("listItems",{collection:collection});},'
+  // listItems(collection, filter?) / countItems(collection, filter?): het
+  // filter ({ where, orderBy, order, limit, offset }) wordt op de SERVER
+  // uitgevoerd, in de eigen database van de app (lib/storage-query.js).
+  // Zonder filter: alles, in volgorde van toevoegen -- zoals altijd.
+  +     'listItems:function(collection,filter){return send("listItems",{collection:collection,filter:filter||null});},'
+  +     'countItems:function(collection,filter){return send("countItems",{collection:collection,filter:filter||null});},'
   +     'addItem:function(collection,value){return send("addItem",{collection:collection,value:String(value)});},'
   +     'updateItem:function(collection,itemId,value){return send("updateItem",{collection:collection,itemId:itemId,value:String(value)});},'
   +     'removeItem:function(collection,itemId){return send("removeItem",{collection:collection,itemId:itemId});}'
@@ -587,11 +596,11 @@ async function streamMiniAppAiAsk(frame, appId, data) {
 
 async function handleMiniAppStorageRequest(data) {
   var frame = activeFrame;
-  function reply(ok, value, error) {
+  function reply(ok, value, error, code) {
     if (!frame) return;
     try {
       frame.frame.contentWindow.postMessage(
-        { __miniAppStorageResult: true, id: data.id, ok: ok, value: value, error: error },
+        { __miniAppStorageResult: true, id: data.id, ok: ok, value: value, error: error, code: code || null },
         '*'
       );
     } catch (_err) { /* iframe intussen weg -- niets meer te doen */ }
@@ -621,7 +630,12 @@ async function handleMiniAppStorageRequest(data) {
     } else if (data.action === 'usage') {
       reply(true, await apiJson(`/mini-apps/api/apps/${appId}/storage-usage`));
     } else if (data.action === 'listItems') {
-      reply(true, await apiJson(collBase));
+      var listQs = data.filter ? `?q=${encodeURIComponent(JSON.stringify(data.filter))}` : '';
+      reply(true, await apiJson(collBase + listQs));
+    } else if (data.action === 'countItems') {
+      var countQs = data.filter ? `&q=${encodeURIComponent(JSON.stringify(data.filter))}` : '';
+      var counted = await apiJson(`${collBase}?count=1${countQs}`);
+      reply(true, counted.count);
     } else if (data.action === 'addItem') {
       reply(true, await apiJson(collBase, {
         method: 'POST',
@@ -674,6 +688,12 @@ async function handleMiniAppStorageRequest(data) {
       reply(true, await apiJson(`/mini-apps/api/apps/${appId}/schedules`));
     } else if (data.action === 'scheduleCreate') {
       reply(true, await apiJson(`/mini-apps/api/apps/${appId}/schedules`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data.config)
+      }));
+    } else if (data.action === 'scheduleEnsure') {
+      reply(true, await apiJson(`/mini-apps/api/apps/${appId}/schedules/ensure`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data.config)
@@ -736,7 +756,8 @@ async function handleMiniAppStorageRequest(data) {
       reply(false, null, 'Onbekende actie: ' + data.action);
     }
   } catch (err) {
-    reply(false, null, err.message || 'sharedStorage-fout');
+    // De code (bv. STORAGE_QUOTA_EXCEEDED, INVALID_QUERY) reist mee als err.code in de app.
+    reply(false, null, err.message || 'sharedStorage-fout', err.code);
   }
 }
 

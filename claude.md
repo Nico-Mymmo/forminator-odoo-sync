@@ -2361,6 +2361,83 @@ Afspraken die bewust zo zijn:
   een echte inzending; de `/api/pdf-templates*`-routes die het sjabloon
   LEZEN/BEWAREN zitten wel achter de normale auth-gate.
 
+## mini-apps — gedeelde opslag: één SQLite-database per app (2026-10)
+
+**Regel: `window.sharedStorage` staat in een EIGEN SQLite-database per mini-app,
+in een Durable Object (binding `MINI_APP_STORAGE`, klasse `MiniAppStorage`). Alle
+toegang loopt via `lib/storage.js`; niets anders spreekt het Durable Object aan,
+en niets schrijft nog in `mini-apps-storage/` op R2.**
+
+| Wat | Waar |
+|---|---|
+| Het Durable Object: schema, quotum, verhuizing uit R2 | `src/modules/mini-apps/lib/storage-do.js` |
+| Enige toegang (dezelfde functies als vroeger) | `src/modules/mini-apps/lib/storage.js` |
+| Filter -> SQL (puur, geen env/db) | `src/modules/mini-apps/lib/storage-query.js` |
+| Filteren/tellen op de server | `GET /api/apps/:id/storage/collections/:collection?q=<json>[&count=1]` in `routes.js` |
+| De brug in de app | `listItems(collection, filter)` + `countItems(collection, filter)` in `MINI_APP_SHIM` (`public/mini-apps-core.js`) |
+| Binding + migratie | `durable_objects` + `migrations` in `wrangler.jsonc`, export in `src/index.js` |
+
+Afspraken die bewust zo zijn:
+
+- **Geen D1 per app.** Een account mag 50.000 D1-databases hebben, maar een
+  Worker kan alleen een database gebruiken waarvoor een binding in
+  `wrangler.jsonc` staat (max ±5.000, en elke nieuwe vraagt een deploy). Een
+  collega die een mini-app uploadt, kan daar niet op wachten. Een Durable Object
+  spreek je aan op naam (`idFromName(appId)`): onbeperkt aantal, 10 GB per stuk.
+- **Waarom het eerst R2 was, en wat daarmee wegviel.** In Supabase zou 10 MB per
+  app de 500 MB gratis opslag delen met de bedrijfsdata, dus werd het R2, met één
+  object per key of item. Dat dwong 500 objecten / 10 MB per app af, een volledige
+  R2-lijst van de app bij ELKE schrijfactie (quotum), en een GET per item bij elke
+  lijst. Nu: 50.000 objecten / 100 MB, het quotum is één SQL-som, en omdat een
+  Durable Object één verzoek tegelijk verwerkt, zijn controle en schrijfactie
+  samen atomair.
+- **De vorm naar buiten is ONGEWIJZIGD**: dezelfde functies in `storage.js`,
+  dezelfde `{ id, value }`, dezelfde foutcodes. Een bestaande mini-app merkt
+  niets. Het enige zichtbare verschil: een collection komt terug in de VOLGORDE
+  VAN TOEVOEGEN (vroeger in de volgorde van de UUID's, dus willekeurig); voor
+  verhuisde items is dat de volgorde van hun laatste wijziging in R2.
+- **De verhuizing gebeurt bij de EERSTE aanroep per app** (`importFromR2()`):
+  binnen `blockConcurrencyWhile` (geen ander verzoek ziet een halflege database),
+  eerst alles ophalen en dan in één transactie wegschrijven, met dezelfde keys en
+  dezelfde item-id's (apps bewaren die id's zelf). `meta.migrated_at` zorgt dat
+  het één keer gebeurt. De R2-objecten blijven staan als back-up van dat moment.
+  `deleteAllStorage()` haalt beide weg, EERST R2: anders haalt de volgende
+  aanroep de back-up opnieuw binnen.
+- **Het object kent zijn eigen app-id niet** (een id uit `idFromName()` geeft
+  zijn naam binnen het object niet terug). Elke methode krijgt het mee; het
+  eerste wordt in `meta` bewaard, een ander daarna is een fout.
+- **Verwachte fouten komen terug als `{ ok: false, code, message }`, niet als
+  exception**: een eigen eigenschap als `code` overleeft de RPC-grens niet
+  betrouwbaar. `storage.js` maakt er een Error met `.code` van, de routes geven
+  dan een 400 met de uitleg, en de brug zet `err.code` in de app (ook voor
+  `STORAGE_QUOTA_EXCEEDED`, wat eerder verloren ging).
+- **Een filter is DATA, nooit SQL** (`storage-query.js`). Veldnamen gaan door
+  een strikte regex en komen pas dan als letterlijk JSON-pad in de query; elke
+  waarde is een bound parameter. Alles is EN, OF bestaat bewust niet (`in` dekt
+  het gewone geval). `ne` is null-veilig: een item ZONDER dat veld telt als "niet
+  gelijk", want `{ status: { ne: "closed" } }` bedoelt "alles behalve gesloten".
+  Een item waarvan de waarde geen geldige JSON is, voldoet aan geen veldfilter
+  (`CASE WHEN json_valid(...)`) -- nooit een fout. Een ongeldig filter geeft
+  `INVALID_QUERY` met een uitleg, nooit stil een ongefilterde lijst.
+  Dezelfde module is ook de verzendvoorwaarde (`onlyIf`) van een geplande post:
+  één filtertaal, niet twee.
+- **`MAX_RESULT_BYTES` (16 MB) per antwoord**: `list()`, `listItems()` zonder
+  filter, en de context van een geplande of criteria-taak (`listAllCollections()`).
+  Met 100 MB past een app niet meer gegarandeerd in het geheugen van een Worker.
+  Daarboven `RESULT_TOO_LARGE`; een taak faalt dan zichtbaar in `last_run_error`.
+- **`{{#eachWhere}}` filtert EERST en knipt DAN af op `MAX_EACH_ITEMS`** (200),
+  in beide renderers. Omgekeerd viel de rij van vandaag in een rooster voor een
+  heel jaar buiten de eerste 200, en was het bericht stil leeg.
+- **Lokaal (`wrangler dev`) draait het Durable Object lokaal**: wat je tijdens
+  het ontwikkelen opslaat, blijft lokaal (vroeger ging het naar de echte
+  R2-bucket). De verhuizing leest wel uit de echte R2 (remote binding).
+- **Nooit een bestaande `migrations`-tag in `wrangler.jsonc` wijzigen of
+  weghalen**: Cloudflare houdt bij welke al toegepast zijn.
+- **Nog niet gebouwd, bewust:** tijdstippen per item (`created_at`/`updated_at`
+  staan in de database) naar de app sturen -- voor verhuisde items is
+  `created_at` het tijdstip van de laatste wijziging in R2, een halve waarheid;
+  en de R2-back-up opruimen (met de hand, na een paar weken zonder klachten).
+
 ## mini-apps — geplande vs. criteria-taken (2 aparte "onbemand versturen"-bouwblokken)
 
 Collega's uploaden zelfgemaakte single-file HTML/JS mini-apps (`src/modules/mini-apps/`, route `/mini-apps`). Naast de basis (upload/tweak/delen, gedeelde opslag via `window.sharedStorage`, notify/chat terwijl de app open staat) heeft de module twee mechanismes om een mail/chat te versturen ZONDER dat iemand de app open heeft. Dit zijn BEWUST twee volledig gescheiden bouwblokken — geen gedeelde tabel, geen gedeelde cron, geen gedeelde lib — omdat ze een fundamenteel ander trigger-type hebben:
@@ -2375,6 +2452,60 @@ Collega's uploaden zelfgemaakte single-file HTML/JS mini-apps (`src/modules/mini
 | Template-taal | `{{kv.x}}`, `{{#each}}`, `{{#isEmpty}}`, `{{#notEmpty}}`, `{{today}}`/`{{weekday}}`/`{{weekdayName}}`/`{{isoWeek}}`/`{{isoYear}}` (server-berekende dag-context, Europe/Brussels), `{{#eachWhere field="x" equals="y"}}` | zelfde, plus enkel hier: `{{rotation.NAAM}}` (beurtrol met interval + uitzonderingen, kv-conventie `__rotation_NAAM__`) |
 
 `src/index.js#scheduled()` gebruikt `event.cron` om de twee takken uit elkaar te houden (leeg `event.cron` bij een lokale/handmatige trigger draait voor de zekerheid alles). **Nooit deze twee lib-bestanden samenvoegen tot één bestand/tabel/cron-tak** — dat is een expliciete architectuurbeslissing (2026-07), niet een toevallige duplicatie: fixed-time en criteria-based blijven twee aparte mentale modellen voor een mini-app-bouwer, met een eigen tabel/cron-tak/API elk. **Uitzondering (2026-07, tweede aanpassing):** de dag-context (`{{today}}`/`{{weekday}}`/`{{weekdayName}}`/`{{isoWeek}}`/`{{isoYear}}`) en `{{#eachWhere}}` zitten ONDERTUSSEN in BEIDE `renderTemplate()`-implementaties (bewust als twee losse kopieën, niet als gedeelde util — zie de doc-comment boven `renderTemplate()` in elk bestand), nadat bleek dat een vast-tijdstip-taak die "vandaag"-data wil versturen anders volledig afhankelijk is van een client-side ververste kv-waarde: die blijft stil verouderd staan als niemand de mini-app die dag opent, ook al vuurt de 15-min-cron zelf wél gewoon op tijd (zie het incident met een winkeldienst-mini-app die hierdoor de shopper van de vorige dag bleef doorsturen). `{{rotation.NAAM}}` blijft wel exclusief bij criteria-taken (geen aangetoonde nood aan bij vast-tijdstip-taken). Beide volgen hetzelfde veiligheidsprincipe: geen eval, geen Function-constructor, geen headless-uitvoering van app-code — enkel declaratieve data (recurrence resp. criteria) + een logic-less template-renderer.
+
+### Geplande taken: key, ensure, onlyIf en één vorm (2026-10)
+
+Aanleiding: Winkellijst postte elk weekend in de chat, terwijl haar scherm
+"elke werkdag (ma-vr)" toonde. De posts waren in juli als "elke dag" aangemaakt;
+de app bouwde ze enkel opnieuw op als de BERICHTTEKST veranderde, dus bleef de
+oude planning staan. Het scherm toonde een tekst die in de app zelf stond, niet
+wat er op de server stond. En `update()` vroeg alle velden tegelijk, dus ging de
+app taken verwijderen en opnieuw aanmaken (nieuw id, historiek kwijt).
+
+| Wat | Waar |
+|---|---|
+| Sleutel, `onlyIf`, de vorm naar buiten, de vergelijking | `lib/scheduler.js` (`validateTaskKey`, `validateOnlyIf`, `evaluateOnlyIf`, `taskRowToDto`, `taskConfigToColumns`, `diffTaskColumns`, `describeRecurrence`) |
+| Aanmaken en bijwerken (gedeeld door create, PUT en ensure) | `createScheduledTask()` / `updateScheduledTask()` in `routes.js` |
+| `ensure` | `POST /api/apps/:id/schedules/ensure`, `schedule.ensure(key, config)` in de shim |
+| Kolommen `task_key` + `only_if` | `supabase/migrations/20261006120000_mini_app_scheduled_tasks_key_only_if.sql` |
+
+Afspraken die bewust zo zijn:
+
+- **Een taak bereikt de app ALTIJD via `taskRowToDto()`** (criteria-taken via
+  `conditionRowToDto()`): dezelfde veldnamen als bij het aanmaken, plus
+  `recurrenceText`, `nextRunAt`, `lastRunStatus` en `lastRunMessage`. Nooit meer
+  een databaserij: Winkellijst moest raden onder welke naam het kanaal stond
+  (`collectLeafValues`), want ze gaf `targetChannelId` mee en kreeg
+  `target_channel_id` terug.
+- **`ensure(key, config)` vergelijkt de HELE instelling** (`diffTaskColumns`, met
+  recurrence en onlyIf in vaste vorm) en schrijft enkel als er iets verschilt.
+  Zelfde les als bij de e-mailhandtekening: vergelijk het hele blok, niet één
+  sleutel. De key is uniek PER APP (unieke index); bestaat ze, dan werkt ensure
+  de taak ter plekke bij, en anders maakt het ze aan op naam van wie het aanroept.
+  Een weggelaten `onlyIf`/`subjectTemplate` betekent "geen"; een weggelaten
+  `isActive` laat de stand staan.
+- **`update()` mag één veld zijn** (`mergeTaskConfig`/`mergeConditionConfig`).
+- **Het verzendmoment (`next_run_at`) wordt enkel herberekend als de recurrence
+  of aan/uit verandert.** Een tekstwijziging tussen 09:30 en de cronslag van
+  09:30 zou de post van vandaag anders naar morgen schuiven.
+- **De runvelden blijven staan bij een wijziging.** Tot oktober 2026 wiste PUT
+  ze, maar het is geschiedenis, en die klopt nog.
+- **`onlyIf` is een verzendvoorwaarde, geen trigger.** De taak blijft op haar
+  vaste tijdstip lopen; op dat moment telt `evaluateOnlyIf()` in de database van
+  de app of er een item is dat aan het filter voldoet (`lib/storage-query.js`,
+  met `{{today}}` en co ingevuld). Niet voldaan = `skipped`, met een LEESBARE
+  reden in `last_run_error` en het log. Dit is iets anders dan een criteria-taak
+  (die reageert op een overgang van niet-waar naar waar): beide bouwblokken
+  blijven gescheiden.
+- **"Nu testen" volgt `onlyIf` ook.** Een test die iets anders doet dan de echte
+  verzending, bewijst niets. De app krijgt `lastRunStatus: 'skipped'` terug en
+  hoort dat te tonen.
+- **Winkellijst** (app `da62873b`, v35) heeft per kanaal één post met key
+  `dagelijkse-post:<kanaal-id>`, planning ma-vr, en
+  `onlyIf: { collection: "geplande_dagen", where: { date: "{{today}}", status: { ne: "closed" } } }`.
+  Het rooster beslist dus: geen weekend (staat er niet in), geen sluitingsdagen
+  (status `closed`). Het rooster staat een jaar vooruit (`HORIZON_DAYS = 366`).
+  Raakt het toch op, dan vertrekt er niets en staat de reden bij de post.
 
 ### Front-end opgesplitst in meerdere bestanden (2026-07)
 
@@ -2792,7 +2923,7 @@ nieuwe edge of node.
 
 ## Gedeelde R2-bucket (env.R2_ASSETS) — elke module moet zichzelf scopen
 
-**Regel:** `env.R2_ASSETS` is ÉÉN bucket (`openvme-assets`) die door meerdere modules gebruikt wordt, elk met een eigen key-prefix: asset-manager (`public/`, `banners/`, `events/`, `logos/`, `uploads/`, `users/{id}/`), mini-apps app-inhoud (`mini-apps/{appId}.html`), mini-apps gedeelde opslag (`mini-apps-storage/{appId}/...`). **Elke module die deze bucket gebruikt moet zijn eigen `.list()`-aanroepen altijd scopen tot zijn eigen prefix(en) — nooit een leeg/onbegrensd prefix rechtstreeks doorgeven aan `R2_ASSETS.list()`.**
+**Regel:** `env.R2_ASSETS` is ÉÉN bucket (`openvme-assets`) die door meerdere modules gebruikt wordt, elk met een eigen key-prefix: asset-manager (`public/`, `banners/`, `events/`, `logos/`, `uploads/`, `users/{id}/`), mini-apps app-inhoud (`mini-apps/{appId}.html`), de back-up van de oude mini-apps-opslag (`mini-apps-storage/{appId}/...`; sinds 2026-10 staat die opslag in een Durable Object en wordt dit prefix alleen nog gelezen bij de eenmalige verhuizing, zie "mini-apps — gedeelde opslag"). **Elke module die deze bucket gebruikt moet zijn eigen `.list()`-aanroepen altijd scopen tot zijn eigen prefix(en) — nooit een leeg/onbegrensd prefix rechtstreeks doorgeven aan `R2_ASSETS.list()`.**
 
 Waarom dit hier staat: op 2026-07-13 bleek dat de asset-manager (`GET /api/assets/list`, "Alles"-tab) bij een leeg prefix de HELE bucket ongefilterd terugaf, inclusief mini-apps' eigen app-inhoud en gedeelde-opslag-objecten — die verschenen dan als nep-"bestanden" (bv. `todayShoppersText`, willekeurige UUID's) in de Asset Library. De rechtencontrole zelf werd bovendien enkel uitgevoerd `if (prefix && ...)`, dus een leeg prefix sloeg ook die controle over. Gefixt in `src/modules/asset-manager/routes.js` met een gesloten `ASSET_CATEGORY_PREFIXES`-lijst (nooit een blinde bucket-brede list) + een `FOREIGN_MODULE_PREFIXES`-denylist die `canReadPrefix`/`canWritePrefix` altijd blokkeert, ook voor admin — zie het uitgebreide doc-blok in `src/modules/asset-manager/module.js`.
 
@@ -4514,6 +4645,57 @@ Afspraken die bewust zo zijn:
   het CRM). `leadMerkWhy()`/`leadProductWhy()` geven het signaal mee; derive.js zet het
   als `mw` (klant en lead) en `pw` (lead) in de woordenlijsten, zodat de popup per rij
   kan tonen waarom.
+- **De klanten heten zoals mymmo ze noemt, en het KLANTTYPE is het eerste filter**
+  (2026-10-06). `x_company_type`: 1 = **VME in advies** (beheert zelf, ondersteund
+  door haar adviserend expert; in Odoo kortweg "VME" -- `CT_LABELS` in derive.js),
+  3 = **VME in beheer** (een professionele syndicus beheert, soms Syndicoach zelf),
+  2 = **Professionele syndicus** (al zijn gebouwen, betaalt per kavel). De oude
+  segmentknop "VME's / Professionals" en de keuzelijst Klanttype zijn samen EEN
+  knoppenrij geworden (`seg`: all/advies/beheer/pro, standaard alle).
+  Daarnaast, als filter EN als opsplitsing van het ARR-verloop:
+  - **Syndicoach-pakket** (`x_syndicoach_pack` op het GEBOUW: assistant / captain /
+    coach): de DIENST naast de software. Syndicoach factureert nog niet in Odoo, dus
+    de pakketomzet staat er niet in -- enkel het OpenVME-abonnement van die
+    gebouwen. Bewust geen terugval op het pakket van de lead of een contactpersoon.
+  - **Begeleiding**: de adviserend expert (`x_studio_parent_expert`) is Syndicoach,
+    een andere expert, of niemand. Syndicoach = de partner met exact die naam
+    (`meta.syndicoachId`), niet een vast id in de code.
+  - **Licenties**: "Niet gefactureerde klant" (interne gratis licenties) telt
+    standaard NIET mee (`free: '0'`). Stond op 2026-10-06 bij niemand aan.
+  "Merk" heet nu **Merk (herkomst lead)**: het zegt via welk merk iemand
+  BINNENKWAM, het pakket zegt welke dienst hij NU heeft.
+- **"Facturatie via expert" is geen filter maar een tweede soort klant zonder
+  abonnement.** Een gebouw met dat vinkje heeft GEEN eigen abonnement: zijn kavels
+  zitten in het professioneel abonnement van zijn expert, tegen diens prijs (vaak
+  € 1 per kavel per maand, tegenover ~€ 4 bij OpenVME). Gemeten 2026-10-06: geen
+  enkel lopend abonnement had het vinkje, 256 gebouwen wel -- een filter erop gaf
+  dus altijd nul. Daarom haalt de sync nu ELK partner met een klanttype op (en
+  niet enkel wie een order of lead heeft: eerst stonden er 29 van de 290 VME's in
+  beheer in D1), en zet derive.js per expert hoeveel gebouwen en kavels via hem
+  gefactureerd worden (`experts`, `viaBuildings`). Het dashboard zet dat naast de
+  GEFACTUREERDE kavels: oranje als de gebouwen volgens Odoo meer kavels hebben dan
+  het abonnement aanrekent, en een lijst van experts die gebouwen via zich laten
+  factureren zonder lopend abonnement. Een gebouw met het vinkje EN een eigen
+  lopend abonnement staat in "Na te kijken" (`via_expert_own_sub`).
+- **Test- en interne partners worden GETOOND, niet uitgesloten** (Nico, 2026-10-06:
+  "zodat we die eindelijk eens manueel kunnen opkuisen in Odoo"). `tests` in
+  derive.js: bedrijven waarvan de naam met een woord test/demo/dummy/proef/fictief
+  begint of met "Mymmo" begint, plus de gebouwen die zo'n partner als expert of
+  ouder hebben. "Na te kijken" opent de volledige lijst (`drill: 'tests'`), met per
+  partner de gebouwen, leads en een lopend abonnement, en een link naar Odoo. Het
+  is een SUGGESTIE op de naam: ze tellen mee tot iemand ze in Odoo archiveert of op
+  "Niet gefactureerde klant" zet. Zet ze dus niet in `sales_exclusions` -- dan
+  verdwijnen ze uit beeld en ruimt niemand ze op.
+- **Prijs per kavel = licentie-MRR / kavels.** `lf` per periode (derive.js
+  `licenseOf()`) is het deel van de MRR dat de licentie is: alles behalve bank- en
+  Peppol-koppelingen (een korting hoort bij de licentie). Een licentie met een vaste
+  prijs (Unlimited, early adopter) heeft geen kavels en telt daar niet in mee. De
+  kaart "Kavels en prijs per kavel" en de tegel Kavels gebruiken `kavAt()`.
+- **D1-migraties eerst, dan pas deployen.** `0002_partner_pack.sql` voegt
+  `partners.syndicoach_pack` en `sync_state.schema` toe; zonder die kolommen faalt
+  de partnersync. Komt er weer een partnerkolom bij: verhoog `PARTNER_SCHEMA` in
+  sync.js, dan haalt de volgende ronde alle partners opnieuw op in plaats van enkel
+  wat in Odoo veranderde.
 - **EEN maandreeks per periode: `chartMonths()` in dashboards-sales.js.** Elke
   grafiek, elk mini-verloop en het venster van een tegel gebruiken ze. Boekjaar =
   het volledige boekjaar (komende maanden leeg, targets zichtbaar); 12/24 m = die

@@ -378,9 +378,21 @@ Technische vereisten voor de uiteindelijke app (belangrijk, hou hier rekening me
   Alle methodes geven een Promise terug en werken uitsluitend met string-waarden -- gebruik zelf JSON.stringify/JSON.parse voor objecten of arrays.
 - Moet de app een GEDEELDE LIJST bijhouden waar meerdere gebruikers tegelijk items aan toevoegen/verwijderen (bv. een boodschappenlijst, een to-do-lijst)? Gebruik dan NIET één grote lijst-waarde via set()/get() -- als twee mensen tegelijk opslaan, verliest de een de wijziging van de ander. Gebruik in plaats daarvan de collection-API, waarbij elk item een eigen record is en toevoegen/verwijderen door verschillende mensen nooit botst:
     var item = await window.sharedStorage.addItem("boodschappen", "melk");   // { id, value } -- id wordt server-side gegenereerd
-    var items = await window.sharedStorage.listItems("boodschappen");        // [{ id, value }, ...]
+    var items = await window.sharedStorage.listItems("boodschappen");        // [{ id, value }, ...] -- alles, in volgorde van toevoegen
+    var open = await window.sharedStorage.listItems("taken", { where: { status: "open" }, orderBy: "deadline", limit: 50 }); // gefilterd op de SERVER
+    var aantal = await window.sharedStorage.countItems("taken", { where: { status: "open" } });                            // enkel het aantal
     await window.sharedStorage.updateItem("boodschappen", item.id, "melk (aangekocht)"); // item aanpassen MET behoud van id -- bv. iets als "aangekocht" markeren
     await window.sharedStorage.removeItem("boodschappen", item.id);
+  Filteren gebeurt op de server, in de eigen database van de app -- gebruik het zodra een collection groot wordt (bv. een rooster voor een heel jaar): haal op wat je nodig hebt in plaats van alles. Het filter leest velden uit items waarvan de waarde JSON is (JSON.stringify van een object):
+    where: { veld: waarde }                        -- gelijk aan (tekst, getal, true/false of null)
+    where: { veld: { ne: "x" } }                   -- niet gelijk aan; een item ZONDER dat veld telt ook als "niet gelijk"
+    where: { veld: { gt: 10 } }                    -- ook gte, lt, lte; werkt ook voor datums als "YYYY-MM-DD"
+    where: { veld: { in: ["a", "b"] } }            -- een van deze waarden (max 50)
+    where: { veld: { contains: "tekst" } }         -- bevat (hoofdletterongevoelig voor a-z)
+    where: { veld: { exists: true } }              -- het veld bestaat in het item
+    where: { "adres.postcode": "9000" }            -- genest veld
+    _value (de ruwe waarde, ook als die geen JSON is) en _id kan je ook als veld gebruiken.
+  Meerdere velden of operatoren samen = EN; een OF bestaat niet (gebruik in). orderBy: een veld, of "_created" (volgorde van toevoegen, de standaard) of "_updated"; order: "asc" (standaard) of "desc"; limit (max 10000) en offset voor paginering. Vergelijk getallen met getallen en tekst met tekst: een getal dat als "5" opgeslagen is, is tekst. Een ongeldig filter geeft een fout met err.code === "INVALID_QUERY" en een uitleg -- nooit stil een ongefilterde lijst.
   Wil je iets exporteren/downloaden vanuit de app (bv. de lijst als bestand)? Dat kan gewoon met gangbare browser-JS (Blob + een <a download>-link) -- downloads zijn toegestaan vanuit deze sandbox.
 - Optioneel: await window.sharedStorage.usage() geeft { usedBytes, maxBytes, objectCount, maxObjects } terug -- handig als de app zelf ook een quotum-balkje wil tonen (de Mini-apps-module toont dit trouwens al standaard in de Instellingen-tab).
 - BELANGRIJK, voorkomt een veelgemaakte fout: window.sharedStorage en window.platform (inclusief .schedule/.condition) staan al VOLLEDIG en synchroon klaar vanaf de allereerste regel van je eigen <script>-code -- ze worden door de omgeving in de <head> geïnjecteerd, dus altijd vóór jouw code draait. Geen race, geen "wachten tot ze bestaan" nodig -- schrijf dus NOOIT een eigen polling-/retry-lus (bv. setTimeout-loops die controleren of window.sharedStorage.listItems al een functie is) om hierop te wachten; die is overbodig en kan een echte fout (bv. een typfout in een key/collection-naam) verbergen achter een misleidende "nog niet klaar"-verklaring. De ENIGE uitzondering hierop is window.currentUser (zie hieronder), die wél heel even null kan zijn.
@@ -395,35 +407,49 @@ Technische vereisten voor de uiteindelijke app (belangrijk, hou hier rekening me
     var kanalen = await window.platform.listChatChannels();
     // bv. kanalen renderen als <select><option value="\${k.id}">\${k.name}</option>...</select>,
     // en pas bij een submit: await window.platform.sendChat(gekozenKanaalId, "Er staat een nieuw item op de lijst!");
-- Totale limiet gedeelde opslag per app: 10 MB en max 500 keys/items samen (kv + collection-items).
+- Totale limiet gedeelde opslag per app: 100 MB en max 50.000 keys/items samen (kv + collection-items), max 1 MB per key/item. Eén antwoord (list(), of listItems() zonder filter) mag max 16 MB zijn -- heb je meer, haal het in delen op met where/limit/offset (anders err.code === "RESULT_TOO_LARGE"). Een vol quotum geeft err.code === "STORAGE_QUOTA_EXCEEDED" of "TOO_MANY_KEYS"; toon dan een duidelijke melding in plaats van stil te falen.
 - Maximale bestandsgrootte van de HTML-app zelf: 2 MB.
-- Tips voor een vlotte, snelle gedeelde opslag (elke aanroep is een echte netwerk-round-trip via de bovenliggende pagina naar R2 -- geen gratis synchrone call zoals localStorage):
-    - set()/addItem()/updateItem() herberekenen server-side eerst het quotumverbruik van de HELE app (alle keys + items samen), niet enkel van dat ene item -- vermijd dus een tight loop die per toetsaanslag of per item apart opslaat. Debounce tekstvelden (bv. 400-600ms na de laatste toets) voor je set() aanroept, en voeg meerdere nieuwe items niet snel na elkaar toe als het ook als één actie kan.
-    - list()/listItems() halen ALTIJD alles op (geen server-side filter/paginatie/sortering) -- roep dit niet opnieuw aan bij elke render of in een polling-loop. Haal éénmaal op bij het laden van de app, bewaar het resultaat in een gewone JS-variabele/state, en filter/sorteer lokaal in JavaScript. Wil je verse data van andere gebruikers zien, ververs dan op een trage interval (bv. elke 30-60s) of via een expliciete ververs-knop.
+- Tips voor een vlotte, snelle gedeelde opslag (elke aanroep is een echte netwerk-round-trip via de bovenliggende pagina naar de server -- geen gratis synchrone call zoals localStorage):
+    - set()/addItem()/updateItem() zijn elk een aparte round-trip -- vermijd dus een tight loop die per toetsaanslag of per item apart opslaat. Debounce tekstvelden (bv. 400-600ms na de laatste toets) voor je set() aanroept, en voeg meerdere nieuwe items niet snel na elkaar toe als het ook als één actie kan.
+    - list() en listItems() zonder filter halen alles op -- roep dat niet opnieuw aan bij elke render of in een polling-loop. Haal éénmaal op bij het laden van de app en bewaar het resultaat in een gewone JS-variabele/state. Wordt een collection groot (honderden items of meer), filter dan op de server (listItems met where/limit, zie hierboven) in plaats van alles op te halen en in JavaScript te filteren. Wil je verse data van andere gebruikers zien, ververs dan op een trage interval (bv. elke 30-60s) of via een expliciete ververs-knop.
     - Werk optimistisch: update de UI meteen (voeg het item lokaal toe aan je state) en stuur de sharedStorage-aanroep op de achtergrond, in plaats van te wachten met een spinner tot de round-trip terug is. Faalt de aanroep (bv. na de 15s-timeout), rol de UI-wijziging dan terug en toon een duidelijke foutmelding.
     - Onafhankelijke aanroepen (bv. meerdere keys/collections tegelijk inladen bij het openen van de app) mag je parallelliseren met Promise.all([...]) i.p.v. na elkaar te awaiten.
-    - Hoort iets logisch bij elkaar (bv. alle instellingen van één gebruiker)? Bewaar dat dan als één kv-key of collection-item met een JSON-waarde i.p.v. een aparte key per veld -- dat is zowel sneller (één round-trip i.p.v. meerdere) als lichter voor het object-quotum (max 500 keys/items samen).
+    - Hoort iets logisch bij elkaar (bv. alle instellingen van één gebruiker)? Bewaar dat dan als één kv-key of collection-item met een JSON-waarde i.p.v. een aparte key per veld -- dat is sneller (één round-trip i.p.v. meerdere) en houdt de opslag overzichtelijk.
     - Moet je een grote lijst of een rooster (bv. weken/maanden aan geplande dagen) herberekenen na een wijziging (bv. één vakantiedag, één uitzondering)? Wis en herschrijf dan NIET de volledige lijst -- vergelijk eerst per record wat er al staat tegenover wat er zou moeten staan, en schrijf enkel de records weg die effectief verschillen. Bij een kleine wijziging scheelt dat tientallen tot honderden overbodige opslag-aanroepen t.o.v. alles wissen en opnieuw aanmaken.
     - Moet een opruimfunctie (bv. verlopen uitzonderingen/afgevinkte items opruimen) de server bijwerken? Werk dan in dezelfde functie ook meteen de lokale JS-state bij (dezelfde wijziging die je naar de server stuurt), i.p.v. nadien alle collecties opnieuw volledig op te halen om weer synchroon te lopen -- dat laatste is typisch de duurste stap van een actie en meestal overbodig als de lokale state al correct is bijgewerkt.
-- Moet de app ook iets versturen OP EEN VAST TIJDSTIP/INTERVAL, ook als niemand die dag de app open heeft (bv. een dagelijkse post om 11u, of een wekelijkse herinnering)? Gebruik window.platform.schedule -- dit draait volledig server-side via een cron (elke 15 min, dus tot 15 min vertraging op het ingestelde tijdstip), los van of de app open staat:
-    var taak = await window.platform.schedule.create({
+- Moet de app ook iets versturen OP EEN VAST TIJDSTIP/INTERVAL, ook als niemand die dag de app open heeft (bv. een dagelijkse post om 11u, of een wekelijkse herinnering)? Gebruik window.platform.schedule -- dit draait volledig server-side via een cron (elke 15 min, dus tot 15 min vertraging op het ingestelde tijdstip), los van of de app open staat.
+  Gebruik ensure() met een eigen, VASTE key: de app zegt "zo moet deze taak eruitzien", en de server maakt ze aan of werkt ze ter plekke bij (zelfde id, zelfde historiek). De server vergelijkt de HELE instelling -- de app hoeft dus nooit zelf te vergelijken wat er al staat (dat ging eerder mis: een app die enkel de berichttekst vergeleek, liet een oude planning maanden staan), en er ontstaan geen dubbele taken. Roep ensure() gerust bij elke start van de app aan: verandert er niets, dan schrijft de server ook niets.
+    var r = await window.platform.schedule.ensure("dagelijkse-post:" + kanaalId, {   // key: letters, cijfers en _ . : - (max 100 tekens), uniek per app
       name: "Dagelijkse update",                          // herkenbare naam, voor jezelf/collega's in de lijst
-      recurrence: { frequency: "daily", time: "11:00" },   // of: { frequency: "weekly", time: "09:00", daysOfWeek: [1,3,5] } (0=zo..6=za)
+      recurrence: { frequency: "weekly", time: "09:30", daysOfWeek: [1,2,3,4,5] },   // ma-vr (0=zo..6=za)
+                                                             // of: { frequency: "daily", time: "11:00" }
                                                              // of: { frequency: "every_n_days", time: "08:30", intervalDays: 14, anchorDate: "2026-07-07" }
-      deliveryMethod: "mail",                               // "mail" of "chat"
-      targetType: "self",                                   // "self" | "colleague" (+ targetUserId) | "channel" (+ targetChannelId, enkel bij "chat")
-      subjectTemplate: "Dagupdate",                          // enkel bij deliveryMethod "mail"
-      messageTemplate: "Vandaag op de lijst:\n{{#each boodschappen}}- {{this.naam}}\n{{/each}}{{#isEmpty boodschappen}}Niets vandaag!{{/isEmpty}}"
+      deliveryMethod: "chat",                               // "mail" of "chat"
+      targetType: "channel",                                // "self" | "colleague" (+ targetUserId) | "channel" (+ targetChannelId, enkel bij "chat")
+      targetChannelId: kanaalId,                            // bij "mail" ook subjectTemplate: "Dagupdate"
+      messageTemplate: "Vandaag op de lijst:\n{{#each boodschappen}}- {{this.naam}}\n{{/each}}{{#isEmpty boodschappen}}Niets vandaag!{{/isEmpty}}",
+      onlyIf: { collection: "rooster", where: { date: "{{today}}", status: { ne: "gesloten" } } }   // optioneel: verzendvoorwaarde, zie hieronder
     });
-    var mijnTaken = await window.platform.schedule.list();           // ALLE taken van deze app (ook die van collega's -- transparantie, geen dubbele posts) + { isMine, canManage }
-    await window.platform.schedule.update(taak.id, { ...zelfde velden als bij create... });  // enkel toegestaan als jij de taak maakte of de app-eigenaar bent
+    // r = { task, created: true/false, changed: ["recurrence", "onlyIf", ...] } -- changed is leeg als alles al klopte.
+    // Een weggelaten onlyIf of subjectTemplate betekent "geen"; een weggelaten isActive laat de huidige stand staan.
+    var taken = await window.platform.schedule.list();     // ALLE taken van deze app (ook die van collega's -- transparantie, geen dubbele posts)
+    // Elke taak heeft DEZELFDE veldnamen als bij ensure()/create(), plus: id, key, isActive,
+    // recurrenceText ("ma-vr om 09:30"), nextRunAt (ISO-tijdstip van de volgende verzending), lastRunAt,
+    // lastRunStatus ("sent" | "skipped" | "failed"), lastRunMessage (de fout, of bij "skipped" de reden),
+    // isMine, canManage, createdByName, targetChannelName, targetColleagueName.
+    await window.platform.schedule.update(taak.id, { recurrence: { frequency: "daily", time: "10:00" } });  // mag één veld zijn, de rest blijft staan
     await window.platform.schedule.remove(taak.id);
-    await window.platform.schedule.runNow(taak.id);                   // test de taak meteen, i.p.v. tot het volgende tijdstip te wachten
+    var test = await window.platform.schedule.runNow(taak.id);   // test meteen; volgt ook onlyIf -- is test.lastRunStatus "skipped", dan staat in test.lastRunMessage waarom
+    await window.platform.schedule.create({ ...zelfde velden, key optioneel... });   // maakt ELKE keer een nieuwe taak -- gebruik ensure() tenzij je echt losse, ongenoemde taken wil
+  Toon in de app wat de SERVER teruggeeft (recurrenceText, nextRunAt, lastRunStatus en lastRunMessage), nooit een eigen omschrijving als "elke werkdag": anders zie je niet dat een taak iets anders doet dan je denkt. Alle fouten hebben een err.code (bv. "KEY_EXISTS", "INVALID_ONLY_IF", "INVALID_RECURRENCE").
+  onlyIf = een VERZENDVOORWAARDE, nagekeken op het moment van versturen: de taak vertrekt alleen als er in die collection minstens één item is dat aan het filter voldoet. Het filter is exact dat van sharedStorage.listItems() hierboven, en tekstwaarden mogen {{today}}/{{weekday}}/{{weekdayName}}/{{isoWeek}}/{{isoYear}} bevatten. Een lijst van max 5 voorwaarden mag ook (allemaal waar = versturen). Zo bepaalt de eigen data van de app (een rooster, gesloten dagen, feestdagen) of er vandaag iets vertrekt -- leg zo'n regel dus niet op twee plekken (in de recurrence én in de data). Niet voldaan = niets verstuurd, lastRunStatus "skipped" met de reden in lastRunMessage.
   Het message/subject-template is GEEN JavaScript-expressie maar een eenvoudige, veilige tekst-vervanging (geen eval, geen logica) die alleen mag verwijzen naar data uit window.sharedStorage van DEZE app:
     {{kv.KEY}}                                    -- een platte sharedStorage-waarde (window.sharedStorage.get/set)
     {{#each collectieNaam}}...{{this}}/{{this.veld}}...{{/each}}   -- itereert over een collection (this.veld leest een JSON-veld als het item als JSON is opgeslagen)
     {{#isEmpty collectieNaam}}...{{/isEmpty}}     -- enkel getoond als de collection leeg is (bv. "niemand vandaag")
     {{#notEmpty collectieNaam}}...{{/notEmpty}}   -- enkel getoond als de collection NIET leeg is
+    {{today}} / {{weekday}} / {{weekdayName}} / {{isoWeek}} / {{isoYear}}   -- server-berekende dag-context op het MOMENT VAN VERSTUREN (Europe/Brussels): datum (YYYY-MM-DD), weekdag (0=zo..6=za), weekdagnaam (NL), ISO-weeknummer/-jaar
+    {{#eachWhere collectieNaam field="veld" equals="waarde"}}...{{/eachWhere}}   -- gefilterde variant van {{#each}}: enkel items waar "veld" gelijk is aan "waarde" (mag zelf {{today}}/{{weekday}}/... bevatten); notEquals="..." kan ook
   targetType "colleague"/"channel" volgen dezelfde regels als notify()/sendChat() hierboven: nooit zelf een e-mailadres/kanaal-id verzinnen, altijd targetUserId uit listColleagues() of targetChannelId uit listChatChannels() gebruiken, en laat de gebruiker zelf kiezen via een <select> i.p.v. iets te hardcoden. Max 20 geplande taken per app.
 - Moet de app iets versturen ZODRA EEN VOORWAARDE WAAR WORDT (bv. "een nieuwe bestelling", "voorraad op"), i.p.v. op een vast tijdstip? Gebruik window.platform.condition -- dit is een APARTE, snellere cron (elke 5 min) die de voorwaarde zelf server-side controleert, dus ook als niemand de app open heeft. Stuurt enkel bij een overgang van niet-waar naar waar (geen herhaalde berichten zolang de voorwaarde waar blijft):
     var taak = await window.platform.condition.create({
@@ -436,13 +462,11 @@ Technische vereisten voor de uiteindelijke app (belangrijk, hou hier rekening me
       subjectTemplate: "Nieuwe bestelling",                 // enkel bij deliveryMethod "mail"
       messageTemplate: "Er is een nieuwe bestelling binnengekomen op {{today}} ({{weekdayName}})."
     });
-    var mijnCriteriaTaken = await window.platform.condition.list();     // ALLE criteria-taken van deze app + { isMine, canManage, last_condition_met, last_triggered_at }
-    await window.platform.condition.update(taak.id, { ...zelfde velden als bij create... });   // reset de edge-detectie, enkel toegestaan als jij de taak maakte of de app-eigenaar bent
+    var mijnCriteriaTaken = await window.platform.condition.list();     // ALLE criteria-taken van deze app, met dezelfde veldnamen als bij create() + { id, isActive, lastConditionMet, lastTriggeredAt, lastRunStatus, lastRunMessage, isMine, canManage }
+    await window.platform.condition.update(taak.id, { messageTemplate: "..." });   // mag één veld zijn; reset de edge-detectie, enkel toegestaan als jij de taak maakte of de app-eigenaar bent
     await window.platform.condition.remove(taak.id);
     await window.platform.condition.runNow(taak.id);                   // stuurt het bericht ONMIDDELLIJK, ongeacht of de voorwaarde net "waar geworden" is -- handig om het template te testen
-  Het message/subject-template werkt hetzelfde als bij window.platform.schedule hierboven (logic-less, geen eval), plus twee extra's die ENKEL bij condition-taken beschikbaar zijn (niet bij schedule-taken):
-    {{today}} / {{weekday}} / {{weekdayName}} / {{isoWeek}} / {{isoYear}}   -- server-berekende dag-context op het MOMENT VAN VERSTUREN (Europe/Brussels): datum (YYYY-MM-DD), weekdag (0=zo..6=za), weekdagnaam (NL), ISO-weeknummer/-jaar
-    {{#eachWhere collectieNaam field="veld" equals="waarde"}}...{{/eachWhere}}   -- gefilterde variant van {{#each}}: enkel items waar "veld" gelijk is aan "waarde" (mag zelf {{today}}/{{weekday}}/... bevatten); notEquals="..." kan ook
+  Het message/subject-template werkt hetzelfde als bij window.platform.schedule hierboven (logic-less, geen eval, ook {{today}}/... en {{#eachWhere}}), plus één extra die ENKEL bij condition-taken beschikbaar is (niet bij schedule-taken):
     {{rotation.NAAM}}   -- actieve persoon/item van een BEURTROL met vaste interval + optionele uitzonderingen (bv. "wie gaat er vandaag naar de winkel", "wie is on-call"), volledig server-side herberekend. Zet dit op met ÉÉN sharedStorage-key met een gereserveerde naam:
       await window.sharedStorage.set("__rotation_NAAM__", JSON.stringify({
         anchorDate: "2026-06-30", intervalDays: 14, items: ["Jan", "Piet", "An"],

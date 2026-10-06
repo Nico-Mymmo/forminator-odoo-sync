@@ -71,6 +71,24 @@
 	"browser": {
 		"binding": "BROWSER"
 	},
+	// Mini-apps -- gedeelde opslag (window.sharedStorage): EEN SQLite-database
+	// per mini-app, als Durable Object (src/modules/mini-apps/lib/storage-do.js,
+	// geexporteerd in src/index.js). Geen D1: een Worker kan alleen D1-databases
+	// gebruiken waarvoor hier een binding staat, en een nieuwe mini-app kan niet
+	// op een deploy wachten. Een Durable Object spreek je aan op naam (het
+	// app-id), zonder binding per app.
+	// Bij de eerste aanroep per app haalt het object de oude R2-gegevens
+	// (mini-apps-storage/{appId}/) een keer binnen; R2 blijft als back-up staan.
+	"durable_objects": {
+		"bindings": [
+			{ "name": "MINI_APP_STORAGE", "class_name": "MiniAppStorage" }
+		]
+	},
+	// Nooit een bestaande tag wijzigen of verwijderen: Cloudflare houdt bij welke
+	// al toegepast zijn. Een nieuwe klasse = een nieuwe regel eronder.
+	"migrations": [
+		{ "tag": "v1-mini-app-storage", "new_sqlite_classes": ["MiniAppStorage"] }
+	],
 	"triggers": {
 		// "*/15 * * * *"  -> bestaande 15-min jobs (cx_powerboard, cx_automations, mini-apps geplande taken)
 		// "*/5 * * * *"   -> NIEUW, apart: mini-apps criteria-taken (condition-scheduler.js), bewust sneller

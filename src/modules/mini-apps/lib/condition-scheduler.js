@@ -366,7 +366,10 @@ export function renderTemplate(template, context, maxLength) {
       const [full, name, field, equalsRaw, notEqualsRaw, inner] = eachWhereMatch;
       const equalsVal = resolveBuiltinRefs(equalsRaw, builtins);
       const notEqualsVal = resolveBuiltinRefs(notEqualsRaw, builtins);
-      const items = Array.isArray(collections[name]) ? collections[name].slice(0, MAX_EACH_ITEMS) : [];
+      // Eerst filteren, DAN afknippen: anders valt bv. de rij van vandaag in een
+      // rooster voor een heel jaar buiten de eerste MAX_EACH_ITEMS en is het
+      // bericht stil leeg.
+      const items = Array.isArray(collections[name]) ? collections[name] : [];
       const filtered = items.filter(item => {
         let parsed;
         try {
@@ -380,7 +383,7 @@ export function renderTemplate(template, context, maxLength) {
         if (notEqualsVal !== undefined && v === notEqualsVal) return false;
         return true;
       });
-      const replacement = filtered.map(item => renderEachInner(inner, item)).join('\n');
+      const replacement = filtered.slice(0, MAX_EACH_ITEMS).map(item => renderEachInner(inner, item)).join('\n');
       out = out.slice(0, eachWhereMatch.index) + replacement + out.slice(eachWhereMatch.index + full.length);
       continue;
     }
@@ -487,6 +490,57 @@ export function validateConditionTaskPayload(body) {
   if (typeof body.messageTemplate !== 'string' || !body.messageTemplate.trim() || body.messageTemplate.length > MAX_MESSAGE_TEMPLATE_LENGTH) {
     throw conditionError(`Bericht-template is verplicht en max ${MAX_MESSAGE_TEMPLATE_LENGTH} tekens.`, 'INVALID_MESSAGE_TEMPLATE');
   }
+}
+
+// ─── De vorm naar buiten ─────────────────────────────────────────────────────
+// Zelfde afspraak als taskRowToDto() in scheduler.js, bewust als eigen kopie
+// (zie bestandskop): een taak bereikt de app met DEZELFDE veldnamen als bij
+// create(), nooit als databaserij. lastRunMessage = de fout van de laatste run.
+
+export function conditionRowToDto(row) {
+  return {
+    id: row.id,
+    name: row.name,
+    isActive: row.is_active,
+    criteria: row.criteria,
+    deliveryMethod: row.delivery_method,
+    targetType: row.target_type,
+    targetUserId: row.target_user_id || null,
+    targetChannelId: row.target_channel_id || null,
+    subjectTemplate: row.subject_template || null,
+    messageTemplate: row.message_template,
+    lastConditionMet: !!row.last_condition_met,
+    lastCheckedAt: row.last_checked_at || null,
+    lastTriggeredAt: row.last_triggered_at || null,
+    lastRunAt: row.last_run_at || null,
+    lastRunStatus: row.last_run_status || null,
+    lastRunMessage: row.last_run_error || null,
+    createdByUserId: row.created_by_user_id,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
+const CONDITION_CONFIG_FIELDS = ['name', 'isActive', 'criteria', 'deliveryMethod', 'targetType', 'targetUserId',
+  'targetChannelId', 'subjectTemplate', 'messageTemplate'];
+
+/** update() mag één veld zijn: de rest blijft wat er stond. */
+export function mergeConditionConfig(row, patch) {
+  const merged = {
+    name: row.name,
+    isActive: row.is_active,
+    criteria: row.criteria,
+    deliveryMethod: row.delivery_method,
+    targetType: row.target_type,
+    targetUserId: row.target_user_id || undefined,
+    targetChannelId: row.target_channel_id || undefined,
+    subjectTemplate: row.subject_template || undefined,
+    messageTemplate: row.message_template
+  };
+  for (const field of CONDITION_CONFIG_FIELDS) {
+    if (Object.prototype.hasOwnProperty.call(patch || {}, field)) merged[field] = patch[field];
+  }
+  return merged;
 }
 
 // ─── Cron-entry ─────────────────────────────────────────────────────────────
@@ -664,9 +718,9 @@ export async function runConditionTaskNow(env, taskId) {
 
   const { data: updated, error: refetchErr } = await supabase
     .from('mini_app_condition_tasks')
-    .select('id, last_run_status, last_run_error, last_condition_met, last_triggered_at, is_active')
+    .select('*')
     .eq('id', taskId)
     .maybeSingle();
   if (refetchErr) throw new Error(refetchErr.message);
-  return updated;
+  return updated ? conditionRowToDto(updated) : null;
 }

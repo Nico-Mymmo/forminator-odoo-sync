@@ -20,6 +20,9 @@ import { runWebStoryCron } from './modules/web-story/lib/push.js';
 import { runSalesCron } from './modules/dashboards/lib/sales/routes.js';
 import { purgeOldBotRejections } from './modules/forminator-sync-v2/forms/bot-rejections.js';
 
+// Durable Object-klassen moeten vanuit de entry geexporteerd worden (wrangler.jsonc -> durable_objects).
+export { MiniAppStorage } from './modules/mini-apps/lib/storage-do.js';
+
 export default {
   async fetch(request, env, ctx) {
     try {

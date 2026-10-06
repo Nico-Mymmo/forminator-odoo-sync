@@ -13,11 +13,12 @@
  * metadata + rechten in de Supabase-tabel `mini_apps`
  * (zie supabase/migrations/20260710120000_mini_apps_module.sql).
  *
- * Gedeelde opslag: mini-apps kunnen daarnaast data (tot 10 MB per app) over
+ * Gedeelde opslag: mini-apps kunnen daarnaast data (tot 100 MB per app) over
  * gebruikers heen delen via window.sharedStorage (in de iframe-shim, zie
- * public/mini-apps.js) -- key-value + collections, opgeslagen in R2
- * (key-prefix "mini-apps-storage/", niet in Supabase -- zie lib/storage.js
- * voor de motivatie en de /api/apps/:id/storage*-routes in routes.js). Los
+ * public/mini-apps-core.js) -- key-value + collections, in een eigen
+ * SQLite-database per app (Durable Object, lib/storage-do.js; toegang enkel
+ * via lib/storage.js en de /api/apps/:id/storage*-routes in routes.js). Tot
+ * 2026-10 stond dit in R2 onder "mini-apps-storage/"; dat is nu een back-up. Los
  * van localStorage/sessionStorage, die per-browser en niet-persistent
  * blijven (SecurityError in de sandbox, zie de shim).
  *

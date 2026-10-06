@@ -27,6 +27,25 @@
  *    blijft wel enkel bij condition-scheduler.js, geen vraag naar hier.
  *    Geen eval, geen Function-constructor, geen willekeurige expressies --
  *    enkel string-substitutie, dus geen code-executie-oppervlak.
+ *  - onlyIf (sinds 2026-10): een VERZENDVOORWAARDE, nagekeken op het moment
+ *    van versturen -- "alleen als er in collectie X een item is dat aan dit
+ *    filter voldoet". Het filter is hetzelfde als bij
+ *    sharedStorage.listItems() (lib/storage-query.js) en wordt in de eigen
+ *    database van de app geteld. Zo bepaalt de APP met haar eigen gegevens
+ *    (een rooster, gesloten dagen) of er vandaag iets vertrekt, in plaats
+ *    van dat die regel ook nog eens in de recurrence moet staan. Niet
+ *    voldaan = status 'skipped' met de reden in last_run_error.
+ *  - key (sinds 2026-10): een sleutel die de app zelf kiest, uniek per app.
+ *    Daarmee kan een app met ensure() zeggen "zo moet deze taak eruitzien";
+ *    de server vergelijkt de HELE instelling en werkt de taak ter plekke
+ *    bij (zelfde id, zelfde historiek). Winkellijst vergeleek zelf enkel de
+ *    berichttekst, en daardoor bleef een oude recurrence maanden staan.
+ *
+ * Naar buiten (routes.js -> de app) gaat een taak ALTIJD door taskRowToDto():
+ * dezelfde veldnamen als bij het aanmaken (targetChannelId, niet
+ * target_channel_id), plus recurrenceText ("ma-vr om 09:30") en nextRunAt.
+ * Tot 2026-10 kwam de databaserij rechtstreeks terug, en moest een app raden
+ * onder welke naam het kanaal stond.
  *
  * runDueScheduledTasks(env) is de cron-entry (aangeroepen vanuit
  * src/index.js#scheduled(), elke 15 min): pikt due taken op, bouwt de
@@ -50,7 +69,8 @@
  */
 
 import { getSupabaseClient } from '../../../lib/database.js';
-import { listStorage, listAllCollections } from './storage.js';
+import { listStorage, listAllCollections, countCollectionItems, MAX_COLLECTION_LENGTH } from './storage.js';
+import { normalizeQuery } from './storage-query.js';
 import { notifyUser } from './notify.js';
 import { sendChannelMessage } from './chat.js';
 
@@ -333,7 +353,10 @@ export function renderTemplate(template, context, maxLength) {
       const [full, name, field, equalsRaw, notEqualsRaw, inner] = eachWhereMatch;
       const equalsVal = resolveBuiltinRefs(equalsRaw, builtins);
       const notEqualsVal = resolveBuiltinRefs(notEqualsRaw, builtins);
-      const items = Array.isArray(collections[name]) ? collections[name].slice(0, MAX_EACH_ITEMS) : [];
+      // Eerst filteren, DAN afknippen: anders valt bv. de rij van vandaag in een
+      // rooster voor een heel jaar buiten de eerste MAX_EACH_ITEMS en is het
+      // bericht stil leeg.
+      const items = Array.isArray(collections[name]) ? collections[name] : [];
       const filtered = items.filter(item => {
         let parsed;
         try {
@@ -347,7 +370,7 @@ export function renderTemplate(template, context, maxLength) {
         if (notEqualsVal !== undefined && v === notEqualsVal) return false;
         return true;
       });
-      const replacement = filtered.map(item => renderEachInner(inner, item)).join('\n');
+      const replacement = filtered.slice(0, MAX_EACH_ITEMS).map(item => renderEachInner(inner, item)).join('\n');
       out = out.slice(0, eachWhereMatch.index) + replacement + out.slice(eachWhereMatch.index + full.length);
       continue;
     }
@@ -445,6 +468,263 @@ export function validateTaskPayload(body) {
   if (typeof body.messageTemplate !== 'string' || !body.messageTemplate.trim() || body.messageTemplate.length > MAX_MESSAGE_TEMPLATE_LENGTH) {
     throw schedulerError(`Bericht-template is verplicht en max ${MAX_MESSAGE_TEMPLATE_LENGTH} tekens.`, 'INVALID_MESSAGE_TEMPLATE');
   }
+  if (body.key !== undefined && body.key !== null) validateTaskKey(body.key);
+  validateOnlyIf(body.onlyIf);
+}
+
+// ─── Sleutel, verzendvoorwaarde en de vorm naar buiten ─────────────────────
+
+export const MAX_TASK_KEY_LENGTH = 100;
+export const MAX_ONLY_IF_CONDITIONS = 5;
+const TASK_KEY_RE = /^[A-Za-z0-9][A-Za-z0-9_.:-]*$/;
+
+/** Een sleutel die de app zelf kiest, bv. "dagelijkse-post:<kanaal-id>". */
+export function validateTaskKey(key) {
+  if (typeof key !== 'string' || key.length === 0 || key.length > MAX_TASK_KEY_LENGTH || !TASK_KEY_RE.test(key)) {
+    throw schedulerError(
+      `key moet 1-${MAX_TASK_KEY_LENGTH} tekens zijn: letters, cijfers en _ . : - (beginnend met een letter of cijfer).`,
+      'INVALID_KEY'
+    );
+  }
+}
+
+/**
+ * onlyIf = één voorwaarde of een lijst (max 5, allemaal waar = versturen):
+ *   { collection: "geplande_dagen", where: { date: "{{today}}", status: { ne: "closed" } } }
+ * "Waar" betekent: minstens één item in die collectie voldoet aan het filter.
+ * Het filter is exact dat van sharedStorage.listItems(); tekstwaarden mogen
+ * {{today}}/{{weekday}}/{{weekdayName}}/{{isoWeek}}/{{isoYear}} bevatten.
+ * Geeft de genormaliseerde vorm terug (altijd een lijst), of null.
+ */
+export function validateOnlyIf(onlyIf) {
+  if (onlyIf === undefined || onlyIf === null) return null;
+  const list = Array.isArray(onlyIf) ? onlyIf : [onlyIf];
+  if (list.length === 0) return null;
+  if (list.length > MAX_ONLY_IF_CONDITIONS) {
+    throw schedulerError(`onlyIf: maximaal ${MAX_ONLY_IF_CONDITIONS} voorwaarden.`, 'INVALID_ONLY_IF');
+  }
+  return list.map((cond, i) => {
+    const label = list.length > 1 ? `onlyIf[${i}]` : 'onlyIf';
+    if (!cond || typeof cond !== 'object' || Array.isArray(cond)) {
+      throw schedulerError(`${label} moet een object zijn: { collection, where }.`, 'INVALID_ONLY_IF');
+    }
+    const extra = Object.keys(cond).filter(k => k !== 'collection' && k !== 'where');
+    if (extra.length) {
+      throw schedulerError(`${label}: onbekende sleutel "${extra[0]}". Toegestaan: collection, where.`, 'INVALID_ONLY_IF');
+    }
+    if (typeof cond.collection !== 'string' || !cond.collection || cond.collection.length > MAX_COLLECTION_LENGTH) {
+      throw schedulerError(`${label}.collection is verplicht (1-${MAX_COLLECTION_LENGTH} tekens).`, 'INVALID_ONLY_IF');
+    }
+    if (!cond.where || typeof cond.where !== 'object' || Array.isArray(cond.where) || !Object.keys(cond.where).length) {
+      throw schedulerError(`${label}.where is verplicht, bv. { status: "open" }.`, 'INVALID_ONLY_IF');
+    }
+    try {
+      normalizeQuery({ where: cond.where });
+    } catch (err) {
+      throw schedulerError(`${label}: ${err.message}`, 'INVALID_ONLY_IF');
+    }
+    return { collection: cond.collection, where: cond.where };
+  });
+}
+
+function resolveWhereBuiltins(where, builtins) {
+  const fill = v => (typeof v === 'string' ? resolveBuiltinRefs(v, builtins) : v);
+  const out = {};
+  for (const [field, spec] of Object.entries(where)) {
+    if (spec && typeof spec === 'object' && !Array.isArray(spec)) {
+      const ops = {};
+      for (const [op, v] of Object.entries(spec)) ops[op] = Array.isArray(v) ? v.map(fill) : fill(v);
+      out[field] = ops;
+    } else {
+      out[field] = fill(spec);
+    }
+  }
+  return out;
+}
+
+const OP_TEXT = { eq: '=', ne: '≠', gt: '>', gte: '≥', lt: '<', lte: '≤', in: 'is een van', contains: 'bevat' };
+
+function describeWhere(where) {
+  const show = v => (typeof v === 'string' ? `"${v}"` : Array.isArray(v) ? v.map(show).join(', ') : String(v));
+  const parts = [];
+  for (const [field, spec] of Object.entries(where)) {
+    const ops = spec && typeof spec === 'object' && !Array.isArray(spec) ? spec : { eq: spec };
+    for (const [op, v] of Object.entries(ops)) {
+      if (op === 'exists') parts.push(`${field} ${v ? 'ingevuld' : 'leeg'}`);
+      else parts.push(`${field} ${OP_TEXT[op] || op} ${show(v)}`);
+    }
+  }
+  return parts.join(' en ');
+}
+
+/**
+ * Kijkt de verzendvoorwaarde na tegen de database van de app, op `now`.
+ * { met: true } of { met: false, reason } -- de reden is leesbaar en komt in
+ * last_run_error en het log: een overgeslagen post moet zeggen WAAROM.
+ */
+export async function evaluateOnlyIf(env, appId, onlyIf, now = new Date(), timeZone = ORG_TIMEZONE) {
+  const list = Array.isArray(onlyIf) ? onlyIf : (onlyIf ? [onlyIf] : []);
+  if (!list.length) return { met: true };
+  const builtins = computeBuiltins(now, timeZone);
+  for (const cond of list) {
+    const where = resolveWhereBuiltins(cond.where, builtins);
+    const count = await countCollectionItems(env, appId, cond.collection, { where });
+    if (count === 0) {
+      return { met: false, reason: `Niet verstuurd: geen item in "${cond.collection}" met ${describeWhere(where)}.` };
+    }
+  }
+  return { met: true };
+}
+
+/** Recurrence in vaste vorm: enkel de velden die bij de frequentie horen, dagen gesorteerd. */
+export function normalizeRecurrence(recurrence) {
+  validateRecurrence(recurrence);
+  if (recurrence.frequency === 'daily') return { frequency: 'daily', time: recurrence.time };
+  if (recurrence.frequency === 'weekly') {
+    return { frequency: 'weekly', time: recurrence.time, daysOfWeek: [...recurrence.daysOfWeek].sort((a, b) => a - b) };
+  }
+  return { frequency: 'every_n_days', time: recurrence.time, intervalDays: recurrence.intervalDays, anchorDate: recurrence.anchorDate };
+}
+
+const DAY_SHORT_NL = ['zo', 'ma', 'di', 'wo', 'do', 'vr', 'za'];
+const WEEK_ORDER = [1, 2, 3, 4, 5, 6, 0]; // maandag eerst
+
+/** "elke dag om 11:00", "ma-vr om 09:30", "di en do om 08:00", "om de 14 dagen om 08:30 (vanaf 7 juli 2026)". */
+export function describeRecurrence(recurrence) {
+  const r = normalizeRecurrence(recurrence);
+  if (r.frequency === 'daily') return `elke dag om ${r.time}`;
+  if (r.frequency === 'weekly') {
+    if (r.daysOfWeek.length === 7) return `elke dag om ${r.time}`;
+    const idx = r.daysOfWeek.map(d => WEEK_ORDER.indexOf(d)).sort((a, b) => a - b);
+    const runs = [];
+    for (const i of idx) {
+      const last = runs[runs.length - 1];
+      if (last && i === last[last.length - 1] + 1) last.push(i);
+      else runs.push([i]);
+    }
+    const parts = [];
+    for (const run of runs) {
+      if (run.length >= 3) parts.push(`${DAY_SHORT_NL[WEEK_ORDER[run[0]]]}-${DAY_SHORT_NL[WEEK_ORDER[run[run.length - 1]]]}`);
+      else run.forEach(i => parts.push(DAY_SHORT_NL[WEEK_ORDER[i]]));
+    }
+    const days = parts.length > 1 ? `${parts.slice(0, -1).join(', ')} en ${parts[parts.length - 1]}` : parts[0];
+    return `${days} om ${r.time}`;
+  }
+  const anchor = new Intl.DateTimeFormat('nl-BE', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' })
+    .format(new Date(`${r.anchorDate}T00:00:00Z`));
+  return `om de ${r.intervalDays} dagen om ${r.time} (vanaf ${anchor})`;
+}
+
+/**
+ * De ENIGE vorm waarin een taak de app bereikt: dezelfde veldnamen als bij
+ * create()/ensure(), zodat een app een taak kan vergelijken met wat ze zelf
+ * zou meegeven. lastRunMessage = de fout of, bij 'skipped', de reden.
+ */
+export function taskRowToDto(row) {
+  let recurrenceText = null;
+  try { recurrenceText = describeRecurrence(row.recurrence); } catch (_err) { /* ongeldige oude rij: geen tekst */ }
+  return {
+    id: row.id,
+    key: row.task_key || null,
+    name: row.name,
+    isActive: row.is_active,
+    recurrence: row.recurrence,
+    recurrenceText,
+    deliveryMethod: row.delivery_method,
+    targetType: row.target_type,
+    targetUserId: row.target_user_id || null,
+    targetChannelId: row.target_channel_id || null,
+    subjectTemplate: row.subject_template || null,
+    messageTemplate: row.message_template,
+    onlyIf: row.only_if || null,
+    nextRunAt: row.next_run_at || null,
+    lastRunAt: row.last_run_at || null,
+    lastRunStatus: row.last_run_status || null,
+    lastRunMessage: row.last_run_error || null,
+    createdByUserId: row.created_by_user_id,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
+/** Databaserij -> instelling in de vorm van create()/update(). */
+export function taskRowToConfig(row) {
+  return {
+    key: row.task_key || null,
+    name: row.name,
+    isActive: row.is_active,
+    recurrence: row.recurrence,
+    deliveryMethod: row.delivery_method,
+    targetType: row.target_type,
+    targetUserId: row.target_user_id || undefined,
+    targetChannelId: row.target_channel_id || undefined,
+    subjectTemplate: row.subject_template || undefined,
+    messageTemplate: row.message_template,
+    onlyIf: row.only_if || null
+  };
+}
+
+const CONFIG_FIELDS = ['key', 'name', 'isActive', 'recurrence', 'deliveryMethod', 'targetType', 'targetUserId',
+  'targetChannelId', 'subjectTemplate', 'messageTemplate', 'onlyIf'];
+
+/** update() mag één veld zijn: de rest blijft wat er stond. */
+export function mergeTaskConfig(row, patch) {
+  const merged = taskRowToConfig(row);
+  for (const field of CONFIG_FIELDS) {
+    if (Object.prototype.hasOwnProperty.call(patch || {}, field)) merged[field] = patch[field];
+  }
+  return merged;
+}
+
+/**
+ * Een gevalideerde instelling -> de kolommen van mini_app_scheduled_tasks
+ * (zonder is_active, next_run_at en de runvelden). Recurrence en onlyIf in
+ * vaste vorm, zodat dezelfde instelling altijd dezelfde rij geeft.
+ */
+export function taskConfigToColumns(config) {
+  return {
+    task_key: config.key || null,
+    name: config.name.trim(),
+    recurrence: normalizeRecurrence(config.recurrence),
+    delivery_method: config.deliveryMethod,
+    target_type: config.targetType,
+    target_user_id: config.targetType === 'colleague' ? config.targetUserId : null,
+    target_channel_id: config.targetType === 'channel' ? config.targetChannelId : null,
+    subject_template: config.deliveryMethod === 'mail' ? config.subjectTemplate.trim() : null,
+    message_template: config.messageTemplate.trim(),
+    only_if: validateOnlyIf(config.onlyIf)
+  };
+}
+
+function canonicalJson(value) {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  if (value && typeof value === 'object') {
+    return `{${Object.keys(value).sort().map(k => `${JSON.stringify(k)}:${canonicalJson(value[k])}`).join(',')}}`;
+  }
+  return JSON.stringify(value === undefined ? null : value);
+}
+
+const COLUMN_TO_FIELD = {
+  name: 'name', recurrence: 'recurrence', delivery_method: 'deliveryMethod', target_type: 'targetType',
+  target_user_id: 'targetUserId', target_channel_id: 'targetChannelId', subject_template: 'subjectTemplate',
+  message_template: 'messageTemplate', only_if: 'onlyIf', task_key: 'key', is_active: 'isActive'
+};
+
+/**
+ * Welke velden verschillen tussen de rij en de nieuwe kolommen -- over de
+ * HELE instelling, niet over één veld. Geeft veldnamen in de vorm van de app
+ * terug (bv. ['recurrence', 'onlyIf']).
+ */
+export function diffTaskColumns(row, columns) {
+  const changed = [];
+  for (const [column, value] of Object.entries(columns)) {
+    let current = row[column];
+    if (column === 'recurrence') {
+      try { current = normalizeRecurrence(current); } catch (_err) { /* ongeldige oude rij: telt als verschil */ }
+    }
+    if (canonicalJson(current ?? null) !== canonicalJson(value ?? null)) changed.push(COLUMN_TO_FIELD[column] || column);
+  }
+  return changed;
 }
 
 // ─── Cron-entry ─────────────────────────────────────────────────────────────
@@ -489,20 +769,30 @@ async function processTask(env, supabase, task, now) {
 
   try {
     const { app, creator } = await fetchAppAndCreator(supabase, task.mini_app_id, task.created_by_user_id);
-    const context = await buildContext(env, task.mini_app_id, now);
 
-    if (task.delivery_method === 'mail') {
-      const subject = renderTemplate(task.subject_template || '', context, MAX_SUBJECT_TEMPLATE_LENGTH);
-      const message = renderTemplate(task.message_template, context, MAX_RENDERED_MAIL_LENGTH);
-      renderedPreview = `[${subject}] ${message}`;
-      const to = task.target_type === 'self' ? 'self' : task.target_user_id;
-      const result = await notifyUser(env, app, creator, to, subject, message);
-      status = result.skipped ? 'skipped' : 'sent';
+    // Eerst de verzendvoorwaarde: een post die vandaag niet hoort te
+    // vertrekken, hoeft ook geen context op te bouwen.
+    const verdict = await evaluateOnlyIf(env, task.mini_app_id, task.only_if, now);
+    if (!verdict.met) {
+      status = 'skipped';
+      errorMessage = verdict.reason;
+      console.log(`[mini-apps][scheduler] taak ${task.id} (app ${task.mini_app_id}) overgeslagen: ${verdict.reason}`);
     } else {
-      const message = renderTemplate(task.message_template, context, MAX_RENDERED_CHAT_LENGTH);
-      renderedPreview = message;
-      await sendChannelMessage(env, app, creator, task.target_channel_id, message);
-      status = 'sent';
+      const context = await buildContext(env, task.mini_app_id, now);
+
+      if (task.delivery_method === 'mail') {
+        const subject = renderTemplate(task.subject_template || '', context, MAX_SUBJECT_TEMPLATE_LENGTH);
+        const message = renderTemplate(task.message_template, context, MAX_RENDERED_MAIL_LENGTH);
+        renderedPreview = `[${subject}] ${message}`;
+        const to = task.target_type === 'self' ? 'self' : task.target_user_id;
+        const result = await notifyUser(env, app, creator, to, subject, message);
+        status = result.skipped ? 'skipped' : 'sent';
+      } else {
+        const message = renderTemplate(task.message_template, context, MAX_RENDERED_CHAT_LENGTH);
+        renderedPreview = message;
+        await sendChannelMessage(env, app, creator, task.target_channel_id, message);
+        status = 'sent';
+      }
     }
   } catch (err) {
     status = 'failed';
@@ -596,9 +886,12 @@ export async function runTaskNow(env, taskId) {
 
   const { data: updated, error: refetchErr } = await supabase
     .from('mini_app_scheduled_tasks')
-    .select('id, last_run_status, last_run_error, next_run_at, is_active')
+    .select('*')
     .eq('id', taskId)
     .maybeSingle();
   if (refetchErr) throw new Error(refetchErr.message);
-  return updated;
+  // Ook "Nu testen" volgt onlyIf: lastRunStatus 'skipped' + lastRunMessage
+  // zegt dan waarom er niets vertrok, in plaats van een test die iets anders
+  // doet dan de echte verzending.
+  return updated ? taskRowToDto(updated) : null;
 }

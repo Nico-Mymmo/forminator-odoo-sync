@@ -40,12 +40,29 @@
  * Uitsluitingen (Supabase sales_exclusions): een uitgesloten klant of order
  * verdwijnt hier, en `excluded` zegt altijd hoeveel -- stil weglaten leest als
  * een kleiner cijfer.
+ *
+ * DE KLANTEN (zo noemt mymmo ze; zie CLAUDE.md "Dashboards — tabs Verkoop en Targets")
+ *
+ * Klanttype (x_company_type): VME IN ADVIES (type 1, in Odoo kortweg "VME") beheert
+ * het gebouw zelf en krijgt ondersteuning van zijn adviserend expert; VME IN BEHEER
+ * (3) heeft een professionele syndicus (soms Syndicoach zelf); PROFESSIONELE
+ * SYNDICUS (2) gebruikt het platform voor al zijn gebouwen en betaalt per kavel.
+ * Een VME in beheer wordt OF door OpenVME gefactureerd (eigen abonnement OpenVME
+ * Professional, ~ EUR 4 per kavel per maand) OF door haar expert (x_studio_invoiced_by_partner:
+ * dan heeft ze GEEN eigen abonnement en zitten haar kavels in het abonnement van
+ * de professional, tegen zijn eigen prijs).
+ * Syndicoach-pakket (x_syndicoach_pack op het gebouw): de DIENST naast de software
+ * -- assistant (ondersteuning, uren in regie per credit), captain (Syndicoach is de
+ * syndicus), coach. Syndicoach factureert nog niet in Odoo.
+ * Begeleiding: de adviserend expert (x_studio_parent_expert) is Syndicoach, een
+ * andere expert, of niemand.
+ * Gratis (x_studio_non_invoiced_customer): interne gebruikers met een gratis licentie.
  */
 
 import { readSales, hasSalesDb } from '../../../../lib/sales-db.js';
 import { leadMerkWhy, leadProductWhy, leadWonDate, leadVerloren } from './lead-rules.js';
 
-export const SHAPE_VERSION = 3; // 2: pendHist, 3: waarom (merk per klant en lead, product per lead, leadnaam)
+export const SHAPE_VERSION = 5; // 2: pendHist, 3: waarom (merk, product, leadnaam), 4: pakket, begeleiding, gratis, licentie-aandeel, experts, 5: testpartners
 
 // Licenties: één per abonnement, de rest zijn opties. Volgorde = volgorde in de filter.
 const LICENSE_FAMILY = {
@@ -55,6 +72,10 @@ const LICENSE_FAMILY = {
   41: 'OpenVME Professional'
 };
 const ADDON = { 31: 'bank', 32: 'bank', 44: 'bank', 38: 'peppol', 28: 'discount' };
+// Klanttypes zoals ze intern heten. Odoo noemt type 1 kortweg "VME"; dat is de VME
+// die zichzelf beheert en door haar expert geadviseerd wordt.
+const CT_LABELS = { 1: 'VME in advies', 3: 'VME in beheer', 2: 'Professionele syndicus' };
+const PACK_LABELS = { assistant: 'Assistant', captain: 'Captain', coach: 'Coach' };
 const KAVEL_UOMS = { Kavels: 'k', Apartments: 'k', 'Commercial units': 'c', Houses: 'h' };
 // Producten zonder abonnement, gegroepeerd zoals het oude dashboard ze toonde.
 const TRANS_GROUP = {
@@ -177,7 +198,13 @@ export async function deriveSalesFacts(env, settings) {
 
   // ── Klanten: wie, welk type, van welk merk/kanaal, hoe groot ─────────────
   const D = { user: dict(), ct: dict(), plan: dict(), lic: dict(), ch: dict(), org: dict(), syn: dict(), plots: dict(),
-    reason: dict(), tg: dict(), lost: dict(), expert: dict(), merk: dict(), mw: dict(), pw: dict() };
+    reason: dict(), tg: dict(), lost: dict(), expert: dict(), merk: dict(), mw: dict(), pw: dict(), pack: dict(), beg: dict() };
+  ['Geen pakket', 'Assistant', 'Captain', 'Coach'].forEach((x) => D.pack.add(x));
+  ['Syndicoach', 'Andere expert', 'Geen expert'].forEach((x) => D.beg.add(x));
+  // Syndicoach als ADVISEREND EXPERT is de partner met exact die naam. Niet in de
+  // code vastgezet als id: dan klopt het dashboard niet meer op een kopie of na een
+  // samenvoeging, zonder dat iemand het merkt. meta.syndicoachId zegt welke.
+  const syndicoachId = (raw.partners.find((p) => p.is_company && String(p.name || '').trim().toLowerCase() === 'syndicoach') || {}).id || null;
   PLOT_ORDER.forEach((p) => D.plots.add(p));
   D.merk.add('OpenVME'); D.merk.add('Syndicoach'); D.merk.add('Onbekend');
   const tagName = (id) => String(lkName('tag', id) || '').toLowerCase();
@@ -230,7 +257,7 @@ export async function deriveSalesFacts(env, settings) {
     const row = {
       id: cid,
       name: p.name || (firstOrder && `#${cid}`) || `#${cid}`,
-      ct: D.ct.add(ctId ? lkName('company_type', ctId) : 'Onbekend'),
+      ct: D.ct.add(ctId ? (CT_LABELS[ctId] || lkName('company_type', ctId)) : 'Onbekend'),
       ctId: ctId || 0,
       merk: D.merk.add(merk),
       mw: D.mw.add(mw ? merkTekst(mw) : GEEN_LEAD), lh,
@@ -240,6 +267,9 @@ export async function deriveSalesFacts(env, settings) {
       plotsN: (sheet && (sheet.plots || sheet.apartments)) || p.number_of_plots || p.number_of_apartments || 0,
       inv: p.invoiced_by_partner ? 1 : 0,
       expert: D.expert.add(p.parent_expert_id ? (partner.get(p.parent_expert_id) || {}).name || `#${p.parent_expert_id}` : 'Geen'),
+      pack: D.pack.add(p.syndicoach_pack ? (PACK_LABELS[p.syndicoach_pack] || p.syndicoach_pack) : 'Geen pakket'),
+      beg: D.beg.add(!p.parent_expert_id ? 'Geen expert' : p.parent_expert_id === syndicoachId ? 'Syndicoach' : 'Andere expert'),
+      free: p.non_invoiced ? 1 : 0,
       lead: lead ? lead.id : null
     };
     custIdx.set(cid, customers.length);
@@ -257,14 +287,17 @@ export async function deriveSalesFacts(env, settings) {
   });
 
   const attention = [];
-  const att = (sev, kind, title, detail, refs) => attention.push({ sev, kind, title, detail, refs: refs || [] });
+  // drill: optioneel, de sleutel van een lijst in het dashboard (een venster met alles, niet enkel de eerste 25 links).
+  const att = (sev, kind, title, detail, refs, drill) => attention.push({ sev, kind, title, detail, refs: refs || [], ...(drill ? { drill } : {}) });
   const ref = (o) => ({ model: 'sale.order', id: o.id, label: o.name });
 
   function licenseOf(orderId) {
     const ls = (linesByOrder.get(orderId) || []).filter((l) => l.is_recurring && !l.display_type && l.qty > 0);
     const lic = ls.find((l) => LICENSE_FAMILY[l.product_id]);
-    let k = 0, c = 0, h = 0, bank = 0, peppol = 0;
+    let k = 0, c = 0, h = 0, bank = 0, peppol = 0, allSub = 0, addSub = 0;
     ls.forEach((l) => {
+      allSub += l.price_subtotal || 0;
+      if (ADDON[l.product_id] === 'bank' || ADDON[l.product_id] === 'peppol') addSub += l.price_subtotal || 0;
       const u = KAVEL_UOMS[l.uom];
       if (u === 'k') k += l.qty; else if (u === 'c') c += l.qty; else if (u === 'h') h += l.qty;
       if (ADDON[l.product_id] === 'bank') bank += l.qty;
@@ -276,7 +309,10 @@ export async function deriveSalesFacts(env, settings) {
     return {
       fam: lic ? LICENSE_FAMILY[lic.product_id] : (ls.length ? 'Overig' : 'Geen licentie'),
       licId: lic ? lic.product_id : null,
-      k: r2(k), c: r2(c), h: r2(h), bank: r2(bank), peppol: r2(peppol)
+      k: r2(k), c: r2(c), h: r2(h), bank: r2(bank), peppol: r2(peppol),
+      // lf: aandeel van de licentie in de MRR (alles behalve bank en Peppol; een korting
+      // hoort bij de licentie). Licentie-MRR = mrrAt() x lf, en per kavel = / (k+c+h).
+      lf: allSub > 0 ? Math.max(0, Math.min(1, r2((allSub - addSub) / allSub))) : 1
     };
   }
 
@@ -340,6 +376,10 @@ export async function deriveSalesFacts(env, settings) {
     if (!ended && !chain.pend && last.next_invoice_date && daysBetween(last.next_invoice_date, today) > 14) {
       att('warn', 'expired_running', `${last.name}: lopend, maar de periode eindigde ${daysBetween(last.next_invoice_date, today)} dagen geleden`,
         `${customers[ci].name}. Geen verlengingsofferte en niet stopgezet: telt als actief tot iemand het afsluit of verlengt.`, [ref(last)]);
+    }
+    if (!ended && (partner.get(cid) || {}).invoiced_by_partner) {
+      att('warn', 'via_expert_own_sub', `${last.name}: eigen abonnement, maar "facturatie via expert" staat aan`,
+        `${customers[ci].name}. Dan factureert de expert dit gebouw in zijn eigen abonnement: wordt het dubbel aangerekend, of staat het vinkje verkeerd?`, [ref(last)]);
     }
     if (!ended && (last.recurring_monthly || 0) <= 0) {
       att('info', 'zero_mrr', `${last.name}: lopend abonnement zonder bedrag`, `${customers[ci].name}. Telt als abonnement, niet in de ARR.`, [ref(last)]);
@@ -486,6 +526,64 @@ export async function deriveSalesFacts(env, settings) {
       settings.exclusions.map((e) => `${e.label || e.kind + ' ' + e.record_id}: ${e.reason}`).join(' · '), []);
   }
 
+  // ── Test- en interne partners, om in Odoo op te ruimen ──────────────────
+  // Gevonden op de NAAM: een SUGGESTIE, geen regel. Ze tellen gewoon mee tot iemand
+  // ze in Odoo opruimt (archiveren, of "Niet gefactureerde klant" aanvinken) -- het
+  // dashboard toont ze enkel, met een link naar elk record. Uitsluiten zou ze net
+  // onzichtbaar maken, en dan ruimt niemand ze op.
+  // tests: [partner-id, naam, klanttype-id, reden ('naam'|'expert'|'ouder'), hoort bij (id) of 0,
+  //         gebouwen met deze partner als expert, waarvan facturatie via expert, leads, lopend abonnement [order-id, naam, mrr] of null]
+  // Begin van een woord, niet het hele woord: "Testgebouw" en "TestVME" horen erbij,
+  // "Grotestraat" en "Septestraat" niet. "Teststraat" wel -- een suggestie, geen regel.
+  const TEST_RE = /\b(test|demo|dummy|proef|fictief)|^mymmo\b/i;
+  const testIds = new Set(raw.partners.filter((p) => p.is_company && p.active !== 0 && TEST_RE.test(String(p.name || '').trim())).map((p) => p.id));
+  const lopendVan = (pid) => {
+    if (!custIdx.has(pid)) return null;
+    const ch = (chainsByCust.get(custIdx.get(pid)) || []).map((i) => chains[i]).find((x) => !x.end);
+    if (!ch) return null;
+    const lp = ch.p[ch.p.length - 1];
+    return [lp.o, lp.n, lp.m];
+  };
+  const tests = [];
+  raw.partners.forEach((p) => {
+    if (!p.is_company || p.active === 0) return;
+    const eigen = testIds.has(p.id);
+    const bij = eigen ? 0 : testIds.has(p.parent_expert_id) ? p.parent_expert_id : testIds.has(p.parent_id) ? p.parent_id : 0;
+    if (!eigen && !bij) return;
+    const kinderen = eigen ? raw.partners.filter((x) => x.parent_expert_id === p.id && x.active !== 0) : [];
+    tests.push([p.id, p.name || `#${p.id}`, p.company_type_id || 0, eigen ? 'naam' : (p.parent_expert_id === bij ? 'expert' : 'ouder'), bij,
+      kinderen.length, kinderen.filter((x) => x.invoiced_by_partner).length, (leadsByCustomer.get(p.id) || []).length, lopendVan(p.id)]);
+  });
+  const testEigen = tests.filter((t) => !t[4]);
+  if (testEigen.length) {
+    att('warn', 'test_partners', `${testEigen.length} test- of interne partners in Odoo, met ${tests.length - testEigen.length} gebouwen eraan`,
+      'Gevonden op de naam (test, demo, proef, een naam die met Mymmo begint): een suggestie, geen regel. Ze tellen gewoon mee tot ze in Odoo opgeruimd zijn. '
+        + 'De lijst toont per partner wat eraan hangt: gebouwen, leads, een lopend abonnement.',
+      testEigen.slice(0, 25).map((t) => ({ model: 'res.partner', id: t[0], label: t[1] })), 'tests');
+  }
+
+  // ── Gebouwen per expert ──────────────────────────────────────────────────
+  // Een gebouw met "facturatie via expert" heeft geen eigen abonnement: de expert
+  // factureert het in zijn professioneel abonnement. Hier staat per expert hoeveel
+  // gebouwen dat zijn en hoeveel kavels ze volgens Odoo (partner) hebben, zodat het
+  // dashboard dat naast de GEFACTUREERDE kavels kan zetten.
+  // viaBuildings: [expertId, gebouw-id, naam, kavels volgens Odoo (0 = onbekend)]
+  const viaBuildings = [], expertAgg = new Map();
+  raw.partners.forEach((p) => {
+    if (!p.is_company || p.active === 0 || !p.parent_expert_id || exPartner.has(p.id) || exPartner.has(p.parent_expert_id)) return;
+    const e = expertAgg.get(p.parent_expert_id) || { n: 0, via: 0, viaPlots: 0, viaUnknown: 0 };
+    e.n++;
+    if (p.invoiced_by_partner) {
+      const kv = p.number_of_plots || p.number_of_apartments || 0;
+      e.via++; e.viaPlots += kv; if (!kv) e.viaUnknown++;
+      viaBuildings.push([p.parent_expert_id, p.id, p.name || `#${p.id}`, kv]);
+    }
+    expertAgg.set(p.parent_expert_id, e);
+  });
+  // experts: [expert-id, naam, klantindex (-1 = geen klant), gebouwen, via expert, kavels via, via zonder kavelaantal]
+  const experts = [...expertAgg.entries()].map(([id, e]) => [id, (partner.get(id) || {}).name || `#${id}`,
+    custIdx.has(id) ? custIdx.get(id) : -1, e.n, e.via, e.viaPlots, e.viaUnknown]);
+
   // Aantal kavels: actieblad of partner, anders het aantal op de licentielijn
   // (Basic/Smart/Coached en Professional worden per kavel gefactureerd).
   chains.forEach((ch) => {
@@ -503,11 +601,12 @@ export async function deriveSalesFacts(env, settings) {
       syncedAt: lastRun.length ? lastRun[0] : null,
       syncErrors: raw.sync.filter((s) => s.last_error).map((s) => ({ model: s.model, error: s.last_error })),
       odooUrl: 'https://mymmo.odoo.com',
-      products: PRODUCT_TARGETS, stages: stageNames, assistantLicenses: ASSISTANT_LICENSES, proLicense: PRO_LICENSE
+      products: PRODUCT_TARGETS, stages: stageNames, assistantLicenses: ASSISTANT_LICENSES, proLicense: PRO_LICENSE,
+      syndicoachId
     },
     dict: Object.fromEntries(Object.entries(D).map(([k, v]) => [k, v.list])),
     bron: BRON.list, leadProducts: PROD.list,
-    customers, chains, trans, revenue, leads, planned,
+    customers, chains, trans, revenue, leads, planned, experts, viaBuildings, tests,
     pendHist: raw.pendHist.map((r) => [r.day, r.origin_id, r2(r.mrr)]),
     attention, excluded: { ...excluded, mrr: r2(excluded.mrr), transactional: r2(excluded.transactional), revenue: r2(excluded.revenue) },
     manualRatios: settings.manualRatios

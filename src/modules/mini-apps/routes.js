@@ -37,12 +37,13 @@
  *    POST   /api/apps/:id/chat-send                        → Bericht naar een kanaal sturen (view-toegang, guardrails zie lib/chat.js)
  *    GET    /api/apps/:id/schedules                        → Geplande taken van deze app (view-toegang, iedereen ziet alle taken)
  *    POST   /api/apps/:id/schedules                        → Nieuwe geplande taak aanmaken (view-toegang, zie lib/scheduler.js)
- *    PUT    /api/apps/:id/schedules/:scheduleId             → Taak bewerken (aanmaker of app-eigenaar)
+ *    POST   /api/apps/:id/schedules/ensure                 → "Zo moet taak <key> eruitzien": aanmaken of ter plekke bijwerken (aanmaker of app-eigenaar)
+ *    PUT    /api/apps/:id/schedules/:scheduleId             → Taak bewerken, ook één veld (aanmaker of app-eigenaar)
  *    DELETE /api/apps/:id/schedules/:scheduleId             → Taak verwijderen (aanmaker of app-eigenaar)
  *    POST   /api/apps/:id/schedules/:scheduleId/run-now     → Taak nu al eens testen (aanmaker of app-eigenaar)
  *    GET    /api/apps/:id/condition-tasks                       → Criteria-taken van deze app (view-toegang, iedereen ziet alle taken)
  *    POST   /api/apps/:id/condition-tasks                       → Nieuwe criteria-taak aanmaken (view-toegang, zie lib/condition-scheduler.js)
- *    PUT    /api/apps/:id/condition-tasks/:taskId                → Taak bewerken (aanmaker of app-eigenaar)
+ *    PUT    /api/apps/:id/condition-tasks/:taskId                → Taak bewerken, ook één veld (aanmaker of app-eigenaar)
  *    DELETE /api/apps/:id/condition-tasks/:taskId                → Taak verwijderen (aanmaker of app-eigenaar)
  *    POST   /api/apps/:id/condition-tasks/:taskId/run-now         → Taak nu al eens testen -- forceert de send, ongeacht edge-triggering (aanmaker of app-eigenaar)
  *    GET/POST /api/apps/:id/drive/*                 → UITGESCHAKELD (2026-07-24, zie CLAUDE.md "Google Drive-koppeling mini-apps") -- geeft altijd 404, zie DRIVE_INTEGRATION_ENABLED in lib/google-drive-client.js
@@ -95,7 +96,7 @@ import { putAppContent, getAppContent, deleteAppContent } from './lib/r2-client.
 import { canView, canEdit, normalizeSharedUserIds, isValidUUID } from './permissions.js';
 import {
   listStorage, getStorageValue, setStorageValue, deleteStorageValue,
-  listCollectionItems, addCollectionItem, updateCollectionItem, removeCollectionItem, getStorageUsage,
+  listCollectionItems, countCollectionItems, addCollectionItem, updateCollectionItem, removeCollectionItem, getStorageUsage,
   deleteAllStorage
 } from './lib/storage.js';
 import { notifyUser, isSubscribed, setSubscription } from './lib/notify.js';
@@ -103,8 +104,14 @@ import { askAI, MAX_PER_APP_PER_DAY, MAX_GLOBAL_PER_DAY } from './lib/ai.js';
 import { serializeAiError, httpStatusForAiError } from './lib/ai-errors.js';
 import { estimateCostUsd } from './lib/ai-pricing.js';
 import { registerChannel, listChannels, deleteChannel, sendChannelMessage } from './lib/chat.js';
-import { validateTaskPayload, MAX_TASKS_PER_APP, computeNextRun, runTaskNow } from './lib/scheduler.js';
-import { validateConditionTaskPayload, MAX_CONDITION_TASKS_PER_APP, runConditionTaskNow } from './lib/condition-scheduler.js';
+import {
+  validateTaskPayload, validateTaskKey, MAX_TASKS_PER_APP, computeNextRun, runTaskNow,
+  taskRowToDto, taskConfigToColumns, mergeTaskConfig, diffTaskColumns
+} from './lib/scheduler.js';
+import {
+  validateConditionTaskPayload, MAX_CONDITION_TASKS_PER_APP, runConditionTaskNow,
+  conditionRowToDto, mergeConditionConfig
+} from './lib/condition-scheduler.js';
 import { getOrderedFavorites, saveFavoritesOrder } from './lib/favorites.js';
 import { listDriveFiles, getDriveFile, createDriveFile, DRIVE_INTEGRATION_ENABLED } from './lib/google-drive-client.js';
 import { resolveGoogleEmail } from './lib/user-settings.js';
@@ -300,6 +307,142 @@ async function attachConditionTaskDisplayNames(supabase, env, tasks) {
     targetColleagueName: t.target_type === 'colleague' ? (userMap.get(t.target_user_id) || 'Onbekend') : null,
     targetChannelName: t.target_type === 'channel' ? (channelMap.get(t.target_channel_id) || 'Onbekend') : null
   }));
+}
+
+/**
+ * Geplande taken zoals de app ze krijgt: taskRowToDto() (dezelfde veldnamen
+ * als bij create/ensure) plus weergavenamen en rechten. ELKE schedule-route
+ * antwoordt hiermee, zodat lijst, aanmaken, bijwerken en ensure dezelfde vorm
+ * teruggeven en een app een taak kan vergelijken met wat ze zelf meegaf.
+ */
+async function scheduleDtos(supabase, env, app, user, rows) {
+  const enriched = await attachScheduleDisplayNames(supabase, env, rows);
+  return enriched.map(t => ({
+    ...taskRowToDto(t),
+    createdByName: t.createdByName,
+    targetColleagueName: t.targetColleagueName,
+    targetChannelName: t.targetChannelName,
+    isMine: t.created_by_user_id === user.id,
+    canManage: t.created_by_user_id === user.id || canEdit(app, user)
+  }));
+}
+
+/** Zelfde als scheduleDtos, voor criteria-taken (eigen vorm, eigen functie). */
+async function conditionDtos(supabase, env, app, user, rows) {
+  const enriched = await attachConditionTaskDisplayNames(supabase, env, rows);
+  return enriched.map(t => ({
+    ...conditionRowToDto(t),
+    createdByName: t.createdByName,
+    targetColleagueName: t.targetColleagueName,
+    targetChannelName: t.targetChannelName,
+    isMine: t.created_by_user_id === user.id,
+    canManage: t.created_by_user_id === user.id || canEdit(app, user)
+  }));
+}
+
+function keyExistsError(key) {
+  return jsonError(
+    `Er bestaat al een geplande taak met key "${key}" in deze app. Gebruik schedule.ensure() om ze bij te werken.`,
+    409,
+    'KEY_EXISTS'
+  );
+}
+
+/**
+ * Maakt een geplande taak aan -- gedeeld door POST /schedules en ensure, zodat
+ * die twee nooit verschillend valideren. { row } of { errorResponse }.
+ */
+async function createScheduledTask(supabase, env, app, user, body) {
+  try {
+    validateTaskPayload(body);
+  } catch (err) {
+    return { errorResponse: jsonError(err.message, 400, err.code) };
+  }
+  const targetErr = await validateTarget(supabase, env, body);
+  if (targetErr) return { errorResponse: targetErr };
+
+  const { count, error: countErr } = await supabase
+    .from('mini_app_scheduled_tasks')
+    .select('id', { count: 'exact', head: true })
+    .eq('mini_app_id', app.id);
+  if (countErr) return { errorResponse: jsonError('Taken tellen mislukt.', 500) };
+  if ((count || 0) >= MAX_TASKS_PER_APP) {
+    return { errorResponse: jsonError(`Maximum aantal geplande taken per app (${MAX_TASKS_PER_APP}) bereikt.`, 400, 'TOO_MANY_TASKS') };
+  }
+
+  let columns;
+  let nextRunAt = null;
+  const isActive = body.isActive !== false;
+  try {
+    columns = taskConfigToColumns(body);
+    if (isActive) nextRunAt = computeNextRun(columns.recurrence, new Date());
+  } catch (err) {
+    return { errorResponse: jsonError(err.message, 400, err.code) };
+  }
+
+  const { data: created, error } = await supabase
+    .from('mini_app_scheduled_tasks')
+    .insert({
+      mini_app_id: app.id,
+      created_by_user_id: user.id,
+      ...columns,
+      is_active: isActive,
+      next_run_at: nextRunAt ? nextRunAt.toISOString() : null
+    })
+    .select('*')
+    .single();
+
+  if (error) {
+    if (error.code === '23505') return { errorResponse: keyExistsError(columns.task_key) };
+    console.error(`${LOG_PREFIX} schedule create error:`, error.message);
+    return { errorResponse: jsonError('Aanmaken mislukt.', 500) };
+  }
+  return { row: created };
+}
+
+/**
+ * Werkt een geplande taak bij naar `config` (een VOLLEDIGE, al gevalideerde
+ * instelling). Vergelijkt eerst de hele instelling: is er niets veranderd,
+ * dan wordt er niets geschreven. Het verzendmoment wordt enkel herberekend
+ * als WANNEER er iets vertrekt veranderde (recurrence of aan/uit) -- anders
+ * schuift een tekstwijziging tussen 09:30 en de cronslag van 09:30 de post
+ * van vandaag naar morgen. De runvelden (laatste status/fout) blijven staan:
+ * dat is geschiedenis, en die klopt nog.
+ * { row, changed } of { errorResponse }.
+ */
+async function updateScheduledTask(supabase, task, config) {
+  let columns;
+  try {
+    columns = taskConfigToColumns(config);
+  } catch (err) {
+    return { errorResponse: jsonError(err.message, 400, err.code) };
+  }
+  const isActive = typeof config.isActive === 'boolean' ? config.isActive : task.is_active;
+  const update = { ...columns, is_active: isActive };
+  const changed = diffTaskColumns(task, update);
+  if (!changed.length) return { row: task, changed };
+
+  if (changed.includes('recurrence') || changed.includes('isActive')) {
+    try {
+      const next = isActive ? computeNextRun(columns.recurrence, new Date()) : null;
+      update.next_run_at = next ? next.toISOString() : null;
+    } catch (err) {
+      return { errorResponse: jsonError(err.message, 400, err.code) };
+    }
+  }
+
+  const { data: updated, error } = await supabase
+    .from('mini_app_scheduled_tasks')
+    .update(update)
+    .eq('id', task.id)
+    .select('*')
+    .single();
+  if (error) {
+    if (error.code === '23505') return { errorResponse: keyExistsError(columns.task_key) };
+    console.error(`${LOG_PREFIX} schedule update error:`, error.message);
+    return { errorResponse: jsonError('Bijwerken mislukt.', 500) };
+  }
+  return { row: updated, changed };
 }
 
 /**
@@ -554,7 +697,7 @@ export const routes = {
 
     const { data: tasks, error } = await supabase
       .from('mini_app_scheduled_tasks')
-      .select('id, name, is_active, recurrence, delivery_method, target_type, target_user_id, target_channel_id, subject_template, message_template, next_run_at, last_run_at, last_run_status, last_run_error, created_by_user_id, created_at, updated_at')
+      .select('*')
       .eq('mini_app_id', app.id)
       .order('created_at', { ascending: true });
     if (error) {
@@ -562,12 +705,7 @@ export const routes = {
       return jsonError('Lijst ophalen mislukt.', 500);
     }
 
-    const enriched = await attachScheduleDisplayNames(supabase, env, tasks || []);
-    return jsonOk(enriched.map(t => ({
-      ...t,
-      isMine: t.created_by_user_id === user.id,
-      canManage: t.created_by_user_id === user.id || canEdit(app, user)
-    })));
+    return jsonOk(await scheduleDtos(supabase, env, app, user, tasks || []));
   },
 
   // ── Geplande taken — aanmaken (view-toegang; elke viewer mag zijn eigen
@@ -587,56 +725,80 @@ export const routes = {
       return jsonError('Ongeldige JSON-body.', 400);
     }
 
+    const result = await createScheduledTask(supabase, env, app, user, body);
+    if (result.errorResponse) return result.errorResponse;
+    console.log(`${LOG_PREFIX} SCHEDULE CREATE ${result.row.id} (app ${app.id}) — user ${user.id}`);
+    const [dto] = await scheduleDtos(supabase, env, app, user, [result.row]);
+    return jsonOk(dto);
+  },
+
+  // ── Geplande taken — ensure: "zo moet taak <key> eruitzien" ─────────────
+  // Bestaat er in deze app nog geen taak met die key, dan wordt ze aangemaakt
+  // (op naam van wie ensure aanroept). Bestaat ze wel, dan vergelijkt de
+  // server de HELE instelling en werkt hij de taak ter plekke bij -- zelfde
+  // id, zelfde historiek. Daarom bestaat dit: Winkellijst vergeleek zelf enkel
+  // de berichttekst, en een gewijzigde recurrence bleef zo maanden staan.
+  // Antwoord: { task, created, changed: [veldnamen] }. Een weggelaten onlyIf
+  // of subjectTemplate betekent "geen"; een weggelaten isActive laat de
+  // huidige stand staan.
+  'POST /api/apps/:id/schedules/ensure': async ({ request, env, user, params }) => {
+    const supabase = getSupabaseClient(env);
+    const { data: app, error: appErr } = await supabase
+      .from('mini_apps').select(SELECT_FIELDS).eq('id', params.id).maybeSingle();
+    if (appErr) return jsonError('App ophalen mislukt.', 500);
+    if (!app) return jsonError('App niet gevonden.', 404);
+    if (!canView(app, user)) return jsonError('Geen toegang tot deze app.', 403, 'FORBIDDEN');
+
+    let body;
     try {
-      validateTaskPayload(body);
+      body = await request.json();
+    } catch (_err) {
+      return jsonError('Ongeldige JSON-body.', 400);
+    }
+    try {
+      validateTaskKey(body && body.key);
+    } catch (err) {
+      return jsonError(`ensure() vraagt een key. ${err.message}`, 400, err.code);
+    }
+
+    const { data: existing, error: findErr } = await supabase
+      .from('mini_app_scheduled_tasks')
+      .select('*')
+      .eq('mini_app_id', app.id)
+      .eq('task_key', body.key)
+      .maybeSingle();
+    if (findErr) {
+      console.error(`${LOG_PREFIX} schedule ensure lookup error:`, findErr.message);
+      return jsonError('Taak opzoeken mislukt.', 500);
+    }
+
+    if (!existing) {
+      const result = await createScheduledTask(supabase, env, app, user, body);
+      if (result.errorResponse) return result.errorResponse;
+      console.log(`${LOG_PREFIX} SCHEDULE ENSURE-CREATE ${result.row.id} key ${body.key} (app ${app.id}) — user ${user.id}`);
+      const [dto] = await scheduleDtos(supabase, env, app, user, [result.row]);
+      return jsonOk({ task: dto, created: true, changed: [] });
+    }
+
+    if (!(existing.created_by_user_id === user.id || canEdit(app, user))) {
+      return jsonError('Deze taak is van een collega; enkel die of de app-eigenaar mag ze bijwerken.', 403, 'FORBIDDEN');
+    }
+    const desired = { ...body, isActive: typeof body.isActive === 'boolean' ? body.isActive : existing.is_active };
+    try {
+      validateTaskPayload(desired);
     } catch (err) {
       return jsonError(err.message, 400, err.code);
     }
-
-    const targetErr = await validateTarget(supabase, env, body);
+    const targetErr = await validateTarget(supabase, env, desired);
     if (targetErr) return targetErr;
 
-    const { count, error: countErr } = await supabase
-      .from('mini_app_scheduled_tasks')
-      .select('id', { count: 'exact', head: true })
-      .eq('mini_app_id', app.id);
-    if (countErr) return jsonError('Taken tellen mislukt.', 500);
-    if ((count || 0) >= MAX_TASKS_PER_APP) {
-      return jsonError(`Maximum aantal geplande taken per app (${MAX_TASKS_PER_APP}) bereikt.`, 400, 'TOO_MANY_TASKS');
+    const result = await updateScheduledTask(supabase, existing, desired);
+    if (result.errorResponse) return result.errorResponse;
+    if (result.changed.length) {
+      console.log(`${LOG_PREFIX} SCHEDULE ENSURE-UPDATE ${existing.id} key ${body.key} (app ${app.id}) — user ${user.id} — ${result.changed.join(', ')}`);
     }
-
-    let nextRunAt;
-    try {
-      nextRunAt = computeNextRun(body.recurrence, new Date());
-    } catch (err) {
-      return jsonError(err.message, 400, err.code);
-    }
-
-    const { data: created, error } = await supabase
-      .from('mini_app_scheduled_tasks')
-      .insert({
-        mini_app_id: app.id,
-        created_by_user_id: user.id,
-        name: body.name.trim(),
-        recurrence: body.recurrence,
-        delivery_method: body.deliveryMethod,
-        target_type: body.targetType,
-        target_user_id: body.targetType === 'colleague' ? body.targetUserId : null,
-        target_channel_id: body.targetType === 'channel' ? body.targetChannelId : null,
-        subject_template: body.deliveryMethod === 'mail' ? body.subjectTemplate.trim() : null,
-        message_template: body.messageTemplate.trim(),
-        next_run_at: nextRunAt ? nextRunAt.toISOString() : null,
-        is_active: true
-      })
-      .select('id, name, is_active, recurrence, delivery_method, target_type, target_user_id, target_channel_id, subject_template, message_template, next_run_at, created_by_user_id, created_at, updated_at')
-      .single();
-
-    if (error) {
-      console.error(`${LOG_PREFIX} schedule create error:`, error.message);
-      return jsonError('Aanmaken mislukt.', 500);
-    }
-    console.log(`${LOG_PREFIX} SCHEDULE CREATE ${created.id} (app ${app.id}) — user ${user.id}`);
-    return jsonOk(created);
+    const [dto] = await scheduleDtos(supabase, env, app, user, [result.row]);
+    return jsonOk({ task: dto, created: false, changed: result.changed });
   },
 
   // ── Geplande taken — bewerken (aanmaker of app-eigenaar) ────────────────
@@ -655,50 +817,23 @@ export const routes = {
       return jsonError('Ongeldige JSON-body.', 400);
     }
 
+    // Bijwerken mag één veld zijn: wat niet meegegeven wordt, blijft staan.
+    // Vroeger moest ELK veld mee, anders weigerde de validatie -- daarom ging
+    // Winkellijst taken verwijderen en opnieuw aanmaken (nieuw id, historiek kwijt).
+    const merged = mergeTaskConfig(task, body);
     try {
-      validateTaskPayload(body);
+      validateTaskPayload(merged);
     } catch (err) {
       return jsonError(err.message, 400, err.code);
     }
-    const targetErr = await validateTarget(supabase, env, body);
+    const targetErr = await validateTarget(supabase, env, merged);
     if (targetErr) return targetErr;
 
-    const isActive = typeof body.isActive === 'boolean' ? body.isActive : task.is_active;
-    let nextRunAt = null;
-    if (isActive) {
-      try {
-        nextRunAt = computeNextRun(body.recurrence, new Date());
-      } catch (err) {
-        return jsonError(err.message, 400, err.code);
-      }
-    }
-
-    const { data: updated, error } = await supabase
-      .from('mini_app_scheduled_tasks')
-      .update({
-        name: body.name.trim(),
-        recurrence: body.recurrence,
-        delivery_method: body.deliveryMethod,
-        target_type: body.targetType,
-        target_user_id: body.targetType === 'colleague' ? body.targetUserId : null,
-        target_channel_id: body.targetType === 'channel' ? body.targetChannelId : null,
-        subject_template: body.deliveryMethod === 'mail' ? body.subjectTemplate.trim() : null,
-        message_template: body.messageTemplate.trim(),
-        is_active: isActive,
-        next_run_at: nextRunAt ? nextRunAt.toISOString() : null,
-        last_run_status: null,
-        last_run_error: null
-      })
-      .eq('id', task.id)
-      .select('id, name, is_active, recurrence, delivery_method, target_type, target_user_id, target_channel_id, subject_template, message_template, next_run_at, created_by_user_id, created_at, updated_at')
-      .single();
-
-    if (error) {
-      console.error(`${LOG_PREFIX} schedule update error:`, error.message);
-      return jsonError('Bijwerken mislukt.', 500);
-    }
-    console.log(`${LOG_PREFIX} SCHEDULE UPDATE ${task.id} (app ${app.id}) — user ${user.id}`);
-    return jsonOk(updated);
+    const result = await updateScheduledTask(supabase, task, merged);
+    if (result.errorResponse) return result.errorResponse;
+    console.log(`${LOG_PREFIX} SCHEDULE UPDATE ${task.id} (app ${app.id}) — user ${user.id} — ${result.changed.join(', ') || 'geen wijziging'}`);
+    const [dto] = await scheduleDtos(supabase, env, app, user, [result.row]);
+    return jsonOk(dto);
   },
 
   // ── Geplande taken — verwijderen (aanmaker of app-eigenaar) ─────────────
@@ -730,7 +865,7 @@ export const routes = {
 
     try {
       const result = await runTaskNow(env, task.id);
-      console.log(`${LOG_PREFIX} SCHEDULE RUN-NOW ${task.id} (app ${app.id}) — user ${user.id} — status ${result?.last_run_status}`);
+      console.log(`${LOG_PREFIX} SCHEDULE RUN-NOW ${task.id} (app ${app.id}) — user ${user.id} — status ${result?.lastRunStatus}`);
       return jsonOk(result);
     } catch (err) {
       console.error(`${LOG_PREFIX} schedule run-now error:`, err.message);
@@ -751,7 +886,7 @@ export const routes = {
 
     const { data: tasks, error } = await supabase
       .from('mini_app_condition_tasks')
-      .select('id, name, is_active, criteria, last_condition_met, last_checked_at, last_triggered_at, delivery_method, target_type, target_user_id, target_channel_id, subject_template, message_template, last_run_at, last_run_status, last_run_error, created_by_user_id, created_at, updated_at')
+      .select('*')
       .eq('mini_app_id', app.id)
       .order('created_at', { ascending: true });
     if (error) {
@@ -759,12 +894,7 @@ export const routes = {
       return jsonError('Lijst ophalen mislukt.', 500);
     }
 
-    const enriched = await attachConditionTaskDisplayNames(supabase, env, tasks || []);
-    return jsonOk(enriched.map(t => ({
-      ...t,
-      isMine: t.created_by_user_id === user.id,
-      canManage: t.created_by_user_id === user.id || canEdit(app, user)
-    })));
+    return jsonOk(await conditionDtos(supabase, env, app, user, tasks || []));
   },
 
   // ── Criteria-taken — aanmaken (view-toegang; elke viewer mag zijn eigen
@@ -817,7 +947,7 @@ export const routes = {
         message_template: body.messageTemplate.trim(),
         is_active: true
       })
-      .select('id, name, is_active, criteria, last_condition_met, delivery_method, target_type, target_user_id, target_channel_id, subject_template, message_template, created_by_user_id, created_at, updated_at')
+      .select('*')
       .single();
 
     if (error) {
@@ -825,7 +955,8 @@ export const routes = {
       return jsonError('Aanmaken mislukt.', 500);
     }
     console.log(`${LOG_PREFIX} CONDITION-TASK CREATE ${created.id} (app ${app.id}) — user ${user.id}`);
-    return jsonOk(created);
+    const [dto] = await conditionDtos(supabase, env, app, user, [created]);
+    return jsonOk(dto);
   },
 
   // ── Criteria-taken — bewerken (aanmaker of app-eigenaar) ────────────────
@@ -844,27 +975,29 @@ export const routes = {
       return jsonError('Ongeldige JSON-body.', 400);
     }
 
+    // Bijwerken mag één veld zijn: wat niet meegegeven wordt, blijft staan.
+    const merged = mergeConditionConfig(task, body);
     try {
-      validateConditionTaskPayload(body);
+      validateConditionTaskPayload(merged);
     } catch (err) {
       return jsonError(err.message, 400, err.code);
     }
-    const targetErr = await validateTarget(supabase, env, body);
+    const targetErr = await validateTarget(supabase, env, merged);
     if (targetErr) return targetErr;
 
-    const isActive = typeof body.isActive === 'boolean' ? body.isActive : task.is_active;
+    const isActive = typeof merged.isActive === 'boolean' ? merged.isActive : task.is_active;
 
     const { data: updated, error } = await supabase
       .from('mini_app_condition_tasks')
       .update({
-        name: body.name.trim(),
-        criteria: body.criteria,
-        delivery_method: body.deliveryMethod,
-        target_type: body.targetType,
-        target_user_id: body.targetType === 'colleague' ? body.targetUserId : null,
-        target_channel_id: body.targetType === 'channel' ? body.targetChannelId : null,
-        subject_template: body.deliveryMethod === 'mail' ? body.subjectTemplate.trim() : null,
-        message_template: body.messageTemplate.trim(),
+        name: merged.name.trim(),
+        criteria: merged.criteria,
+        delivery_method: merged.deliveryMethod,
+        target_type: merged.targetType,
+        target_user_id: merged.targetType === 'colleague' ? merged.targetUserId : null,
+        target_channel_id: merged.targetType === 'channel' ? merged.targetChannelId : null,
+        subject_template: merged.deliveryMethod === 'mail' ? merged.subjectTemplate.trim() : null,
+        message_template: merged.messageTemplate.trim(),
         is_active: isActive,
         // Criteria/actieve status wijzigt -- reset de edge-detectie-state
         // zodat een oude "was al waar"-status niet per ongeluk een terechte
@@ -874,7 +1007,7 @@ export const routes = {
         last_run_error: null
       })
       .eq('id', task.id)
-      .select('id, name, is_active, criteria, last_condition_met, delivery_method, target_type, target_user_id, target_channel_id, subject_template, message_template, created_by_user_id, created_at, updated_at')
+      .select('*')
       .single();
 
     if (error) {
@@ -882,7 +1015,8 @@ export const routes = {
       return jsonError('Bijwerken mislukt.', 500);
     }
     console.log(`${LOG_PREFIX} CONDITION-TASK UPDATE ${task.id} (app ${app.id}) — user ${user.id}`);
-    return jsonOk(updated);
+    const [dto] = await conditionDtos(supabase, env, app, user, [updated]);
+    return jsonOk(dto);
   },
 
   // ── Criteria-taken — verwijderen (aanmaker of app-eigenaar) ─────────────
@@ -915,7 +1049,7 @@ export const routes = {
 
     try {
       const result = await runConditionTaskNow(env, task.id);
-      console.log(`${LOG_PREFIX} CONDITION-TASK RUN-NOW ${task.id} (app ${app.id}) — user ${user.id} — status ${result?.last_run_status}`);
+      console.log(`${LOG_PREFIX} CONDITION-TASK RUN-NOW ${task.id} (app ${app.id}) — user ${user.id} — status ${result?.lastRunStatus}`);
       return jsonOk(result);
     } catch (err) {
       console.error(`${LOG_PREFIX} condition-task run-now error:`, err.message);
@@ -1575,7 +1709,8 @@ export const routes = {
       return jsonOk(data);
     } catch (err) {
       console.error(`${LOG_PREFIX} storage list error:`, err.message);
-      return jsonError('Opslag ophalen mislukt.', 500);
+      // Een code = een verwachte grens (bv. RESULT_TOO_LARGE): die uitleg hoort bij de app.
+      return err.code ? jsonError(err.message, 400, err.code) : jsonError('Opslag ophalen mislukt.', 500);
     }
   },
 
@@ -1684,7 +1819,10 @@ export const routes = {
   },
 
   // ── Collections — items ophalen (view-toegang volstaat) ─────────────
-  'GET /api/apps/:id/storage/collections/:collection': async ({ env, user, params }) => {
+  // ?q=<JSON>  optioneel filter { where, orderBy, order, limit, offset }
+  //            (lib/storage-query.js), op de server uitgevoerd
+  // ?count=1   enkel het aantal dat aan het filter voldoet: { count }
+  'GET /api/apps/:id/storage/collections/:collection': async ({ request, env, user, params }) => {
     const supabase = getSupabaseClient(env);
     const { data: app, error: fetchError } = await supabase
       .from('mini_apps')
@@ -1696,12 +1834,27 @@ export const routes = {
     if (!app) return jsonError('App niet gevonden.', 404);
     if (!canView(app, user)) return jsonError('Geen toegang tot deze app.', 403, 'FORBIDDEN');
 
+    const search = new URL(request.url).searchParams;
+    let query;
+    if (search.has('q')) {
+      try {
+        query = JSON.parse(search.get('q'));
+      } catch (_err) {
+        return jsonError('Het filter (q) is geen geldige JSON.', 400, 'INVALID_QUERY');
+      }
+    }
+
     try {
-      const items = await listCollectionItems(env, app.id, params.collection);
+      if (search.get('count') === '1') {
+        const count = await countCollectionItems(env, app.id, params.collection, query);
+        return jsonOk({ count });
+      }
+      const items = await listCollectionItems(env, app.id, params.collection, query);
       return jsonOk(items);
     } catch (err) {
       console.error(`${LOG_PREFIX} collection list error:`, err.message);
-      return jsonError('Collection ophalen mislukt.', 500);
+      // Een code = ongeldig filter of een verwachte grens: de uitleg hoort bij de app.
+      return err.code ? jsonError(err.message, 400, err.code) : jsonError('Collection ophalen mislukt.', 500);
     }
   },
 

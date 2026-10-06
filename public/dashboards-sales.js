@@ -20,7 +20,10 @@
   var A = 'data-sl-action';
   var STORE = 'dashboards.verkoop.v1';
 
-  var DEFAULTS = { seg: 'vme', merk: '', ct: '', plan: '', lic: '', user: '', ch: '', org: '', syn: '', plots: '', inv: '', expert: '' };
+  // seg = klanttype (VME in advies / in beheer / professionele syndicus); free '0' = zonder gratis licenties.
+  var DEFAULTS = { seg: 'all', pack: '', beg: '', free: '0', merk: '', plan: '', lic: '', user: '', ch: '', org: '', syn: '', plots: '', expert: '' };
+  var SEGS = { all: 'alle klanttypes', advies: "VME's in advies", beheer: "VME's in beheer", pro: 'professionele syndici' };
+  var SEG_CT = { advies: 1, beheer: 3, pro: 2 };
   var PERIODS = { '30d': 'laatste 30 dagen', '90d': 'laatste 90 dagen', fy: 'dit boekjaar', '12m': 'laatste 12 maanden', '24m': 'laatste 24 maanden' };
   var st = { data: null, loading: false, period: '12m', f: Object.assign({}, DEFAULTS), split: 'ct', basis: 'order', renewWin: 90 };
 
@@ -32,6 +35,8 @@
       if (saved.split) st.split = saved.split;
       if (saved.basis) st.basis = saved.basis;
     }
+    // Een oude bewaarde keuze ("vme") bestaat niet meer.
+    if (!SEGS[st.f.seg]) st.f.seg = DEFAULTS.seg;
   } catch (_) { /* geen opslag */ }
   function save() {
     try { localStorage.setItem(STORE, JSON.stringify({ period: st.period, f: st.f, split: st.split, basis: st.basis })); } catch (_) { /* geen opslag */ }
@@ -70,6 +75,7 @@
     +   card('slChurn', 'Verloren', 'Abonnementen die stopten zonder dat de klant binnen de wisselperiode een ander abonnement had.')
     +   card('slTrans', 'Transactionele inkomsten', 'Producten zonder abonnement (credits, opstarthulp, ...).')
     +   card('slRev', 'Gefactureerde omzet', 'Geboekte facturen min creditnota\'s, per bron, op factuurdatum.')
+    +   card('slKav', 'Kavels en prijs per kavel', 'Per manier van factureren: hoeveel kavels lopen er, en wat brengt een kavel per maand op. Klik op een rij voor de abonnementen.')
     +   card('slPro', 'Professionele syndici', 'Lopende professionele abonnementen (maandelijks, per kavel), en wie gepland is maar nog niet in Odoo staat.')
     +   card('slAtt', 'Na te kijken', 'Wat de regels opvallend vonden. Niets hiervan wordt stil weggelaten: het telt mee zoals beschreven.')
     + '</div></div>';
@@ -134,15 +140,15 @@
     };
   }
 
-  var CUST_KEYS = ['merk', 'ct', 'ch', 'org', 'syn', 'plots', 'expert'];
+  var CUST_KEYS = ['pack', 'beg', 'merk', 'ch', 'org', 'syn', 'plots', 'expert'];
   function custOk(c, skip) {
     var f = st.f;
-    if (skip !== 'seg') { if (f.seg === 'vme' && c.ctId === 2) return false; if (f.seg === 'pro' && c.ctId !== 2) return false; }
+    if (skip !== 'seg' && f.seg !== 'all' && c.ctId !== SEG_CT[f.seg]) return false;
+    if (skip !== 'free' && f.free !== '' && String(c.free || 0) !== f.free) return false;
     for (var i = 0; i < CUST_KEYS.length; i++) {
       var k = CUST_KEYS[i];
       if (k !== skip && f[k] !== '' && String(c[k]) !== String(f[k])) return false;
     }
-    if (skip !== 'inv' && f.inv !== '' && String(c.inv) !== f.inv) return false;
     return true;
   }
   function chainOk(ch, skip) {
@@ -177,6 +183,13 @@
       .filter(function (o) { return o[2] > 0 || String(st.f[key]) === o[0]; })
       .sort(function (a, b) { return b[2] - a[2]; });
   }
+  /** Knoppen uit een woordenlijst: enkel de waarden die bij een klant voorkomen (of nu gekozen zijn). */
+  function dictPills(kind, rename) {
+    var used = {};
+    st.data.customers.forEach(function (c) { used[c[kind]] = 1; });
+    return (st.data.dict[kind] || []).map(function (m, i) { return [String(i), rename[m] || m, m]; })
+      .filter(function (o) { return used[Number(o[0])] || st.f[kind] === o[0]; });
+  }
   function countBy(key, fromChain) {
     var m = {}, now = st.data.meta.today;
     chains(key).forEach(function (ch) {
@@ -186,11 +199,11 @@
     });
     return m;
   }
-  var CHIP = { seg: 'Segment', merk: 'Merk', ct: 'Klanttype', plan: 'Plan', lic: 'Licentie', user: 'Verkoper', ch: 'Kanaal', org: 'Herkomst', syn: 'Huidig beheer', plots: 'Kavels', inv: 'Facturatie via expert', expert: 'Adviserend expert' };
+  var CHIP = { seg: 'Klanttype', pack: 'Syndicoach-pakket', beg: 'Begeleiding', free: 'Licenties', merk: 'Merk (lead)', plan: 'Plan', lic: 'Licentie', user: 'Verkoper', ch: 'Kanaal', org: 'Herkomst', syn: 'Huidig beheer', plots: 'Kavels', expert: 'Adviserend expert' };
   function chipValue(k) {
     var v = st.f[k];
-    if (k === 'seg') return { vme: "VME's", pro: 'Professionals', all: 'Alles' }[v];
-    if (k === 'inv') return v === '1' ? 'ja' : 'nee';
+    if (k === 'seg') return { advies: 'VME in advies', beheer: 'VME in beheer', pro: 'professionele syndici', all: 'alle' }[v];
+    if (k === 'free') return { '0': 'zonder gratis', '1': 'enkel gratis', '': 'betalend en gratis' }[v];
     var kind = { lic: 'lic', plan: 'plan', user: 'user' }[k] || k;
     return D(kind, Number(v));
   }
@@ -200,12 +213,17 @@
       '<div class="rounded-2xl bg-base-100 border border-base-content/10 shadow-sm p-4 space-y-3 lg:p-3">'
       + '<div>' + K.groupLabel('Periode', 'Waarover nieuw, verlengd, verloren en omzet geteld worden. ARR en actieve abonnementen zijn de stand op vandaag.')
       + K.pills(A, 'period', null, [['30d', '30 d'], ['90d', '90 d'], ['fy', 'Boekjaar'], ['12m', '12 m'], ['24m', '24 m']], st.period, true) + '</div>'
-      + '<div>' + K.groupLabel('Segment', 'VME = VME en VME in beheer (ook zonder klanttype). Professionals = klanttype Professioneel Syndicus.')
-      + K.pills(A, 'seg', 'seg', [['vme', "VME's"], ['pro', 'Professionals'], ['all', 'Alles']], st.f.seg, true) + '</div>'
-      + '<div>' + K.groupLabel('Merk', WHY.merk)
+      + '<div>' + K.groupLabel('Klanttype', WHY.seg)
+      + K.pills(A, 'seg', 'seg', [['all', 'Alle'], ['advies', 'Advies', 'VME in advies: beheert zelf, ondersteund door een expert'], ['beheer', 'Beheer', 'VME in beheer: een professionele syndicus beheert het gebouw'], ['pro', 'Prof.', 'Professionele syndici']], st.f.seg, true) + '</div>'
+      + '<div>' + K.groupLabel('Syndicoach-pakket', WHY.pack)
+      + K.pills(A, 'pack', 'pack', [['', 'Alle']].concat(dictPills('pack', { 'Geen pakket': 'Geen' })), st.f.pack, true) + '</div>'
+      + '<div>' + K.groupLabel('Begeleiding', WHY.beg)
+      + K.pills(A, 'beg', 'beg', [['', 'Alle']].concat(dictPills('beg', { 'Andere expert': 'Andere', 'Geen expert': 'Geen' })), st.f.beg, true) + '</div>'
+      + '<div>' + K.groupLabel('Merk (herkomst lead)', WHY.merk)
       + K.pills(A, 'merk', 'merk', [['', 'Alle']].concat((st.data.dict.merk || []).map(function (m, i) { return [String(i), m]; })), st.f.merk, true) + '</div>'
+      + '<div>' + K.groupLabel('Licenties', WHY.free)
+      + K.pills(A, 'free', 'free', [['0', 'Betalend'], ['1', 'Gratis'], ['', 'Alle']], st.f.free, true) + '</div>'
       + '<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-2 pt-3 border-t border-base-content/10">'
-      + K.select('data-sl-select', 'ct', 'Klanttype', opts('ct', 'ct', countBy('ct')), st.f.ct)
       + K.select('data-sl-select', 'lic', 'Licentie', opts('lic', 'lic', countBy('lic', 'licNow')), st.f.lic, 'De licentie van de lopende periode.')
       + K.select('data-sl-select', 'plan', 'Plan', opts('plan', 'plan', countBy('plan', 'plan')), st.f.plan)
       + K.select('data-sl-select', 'user', 'Verkoper', opts('user', 'user', countBy('user', 'user')), st.f.user)
@@ -213,9 +231,8 @@
       + K.select('data-sl-select', 'org', 'Merk-herkomst (lead)', opts('org', 'org', countBy('org')), st.f.org)
       + K.select('data-sl-select', 'syn', 'Huidig beheer', opts('syn', 'syn', countBy('syn')), st.f.syn, 'Uit het actieblad van het gebouw, anders van de partner.')
       + K.select('data-sl-select', 'plots', 'Aantal kavels', opts('plots', 'plots', countBy('plots')), st.f.plots, 'Actieblad of partner, anders het aantal op de licentielijn.')
-      + K.select('data-sl-select', 'expert', 'Adviserend expert', opts('expert', 'expert', countBy('expert')), st.f.expert)
+      + K.select('data-sl-select', 'expert', 'Adviserend expert', opts('expert', 'expert', countBy('expert')), st.f.expert, 'De expert op het gebouw in Odoo (x_studio_parent_expert).')
       + '</div>'
-      + '<div>' + K.groupLabel('Facturatie via expert') + K.pills(A, 'inv', 'inv', [['', 'Alle'], ['1', 'Ja'], ['0', 'Nee']], st.f.inv, true) + '</div>'
       + (active.length ? '<div class="flex flex-wrap items-center gap-2 pt-3 border-t border-base-content/10"><span class="text-xs text-base-content/60">Actief:</span>'
         + active.map(function (k) {
           return '<span class="inline-flex items-center gap-1 rounded-full bg-primary/10 text-xs pl-2.5 pr-1 py-0.5">' + esc(CHIP[k] + ': ' + chipValue(k))
@@ -293,8 +310,22 @@
       net: arr.map(function (v, i) { return v === null ? null : v - (i ? arr[i - 1] : prevArr); }),
       pend: days.map(function (d) { return snapDays[d]; }),
       trans: trans, rev: rev,
-      pro: ms.map(function (m) { return isFuture(m) ? null : arrAt(pros, at(m)); })
+      pro: ms.map(function (m) { return isFuture(m) ? null : arrAt(pros, at(m)); }),
+      kav: ms.map(function (m) { return isFuture(m) ? null : kavAt(list, at(m)).kav; })
     };
+  }
+  function kavOf(p) { return p ? (p.k || 0) + (p.c || 0) + (p.h || 0) : 0; }
+  /** Kavels en licentie-MRR op een dag. Per kavel telt enkel wat kavels heeft (geen vaste prijs zoals Unlimited). */
+  function kavAt(list, d) {
+    var o = { kav: 0, lic: 0, kavLic: 0, zonder: 0 };
+    list.forEach(function (ch) {
+      var p = periodAt(ch, d); if (!p) return;
+      var k = kavOf(p), lm = mrrAt(ch, d) * (p.lf === undefined ? 1 : p.lf);
+      o.lic += lm;
+      if (k > 0) { o.kav += k; o.kavLic += lm; } else o.zonder++;
+    });
+    o.perKav = o.kav ? o.kavLic / o.kav : null;
+    return o;
   }
 
   function renderKpis(list, w) {
@@ -316,6 +347,11 @@
       tile({ label: 'Actieve abonnementen', value: nf(act.length), delta: K.delta(act.length, actFrom.length, true, 'abs'), sub: 'bij ' + nf(Object.keys(custN).length) + ' klanten', series: sp12.act, drill: 'kpi:act' }),
       tile({ label: 'Gem. ARR per abonnement', value: eur(act.length ? arr / act.length : 0), delta: K.delta(act.length ? arr / act.length : 0, actFrom.length ? arrFrom / actFrom.length : null, true), series: sp12.arpa, drill: 'kpi:arpa',
         help: 'ARR / actieve abonnementen. Het oude dashboard toonde hier het gemiddelde over alle rijen van de sheet, ook upsells en verloren periodes.' }),
+      (function () {
+        var kn = kavAt(list, now), kf = kavAt(list, w.from);
+        return tile({ label: 'Kavels', value: nf(kn.kav), delta: K.delta(kn.kav, kf.kav, true, 'abs'),
+          sub: kn.perKav === null ? 'geen abonnementen met kavels' : eur(kn.perKav) + ' per kavel per maand', series: sp12.kav, drill: 'kpi:kav', help: WHY.kav + ' ' + WHY.kavPrijs });
+      })(),
       tile({ label: 'Nieuw', value: nf(s.newN), delta: K.delta(s.newN, sp.newN, true, 'abs'), sub: eur(s.newArr, true) + ' ARR', series: sp12.nw, drill: 'kpi:nw' }),
       tile({ label: 'Verlengd', value: nf(s.renewN), delta: K.delta(s.renewN, sp.renewN, true, 'abs'),
         sub: 'verlengingsgraad ' + K.pctTxt(s.rate) + (s.outcomes.waiting + s.outcomes.open ? ' · ' + nf(s.outcomes.waiting + s.outcomes.open) + ' nog open' : ''), series: sp12.renew, drill: 'kpi:renew',
@@ -333,7 +369,7 @@
   }
 
   // ── Grafieken en lijsten ──────────────────────────────────────────────────
-  var SPLITS = { ct: ['ct', 'Klanttype'], lic: ['licNow', 'Licentie'], merk: ['merk', 'Merk'], plan: ['plan', 'Plan'], none: [null, 'Totaal'] };
+  var SPLITS = { ct: ['ct', 'Klanttype'], pack: ['pack', 'Pakket'], beg: ['beg', 'Begeleiding'], lic: ['licNow', 'Licentie'], merk: ['merk', 'Merk (lead)'], plan: ['plan', 'Plan'], none: [null, 'Totaal'] };
   function splitValue(ch) {
     var s = SPLITS[st.split][0]; if (!s) return 'Totaal';
     if (s === 'licNow') return D('lic', ch.licNow);
@@ -528,7 +564,7 @@
       return K.bars(b, ms.map(function (m) { return isFuture(m) ? null : Math.round(rows.filter(function (r) { return r[1] === i && K.monthOf(r[0]) === m; }).reduce(function (s, r) { return s + r[2]; }, 0)); }), i, { stack: 'r' });
     }).filter(function (s) { return s.data.some(function (v) { return v; }); });
     $('slRev').innerHTML = '<div style="height:220px"><canvas id="slRevChart" aria-label="Gefactureerde omzet per maand"></canvas></div>'
-      + '<p class="text-xs text-base-content/50 mt-2">Professionele abonnementen = abonnementsproducten van klanten met klanttype Professioneel Syndicus. Syndicoach-omzet komt er later bij als eigen bron.</p>';
+      + '<p class="text-xs text-base-content/50 mt-2">Professionele abonnementen = abonnementsproducten van klanten met klanttype Professioneel Syndicus. Syndicoach (de pakketten Assistant, Captain en Coach) factureert nog niet in Odoo; die omzet komt er als eigen bron bij zodra dat wel zo is.</p>';
     K.chart('slRevChart', {
       type: 'bar', plugins: [bandPlugin(ms, w)], data: { labels: ms.map(function (m) { return K.monthLabel(m); }), datasets: sets },
       options: K.baseOptions({ scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: false, ticks: { callback: function (v) { return eur(v, true); } } } },
@@ -537,24 +573,72 @@
     });
   }
 
+  var ROUTES = [['advies', 'VME in advies', 'eigen licentie (Basic, Smart, Unlimited, ...)'], ['beheer', 'VME in beheer, gefactureerd door OpenVME', 'eigen abonnement OpenVME Professional'],
+    ['pro', 'Professionele syndici', 'alle kavels van hun gebouwen, eigen prijs'], ['onbekend', 'Zonder klanttype', '']];
+  function routeOf(ch) { var t = cust(ch).ctId; return t === 1 ? 'advies' : t === 3 ? 'beheer' : t === 2 ? 'pro' : 'onbekend'; }
+  /** Per expert: [id, naam, klantindex, gebouwen, via expert, kavels via, via zonder kavelaantal]. */
+  function experts() { return (st.data.experts || []).filter(function (e) { return e[4] > 0; }); }
+  /** Staat deze partner in de lijst test- en interne partners (op de naam gevonden)? */
+  function isTest(id) { return (st.data.tests || []).some(function (t) { return t[0] === id && !t[4]; }); }
+  var TEST_BADGE = ' <span class="badge badge-warning badge-sm" title="Op de naam gevonden als test- of interne partner: zie Na te kijken">test?</span>';
+  function renderKav(w) {
+    // Alle klanttypes naast elkaar (het klanttypefilter geldt hier niet, de andere filters wel).
+    var list = chains('seg'), now = w.to;
+    var rows = ROUTES.map(function (r) {
+      var sub = list.filter(function (ch) { return routeOf(ch) === r[0]; }), k = kavAt(sub, now);
+      return { r: r, n: activeAt(sub, now).length, k: k };
+    }).filter(function (x) { return x.n > 0 || x.r[0] !== 'onbekend'; });
+    var via = experts().reduce(function (s, e) { s.n += e[4]; s.k += e[5]; s.unk += e[6]; return s; }, { n: 0, k: 0, unk: 0 });
+    var td = function (v, cls) { return '<td class="text-right tabular-nums ' + (cls || '') + '">' + v + '</td>'; };
+    $('slKav').innerHTML = '<div class="overflow-x-auto"><table data-om-sortable class="table table-sm"><thead><tr><th>Wie</th><th class="text-right">Abonnementen</th><th class="text-right">Kavels</th>'
+      + '<th class="text-right" title="Abonnementen met een vaste prijs, zonder kavelaantal">Zonder kavels</th><th class="text-right">Licentie-MRR</th><th class="text-right">Per kavel / maand</th></tr></thead><tbody>'
+      + rows.map(function (x) {
+        var on = st.f.seg === x.r[0];
+        return '<tr class="cursor-pointer om-hover ' + (on ? 'bg-primary/5 font-medium' : '') + '" ' + A + '="drill" data-drill="kavr:' + x.r[0] + '"><td>' + esc(x.r[1])
+          + (x.r[2] ? '<div class="text-[11px] text-base-content/50 font-normal">' + esc(x.r[2]) + '</div>' : '') + '</td>'
+          + td(nf(x.n)) + td(nf(x.k.kav)) + td(x.k.zonder ? nf(x.k.zonder) : '—', 'text-base-content/60') + td(eur(x.k.lic)) + td(x.k.perKav === null ? '—' : eur(x.k.perKav), 'font-medium') + '</tr>';
+      }).join('')
+      + '<tr class="cursor-pointer om-hover" ' + A + '="drill" data-drill="via:all"><td>VME in beheer, gefactureerd door hun expert<div class="text-[11px] text-base-content/50">geen eigen abonnement; de kavels horen bij de professional hierboven</div></td>'
+      + td(nf(via.n) + ' gebouwen', 'text-base-content/70') + td(nf(via.k), 'text-base-content/70') + td(via.unk ? nf(via.unk) + ' onbekend' : '—', 'text-base-content/60') + td('—') + td('—') + '</tr>'
+      + '</tbody></table></div>'
+      + '<p class="text-[11px] text-base-content/50 mt-2">' + esc(WHY.kavPrijs) + ' De laatste rij komt uit de gebouwen in Odoo ("Facturatie via expert"), los van de filters links: die gebouwen zijn geen klant van OpenVME.</p>';
+  }
+
   function renderPro(w) {
     var now = w.to;
     var pros = st.data.chains.filter(function (ch) { return alive(ch) && cust(ch).ctId === 2 && custOk(cust(ch), 'seg') && periodAt(ch, now); });
     pros.sort(function (a, b) { return mrrAt(b, now) - mrrAt(a, now); });
     var tot = { m: 0, k: 0, c: 0, h: 0, bank: 0, peppol: 0 };
+    var expByCust = {}; experts().forEach(function (e) { if (e[2] >= 0) expByCust[e[2]] = e; });
+    var running = {}; pros.forEach(function (ch) { running[ch.c] = 1; });
+    // Experts die gebouwen via zich laten factureren, maar zelf geen lopend abonnement hebben.
+    var zonder = experts().filter(function (e) { return e[2] < 0 || !running[e[2]]; }).sort(function (a, b) { return b[4] - a[4]; });
     var rows = pros.map(function (ch) {
       var p = periodAt(ch, now), m = mrrAt(ch, now);
       tot.m += m; tot.k += p.k || 0; tot.c += p.c || 0; tot.h += p.h || 0; tot.bank += p.bank || 0; tot.peppol += p.peppol || 0;
+      var kv = kavOf(p), pk = kv ? m * (p.lf === undefined ? 1 : p.lf) / kv : null, e = expByCust[ch.c];
+      // Factureert de professional minder kavels dan zijn gebouwen "via expert" volgens Odoo hebben?
+      var minder = e && e[5] > kv;
       return '<tr><td>' + esc(cust(ch).name) + '</td><td>' + K.dayLabel(ch.start) + '</td><td class="text-right tabular-nums">' + eur(m) + '</td><td class="text-right tabular-nums">' + eur(12 * m)
-        + '</td><td class="text-right">' + nf(p.k) + '</td><td class="text-right">' + nf(p.c) + '</td><td class="text-right">' + nf(p.h) + '</td><td class="text-right">' + nf(p.bank) + '</td><td class="text-right">' + nf(p.peppol)
+        + '</td><td class="text-right">' + nf(p.k) + '</td><td class="text-right">' + nf(p.c) + '</td><td class="text-right">' + nf(p.h)
+        + '</td><td class="text-right tabular-nums font-medium">' + (pk === null ? '—' : eur(pk)) + '</td><td class="text-right">' + nf(p.bank) + '</td><td class="text-right">' + nf(p.peppol)
+        + '</td><td class="text-right">' + (e ? '<a class="link link-hover ' + (minder ? 'text-warning font-medium' : '') + '" ' + A + '="drill" data-drill="via:' + e[0] + '" title="'
+          + esc(nf(e[4]) + ' gebouwen met "Facturatie via expert" en deze professional als expert, samen ' + nf(e[5]) + ' kavels volgens Odoo' + (e[6] ? ' (' + nf(e[6]) + ' zonder kavelaantal)' : '') + '. Het abonnement factureert er ' + nf(kv) + '.') + '">'
+          + nf(e[4]) + ' · ' + nf(e[5]) + ' kv</a>' : '<span class="text-base-content/30">—</span>')
         + '</td><td>' + K.odooLink('sale.order', p.o, p.n) + '</td></tr>';
     });
     var ms = chartMonths(w);
     var at = function (m, f) { if (isFuture(m)) return null; var d = m === K.monthOf(now) ? now : K.monthEnd(m); return st.data.chains.filter(function (ch) { return alive(ch) && cust(ch).ctId === 2 && custOk(cust(ch), 'seg'); }).reduce(function (s, ch) { var p = periodAt(ch, d); return s + (p ? f(p) : 0); }, 0); };
     var planned = st.data.planned || [];
-    $('slPro').innerHTML = '<div class="overflow-x-auto"><table data-om-sortable class="table table-xs"><thead><tr><th>Professional</th><th>Sinds</th><th class="text-right">MRR</th><th class="text-right">ARR</th><th class="text-right" title="Appartementen/kavels">Kavels</th><th class="text-right" title="Commerciële units">Comm.</th><th class="text-right">Huizen</th><th class="text-right">Bank</th><th class="text-right">Peppol</th><th></th></tr></thead><tbody>'
-      + (rows.join('') || '<tr><td colspan="10" class="text-base-content/60">Geen lopende professionele abonnementen in deze selectie.</td></tr>')
-      + '</tbody><tfoot><tr><td>Totaal</td><td></td><td class="text-right">' + eur(tot.m) + '</td><td class="text-right">' + eur(12 * tot.m) + '</td><td class="text-right">' + nf(tot.k) + '</td><td class="text-right">' + nf(tot.c) + '</td><td class="text-right">' + nf(tot.h) + '</td><td class="text-right">' + nf(tot.bank) + '</td><td class="text-right">' + nf(tot.peppol) + '</td><td></td></tr></tfoot></table></div>'
+    $('slPro').innerHTML = '<div class="overflow-x-auto"><table data-om-sortable class="table table-xs"><thead><tr><th>Professional</th><th>Sinds</th><th class="text-right">MRR</th><th class="text-right">ARR</th><th class="text-right" title="Appartementen/kavels">Kavels</th><th class="text-right" title="Commerciële units">Comm.</th><th class="text-right">Huizen</th><th class="text-right" title="Licentie-MRR gedeeld door de kavels (bank en Peppol eraf)">Per kavel</th><th class="text-right">Bank</th><th class="text-right">Peppol</th>'
+      + '<th class="text-right" title="Gebouwen met Facturatie via expert en deze professional als expert, en hun kavels volgens Odoo. Oranje = meer dan het abonnement factureert.">Via hen gefactureerd</th><th></th></tr></thead><tbody>'
+      + (rows.join('') || '<tr><td colspan="12" class="text-base-content/60">Geen lopende professionele abonnementen in deze selectie.</td></tr>')
+      + '</tbody><tfoot><tr><td>Totaal</td><td></td><td class="text-right">' + eur(tot.m) + '</td><td class="text-right">' + eur(12 * tot.m) + '</td><td class="text-right">' + nf(tot.k) + '</td><td class="text-right">' + nf(tot.c) + '</td><td class="text-right">' + nf(tot.h) + '</td><td></td><td class="text-right">' + nf(tot.bank) + '</td><td class="text-right">' + nf(tot.peppol) + '</td><td></td><td></td></tr></tfoot></table></div>'
+      + (zonder.length ? '<h3 class="text-sm font-semibold mt-4 mb-1">Laten gebouwen via zich factureren, zonder lopend abonnement</h3>'
+        + '<table data-om-sortable class="table table-xs"><thead><tr><th>Expert</th><th class="text-right">Gebouwen via hen</th><th class="text-right">Kavels (Odoo)</th></tr></thead><tbody>'
+        + zonder.map(function (e) {
+          return '<tr class="cursor-pointer om-hover" ' + A + '="drill" data-drill="via:' + e[0] + '"><td>' + esc(e[1]) + (isTest(e[0]) ? TEST_BADGE : '') + '</td><td class="text-right">' + nf(e[4]) + '</td><td class="text-right">' + nf(e[5]) + (e[6] ? ' <span class="text-base-content/50">(' + nf(e[6]) + ' onbekend)</span>' : '') + '</td></tr>';
+        }).join('') + '</tbody></table><p class="text-[11px] text-base-content/50 mt-1">Hun gebouwen staan in Odoo op "Facturatie via expert", maar er loopt geen professioneel abonnement dat die kavels factureert. Gepland, een test, of iets dat ontbreekt?</p>' : '')
       + '<div style="height:200px" class="mt-3"><canvas id="slProChart" aria-label="Kavels, bankkoppelingen en peppol per maand"></canvas></div>'
       + '<h3 class="text-sm font-semibold mt-4 mb-1">Gepland, nog niet in Odoo</h3>'
       + '<table data-om-sortable class="table table-xs"><thead><tr><th>Professional</th><th>Vanaf</th><th class="text-right">Kavels</th><th class="text-right">MRR</th><th class="text-right">ARR</th><th></th></tr></thead><tbody>'
@@ -591,7 +675,8 @@
     var one = function (a) {
       return '<li class="py-2"><div class="flex items-start gap-2"><i data-lucide="' + (a.sev === 'warn' ? 'alert-triangle' : 'info') + '" class="w-4 h-4 mt-0.5 shrink-0 ' + (a.sev === 'warn' ? 'text-warning' : 'text-base-content/40') + '"></i>'
         + '<div class="min-w-0"><div class="text-sm">' + esc(a.title) + '</div><div class="text-xs text-base-content/60">' + esc(a.detail) + '</div>'
-        + (a.refs && a.refs.length ? '<div class="text-xs mt-1 flex flex-wrap gap-x-3">' + a.refs.map(function (r) { return K.odooLink(r.model, r.id, r.label); }).join('') + '</div>' : '') + '</div></div></li>';
+        + (a.drill ? '<div class="text-xs mt-1"><a class="link link-primary" ' + A + '="drill" data-drill="' + esc(a.drill) + '">Bekijk de volledige lijst</a></div>'
+          : a.refs && a.refs.length ? '<div class="text-xs mt-1 flex flex-wrap gap-x-3">' + a.refs.map(function (r) { return K.odooLink(r.model, r.id, r.label); }).join('') + '</div>' : '') + '</div></div></li>';
     };
     $('slAttSub').textContent = nf(warn.length) + ' om na te kijken, ' + nf(info.length) + ' ter info. Niets hiervan wordt weggelaten: het telt mee zoals beschreven.';
     $('slAtt').innerHTML = items.length ? '<ul class="divide-y om-lijnen">' + warn.concat(info).map(one).join('') + '</ul>' : '<p class="text-sm text-base-content/60">Niets opvallends.</p>';
@@ -610,20 +695,31 @@
     verloren: function () { return 'Verloren = de laatste periode eindigt (einddatum, of de volgende factuurdatum als die vroeger valt) en de klant heeft binnen ' + W() + ' dagen erna geen ander abonnement, lopend of nieuw. De reden is de stopzettingsreden op de laatste order.'; },
     wissel: function () { return 'Wissel = het abonnement stopt of start terwijl de klant binnen ' + W() + ' dagen een ander abonnement heeft. Geen verloren en geen nieuwe klant.'; },
     wijziging: 'Uitbreiding of verlaging = de nieuwe periode bij een verlenging kost meer of minder dan de vorige, of een upsell op zijn startdatum.',
-    merk: 'Merk = uit één lead van de klant: de kans van het eerste contract, anders zijn oudste gewonnen lead, anders zijn oudste lead. Syndicoach als die lead merk-herkomst Syndicoach of Syndicuskiezen heeft, een kanaal dat met "syndicoach" begint, of "syndicoach" of "syndicus kiezen" in de naam of een label. Anders OpenVME: OpenVME heeft geen eigen signaal. Onbekend = er is geen enkele lead van die klant (geen kans op zijn orders, geen lead op de klant of een contactpersoon ervan).',
+    merk: 'Merk (herkomst lead) zegt via welk merk de klant BINNENKWAM; het Syndicoach-pakket zegt welke dienst hij nu heeft. Merk = uit één lead van de klant: de kans van het eerste contract, anders zijn oudste gewonnen lead, anders zijn oudste lead. Syndicoach als die lead merk-herkomst Syndicoach of Syndicuskiezen heeft, een kanaal dat met "syndicoach" begint, of "syndicoach" of "syndicus kiezen" in de naam of een label. Anders OpenVME: OpenVME heeft geen eigen signaal. Onbekend = er is geen enkele lead van die klant (geen kans op zijn orders, geen lead op de klant of een contactpersoon ervan).',
     lead: 'Kanaal en merk-herkomst komen van dezelfde lead als het merk.',
-    ct: 'Klanttype = het klanttype van de klant (commerciële partner) in Odoo, anders dat van de order.',
+    ct: 'Klanttype = het klanttype van de klant (commerciële partner) in Odoo, anders dat van de order. VME in advies heet in Odoo kortweg "VME".',
+    seg: 'VME in advies = de VME beheert het gebouw zelf (eigenaar-syndicus) en wordt ondersteund door haar adviserend expert; in Odoo heet dat klanttype kortweg "VME". VME in beheer = een professionele syndicus beheert het gebouw, soms Syndicoach zelf. Professionele syndicus = gebruikt het platform voor al zijn gebouwen en betaalt per kavel. Klanttype van de klant (commerciële partner), anders van de order.',
+    pack: 'Syndicoach-pakket = de dienst van Syndicoach aan het gebouw, naast de OpenVME-software: Assistant (ondersteuning, uren in regie per credit), Captain (Syndicoach is de syndicus), Coach. Uit het veld "Syndicoach Pakket" op het gebouw in Odoo. Syndicoach factureert nog niet in Odoo: de omzet van de pakketten staat hier nog niet, enkel het OpenVME-abonnement van die gebouwen.',
+    beg: 'Begeleiding = de adviserend expert op het gebouw in Odoo: Syndicoach zelf, een andere expert (een professionele syndicus of adviseur), of niemand.',
+    free: 'Gratis = "Niet gefactureerde klant" aangevinkt in Odoo: interne gebruikers met een gratis licentie. Standaard tellen ze niet mee. Op 6 oktober 2026 stond dat vinkje bij niemand.',
+    kav: 'Kavels = appartementen of kavels + commerciële units + huizen op de licentielijnen van de lopende periode. Een licentie met een vaste prijs (Unlimited, early adopter) heeft er geen.',
+    kavPrijs: 'Per kavel per maand = de licentie-MRR (de MRR zonder bank- en Peppol-koppelingen) gedeeld door de kavels; abonnementen zonder kavels tellen daar niet in mee. VME in beheer via OpenVME betaalt de standaardprijs (~€ 4), een professionele syndicus zijn eigen prijs (vaak € 1).',
+    via: 'Facturatie via expert = op het gebouw in Odoo aangevinkt: de expert (professionele syndicus) factureert het zelf. Het gebouw heeft dan GEEN eigen abonnement; zijn kavels horen in het abonnement van die professional, tegen diens prijs.',
     lic: 'Licentie = het licentieproduct op de orderlijnen van de lopende periode.',
     plan: 'Plan = het abonnementsplan van de laatste order.'
   };
   /** De selectie waarbinnen de lijst geldt: segment, de filters links en wat altijd buiten valt. */
   function selectieWhy() {
-    var bits = ['segment ' + { vme: "VME's (VME en VME in beheer)", pro: 'professionele syndici', all: 'alle klanttypes' }[st.f.seg]];
-    Object.keys(DEFAULTS).forEach(function (k) { if (k !== 'seg' && st.f[k] !== DEFAULTS[k]) bits.push(CHIP[k].toLowerCase() + ' ' + chipValue(k)); });
+    var bits = [SEGS[st.f.seg], st.f.free === '0' ? 'zonder gratis licenties' : st.f.free === '1' ? 'enkel gratis licenties' : 'betalend en gratis'];
+    Object.keys(DEFAULTS).forEach(function (k) { if (k !== 'seg' && k !== 'free' && st.f[k] !== DEFAULTS[k]) bits.push(CHIP[k].toLowerCase() + ' ' + chipValue(k)); });
     var ex = (st.data.excluded || {}).items || [];
     var out = ['Selectie: ' + esc(bits.join(' · ')) + '.' + (ex.length ? ' Altijd buiten de cijfers: ' + esc(ex.map(function (e) { return e.label || (e.kind + ' ' + e.record_id); }).join(', ')) + '.' : '')];
     if (st.f.merk !== '') out.push(WHY.merk);
     if (st.f.ch !== '' || st.f.org !== '') out.push(WHY.lead);
+    if (st.f.seg !== 'all') out.push(WHY.seg);
+    if (st.f.pack !== '') out.push(WHY.pack);
+    if (st.f.beg !== '') out.push(WHY.beg);
+    if (st.f.free !== '0') out.push(WHY.free);
     return out;
   }
 
@@ -675,7 +771,8 @@
     pend: { label: 'Wachten op betaling', type: 'line', all: 'pend', days: true },
     trans: { label: 'Transactioneel', type: 'bar', money: true, all: 'trans', at: 'transm:' },
     rev: { label: 'Gefactureerde omzet', type: 'bar', money: true, all: 'rev', at: 'revm:' },
-    pro: { label: 'Professionele ARR', type: 'line', money: true, all: 'pro', at: 'pro@', zero: false, stand: true }
+    pro: { label: 'Professionele ARR', type: 'line', money: true, all: 'pro', at: 'pro@', zero: false, stand: true },
+    kav: { label: 'Kavels', type: 'line', all: 'kav', at: 'kav@', zero: false, stand: true }
   };
   function openKpi(name, idx) {
     var k = KPIS[name], sp = st.sp;
@@ -701,10 +798,10 @@
     });
   }
 
-  var CH_HEAD = ['Klant', 'Order', 'Licentie', 'Klanttype', 'Merk', 'Klant sinds', 'ARR'];
+  var CH_HEAD = ['Klant', 'Order', 'Licentie', 'Klanttype', 'Pakket', 'Merk', 'Klant sinds', 'ARR'];
   function chainRow(ch, d, extra) {
     var p = periodAt(ch, d) || ch.p[ch.p.length - 1], c = cust(ch);
-    return [esc(c.name), K.odooLink('sale.order', p.o, p.n), esc(D('lic', ch.licNow)), esc(D('ct', c.ct)), esc(D('merk', c.merk)), K.dayLabel(ch.start),
+    return [esc(c.name), K.odooLink('sale.order', p.o, p.n), esc(D('lic', ch.licNow)), esc(D('ct', c.ct)), esc(D('pack', c.pack)), esc(D('merk', c.merk)), K.dayLabel(ch.start),
       eur(12 * (periodAt(ch, d) ? mrrAt(ch, d) : p.m))].concat(extra || []);
   }
   function openDrill(key, extra) {
@@ -879,12 +976,80 @@
         var kav = msP.map(function (m) { if (isFuture(m)) return null; var dd = endOf(m); return prosAll.reduce(function (s, ch) { var q = periodAt(ch, dd); return s + (q ? (q.k || 0) + (q.c || 0) + (q.h || 0) : 0); }, 0); });
         extra = Object.assign({}, extra, { keep: true, chart: monthChart(msP, kav, 'Kavels', false, selP, function (i) { openDrill(i === selP ? 'pro' : 'pro@' + msP[i], { kavels: true }); }, true) });
       }
+    } else if (key === 'kav' || mOf('kav@') || parts[0] === 'kavr') {
+      // kav@<maand> = de stand op het einde van die maand; kavr:<route> = een rij van de kaart Kavels.
+      var km = mOf('kav@'), dk = km ? endOf(km) : w.to, route = parts[0] === 'kavr' ? parts[1] : null;
+      var srcK = route ? chains('seg').filter(function (ch) { return routeOf(ch) === route; }) : list;
+      var actK = activeAt(srcK, dk).sort(function (a, b) { return kavOf(periodAt(b, dk)) - kavOf(periodAt(a, dk)); });
+      title = route ? 'Kavels · ' + ROUTES.filter(function (r) { return r[0] === route; })[0][1] : 'Kavels' + (km ? ' — eind ' + K.monthLabel(km, true) : ' — vandaag');
+      sub = 'Stand op ' + K.dayLabel(dk) + '.';
+      why = [WHY.kav, WHY.kavPrijs, WHY.actief(dk), WHY.seg];
+      head = ['Klant', 'Order', 'Klanttype', 'Licentie', 'Pakket', 'Kavels', 'MRR', 'Licentie-MRR', 'Per kavel / maand', 'Waarom'];
+      rows = actK.map(function (ch) {
+        var p = periodAt(ch, dk), kv = kavOf(p), mm = mrrAt(ch, dk), lf = p.lf === undefined ? 1 : p.lf, c2 = cust(ch);
+        var delen = [p.k ? nf(p.k) + ' appartementen/kavels' : '', p.c ? nf(p.c) + ' commerciële' : '', p.h ? nf(p.h) + ' huizen' : ''].filter(Boolean).join(' + ');
+        var bewijs = (delen || 'Geen kavels op de licentielijnen (vaste prijs)') + ' · licentie = ' + K.pctTxt(lf * 100, 0) + ' van de MRR'
+          + (p.bank || p.peppol ? ' (bank ' + nf(p.bank) + ', Peppol ' + nf(p.peppol) + ' eraf)' : '') + ' · periode ' + periodTxt(p);
+        return withMerk(ch, [esc(c2.name), K.odooLink('sale.order', p.o, p.n), esc(D('ct', c2.ct)), esc(D('lic', ch.licNow)), esc(D('pack', c2.pack)), nf(kv), eur(mm), eur(mm * lf),
+          kv ? eur(mm * lf / kv) : '—', bewijs]);
+      });
+      if (route) {
+        extra = Object.assign({}, extra, { keep: true, chart: (function () {
+          var msR = chartMonths(w), atR = function (m) { return m === K.monthOf(w.to) ? w.to : K.monthEnd(m); };
+          return monthChart(msR, msR.map(function (m) { return isFuture(m) ? null : kavAt(srcK, atR(m)).kav; }), 'Kavels', false, -1, null, true);
+        })() });
+      }
+    } else if (key === 'tests') {
+      // Om op te ruimen in Odoo: per partner wat eraan hangt. Telt gewoon mee in de cijfers.
+      var tests = st.data.tests || [], tName = {};
+      tests.forEach(function (t) { tName[t[0]] = t[1]; });
+      var CTN = { 1: 'VME in advies', 3: 'VME in beheer', 2: 'Professionele syndicus', 0: 'geen klanttype' };
+      var eigenT = tests.filter(function (t) { return !t[4]; }).length;
+      title = 'Test- en interne partners';
+      sub = nf(eigenT) + ' op de naam gevonden, ' + nf(tests.length - eigenT) + ' gebouwen die eraan hangen.';
+      why = ['Gevonden op de NAAM van het bedrijf in Odoo: een woord dat begint met test, demo, dummy, proef of fictief, of een naam die met "Mymmo" begint. Een suggestie, geen regel: kijk elk record na.',
+        'Daaronder ook de gebouwen die zo\'n partner als adviserend expert of als bovenliggend bedrijf hebben, ook als hun eigen naam er niet op lijkt.',
+        'Ze tellen gewoon mee in de cijfers tot ze in Odoo opgeruimd zijn: archiveren, of "Niet gefactureerde klant" aanvinken. Na de volgende synchronisatie zijn ze hier weg.'];
+      head = ['Partner', 'Klanttype', 'Hoort bij', 'Gebouwen eraan', 'Waarvan via expert', 'Leads', 'Lopend abonnement', 'Waarom'];
+      // Elke partner gevolgd door de gebouwen die eraan hangen.
+      var volgorde = [];
+      tests.filter(function (t) { return !t[4]; }).sort(function (a, b) { return (b[5] + b[7]) - (a[5] + a[7]) || a[1].localeCompare(b[1]); }).forEach(function (t) {
+        volgorde.push(t);
+        tests.filter(function (k) { return k[4] === t[0]; }).forEach(function (k) { volgorde.push(k); });
+      });
+      rows = volgorde.map(function (t) {
+        var reden = t[3] === 'naam' ? 'Naam "' + esc(t[1]) + '"' : (t[3] === 'expert' ? 'Adviserend expert is ' : 'Bovenliggend bedrijf is ') + esc(tName[t[4]] || '#' + t[4]);
+        return [K.odooLink('res.partner', t[0], t[1]), esc(CTN[t[2]] || '#' + t[2]), t[4] ? esc(tName[t[4]] || '#' + t[4]) : '—',
+          t[5] ? nf(t[5]) : '—', t[6] ? nf(t[6]) : '—', t[7] ? nf(t[7]) : '—',
+          t[8] ? K.odooLink('sale.order', t[8][0], t[8][1]) + ' · ' + eur(12 * t[8][2]) + ' ARR' : '—', reden];
+      });
+      K.drill(title, sub, head, rows, Object.assign({ right: [3, 4, 5] }, extra, { why: why }));
+      return;
+    } else if (parts[0] === 'via') {
+      var exId = parts[1] === 'all' ? null : Number(parts[1]);
+      var exName = {}; (st.data.experts || []).forEach(function (e) { exName[e[0]] = e[1]; });
+      var custById = {}; st.data.customers.forEach(function (cc, i) { custById[cc.id] = i; });
+      var eigen = {}; st.data.chains.forEach(function (ch) { if (!ch.end) eigen[ch.c] = periodAt(ch, w.to) || ch.p[ch.p.length - 1]; });
+      var vb = (st.data.viaBuildings || []).filter(function (b) { return exId === null || b[0] === exId; });
+      title = 'Gefactureerd via de expert' + (exId === null ? '' : ' — ' + (exName[exId] || '#' + exId));
+      sub = nf(vb.length) + ' gebouwen, samen ' + nf(vb.reduce(function (s, b) { return s + b[3]; }, 0)) + ' kavels volgens Odoo.';
+      why = [WHY.via, 'Kavels volgens Odoo = het aantal kavels op het gebouw, anders het aantal appartementen. "—" = niet ingevuld in Odoo.',
+        'Los van de filters links: deze gebouwen zijn geen klant van OpenVME, hun expert is dat.'];
+      head = ['Gebouw', 'Expert', 'Kavels (Odoo)', 'Eigen abonnement', 'Waarom'];
+      rows = vb.sort(function (a, b) { return b[3] - a[3]; }).map(function (b) {
+        var ci = custById[b[1]], own = ci === undefined ? null : eigen[ci];
+        return [K.odooLink('res.partner', b[1], b[2]) + (isTest(b[1]) ? TEST_BADGE : ''), esc(exName[b[0]] || '#' + b[0]) + (isTest(b[0]) ? TEST_BADGE : ''), b[3] ? nf(b[3]) : '—',
+          own ? '<span class="text-warning font-medium">ja</span> ' + K.odooLink('sale.order', own.o, own.n) : 'nee',
+          '"Facturatie via expert" aangevinkt, adviserend expert ' + esc(exName[b[0]] || '#' + b[0]) + (own ? ' · heeft toch een eigen lopend abonnement: dubbel aangerekend, of staat het vinkje verkeerd?' : '')];
+      });
+      K.drill(title, sub, head, rows, Object.assign({ right: [2] }, extra, { why: why }));
+      return;
     } else return;
     if (merkOn) { head.push('Merk volgens'); }
     why = why.concat(selectieWhy());
     if (merkOn) why.push(WHY.merk);
     why = why.filter(function (x, i) { return why.indexOf(x) === i; });
-    var right = head.map(function (h, i) { return /ARR|MRR|Bedrag|Aantal|Dagen|Δ|Kavels|Bank|Peppol/.test(h) ? i : -1; }).filter(function (i) { return i >= 0; });
+    var right = head.map(function (h, i) { return /ARR|MRR|Bedrag|Aantal|Dagen|Δ|Kavels|Bank|Peppol|Per kavel/.test(h) ? i : -1; }).filter(function (i) { return i >= 0; });
     K.drill(title, sub, head, rows, Object.assign({ right: right }, extra, { why: why }));
   }
 
@@ -892,7 +1057,7 @@
   function sentence(list, w) {
     var act = activeAt(list, w.to), cs = {};
     act.forEach(function (ch) { cs[ch.c] = 1; });
-    var seg = { vme: "VME's", pro: 'professionals', all: 'alle klanttypes' }[st.f.seg];
+    var seg = SEGS[st.f.seg] + (st.f.free === '0' ? ', zonder gratis licenties' : '');
     return nf(act.length) + ' lopende abonnementen bij ' + nf(Object.keys(cs).length) + ' klanten (' + seg + '). Nieuw, verlengd en verloren over de ' + PERIODS[st.period]
       + ' (' + K.dayLabel(K.addDays(w.from, 1)) + ' t.e.m. ' + K.dayLabel(w.to) + ').';
   }
@@ -914,6 +1079,7 @@
     renderChurn(list, w);
     renderTrans(w);
     renderRev(w);
+    renderKav(w);
     renderPro(w);
     renderAttention();
     K.icons();
@@ -954,7 +1120,7 @@
     if (!el || !st.data) return;
     var a = el.getAttribute(A), v = el.dataset.value;
     if (a === 'period') { st.period = v; render(); }
-    else if (a === 'seg' || a === 'merk' || a === 'inv') { st.f[el.dataset.key] = v; render(); }
+    else if (a === 'seg' || a === 'merk' || a === 'pack' || a === 'beg' || a === 'free') { st.f[el.dataset.key] = v; render(); }
     else if (a === 'clear') { st.f[el.dataset.key] = DEFAULTS[el.dataset.key]; render(); }
     else if (a === 'reset') { st.f = Object.assign({}, DEFAULTS); render(); }
     else if (a === 'split') { st.split = v; renderArr(chains(), win()); save(); }

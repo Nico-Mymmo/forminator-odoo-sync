@@ -1,0 +1,1608 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Winkeldienst & Boodschappenlijst</title>
+<link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet" type="text/css" />
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/lucide@latest"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<style>
+  .day-col.is-today { outline: 2px solid hsl(var(--p)); outline-offset: -2px; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  .fade-in { animation: fadeIn .15s ease-in; }
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+</style>
+</head>
+<body class="bg-base-200 min-h-screen">
+  <div class="max-w-5xl mx-auto p-4 md:p-6 space-y-4">
+    <header class="flex flex-wrap items-center justify-between gap-3">
+      <div class="flex items-center gap-3">
+        <div class="bg-primary text-primary-content rounded-xl p-2.5">
+          <i data-lucide="shopping-cart" class="w-6 h-6"></i>
+        </div>
+        <div>
+          <h1 class="text-xl font-bold leading-tight">Winkeldienst & Boodschappenlijst</h1>
+          <p class="text-sm text-base-content/60">Wie gaat wanneer, en wat er op het lijstje staat</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-2">
+        <span id="userBadge" class="badge badge-ghost gap-1">
+          <i data-lucide="user" class="w-3 h-3"></i> laden...
+        </span>
+        <button id="refreshBtn" class="btn btn-sm btn-ghost" title="Ververs">
+          <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+        </button>
+      </div>
+    </header>
+    <div role="tablist" class="tabs tabs-boxed bg-base-100 shadow-sm">
+      <a role="tab" class="tab tab-active" data-tab="overzicht">
+        <i data-lucide="calendar-days" class="w-4 h-4 mr-1.5"></i> Overzicht
+      </a>
+      <a role="tab" class="tab" data-tab="schema">
+        <i data-lucide="repeat" class="w-4 h-4 mr-1.5"></i> Mijn schema
+      </a>
+      <a role="tab" class="tab" data-tab="lijst">
+        <i data-lucide="history" class="w-4 h-4 mr-1.5"></i> Geschiedenis
+      </a>
+      <a role="tab" class="tab" data-tab="chat">
+        <i data-lucide="send" class="w-4 h-4 mr-1.5"></i> Chat & instellingen
+      </a>
+    </div>
+    <section id="tab-overzicht" class="space-y-4 fade-in"></section>
+    <section id="tab-schema" class="space-y-4 hidden"></section>
+    <section id="tab-lijst" class="space-y-4 hidden"></section>
+    <section id="tab-chat" class="space-y-4 hidden"></section>
+  </div>
+  <div id="toastHost" class="toast toast-end z-50"></div>
+  <dialog id="pickupModal" class="modal">
+    <div class="modal-box max-w-sm">
+      <h3 class="font-bold text-base mb-1">Dag oppikken</h3>
+      <p class="text-sm text-base-content/60 mb-4" id="pickupModalDate"></p>
+      <div class="form-control mb-3 hidden" id="pickupPersonWrap">
+        <label class="label py-0"><span class="label-text text-xs">Voor wie?</span></label>
+        <select id="pickupPersonSelect" class="select select-bordered select-sm w-full">
+          <option value="">Mezelf</option>
+        </select>
+      </div>
+      <div class="flex flex-col gap-2">
+        <button type="button" class="btn btn-outline btn-sm justify-start" data-pickup-choice="once">
+          <i data-lucide="calendar" class="w-4 h-4"></i> Enkel deze dag oppikken
+        </button>
+        <button type="button" class="btn btn-outline btn-sm justify-start" data-pickup-choice="weekly">
+          <i data-lucide="repeat" class="w-4 h-4"></i> Elke week vanaf deze dag
+        </button>
+        <button type="button" class="btn btn-outline btn-sm justify-start" data-pickup-choice="biweekly">
+          <i data-lucide="repeat" class="w-4 h-4"></i> Om de 2 weken vanaf deze dag
+        </button>
+      </div>
+      <div class="modal-action">
+        <form method="dialog"><button class="btn btn-sm">Annuleren</button></form>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>close</button></form>
+  </dialog>
+  <div id="busyOverlay" class="fixed inset-0 z-40 hidden items-center justify-center bg-base-100/50 backdrop-blur-sm">
+    <span class="loading loading-spinner loading-lg text-primary"></span>
+  </div>
+<script>
+(function () {
+  "use strict";
+  // ---------- Constanten ----------
+  var RECURRENCES = "recurrences";
+  var VACATIONS = "vacations";
+  var ADHOC = "adhoc_pickups";                  // eenmalige oppikdagen: { personId, personName, date }
+  var CLOSURES = "office_closures";            // kantoor gesloten (bv. feestdagen): { startDate, endDate, reason }
+  var NOTES = "notes";                          // extra notities per dag: { date, text, addedBy, addedAt }
+  var SCHEDULED_DAYS = "geplande_dagen";       // gematerialiseerd rooster (enkel voor weergave in de app): { date, personId, personName, status, messageLine }
+  var SHOPPING_OPEN = "shopping_open";
+  var SHOPPING_DONE = "shopping_done";
+  var PRODUCTS = "products";
+  var DAY_NAMES = ["Zondag", "Maandag", "Dinsdag", "Woensdag", "Donderdag", "Vrijdag", "Zaterdag"];
+  var DAY_NAMES_SHORT = ["zo.", "ma.", "di.", "wo.", "do.", "vr.", "za."];
+  var TASK_NAME = "Dagelijkse winkeldienst update";
+  var HORIZON_DAYS = 60;          // hoever vooruit we het rooster materialiseren (~12 weken)
+  var EXTEND_THRESHOLD_DAYS = 53; // als er minder dan dit vooruit klaarstaat, automatisch bijmaken
+  var NIEMAND_LABEL = "⚠️ Niemand ingepland";
+  var SCHEMA_TOUR_KEY = "schemaTourDismissed";
+  var OVERZICHT_TOUR_KEY = "overzichtTourDismissed";
+  // Dagelijkse post loopt enkel op weekdagen (ma-vr) -- zowel het rooster (regenerateScheduledDays)
+  // als de schedule-taak zelf slaan het weekend over, zodat er geen chatbericht verstuurd wordt
+  // op zaterdag/zondag (ook al zou de boodschappenlijst-sectie van het bericht altijd iets tonen).
+  var WEEKDAY_NUMBERS = [1, 2, 3, 4, 5]; // 1=maandag ... 5=vrijdag (0=zondag, 6=zaterdag)
+  // BELANGRIJK: {{today}}, {{#eachWhere}} en {{rotation.*}} werken enkel bij window.platform.condition-taken,
+  // NIET bij window.platform.schedule-taken (vast tijdstip, zoals onze dagelijkse 11u-post). Voor een schedule-taak
+  // kunnen we enkel {{kv.KEY}} en (ongefilterde) {{#each}}/{{#isEmpty}}/{{#notEmpty}} gebruiken. Daarom houdt de app
+  // zelf twee kant-en-klare kv-strings bij (todayShoppersText / todayNotesText), ververst bij elke refresh.
+  //
+  // De regel voor "wie gaat er vandaag" gebruikt bewust {{this.messageLine}} i.p.v. {{this.personName}}:
+  // messageLine bevat de volledige, kant-en-klare zin ("🛒 Van dienst vandaag: X" / "⚠️ Niemand ingepland" /
+  // "🏢 Kantoor gesloten – reden"), zodat het bericht altijd de flavor-tekst bevat zonder dat de template
+  // zelf conditioneel per rij tekst kan toevoegen (logic-less renderer, geen per-rij if/else). personName
+  // blijft de kale naam, want die wordt ook gebruikt voor de badges/lijsten in de UI zelf.
+  var MESSAGE_TEMPLATE =
+  "{{#eachWhere geplande_dagen field=\"date\" equals=\"{{today}}\"}}{{this.messageLine}}\n{{/eachWhere}}\n" +
+  "{{#eachWhere notes field=\"date\" equals=\"{{today}}\"}}📌 {{this.text}}\n{{/eachWhere}}" +
+  "📝 Extra mee te brengen en af te vinken:\n" +
+  "{{#each shopping_open}}* {{this.line}}{{/each}}{{#isEmpty shopping_open}}Er is niets extra gevraagd, vul aan wat nodig is voor de lunch!{{/isEmpty}}";
+  var cache = {
+    recurrences: [],
+    vacations: [],
+    adhoc: [],
+    closures: [],
+    notes: [],
+    scheduledDays: [],
+    open: [],
+    done: [],
+    products: [],
+    channels: [],
+    tasks: [],
+    colleagues: []
+  };
+  var pickupModalTargetDate = null; // ISO-datum die klaarstaat in het "dag oppikken"-dialoogvenster
+  var schemaTourDismissed = false; // lokale vlag zodat de rondleiding niet telkens opnieuw "aan" flitst tijdens dit sessie
+  var overzichtTourDismissed = false; // zelfde principe voor de uitleg-kaart op Overzicht
+  // ---------- Hulpfuncties: datum ----------
+  function todayMidnight() {
+    var d = new Date();
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }
+  function parseISO(s) {
+    var parts = s.split("-").map(Number);
+    return new Date(parts[0], parts[1] - 1, parts[2]);
+  }
+  function toISO(d) {
+    var y = d.getFullYear();
+    var m = String(d.getMonth() + 1).padStart(2, "0");
+    var day = String(d.getDate()).padStart(2, "0");
+    return y + "-" + m + "-" + day;
+  }
+  function fmtNL(d) {
+    return d.toLocaleDateString("nl-BE", { weekday: "long", day: "numeric", month: "short" });
+  }
+  function fmtNLShort(d) {
+    return DAY_NAMES_SHORT[d.getDay()] + " " + d.toLocaleDateString("nl-BE", { day: "numeric", month: "short" });
+  }
+  function fmtShort(d) {
+    return d.toLocaleDateString("nl-BE", { day: "numeric", month: "short" });
+  }
+  function diffDays(a, b) {
+    return Math.round((a.getTime() - b.getTime()) / 86400000);
+  }
+  function startOfWeek(d) {
+    var day = d.getDay();
+    var diff = day === 0 ? -6 : 1 - day;
+    var monday = new Date(d);
+    monday.setDate(d.getDate() + diff);
+    monday.setHours(0, 0, 0, 0);
+    return monday;
+  }
+  function sameDate(a, b) {
+    return toISO(a) === toISO(b);
+  }
+  // ---------- Recurrence-logica (per medewerker: eigen startdag + interval, min. vakanties) ----------
+  function isPersonScheduled(rule, dateObj) {
+    var start = parseISO(rule.startDate);
+    var start0 = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+    var d0 = new Date(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate());
+    var diff = diffDays(d0, start0);
+    if (diff < 0) return false;
+    var period = 7 * Math.max(1, Number(rule.intervalWeeks) || 1);
+    return diff % period === 0;
+  }
+  function isDateInRange(range, dateObj) {
+    var s = parseISO(range.startDate);
+    var e = parseISO(range.endDate);
+    var d0 = new Date(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate());
+    return d0 >= s && d0 <= e;
+  }
+  function isOnVacation(vac, dateObj) {
+    return isDateInRange(vac, dateObj);
+  }
+  function isOfficeClosed(dateObj) {
+    return cache.closures.some(function (c) { return isDateInRange(c, dateObj); });
+  }
+  function closureReasonFor(dateObj) {
+    var c = cache.closures.find(function (cl) { return isDateInRange(cl, dateObj); });
+    return c && c.reason ? c.reason : "";
+  }
+  function statusOf(entry) {
+    if (entry.status) return entry.status;
+    return entry.empty ? "empty" : "assigned"; // backward compat met oudere materialisatie
+  }
+  function notesFor(dateObj) {
+    var iso = toISO(dateObj);
+    return cache.notes.filter(function (n) { return n.date === iso; });
+  }
+  function computeScheduledFor(dateObj) {
+    var names = [];
+    cache.recurrences.forEach(function (r) {
+      if (!isPersonScheduled(r, dateObj)) return;
+      var onVac = cache.vacations.some(function (v) {
+        return v.personId === r.personId && isOnVacation(v, dateObj);
+      });
+      if (!onVac) names.push(r.personName);
+    });
+    var iso = toISO(dateObj);
+    cache.adhoc.forEach(function (p) {
+      if (p.date === iso) names.push(p.personName);
+    });
+    var seen = {};
+    return names.filter(function (n) {
+      if (seen[n]) return false;
+      seen[n] = true;
+      return true;
+    });
+  }
+  // ---------- Materialisatie: rooster wegschrijven als individuele records, zodat de cron ------
+  // ---------- via {{#eachWhere geplande_dagen field="date" equals="{{today}}"}} altijd, ook -----
+  // ---------- zonder dat de app die dag geopend werd, het juiste antwoord server-side leest. ----
+  // Schrijft enkel de dagen weg die ECHT gewijzigd zijn t.o.v. wat al in de opslag staat, in plaats
+  // van bij elke aanroep alles te wissen en de volledige horizon (~60 werkdagen) opnieuw te schrijven.
+  // Dat laatste was de belangrijkste oorzaak van de traagheid: één vakantiedag toevoegen deed voorheen
+  // tientallen overbodige delete+add-aanroepen, terwijl er meestal maar een handvol dagen echt verandert.
+  //
+  // Elk item krijgt naast personName ook messageLine: de kant-en-klare zin voor de dagelijkse chatpost
+  // (zie MESSAGE_TEMPLATE hierboven). wantSig/haveSig nemen messageLine mee zodat bestaande, al
+  // gematerialiseerde dagen die dit veld nog niet hebben (van vóór deze wijziging) automatisch één keer
+  // herschreven worden zodra het rooster opnieuw wordt opgebouwd.
+  function regenerateScheduledDays() {
+    var existingByDate = {};
+    cache.scheduledDays.forEach(function (it) {
+      (existingByDate[it.date] = existingByDate[it.date] || []).push(it);
+    });
+    var today = todayMidnight();
+    var ops = [];
+    for (var i = 0; i <= HORIZON_DAYS; i++) {
+      var d = new Date(today);
+      d.setDate(today.getDate() + i);
+      var wd = d.getDay();
+      if (wd === 0 || wd === 6) continue; // enkel ma-vr
+      var iso = toISO(d);
+      var wanted;
+      if (isOfficeClosed(d)) {
+        var reason = closureReasonFor(d);
+        var closedText = "🏢 Kantoor gesloten" + (reason ? " – " + reason : "");
+        wanted = [{ personId: null, personName: closedText, status: "closed", messageLine: closedText }];
+      } else {
+        var names = computeScheduledFor(d);
+        if (names.length) {
+          wanted = names.map(function (n) {
+            var rule = cache.recurrences.find(function (r) { return r.personName === n; });
+            return { personId: rule ? rule.personId : null, personName: n, status: "assigned", messageLine: "🛒 Van dienst vandaag: " + n };
+          });
+        } else {
+          wanted = [{ personId: null, personName: NIEMAND_LABEL, status: "empty", messageLine: NIEMAND_LABEL }];
+        }
+      }
+      var existing = existingByDate[iso] || [];
+      var wantSig = wanted.map(function (w) { return w.personId + "|" + w.personName + "|" + w.status + "|" + w.messageLine; }).sort().join(";");
+      var haveSig = existing.map(function (e) { return e.personId + "|" + e.personName + "|" + e.status + "|" + e.messageLine; }).sort().join(";");
+      if (wantSig === haveSig) continue; // deze dag klopt al -- niets te doen
+      existing.forEach(function (e) { ops.push(window.sharedStorage.removeItem(SCHEDULED_DAYS, e.id)); });
+      wanted.forEach(function (w) {
+        ops.push(window.sharedStorage.addItem(SCHEDULED_DAYS, JSON.stringify({ date: iso, personId: w.personId, personName: w.personName, status: w.status, messageLine: w.messageLine })));
+      });
+    }
+    return ops.length ? Promise.all(ops) : Promise.resolve();
+  }
+  // Ververst enkel het gematerialiseerde rooster (na regenerateScheduledDays), zonder de andere 8
+  // collecties opnieuw op te vragen -- die zijn al vers dankzij de loadData() aan het begin van de pipeline.
+  function reloadScheduledDays() {
+    return window.sharedStorage.listItems(SCHEDULED_DAYS).then(function (items) {
+      cache.scheduledDays = items.map(function (i) { return Object.assign({ id: i.id }, JSON.parse(i.value)); });
+    });
+  }
+  function pruneOldScheduledDays() {
+    var todayIso = toISO(todayMidnight());
+    var stale = cache.scheduledDays.filter(function (it) { return it.date < todayIso; });
+    if (!stale.length) return Promise.resolve();
+    var staleIds = stale.map(function (it) { return it.id; });
+    return Promise.all(stale.map(function (it) { return window.sharedStorage.removeItem(SCHEDULED_DAYS, it.id); }))
+      .then(function () {
+        cache.scheduledDays = cache.scheduledDays.filter(function (it) { return staleIds.indexOf(it.id) === -1; });
+      });
+  }
+  function needsRegeneration() {
+    if (!cache.scheduledDays.length) return true;
+    var maxIso = cache.scheduledDays.reduce(function (max, it) { return it.date > max ? it.date : max; }, "");
+    var remaining = diffDays(parseISO(maxIso), todayMidnight());
+    return remaining < EXTEND_THRESHOLD_DAYS;
+  }
+  function scheduledDisplayFor(dateObj) {
+    var iso = toISO(dateObj);
+    var entries = cache.scheduledDays.filter(function (it) { return it.date === iso; });
+    if (entries.length) return entries;
+    // val terug op live berekening zolang de materialisatie nog niet is bijgewerkt
+    if (isOfficeClosed(dateObj)) {
+      var reason = closureReasonFor(dateObj);
+      var closedText = "🏢 Kantoor gesloten" + (reason ? " – " + reason : "");
+      return [{ date: iso, personId: null, personName: closedText, status: "closed", messageLine: closedText }];
+    }
+    var names = computeScheduledFor(dateObj);
+    if (!names.length) return [{ date: iso, personId: null, personName: NIEMAND_LABEL, status: "empty", messageLine: NIEMAND_LABEL }];
+    return names.map(function (n) {
+      var rule = cache.recurrences.find(function (r) { return r.personName === n; });
+      return { date: iso, personId: rule ? rule.personId : null, personName: n, status: "assigned", messageLine: "🛒 Van dienst vandaag: " + n };
+    });
+  }
+  // ---------- Wachten tot de sandbox-API's echt klaar zijn ----------
+  // window.currentUser/window.sharedStorage/window.platform kunnen bij het eerste
+  // rendermoment nog niet (volledig) geïnjecteerd zijn -- pollen tot ze bruikbaar zijn
+  // voorkomt "X is not a function"-fouten bij een te vroege aanroep.
+  function waitFor(conditionFn, maxMs) {
+    maxMs = maxMs || 8000;
+    var start = Date.now();
+    return new Promise(function (resolve) {
+      (function poll() {
+        var ok = false;
+        try { ok = !!conditionFn(); } catch (e) { ok = false; }
+        if (ok || Date.now() - start > maxMs) return resolve(ok);
+        setTimeout(poll, 100);
+      })();
+    });
+  }
+  function sharedStorageReady() {
+    return !!(window.sharedStorage &&
+      typeof window.sharedStorage.listItems === "function" &&
+      typeof window.sharedStorage.addItem === "function" &&
+      typeof window.sharedStorage.removeItem === "function");
+  }
+  function platformReady() {
+    return !!(window.platform &&
+      typeof window.platform.listChatChannels === "function" &&
+      window.platform.schedule &&
+      typeof window.platform.schedule.list === "function");
+  }
+  // ---------- Gebruiker ----------
+  function waitForUser(maxMs) {
+    maxMs = maxMs || 4000;
+    var start = Date.now();
+    return new Promise(function (resolve) {
+      (function poll() {
+        if (window.currentUser || Date.now() - start > maxMs) return resolve(window.currentUser || null);
+        setTimeout(poll, 100);
+      })();
+    });
+  }
+  function updateUserBadge() {
+    var el = document.getElementById("userBadge");
+    if (window.currentUser) {
+      el.innerHTML = '<i data-lucide="user" class="w-3 h-3"></i> ' + escapeHtml(window.currentUser.name);
+    } else {
+      el.innerHTML = '<i data-lucide="user-x" class="w-3 h-3"></i> onbekende gebruiker';
+    }
+    icons();
+  }
+  // ---------- Utilities ----------
+  function escapeHtml(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+  function icons() {
+    if (window.lucide) window.lucide.createIcons();
+  }
+  function showToast(msg, type) {
+    var host = document.getElementById("toastHost");
+    var div = document.createElement("div");
+    div.className = "alert " + (type === "error" ? "alert-error" : type === "warning" ? "alert-warning" : "alert-success");
+    div.innerHTML = "<span>" + escapeHtml(msg) + "</span>";
+    host.appendChild(div);
+    setTimeout(function () { div.remove(); }, 3500);
+  }
+  // Globale bezig-overlay: geeft meteen visuele feedback zodra de gebruiker iets toevoegt/wijzigt/
+  // verwijdert, zolang de gedeelde opslag nog niet is bijgewerkt en het scherm nog niet herrenderd is.
+  // Met een teller, zodat overlappende acties de overlay pas verbergen als alles klaar is.
+  var busyCount = 0;
+  function showBusy() {
+    busyCount++;
+    var el = document.getElementById("busyOverlay");
+    if (el) { el.classList.remove("hidden"); el.classList.add("flex"); }
+  }
+  function hideBusy() {
+    busyCount = Math.max(0, busyCount - 1);
+    if (busyCount === 0) {
+      var el = document.getElementById("busyOverlay");
+      if (el) { el.classList.add("hidden"); el.classList.remove("flex"); }
+    }
+  }
+  // ---------- "Dag oppikken"-dialoogvenster (voor lege dagen in Overzicht) ----------
+  function openPickupModal(iso) {
+    if (!window.currentUser) return showToast("Gebruiker nog niet geladen, probeer opnieuw.", "warning");
+    pickupModalTargetDate = iso;
+    var d = parseISO(iso);
+    document.getElementById("pickupModalDate").textContent = fmtNL(d);
+    var personSelect = document.getElementById("pickupPersonSelect");
+    if (personSelect) personSelect.value = "";
+    document.getElementById("pickupModal").showModal();
+  }
+  function bindPickupModal() {
+    document.querySelectorAll("#pickupModal [data-pickup-choice]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var choice = btn.getAttribute("data-pickup-choice");
+        var iso = pickupModalTargetDate;
+        var personSelect = document.getElementById("pickupPersonSelect");
+        var person = null;
+        if (personSelect && personSelect.value) {
+          var colleague = cache.colleagues.find(function (c) { return String(c.id) === personSelect.value; });
+          if (colleague) person = { id: colleague.id, name: colleague.full_name };
+        }
+        document.getElementById("pickupModal").close();
+        if (!iso) return;
+        if (choice === "once") addAdhocPickup(iso, person);
+        else if (choice === "weekly") addRecurrence(iso, 1, person);
+        else if (choice === "biweekly") addRecurrence(iso, 2, person);
+      });
+    });
+  }
+  // ---------- Data laden ----------
+  function loadData() {
+    return Promise.all([
+      window.sharedStorage.listItems(RECURRENCES),
+      window.sharedStorage.listItems(VACATIONS),
+      window.sharedStorage.listItems(ADHOC),
+      window.sharedStorage.listItems(CLOSURES),
+      window.sharedStorage.listItems(NOTES),
+      window.sharedStorage.listItems(SCHEDULED_DAYS),
+      window.sharedStorage.listItems(SHOPPING_OPEN),
+      window.sharedStorage.listItems(SHOPPING_DONE),
+      window.sharedStorage.listItems(PRODUCTS),
+      window.platform.listColleagues().catch(function () { return cache.colleagues; })
+    ]).then(function (res) {
+      cache.recurrences = res[0].map(function (i) { return Object.assign({ id: i.id }, JSON.parse(i.value)); });
+      cache.vacations = res[1].map(function (i) { return Object.assign({ id: i.id }, JSON.parse(i.value)); });
+      cache.adhoc = res[2].map(function (i) { return Object.assign({ id: i.id }, JSON.parse(i.value)); });
+      cache.closures = res[3].map(function (i) { return Object.assign({ id: i.id }, JSON.parse(i.value)); });
+      cache.notes = res[4].map(function (i) { return Object.assign({ id: i.id }, JSON.parse(i.value)); });
+      cache.scheduledDays = res[5].map(function (i) { return Object.assign({ id: i.id }, JSON.parse(i.value)); });
+      cache.open = res[6].map(function (i) { return Object.assign({ id: i.id }, JSON.parse(i.value)); });
+      cache.done = res[7].map(function (i) { return Object.assign({ id: i.id }, JSON.parse(i.value)); });
+      cache.products = res[8].map(function (i) { return { id: i.id, name: i.value }; });
+      cache.colleagues = res[9] || [];
+    });
+  }
+  // Sommige collega’s hadden nog geen naam ingevuld op het moment dat ze werden ingepland; toen
+  // is hun vakje toen leeg opgeslagen (personName: ""). Bij elke ververs kijken we of intussen wel een
+  // naam bekend is via listColleagues() (die valt zelf terug op e-mail/"Onbekend", dus nooit leeg) en
+  // repareren we het record zowel lokaal als in de gedeelde opslag, zodat dit maar 1 keer moet gebeuren.
+  function repairMissingNames() {
+    if (!cache.colleagues.length) return Promise.resolve();
+    var ops = [];
+    function resolveName(personId) {
+      var colleague = cache.colleagues.find(function (c) { return String(c.id) === String(personId); });
+      return colleague && colleague.full_name ? colleague.full_name : null;
+    }
+    cache.recurrences.forEach(function (r) {
+      var name = resolveName(r.personId);
+      if (!name || name === r.personName) return;
+      r.personName = name;
+      ops.push(window.sharedStorage.updateItem(RECURRENCES, r.id, JSON.stringify({ personId: r.personId, personName: r.personName, startDate: r.startDate, intervalWeeks: r.intervalWeeks })));
+    });
+    cache.vacations.forEach(function (v) {
+      var name = resolveName(v.personId);
+      if (!name || name === v.personName) return;
+      v.personName = name;
+      ops.push(window.sharedStorage.updateItem(VACATIONS, v.id, JSON.stringify({ personId: v.personId, personName: v.personName, startDate: v.startDate, endDate: v.endDate })));
+    });
+    cache.adhoc.forEach(function (p) {
+      var name = resolveName(p.personId);
+      if (!name || name === p.personName) return;
+      p.personName = name;
+      ops.push(window.sharedStorage.updateItem(ADHOC, p.id, JSON.stringify({ personId: p.personId, personName: p.personName, date: p.date })));
+    });
+    return ops.length ? Promise.all(ops).catch(function (e) { console.error("Kon namen niet herstellen:", e); }) : Promise.resolve();
+  }
+  // kv-tekst voor de dagelijkse schedule-post: kan enkel {{kv.KEY}} gebruiken (geen {{today}}/eachWhere),
+  // dus de app berekent zelf de tekst voor "vandaag" en ververst die bij elke refresh.
+  function computeAndStoreTodayText() {
+    var today = todayMidnight();
+    var entries = scheduledDisplayFor(today);
+    var status = statusOf(entries[0]);
+    var shoppersText;
+    if (status === "closed") {
+      var reason = closureReasonFor(today);
+      shoppersText = "🏢 Kantoor is vandaag gesloten" + (reason ? " – " + reason : "");
+    } else if (status === "empty") {
+      shoppersText = "⚠️ Er gaat nog niemand naar de winkel! Vul dit aan in de operations manager!";
+    } else {
+      var names = entries.map(function (e) { return e.personName; });
+      var namesText = names.length > 1 ? names.slice(0, -1).join(", ") + " en " + names[names.length - 1] : names[0];
+      shoppersText = "🛒 Het is vandaag aan " + namesText + " om te gaan winkelen";
+    }
+    var todayNotes = notesFor(today);
+    var notesText = todayNotes.length ? todayNotes.map(function (n) { return "📌 " + n.text; }).join("\n") + "\n" : "";
+    return Promise.all([
+      window.sharedStorage.set("todayShoppersText", shoppersText),
+      window.sharedStorage.set("todayNotesText", notesText)
+    ]);
+  }
+  function cleanupOldDone() {
+    var cutoff = Date.now() - 7 * 86400000;
+    var stale = cache.done.filter(function (it) {
+      return it.purchasedAt && new Date(it.purchasedAt).getTime() < cutoff;
+    });
+    if (!stale.length) return Promise.resolve();
+    var staleIds = stale.map(function (it) { return it.id; });
+    return Promise.all(stale.map(function (it) { return window.sharedStorage.removeItem(SHOPPING_DONE, it.id); }))
+      .then(function () {
+        cache.done = cache.done.filter(function (it) { return staleIds.indexOf(it.id) === -1; });
+      });
+  }
+  // Ruimt afgelopen weken/dagen op zodra ze voorbij zijn: vakanties waarvan de einddatum al
+  // gepasseerd is, eenmalige oppikdagen die al geweest zijn, kantoorsluitingen die al voorbij zijn,
+  // en notities van vervallen dagen. Zo groeit de gedeelde opslag niet onbeperkt aan.
+  function pruneExpiredRecords() {
+    var todayIso = toISO(todayMidnight());
+    var tasks = [];
+    var removedVacIds = [], removedAdhocIds = [], removedClosureIds = [], removedNoteIds = [];
+    cache.vacations.forEach(function (v) {
+      if (v.endDate < todayIso) { tasks.push(window.sharedStorage.removeItem(VACATIONS, v.id)); removedVacIds.push(v.id); }
+    });
+    cache.adhoc.forEach(function (p) {
+      if (p.date < todayIso) { tasks.push(window.sharedStorage.removeItem(ADHOC, p.id)); removedAdhocIds.push(p.id); }
+    });
+    cache.closures.forEach(function (c) {
+      if (c.endDate < todayIso) { tasks.push(window.sharedStorage.removeItem(CLOSURES, c.id)); removedClosureIds.push(c.id); }
+    });
+    cache.notes.forEach(function (n) {
+      if (n.date < todayIso) { tasks.push(window.sharedStorage.removeItem(NOTES, n.id)); removedNoteIds.push(n.id); }
+    });
+    if (!tasks.length) return Promise.resolve();
+    return Promise.all(tasks).then(function () {
+      cache.vacations = cache.vacations.filter(function (v) { return removedVacIds.indexOf(v.id) === -1; });
+      cache.adhoc = cache.adhoc.filter(function (p) { return removedAdhocIds.indexOf(p.id) === -1; });
+      cache.closures = cache.closures.filter(function (c) { return removedClosureIds.indexOf(c.id) === -1; });
+      cache.notes = cache.notes.filter(function (n) { return removedNoteIds.indexOf(n.id) === -1; });
+    });
+  }
+  // Lichte refresh: enkel prunen + rooster verlengen als de horizon bijna op is (init/tab-wissel).
+  // De 8 andere collecties zijn al vers na de eerste loadData(); we vragen enkel het rooster opnieuw
+  // op als regenerateScheduledDays ook echt iets heeft weggeschreven (anders is dat overbodig werk).
+  function refreshAll() {
+    showBusy();
+    return loadData()
+      .then(repairMissingNames)
+      .then(cleanupOldDone)
+      .then(pruneOldScheduledDays)
+      .then(pruneExpiredRecords)
+      .then(function () {
+        if (needsRegeneration()) return regenerateScheduledDays().then(reloadScheduledDays);
+      })
+      .then(computeAndStoreTodayText)
+      .then(function () {
+        renderOverzicht();
+        renderSchema();
+        renderLijst();
+      })
+      .catch(function (e) {
+        console.error(e);
+        showToast("Kon gegevens niet laden: " + (e && e.message ? e.message : e), "error");
+      })
+      .finally(hideBusy);
+  }
+  // Volledige refresh: rooster altijd herberekenen (na wijziging van herhaling/vakantie/oppikdag/sluiting, of manuele ververs-knop)
+  function forceRefresh() {
+    showToast("Rooster wordt herberekend...");
+    showBusy();
+    return loadData()
+      .then(repairMissingNames)
+      .then(cleanupOldDone)
+      .then(pruneOldScheduledDays)
+      .then(pruneExpiredRecords)
+      .then(regenerateScheduledDays)
+      .then(reloadScheduledDays)
+      .then(computeAndStoreTodayText)
+      .then(function () {
+        renderOverzicht();
+        renderSchema();
+        renderLijst();
+        showToast("Rooster bijgewerkt.");
+      })
+      .catch(function (e) {
+        console.error(e);
+        showToast("Kon rooster niet herberekenen: " + (e && e.message ? e.message : e), "error");
+      })
+      .finally(hideBusy);
+  }
+  // ---------- Tabs ----------
+  function bindTabs() {
+    document.querySelectorAll("[data-tab]").forEach(function (tabEl) {
+      tabEl.addEventListener("click", function () {
+        document.querySelectorAll("[data-tab]").forEach(function (t) { t.classList.remove("tab-active"); });
+        tabEl.classList.add("tab-active");
+        document.querySelectorAll('section[id^="tab-"]').forEach(function (s) { s.classList.add("hidden"); });
+        var section = document.getElementById("tab-" + tabEl.dataset.tab);
+        section.classList.remove("hidden");
+        if (tabEl.dataset.tab === "chat") refreshChat();
+      });
+    });
+  }
+  // ---------- Render: Overzicht ----------
+  // Uitleg staat bovenaan in een wegklikbare kader (net als bij Mijn schema), in plaats van als
+  // kleine tekst onderaan de weeklijst. Zo is meteen duidelijk hoe het rooster werkt zonder dat je
+  // eerst door alle weken moet scrollen.
+  function overzichtTourHtml() {
+    var html = "";
+    html += '<div class="alert bg-base-100 border border-base-300 shadow-sm items-start" id="overzichtTourCard">';
+    html += '<i data-lucide="info" class="w-5 h-5 mt-0.5 text-primary"></i>';
+    html += '<div class="text-sm">';
+    html += '<p class="font-semibold mb-1">Wat kan je hier doen?</p>';
+    html += '<p class="text-base-content/70 mb-1">Staat er <strong>Niemand</strong> op een dag? Klik erop om die dag zelf op te pikken, eenmalig, wekelijks of om de 2 weken.</p>';
+    html += '<p class="text-base-content/70 mb-1">Boodschappen voeg je toe via het paneeltje rechts. Vink een item af zodra je het hebt gekocht.</p>';
+    html += '<p class="text-base-content/70">Wil je een vaste winkeldag instellen of een afwezigheid doorgeven? Dat doe je via <strong>Mijn schema</strong>.</p>';
+    html += "</div>";
+    html += '<button type="button" class="btn btn-ghost btn-xs" id="overzichtTourClose" title="Verberg deze uitleg"><i data-lucide="x" class="w-4 h-4"></i></button>';
+    html += "</div>";
+    return html;
+  }
+  function renderOverzicht() {
+    var el = document.getElementById("tab-overzicht");
+    var today = todayMidnight();
+    var monday0 = startOfWeek(today);
+    var todayEntries = scheduledDisplayFor(today);
+    var todayStatus = statusOf(todayEntries[0]);
+    var bannerClass = todayStatus === "closed" ? "alert-info" : todayStatus === "empty" ? "alert-warning" : "alert-success";
+    var bannerIcon = todayStatus === "closed" ? "building-2" : todayStatus === "empty" ? "alert-triangle" : "check-circle-2";
+    var bannerText;
+    if (todayStatus === "closed") {
+      bannerText = "<strong>" + escapeHtml(todayEntries[0].personName) + "</strong>";
+    } else if (todayStatus === "empty") {
+      bannerText = "<strong>Niemand ingepland vandaag</strong> — check even wie er kan springen.";
+    } else {
+      bannerText = "Vandaag gaat: <strong>" + escapeHtml(todayEntries.map(function (e) { return e.personName; }).join(", ")) + "</strong>";
+    }
+    var maxIso = cache.scheduledDays.reduce(function (max, it) { return it.date > max ? it.date : max; }, "");
+    var maxDate = maxIso ? parseISO(maxIso) : new Date(monday0.getTime() + 4 * 86400000);
+    var numWeeks = Math.max(1, Math.ceil((diffDays(maxDate, monday0) + 1) / 7));
+    var leftHtml = "";
+    leftHtml += '<div class="alert ' + bannerClass + ' shadow-sm">';
+    leftHtml += '<i data-lucide="' + bannerIcon + '" class="w-5 h-5"></i>';
+    leftHtml += "<span>" + bannerText + "</span>";
+    leftHtml += "</div>";
+    for (var w = 0; w < numWeeks; w++) {
+      var mondayW = new Date(monday0);
+      mondayW.setDate(monday0.getDate() + w * 7);
+      var fridayW = new Date(mondayW);
+      fridayW.setDate(mondayW.getDate() + 4);
+      leftHtml += '<div class="mt-4">';
+      leftHtml += '<p class="text-xs font-semibold text-base-content/50 mb-2 uppercase tracking-wide">' + escapeHtml(fmtShort(mondayW)) + " – " + escapeHtml(fmtShort(fridayW)) + "</p>";
+      leftHtml += '<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3">';
+      for (var i = 0; i < 5; i++) {
+        var d = new Date(mondayW);
+        d.setDate(mondayW.getDate() + i);
+        var entries = scheduledDisplayFor(d);
+        var status = statusOf(entries[0]);
+        var isToday = sameDate(d, today);
+        var dayNotes = notesFor(d);
+        var cardBg = status === "closed" ? "bg-base-200/70" : "bg-base-100";
+        leftHtml += '<div class="card ' + cardBg + ' shadow-sm day-col h-full' + (isToday ? " is-today" : "") + '">';
+        leftHtml += '<div class="card-body p-4 flex-1 flex flex-col">';
+        leftHtml += '<h3 class="card-title text-sm capitalize' + (status === "closed" ? " text-base-content/50" : "") + '">' + escapeHtml(fmtNLShort(d)) + "</h3>";
+        if (isToday) {
+          leftHtml += '<div class="mt-0.5"><span class="badge badge-primary badge-sm">vandaag</span></div>';
+        }
+        if (dayNotes.length) {
+          leftHtml += '<div class="mt-2 flex flex-wrap gap-1">';
+          dayNotes.forEach(function (n) {
+            leftHtml += '<div class="tooltip tooltip-right" data-tip="' + escapeHtml(n.text) + '"><button type="button" class="btn btn-ghost btn-xs btn-circle text-warning" data-del-note="' + n.id + '"><i data-lucide="alert-circle" class="w-4 h-4"></i></button></div>';
+          });
+          leftHtml += "</div>";
+        }
+        // Status (wie gaat er / niemand / gesloten) altijd onderaan de kaart vastgepind, zodat de
+        // rij badges over alle kaarten van de week netjes op dezelfde hoogte staat, ongeacht hoeveel
+        // extra inhoud (vandaag-label, notities) een kaart erboven heeft staan.
+        leftHtml += '<div class="mt-auto pt-2 flex flex-col gap-1 min-w-0">';
+        if (status === "closed") {
+          var closedReason = closureReasonFor(d) || "Kantoor gesloten";
+          leftHtml += '<div class="tooltip tooltip-top w-full" data-tip="' + escapeHtml(closedReason) + '"><span class="badge badge-ghost gap-1 bg-base-300 text-base-content/50 border-none cursor-help w-full justify-start"><i data-lucide="building-2" class="w-3 h-3 shrink-0"></i><span class="truncate min-w-0 flex-1 text-left">Gesloten</span></span></div>';
+        } else if (status === "empty") {
+          leftHtml += '<button type="button" class="badge badge-warning gap-1 w-full justify-start cursor-pointer" data-pickup="' + toISO(d) + '" title="Klik om deze dag op te pikken"><i data-lucide="alert-triangle" class="w-3 h-3 shrink-0"></i><span class="truncate min-w-0 flex-1 text-left">Niemand</span></button>';
+        } else {
+          entries.forEach(function (e) {
+            leftHtml += '<span class="badge badge-outline gap-1 w-full justify-start" title="' + escapeHtml(e.personName) + '"><i data-lucide="user" class="w-3 h-3 shrink-0"></i><span class="truncate min-w-0 flex-1 text-left">' + escapeHtml(e.personName) + "</span></span>";
+          });
+        }
+        leftHtml += "</div>";
+        leftHtml += "</div></div>";
+      }
+      leftHtml += "</div></div>";
+    }
+    var html = '<div class="flex items-center justify-between gap-2">';
+    html += '<h2 class="text-base font-semibold">Overzicht</h2>';
+    html += '<button type="button" class="btn btn-ghost btn-xs" id="overzichtTourReopen' + (overzichtTourDismissed ? "" : " hidden") + '"><i data-lucide="help-circle" class="w-4 h-4"></i> Uitleg</button>';
+    html += "</div>";
+    if (!overzichtTourDismissed) html += overzichtTourHtml();
+    html += '<div class="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">';
+    html += '<div class="lg:col-span-2 space-y-4 min-w-0">' + leftHtml + "</div>";
+    html += '<div class="lg:col-span-1 min-w-0">' + shoppingCompactHtml() + "</div>";
+    html += "</div>";
+    el.innerHTML = html;
+    icons();
+    var ovTourClose = document.getElementById("overzichtTourClose");
+    if (ovTourClose) {
+      ovTourClose.addEventListener("click", function () {
+        overzichtTourDismissed = true;
+        window.sharedStorage && window.sharedStorage.set && window.sharedStorage.set(OVERZICHT_TOUR_KEY, "1").catch(function () {});
+        renderOverzicht();
+      });
+    }
+    var ovTourReopen = document.getElementById("overzichtTourReopen");
+    if (ovTourReopen) {
+      ovTourReopen.addEventListener("click", function () {
+        overzichtTourDismissed = false;
+        renderOverzicht();
+      });
+    }
+    el.querySelectorAll("[data-del-note]").forEach(function (btn) {
+      btn.addEventListener("click", function () { deleteNote(btn.getAttribute("data-del-note")); });
+    });
+    el.querySelectorAll("[data-pickup]").forEach(function (btn) {
+      btn.addEventListener("click", function () { openPickupModal(btn.getAttribute("data-pickup")); });
+    });
+    bindShoppingCompact(el);
+  }
+  // ---------- Compacte boodschappenlijst (embedded in Overzicht) ----------
+  function shoppingCompactHtml() {
+    var html = "";
+    html += '<div class="card bg-base-100 shadow-sm overflow-hidden">';
+    html += '<div class="card-body p-4 min-w-0">';
+    html += '<div class="flex items-center justify-between mb-1 gap-2"><h2 class="card-title text-sm min-w-0"><i data-lucide="list-checks" class="w-4 h-4 shrink-0"></i> <span class="truncate">Boodschappenlijst</span></h2>';
+    html += '<span class="badge badge-neutral badge-sm shrink-0">' + cache.open.length + "</span></div>";
+    html += '<form id="itemFormOv" class="space-y-2 my-2 min-w-0">';
+    html += '<input list="productListOv" name="name" class="input input-bordered input-sm w-full min-w-0" placeholder="Product toevoegen..." required />';
+    html += '<datalist id="productListOv">' + cache.products.map(function (p) { return '<option value="' + escapeHtml(p.name) + '">'; }).join("") + "</datalist>";
+    html += '<div class="flex gap-2 min-w-0"><input name="qty" class="input input-bordered input-sm flex-1 min-w-0 w-full" placeholder="Hoeveelheid" /><input name="note" class="input input-bordered input-sm flex-1 min-w-0 w-full" placeholder="Notitie" /></div>';
+    html += '<button class="btn btn-primary btn-sm w-full" type="submit"><i data-lucide="plus" class="w-4 h-4"></i> Toevoegen</button>';
+    html += "</form>";
+    if (cache.open.length) {
+      html += '<ul class="divide-y divide-base-300">';
+      cache.open.forEach(function (it) {
+        html += '<li class="flex items-center justify-between py-2 text-sm gap-2">';
+        html += '<label class="flex items-center gap-2 cursor-pointer flex-1 min-w-0"><input type="checkbox" class="checkbox checkbox-sm shrink-0" data-buy="' + it.id + '" /><span class="min-w-0 break-words">' + escapeHtml(it.line) + "</span></label>";
+        html += '<button class="btn btn-ghost btn-xs text-error shrink-0" data-del-open="' + it.id + '"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>';
+        html += "</li>";
+      });
+      html += "</ul>";
+    } else {
+      html += '<p class="text-sm text-base-content/60">Niets op de lijst. 🎉</p>';
+    }
+    html += '<button class="btn btn-ghost btn-xs w-full mt-2" data-goto-lijst-full><i data-lucide="external-link" class="w-3.5 h-3.5 shrink-0"></i> <span class="truncate">Volledige lijst, export & historiek</span></button>';
+    html += "</div></div>";
+    return html;
+  }
+  function bindShoppingCompact(container) {
+    var itemForm = container.querySelector("#itemFormOv");
+    if (itemForm) {
+      itemForm.addEventListener("submit", function (e) {
+        e.preventDefault();
+        var fd = new FormData(itemForm);
+        addShoppingItem(fd.get("name"), fd.get("qty"), fd.get("note"));
+        itemForm.reset();
+      });
+    }
+    container.querySelectorAll("[data-buy]").forEach(function (cb) {
+      cb.addEventListener("change", function () {
+        if (cb.checked) markPurchased(cb.getAttribute("data-buy"));
+      });
+    });
+    container.querySelectorAll("[data-del-open]").forEach(function (btn) {
+      btn.addEventListener("click", function () { deleteOpenItem(btn.getAttribute("data-del-open")); });
+    });
+    var fullBtn = container.querySelector("[data-goto-lijst-full]");
+    if (fullBtn) {
+      fullBtn.addEventListener("click", function () {
+        var tabEl = document.querySelector('[data-tab="lijst"]');
+        if (tabEl) tabEl.click();
+      });
+    }
+  }
+  // ---------- Render: Mijn schema ----------
+  // Afwezigheid staat bovenaan en prominent: dat is wat mensen hier het vaakst moeten regelen.
+  // Vaste dag en eenmalige dag worden in de praktijk meestal ingesteld door in het rooster op
+  // Overzicht op een dag te klikken (het "dag oppikken"-dialoogvenster roept dezelfde
+  // addRecurrence()/addAdhocPickup() aan als de formulieren hieronder). Daarom staan die twee
+  // hier enkel nog als overzicht + formulier in een dichtgeklapte sectie, met een verwijzing naar
+  // het rooster als snellere weg.
+  function schemaTourHtml() {
+    var html = "";
+    html += '<div class="alert bg-base-100 border border-base-300 shadow-sm items-start" id="schemaTourCard">';
+    html += '<i data-lucide="info" class="w-5 h-5 mt-0.5 text-primary"></i>';
+    html += '<div class="text-sm">';
+    html += '<p class="font-semibold mb-1">Hoe stel je je schema in?</p>';
+    html += '<p class="text-base-content/70 mb-1"><strong>Afwezigheid</strong> geef je hieronder door. Je vaste dag wordt dan automatisch overgeslagen.</p>';
+    html += '<p class="text-base-content/70">Je <strong>vaste dag</strong> en een <strong>eenmalige dag</strong> stel je meestal sneller in door in Overzicht op een dag te klikken. Ze staan ook hieronder, ingeklapt.</p>';
+    html += "</div>";
+    html += '<button type="button" class="btn btn-ghost btn-xs" id="schemaTourClose" title="Verberg deze uitleg"><i data-lucide="x" class="w-4 h-4"></i></button>';
+    html += "</div>";
+    return html;
+  }
+  function renderSchema() {
+    var el = document.getElementById("tab-schema");
+    var me = window.currentUser;
+    var privileged = !!(me && me.isPrivileged);
+    var myRules = me ? cache.recurrences.filter(function (r) { return r.personId === me.id; }) : [];
+    var myVacs = me ? cache.vacations.filter(function (v) { return v.personId === me.id; }) : [];
+    var todayIsoForMin = toISO(todayMidnight());
+    var myAdhoc = me ? cache.adhoc.filter(function (p) { return p.personId === me.id && p.date >= todayIsoForMin; }).sort(function (a, b) { return a.date.localeCompare(b.date); }) : [];
+    var html = "";
+    html += '<div class="flex items-center justify-between gap-2">';
+    html += '<h2 class="text-base font-semibold">Mijn schema</h2>';
+    html += '<button type="button" class="btn btn-ghost btn-xs" id="schemaTourReopen' + (schemaTourDismissed ? "" : " hidden") + '"><i data-lucide="help-circle" class="w-4 h-4"></i> Uitleg</button>';
+    html += "</div>";
+    if (!schemaTourDismissed) html += schemaTourHtml();
+    // Afwezigheid / vakantie -- prominent bovenaan, dit is wat mensen hier het meest komen doen
+    html += '<div class="card bg-base-100 border-2 border-secondary shadow-sm"><div class="card-body">';
+    html += '<h2 class="card-title text-base"><i data-lucide="plane" class="w-4 h-4"></i> Afwezigheid doorgeven</h2>';
+    html += '<p class="text-xs text-base-content/60 -mt-1 mb-2">Voor één dag vul je enkel "Van" in, "Tot en met" wordt dan automatisch dezelfde dag. Voor een langere periode pas je "Tot en met" zelf aan. Je vaste dag wordt in deze periode automatisch overgeslagen.</p>';
+    if (!me) {
+      html += '<p class="text-sm text-base-content/60">Gebruiker wordt geladen...</p>';
+    } else {
+      if (myVacs.length) {
+        html += '<ul class="divide-y divide-base-300">';
+        myVacs.slice().sort(function (a, b) { return a.startDate.localeCompare(b.startDate); }).forEach(function (v) {
+          var isSingleDay = v.startDate === v.endDate;
+          html += '<li class="flex items-center justify-between py-2 text-sm">';
+          html += "<span>" + (isSingleDay ? escapeHtml(v.startDate) : escapeHtml(v.startDate) + " → " + escapeHtml(v.endDate)) + "</span>";
+          html += '<button class="btn btn-ghost btn-xs text-error" data-del-vac="' + v.id + '"><i data-lucide="trash-2" class="w-4 h-4"></i></button>';
+          html += "</li>";
+        });
+        html += "</ul>";
+      } else {
+        html += '<p class="text-sm text-base-content/60">Geen afwezigheden ingepland.</p>';
+      }
+      html += '<form id="vacForm" class="flex flex-wrap items-end gap-2 mt-3">';
+      html += '<div class="flex gap-1">';
+      html += '<button type="button" class="btn btn-outline btn-xs" data-vac-quick="today">Vandaag</button>';
+      html += '<button type="button" class="btn btn-outline btn-xs" data-vac-quick="tomorrow">Morgen</button>';
+      html += "</div>";
+      html += '<div class="form-control"><label class="label py-0"><span class="label-text text-xs">Van</span></label><input type="date" name="startDate" class="input input-bordered input-sm" required /></div>';
+      html += '<div class="form-control"><label class="label py-0"><span class="label-text text-xs">Tot en met</span></label><input type="date" name="endDate" class="input input-bordered input-sm" required /></div>';
+      html += '<button class="btn btn-secondary btn-sm" type="submit"><i data-lucide="plus" class="w-4 h-4"></i> Toevoegen</button>';
+      html += "</form>";
+    }
+    html += "</div></div>";
+    // Vaste dag & eenmalige dag -- dichtgeklapt, want meestal via het rooster ingesteld
+    html += '<div class="collapse collapse-arrow bg-base-100 shadow-sm">';
+    html += '<input type="checkbox" /> <div class="collapse-title text-sm font-medium">Vaste dag & eenmalige dag instellen</div>';
+    html += '<div class="collapse-content space-y-4">';
+    html += '<p class="text-xs text-base-content/50 -mt-1">Sneller: klik op Overzicht op een dag om ze meteen als vaste dag, wekelijks, tweewekelijks of eenmalig op te pikken. Onderstaande formulieren doen exact hetzelfde.</p>';
+    // Vaste dag (herhalingen)
+    html += '<div>';
+    html += '<h3 class="font-semibold text-sm flex items-center gap-1.5"><i data-lucide="repeat" class="w-3.5 h-3.5 text-base-content/40"></i> Vaste dag</h3>';
+    if (!me) {
+      html += '<p class="text-sm text-base-content/60">Gebruiker wordt geladen...</p>';
+    } else {
+      if (myRules.length) {
+        html += '<ul class="divide-y divide-base-300">';
+        myRules.forEach(function (r) {
+          html += '<li class="flex items-center justify-between py-2 text-sm">';
+          html += "<span>Vanaf <strong>" + escapeHtml(r.startDate) + "</strong>, elke " + Number(r.intervalWeeks) + " week(en) (" + escapeHtml(DAY_NAMES[parseISO(r.startDate).getDay()]) + ")</span>";
+          html += '<button class="btn btn-ghost btn-xs text-error" data-del-rule="' + r.id + '"><i data-lucide="trash-2" class="w-4 h-4"></i></button>';
+          html += "</li>";
+        });
+        html += "</ul>";
+      } else {
+        html += '<p class="text-sm text-base-content/60">Nog geen vaste dag ingesteld.</p>';
+      }
+      html += '<form id="ruleForm" class="flex flex-wrap items-end gap-2 mt-3">';
+      html += '<div class="form-control"><label class="label py-0"><span class="label-text text-xs">Eerste dag</span></label><input type="date" name="startDate" class="input input-bordered input-sm" required /></div>';
+      html += '<div class="form-control"><label class="label py-0"><span class="label-text text-xs">Elke hoeveel weken?</span></label><input type="number" name="intervalWeeks" min="1" value="1" class="input input-bordered input-sm w-28" required /></div>';
+      html += '<button class="btn btn-primary btn-sm" type="submit"><i data-lucide="plus" class="w-4 h-4"></i> Toevoegen</button>';
+      html += "</form>";
+    }
+    html += "</div>";
+    // Eenmalige dag oppikken (los van het vaste schema)
+    html += '<div>';
+    html += '<h3 class="font-semibold text-sm flex items-center gap-1.5"><i data-lucide="hand" class="w-3.5 h-3.5 text-base-content/40"></i> Eenmalige dag</h3>';
+    if (!me) {
+      html += '<p class="text-sm text-base-content/60">Gebruiker wordt geladen...</p>';
+    } else {
+      if (myAdhoc.length) {
+        html += '<ul class="divide-y divide-base-300">';
+        myAdhoc.forEach(function (p) {
+          html += '<li class="flex items-center justify-between py-2 text-sm">';
+          html += "<span>" + escapeHtml(p.date) + " (" + escapeHtml(DAY_NAMES[parseISO(p.date).getDay()]) + ")</span>";
+          html += '<button class="btn btn-ghost btn-xs text-error" data-del-adhoc="' + p.id + '"><i data-lucide="trash-2" class="w-4 h-4"></i></button>';
+          html += "</li>";
+        });
+        html += "</ul>";
+      } else {
+        html += '<p class="text-sm text-base-content/60">Nog geen eenmalige dagen opgepikt.</p>';
+      }
+      html += '<form id="adhocForm" class="flex flex-wrap items-end gap-2 mt-3">';
+      html += '<div class="form-control"><label class="label py-0"><span class="label-text text-xs">Datum</span></label><input type="date" name="date" min="' + todayIsoForMin + '" class="input input-bordered input-sm" required /></div>';
+      html += '<button class="btn btn-accent btn-sm" type="submit"><i data-lucide="plus" class="w-4 h-4"></i> Oppikken</button>';
+      html += "</form>";
+    }
+    html += "</div>";
+    html += "</div></div>";
+    // Overzicht iedereen (collapse)
+    html += '<div class="collapse collapse-arrow bg-base-100 shadow-sm">';
+    html += '<input type="checkbox" /> <div class="collapse-title text-sm font-medium">Schema van iedereen bekijken</div>';
+    html += '<div class="collapse-content"><p class="text-xs text-base-content/50 -mt-1 mb-2">' + (privileged ? "Als admin kan je hier ook dagen van collega’s verwijderen." : "Alleen ter info. Je past hier niets aan, dat doe je bij je eigen naam hierboven.") + '</p><div class="overflow-x-auto"><table class="table table-sm">';
+    html += "<thead><tr><th>Collega</th><th>Vaste dag</th><th>Afwezigheid</th><th>Eenmalige dag</th></tr></thead><tbody>";
+    var byPerson = {};
+    cache.recurrences.forEach(function (r) {
+      byPerson[r.personId] = byPerson[r.personId] || { name: r.personName, rules: [], vacs: [], adhoc: [] };
+      byPerson[r.personId].rules.push(r);
+    });
+    cache.vacations.forEach(function (v) {
+      byPerson[v.personId] = byPerson[v.personId] || { name: v.personName, rules: [], vacs: [], adhoc: [] };
+      byPerson[v.personId].vacs.push(v);
+    });
+    cache.adhoc.forEach(function (p) {
+      byPerson[p.personId] = byPerson[p.personId] || { name: p.personName, rules: [], vacs: [], adhoc: [] };
+      byPerson[p.personId].adhoc.push(p);
+    });
+    var people = Object.keys(byPerson);
+    if (!people.length) {
+      html += '<tr><td colspan="4" class="text-base-content/60">Nog niemand heeft een schema ingesteld.</td></tr>';
+    } else {
+      people.forEach(function (pid) {
+        var p = byPerson[pid];
+        var rulesCell = p.rules.length ? p.rules.map(function (r) {
+          var label = escapeHtml(DAY_NAMES[parseISO(r.startDate).getDay()]) + " (om de " + Number(r.intervalWeeks) + " week)";
+          if (!privileged) return label;
+          return '<div class="flex items-center justify-between gap-1"><span>' + label + '</span><button class="btn btn-ghost btn-xs text-error" data-del-rule="' + r.id + '"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button></div>';
+        }).join(privileged ? "" : ", ") : "-";
+        var vacsCell = p.vacs.length ? p.vacs.map(function (v) {
+          var label = escapeHtml(v.startDate) + "→" + escapeHtml(v.endDate);
+          if (!privileged) return label;
+          return '<div class="flex items-center justify-between gap-1"><span>' + label + '</span><button class="btn btn-ghost btn-xs text-error" data-del-vac="' + v.id + '"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button></div>';
+        }).join(privileged ? "" : ", ") : "-";
+        var adhocCell = p.adhoc.length ? p.adhoc.map(function (a) {
+          var label = escapeHtml(a.date);
+          if (!privileged) return label;
+          return '<div class="flex items-center justify-between gap-1"><span>' + label + '</span><button class="btn btn-ghost btn-xs text-error" data-del-adhoc="' + a.id + '"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button></div>';
+        }).join(privileged ? "" : ", ") : "-";
+        html += "<tr><td>" + escapeHtml(p.name) + "</td><td>" + rulesCell + "</td><td>" + vacsCell + "</td><td>" + adhocCell + "</td></tr>";
+      });
+    }
+    html += "</tbody></table></div></div></div>";
+    el.innerHTML = html;
+    icons();
+    var tourClose = document.getElementById("schemaTourClose");
+    if (tourClose) {
+      tourClose.addEventListener("click", function () {
+        schemaTourDismissed = true;
+        window.sharedStorage && window.sharedStorage.set && window.sharedStorage.set(SCHEMA_TOUR_KEY, "1").catch(function () {});
+        renderSchema();
+      });
+    }
+    var tourReopen = document.getElementById("schemaTourReopen");
+    if (tourReopen) {
+      tourReopen.addEventListener("click", function () {
+        schemaTourDismissed = false;
+        renderSchema();
+      });
+    }
+    var ruleForm = document.getElementById("ruleForm");
+    if (ruleForm) {
+      ruleForm.addEventListener("submit", function (e) {
+        e.preventDefault();
+        var fd = new FormData(ruleForm);
+        addRecurrence(fd.get("startDate"), fd.get("intervalWeeks"));
+      });
+    }
+    var vacForm = document.getElementById("vacForm");
+    if (vacForm) {
+      var vacStart = vacForm.querySelector('[name="startDate"]');
+      var vacEnd = vacForm.querySelector('[name="endDate"]');
+      // Gemak voor een afwezigheid van 1 dag: zodra "Van" wordt gekozen, volgt "Tot en met"
+      // automatisch mee, zolang de gebruiker die zelf nog niet heeft aangepast.
+      var vacEndTouched = false;
+      vacEnd.addEventListener("input", function () { vacEndTouched = true; });
+      vacStart.addEventListener("change", function () {
+        if (!vacEndTouched || !vacEnd.value) vacEnd.value = vacStart.value;
+      });
+      vacForm.querySelectorAll("[data-vac-quick]").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          var d = todayMidnight();
+          if (btn.getAttribute("data-vac-quick") === "tomorrow") d.setDate(d.getDate() + 1);
+          var iso = toISO(d);
+          vacStart.value = iso;
+          vacEnd.value = iso;
+          vacEndTouched = false;
+        });
+      });
+      vacForm.addEventListener("submit", function (e) {
+        e.preventDefault();
+        var fd = new FormData(vacForm);
+        addVacation(fd.get("startDate"), fd.get("endDate"));
+      });
+    }
+    el.querySelectorAll("[data-del-rule]").forEach(function (btn) {
+      btn.addEventListener("click", function () { deleteRecurrence(btn.getAttribute("data-del-rule")); });
+    });
+    el.querySelectorAll("[data-del-vac]").forEach(function (btn) {
+      btn.addEventListener("click", function () { deleteVacation(btn.getAttribute("data-del-vac")); });
+    });
+    var adhocForm = document.getElementById("adhocForm");
+    if (adhocForm) {
+      adhocForm.addEventListener("submit", function (e) {
+        e.preventDefault();
+        var fd = new FormData(adhocForm);
+        addAdhocPickup(fd.get("date"));
+      });
+    }
+    el.querySelectorAll("[data-del-adhoc]").forEach(function (btn) {
+      btn.addEventListener("click", function () { deleteAdhocPickup(btn.getAttribute("data-del-adhoc")); });
+    });
+  }
+  function addAdhocPickup(date, person) {
+    if (!window.currentUser) return showToast("Gebruiker nog niet geladen, probeer opnieuw.", "warning");
+    if (!date) return;
+    var target = person || { id: window.currentUser.id, name: window.currentUser.name };
+    var value = JSON.stringify({
+      personId: target.id,
+      personName: target.name,
+      date: date
+    });
+    window.sharedStorage.addItem(ADHOC, value).then(forceRefresh).catch(function (e) {
+      showToast("Kon niet opslaan: " + e.message, "error");
+    });
+  }
+  function deleteAdhocPickup(id) {
+    window.sharedStorage.removeItem(ADHOC, id).then(forceRefresh);
+  }
+  function addClosure(startDate, endDate, reason) {
+    var value = JSON.stringify({
+      startDate: startDate,
+      endDate: endDate,
+      reason: (reason || "").trim(),
+      addedBy: window.currentUser ? window.currentUser.name : "Onbekend"
+    });
+    window.sharedStorage.addItem(CLOSURES, value).then(forceRefresh).then(rerenderChatIfVisible).catch(function (e) {
+      showToast("Kon niet opslaan: " + e.message, "error");
+    });
+  }
+  function deleteClosure(id) {
+    window.sharedStorage.removeItem(CLOSURES, id).then(forceRefresh).then(rerenderChatIfVisible);
+  }
+  function addNote(date, text) {
+    text = (text || "").trim();
+    if (!date || !text) return;
+    var value = JSON.stringify({
+      date: date,
+      text: text,
+      addedBy: window.currentUser ? window.currentUser.name : "Onbekend",
+      addedAt: new Date().toISOString()
+    });
+    window.sharedStorage.addItem(NOTES, value).then(refreshAll).then(rerenderChatIfVisible).catch(function (e) {
+      showToast("Kon notitie niet toevoegen: " + e.message, "error");
+    });
+  }
+  function deleteNote(id) {
+    window.sharedStorage.removeItem(NOTES, id).then(refreshAll).then(rerenderChatIfVisible);
+  }
+  // Herrendert enkel de Chat-tab (met reeds gecachete kanalen/taken) zodat notities/sluitingen
+  // daar meteen kloppen, zonder platform.listChatChannels()/schedule.list() opnieuw te bevragen.
+  function rerenderChatIfVisible() {
+    var chatSection = document.getElementById("tab-chat");
+    if (chatSection && !chatSection.classList.contains("hidden")) renderChat();
+  }
+  function addRecurrence(startDate, intervalWeeks, person) {
+    if (!window.currentUser) return showToast("Gebruiker nog niet geladen, probeer opnieuw.", "warning");
+    var target = person || { id: window.currentUser.id, name: window.currentUser.name };
+    var value = JSON.stringify({
+      personId: target.id,
+      personName: target.name,
+      startDate: startDate,
+      intervalWeeks: Number(intervalWeeks) || 1
+    });
+    window.sharedStorage.addItem(RECURRENCES, value).then(forceRefresh).catch(function (e) {
+      showToast("Kon niet opslaan: " + e.message, "error");
+    });
+  }
+  function deleteRecurrence(id) {
+    window.sharedStorage.removeItem(RECURRENCES, id).then(forceRefresh);
+  }
+  function addVacation(startDate, endDate) {
+    if (!window.currentUser) return showToast("Gebruiker nog niet geladen, probeer opnieuw.", "warning");
+    var value = JSON.stringify({
+      personId: window.currentUser.id,
+      personName: window.currentUser.name,
+      startDate: startDate,
+      endDate: endDate
+    });
+    window.sharedStorage.addItem(VACATIONS, value).then(forceRefresh).catch(function (e) {
+      showToast("Kon niet opslaan: " + e.message, "error");
+    });
+  }
+  function deleteVacation(id) {
+    window.sharedStorage.removeItem(VACATIONS, id).then(forceRefresh);
+  }
+  // ---------- Render: Boodschappenlijst ----------
+  function renderLijst() {
+    var el = document.getElementById("tab-lijst");
+    var html = "";
+    html += '<div class="card bg-base-100 shadow-sm"><div class="card-body">';
+    html += '<div class="flex items-center justify-between flex-wrap gap-2"><h2 class="card-title text-base"><i data-lucide="download" class="w-4 h-4"></i> Exporteren</h2>';
+    html += '<div class="flex gap-2"><button id="exportTxtBtn" class="btn btn-ghost btn-xs"><i data-lucide="file-text" class="w-4 h-4"></i> .txt</button>';
+    html += '<button id="exportPdfBtn" class="btn btn-ghost btn-xs"><i data-lucide="file-down" class="w-4 h-4"></i> PDF</button></div></div>';
+    html += '<p class="text-xs text-base-content/50 mt-1">Exporteert de huidige openstaande lijst (' + cache.open.length + ' item(s)). Items toevoegen of afvinken doe je via het paneel op Overzicht.</p>';
+    html += "</div></div>";
+    html += '<div class="collapse collapse-arrow bg-base-100 shadow-sm">';
+    html += '<input type="checkbox" /><div class="collapse-title text-sm font-medium">Recent aangekocht (' + cache.done.length + ', automatisch opgeruimd na 7 dagen)</div>';
+    html += '<div class="collapse-content">';
+    if (cache.done.length) {
+      html += '<ul class="divide-y divide-base-300">';
+      cache.done.slice().sort(function (a, b) { return new Date(b.purchasedAt) - new Date(a.purchasedAt); }).forEach(function (it) {
+        html += '<li class="flex items-center justify-between py-2 text-sm gap-2">';
+        html += '<span class="line-through text-base-content/50 min-w-0 break-words">' + escapeHtml(it.line) + "</span>";
+        html += '<div class="flex gap-1 shrink-0"><button class="btn btn-ghost btn-xs" data-restore="' + it.id + '"><i data-lucide="undo-2" class="w-4 h-4"></i></button>';
+        html += '<button class="btn btn-ghost btn-xs text-error" data-del-done="' + it.id + '"><i data-lucide="trash-2" class="w-4 h-4"></i></button></div>';
+        html += "</li>";
+      });
+      html += "</ul>";
+    } else {
+      html += '<p class="text-sm text-base-content/60">Nog niets aangekocht.</p>';
+    }
+    html += "</div></div>";
+    html += '<div class="card bg-base-100 shadow-sm"><div class="card-body">';
+    html += '<h2 class="card-title text-base"><i data-lucide="tags" class="w-4 h-4"></i> Producten beheren</h2>';
+    html += '<p class="text-xs text-base-content/50 -mt-1 mb-1">Deze lijst vult de suggesties aan bij het toevoegen van een product op Overzicht.</p>';
+    if (cache.products.length) {
+      html += '<div class="flex flex-wrap gap-1">';
+      cache.products.slice().sort(function (a, b) { return a.name.localeCompare(b.name); }).forEach(function (p) {
+        html += '<span class="badge badge-outline gap-1 whitespace-normal break-words h-auto py-1">' + escapeHtml(p.name) + '<button data-del-product="' + p.id + '" class="shrink-0"><i data-lucide="x" class="w-3 h-3"></i></button></span>';
+      });
+      html += "</div>";
+    } else {
+      html += '<p class="text-sm text-base-content/60">Nog geen producten geregistreerd.</p>';
+    }
+    html += '<form id="productForm" class="flex items-end gap-2 mt-3 min-w-0">';
+    html += '<input name="name" class="input input-bordered input-sm flex-1 min-w-0" placeholder="Nieuw product" required />';
+    html += '<button class="btn btn-secondary btn-sm shrink-0" type="submit"><i data-lucide="plus" class="w-4 h-4"></i> Toevoegen</button>';
+    html += "</form>";
+    html += "</div></div>";
+    el.innerHTML = html;
+    icons();
+    el.querySelectorAll("[data-restore]").forEach(function (btn) {
+      btn.addEventListener("click", function () { restoreItem(btn.getAttribute("data-restore")); });
+    });
+    el.querySelectorAll("[data-del-done]").forEach(function (btn) {
+      btn.addEventListener("click", function () { deleteDoneItem(btn.getAttribute("data-del-done")); });
+    });
+    document.getElementById("exportTxtBtn").addEventListener("click", exportTxt);
+    document.getElementById("exportPdfBtn").addEventListener("click", exportPdf);
+    var productForm = document.getElementById("productForm");
+    if (productForm) {
+      productForm.addEventListener("submit", function (e) {
+        e.preventDefault();
+        var fd = new FormData(productForm);
+        addProductManually(fd.get("name"));
+        productForm.reset();
+      });
+    }
+    el.querySelectorAll("[data-del-product]").forEach(function (btn) {
+      btn.addEventListener("click", function () { deleteProduct(btn.getAttribute("data-del-product")); });
+    });
+  }
+  function addProductManually(name) {
+    name = (name || "").trim();
+    if (!name) return;
+    var exists = cache.products.some(function (p) { return p.name.toLowerCase() === name.toLowerCase(); });
+    if (exists) return showToast("Dat product staat er al bij.", "warning");
+    window.sharedStorage.addItem(PRODUCTS, name).then(refreshAll).catch(function (e) {
+      showToast("Kon product niet toevoegen: " + e.message, "error");
+    });
+  }
+  function deleteProduct(id) {
+    window.sharedStorage.removeItem(PRODUCTS, id).then(refreshAll);
+  }
+  function buildLine(name, qty, note) {
+    var line = name;
+    if (qty) line += " — " + qty;
+    if (note) line += " (" + note + ")";
+    return line;
+  }
+  function addShoppingItem(name, qty, note) {
+    name = (name || "").trim();
+    if (!name) return;
+    var line = buildLine(name, (qty || "").trim(), (note || "").trim());
+    var value = JSON.stringify({
+      name: name,
+      qty: (qty || "").trim(),
+      note: (note || "").trim(),
+      line: line,
+      addedBy: window.currentUser ? window.currentUser.name : "Onbekend",
+      addedAt: new Date().toISOString()
+    });
+    window.sharedStorage.addItem(SHOPPING_OPEN, value)
+      .then(function () { return ensureProduct(name); })
+      .then(refreshAll)
+      .catch(function (e) { showToast("Kon item niet toevoegen: " + e.message, "error"); });
+  }
+  function ensureProduct(name) {
+    var exists = cache.products.some(function (p) { return p.name.toLowerCase() === name.toLowerCase(); });
+    if (exists) return Promise.resolve();
+    return window.sharedStorage.addItem(PRODUCTS, name);
+  }
+  function markPurchased(id) {
+    var it = cache.open.find(function (x) { return x.id === id; });
+    if (!it) return;
+    var value = JSON.stringify({
+      name: it.name, qty: it.qty, note: it.note, line: it.line,
+      addedBy: it.addedBy, addedAt: it.addedAt, purchasedAt: new Date().toISOString()
+    });
+    window.sharedStorage.addItem(SHOPPING_DONE, value)
+      .then(function () { return window.sharedStorage.removeItem(SHOPPING_OPEN, id); })
+      .then(refreshAll)
+      .catch(function (e) { showToast("Kon niet bijwerken: " + e.message, "error"); });
+  }
+  function restoreItem(id) {
+    var it = cache.done.find(function (x) { return x.id === id; });
+    if (!it) return;
+    var value = JSON.stringify({ name: it.name, qty: it.qty, note: it.note, line: it.line, addedBy: it.addedBy, addedAt: it.addedAt });
+    window.sharedStorage.addItem(SHOPPING_OPEN, value)
+      .then(function () { return window.sharedStorage.removeItem(SHOPPING_DONE, id); })
+      .then(refreshAll);
+  }
+  function deleteOpenItem(id) {
+    window.sharedStorage.removeItem(SHOPPING_OPEN, id).then(refreshAll);
+  }
+  function deleteDoneItem(id) {
+    window.sharedStorage.removeItem(SHOPPING_DONE, id).then(refreshAll);
+  }
+  function exportTxt() {
+    var dateStr = toISO(new Date());
+    var lines = ["Boodschappenlijst - " + dateStr, ""];
+    if (cache.open.length) {
+      cache.open.forEach(function (it) { lines.push("[ ] " + it.line); });
+    } else {
+      lines.push("Niets op de lijst.");
+    }
+    var blob = new Blob([lines.join("\n")], { type: "text/plain;charset=utf-8" });
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "boodschappenlijst-" + dateStr + ".txt";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+  function exportPdf() {
+    if (!window.jspdf) return showToast("PDF-bibliotheek kon niet laden.", "error");
+    var dateStr = toISO(new Date());
+    var doc = new window.jspdf.jsPDF();
+    doc.setFontSize(18);
+    doc.text("Boodschappenlijst", 14, 20);
+    doc.setFontSize(11);
+    doc.setTextColor(120);
+    doc.text(dateStr, 14, 27);
+    doc.setTextColor(20);
+    var y = 40;
+    doc.setFontSize(13);
+    if (!cache.open.length) {
+      doc.text("Niets op de lijst. 🎉", 14, y);
+    } else {
+      cache.open.forEach(function (it) {
+        doc.rect(14, y - 4.5, 4.5, 4.5);
+        doc.text(it.line, 22, y);
+        y += 9;
+        if (y > 280) { doc.addPage(); y = 20; }
+      });
+    }
+    doc.save("boodschappenlijst-" + dateStr + ".pdf");
+  }
+  // ---------- Chat & instellingen ----------
+  function refreshChat() {
+    var el = document.getElementById("tab-chat");
+    el.innerHTML = '<div class="flex justify-center py-8"><span class="loading loading-spinner loading-md"></span></div>';
+    showBusy();
+    return waitFor(platformReady).then(function (ready) {
+      if (!ready) throw new Error("Chat-platform is nog niet beschikbaar. Sluit de app en open ze opnieuw.");
+      return Promise.all([
+        window.platform.listChatChannels(),
+        window.platform.schedule.list()
+      ]);
+    }).then(function (res) {
+      cache.channels = res[0] || [];
+      cache.tasks = res[1] || [];
+      renderChat();
+      return syncTaskTemplates(cache.tasks); // repareert op de achtergrond taken die nog het oude (kapotte) bericht-template hebben
+    }).catch(function (e) {
+      el.innerHTML = '<div class="alert alert-error"><span>Kon chatgegevens niet laden: ' + escapeHtml(e && e.message ? e.message : e) + "</span></div>";
+    }).finally(hideBusy);
+  }
+  // Sleutel waarmee we onthouden welke versie van MESSAGE_TEMPLATE we al hebben "uitgerold" naar de
+  // bestaande dagelijkse taken. Het bleek niet betrouwbaar om enkel schedule.update({messageTemplate})
+  // te gebruiken (oudere taken bleven het kapotte bericht sturen, ook na een geslaagde update-aanroep
+  // -- vermoedelijk geeft de lijst-API het opgeslagen sjabloon niet 1-op-1 terug, of update() negeert
+  // stille wijzigingen). In plaats daarvan verwijderen en herscheppen we de taak zelf met het actuele
+  // sjabloon zodra we zien dat de versie in de gedeelde opslag niet meer overeenkomt -- dat gebruikt
+  // enkel remove()/create(), die we al weten dat werken.
+  var TEMPLATE_VERSION_KEY = "syncedMessageTemplateVersion";
+  function syncTaskTemplates(tasks) {
+    if (!window.platform || !window.platform.schedule) return Promise.resolve();
+    return window.sharedStorage.get(TEMPLATE_VERSION_KEY).then(function (stored) {
+      if (stored === MESSAGE_TEMPLATE) return; // al up-to-date, niets te doen
+      var manageable = (tasks || []).filter(function (t) { return t.canManage; });
+      var rebuild = manageable.map(function (t) {
+        var channel = resolveTaskChannel(t) || (cache.channels.length === 1 ? cache.channels[0] : null);
+        var time = (t.recurrence && t.recurrence.time) || "11:00";
+        if (!channel) return Promise.resolve();
+        return window.platform.schedule.remove(t.id).then(function () {
+          return window.platform.schedule.create({
+            name: t.name || TASK_NAME,
+            recurrence: { frequency: "weekly", time: time, daysOfWeek: WEEKDAY_NUMBERS },
+            deliveryMethod: "chat",
+            targetType: "channel",
+            targetChannelId: channel.id,
+            messageTemplate: MESSAGE_TEMPLATE
+          });
+        });
+      });
+      return Promise.all(rebuild)
+        .then(function () { return window.sharedStorage.set(TEMPLATE_VERSION_KEY, MESSAGE_TEMPLATE); })
+        .then(function () {
+          if (manageable.length) {
+            showToast("Het bericht van de dagelijkse post was verouderd en is automatisch vernieuwd.");
+            return refreshChat();
+          }
+        });
+    }).catch(function (e) { console.error("Kon berichtsjabloon niet automatisch vernieuwen:", e); });
+  }
+  // We weten niet met zekerheid onder welke veldnaam schedule.list() het gekoppelde kanaal teruggeeft
+  // (targetChannelId? channelId? genest onder target/config/delivery?). In plaats van te gokken op één
+  // veldnaam, doorzoeken we het volledige taak-object (een paar niveaus diep) op elke tekst/getal-waarde
+  // en vergelijken die met alle gekende kanaal-id's én -namen. Zo blijft de koppeling werken ongeacht
+  // hoe het platform het precies structureert.
+  function collectLeafValues(obj, depth, out) {
+    out = out || [];
+    if (!obj || typeof obj !== "object" || depth < 0) return out;
+    Object.keys(obj).forEach(function (k) {
+      var v = obj[k];
+      if (v == null) return;
+      if (typeof v === "string" || typeof v === "number") out.push(v);
+      else if (typeof v === "object" && depth > 0) collectLeafValues(v, depth - 1, out);
+    });
+    return out;
+  }
+  function resolveTaskChannel(t) {
+    var values = collectLeafValues(t, 2);
+    var i, j;
+    for (i = 0; i < cache.channels.length; i++) {
+      for (j = 0; j < values.length; j++) {
+        if (String(values[j]) === String(cache.channels[i].id)) return cache.channels[i];
+      }
+    }
+    for (i = 0; i < cache.channels.length; i++) {
+      for (j = 0; j < values.length; j++) {
+        if (String(values[j]) === String(cache.channels[i].name)) return cache.channels[i];
+      }
+    }
+    return null;
+  }
+  function renderChat() {
+    var el = document.getElementById("tab-chat");
+    var html = "";
+    html += '<div class="card bg-base-100 shadow-sm"><div class="card-body">';
+    html += '<h2 class="card-title text-base"><i data-lucide="send" class="w-4 h-4"></i> Actieve dagelijkse posts</h2>';
+    if (!cache.tasks.length) {
+      html += '<p class="text-sm text-base-content/60">Nog geen dagelijkse chatpost ingesteld.</p>';
+    } else {
+      html += '<ul class="divide-y divide-base-300">';
+      cache.tasks.forEach(function (t) {
+        // Als er maar 1 kanaal gekoppeld is aan deze mini-app, is dat sowieso het juiste kanaal
+        // -- dat vangt het geval op waarin het taak-object het kanaal onder een veld bewaart dat
+        // we niet herkennen.
+        var channel = resolveTaskChannel(t) || (cache.channels.length === 1 ? cache.channels[0] : null);
+        var channelLabel = channel ? escapeHtml(channel.name) : "onbekend kanaal";
+        html += '<li class="py-2 text-sm">';
+        html += '<div class="flex items-center justify-between gap-2 flex-wrap">';
+        html += "<div><strong>" + escapeHtml(t.name) + "</strong> — elke werkdag (ma-vr) om " + escapeHtml((t.recurrence && t.recurrence.time) || "?") + " in #" + channelLabel + "</div>";
+        html += '<div class="flex gap-1">';
+        if (t.canManage) {
+          html += '<button class="btn btn-ghost btn-xs" data-run="' + t.id + '"><i data-lucide="play" class="w-4 h-4"></i> Test nu</button>';
+          html += '<button class="btn btn-ghost btn-xs text-error" data-remove-task="' + t.id + '"><i data-lucide="trash-2" class="w-4 h-4"></i></button>';
+        } else {
+          html += '<span class="badge badge-ghost badge-sm">beheerd door collega</span>';
+        }
+        html += "</div></div></li>";
+      });
+      html += "</ul>";
+    }
+    html += "</div></div>";
+    html += '<div class="card bg-base-100 shadow-sm"><div class="card-body">';
+    html += '<h2 class="card-title text-base"><i data-lucide="plus-circle" class="w-4 h-4"></i> Nieuwe dagelijkse post instellen</h2>';
+    if (!cache.channels.length) {
+      html += '<p class="text-sm text-base-content/60">Er is nog geen Chat-kanaal gekoppeld. Vraag een admin om dit te doen via de "Chat-kanalen"-knop in de Mini-apps-lijst.</p>';
+    } else {
+      html += '<form id="taskForm" class="flex flex-wrap items-end gap-2">';
+      html += '<div class="form-control"><label class="label py-0"><span class="label-text text-xs">Kanaal</span></label><select name="channelId" class="select select-bordered select-sm" required>';
+      html += '<option value="" disabled selected>Kies een kanaal</option>';
+      cache.channels.forEach(function (c) { html += '<option value="' + escapeHtml(c.id) + '">' + escapeHtml(c.name) + "</option>"; });
+      html += "</select></div>";
+      html += '<div class="form-control"><label class="label py-0"><span class="label-text text-xs">Tijdstip</span></label><input type="time" name="time" value="11:00" class="input input-bordered input-sm" required /></div>';
+      html += '<button class="btn btn-primary btn-sm" type="submit"><i data-lucide="plus" class="w-4 h-4"></i> Instellen</button>';
+      html += "</form>";
+    }
+    html += '<p class="text-xs text-base-content/50 mt-2">Het bericht bevat automatisch wie er vandaag naar de winkel gaat (server-side berekend uit het rooster) en de openstaande boodschappen. Dit wordt enkel op werkdagen (ma-vr) verstuurd, niet in het weekend.</p>';
+    html += "</div></div>";
+    html += closuresCardHtml();
+    html += notesCardHtml();
+    el.innerHTML = html;
+    icons();
+    var taskForm = document.getElementById("taskForm");
+    if (taskForm) {
+      taskForm.addEventListener("submit", function (e) {
+        e.preventDefault();
+        var fd = new FormData(taskForm);
+        createDailyTask(fd.get("channelId"), fd.get("time"));
+      });
+    }
+    el.querySelectorAll("[data-run]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        showBusy();
+        window.platform.schedule.runNow(btn.getAttribute("data-run"))
+          .then(function () { showToast("Testbericht verzonden."); })
+          .catch(function (e) { showToast("Kon niet versturen: " + e.message, "error"); })
+          .finally(hideBusy);
+      });
+    });
+    el.querySelectorAll("[data-remove-task]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        showBusy();
+        window.platform.schedule.remove(btn.getAttribute("data-remove-task")).then(refreshChat).finally(hideBusy);
+      });
+    });
+    var noteForm = document.getElementById("noteForm");
+    if (noteForm) {
+      noteForm.addEventListener("submit", function (e) {
+        e.preventDefault();
+        var fd = new FormData(noteForm);
+        addNote(fd.get("date"), fd.get("text"));
+        noteForm.reset();
+      });
+    }
+    el.querySelectorAll("[data-del-note]").forEach(function (btn) {
+      btn.addEventListener("click", function () { deleteNote(btn.getAttribute("data-del-note")); });
+    });
+    var closureForm = document.getElementById("closureForm");
+    if (closureForm) {
+      closureForm.addEventListener("submit", function (e) {
+        e.preventDefault();
+        var fd = new FormData(closureForm);
+        addClosure(fd.get("startDate"), fd.get("endDate"), fd.get("reason"));
+      });
+    }
+    el.querySelectorAll("[data-del-closure]").forEach(function (btn) {
+      btn.addEventListener("click", function () { deleteClosure(btn.getAttribute("data-del-closure")); });
+    });
+  }
+  function closuresCardHtml() {
+    var html = "";
+    html += '<div class="card bg-base-100 shadow-sm"><div class="card-body">';
+    html += '<h2 class="card-title text-base"><i data-lucide="building-2" class="w-4 h-4"></i> Kantoor gesloten (feestdagen, collectieve sluiting)</h2>';
+    if (cache.closures.length) {
+      html += '<ul class="divide-y divide-base-300">';
+      cache.closures.slice().sort(function (a, b) { return a.startDate.localeCompare(b.startDate); }).forEach(function (c) {
+        html += '<li class="flex items-center justify-between py-2 text-sm gap-2">';
+        html += '<span class="min-w-0 break-words">' + escapeHtml(c.startDate) + " → " + escapeHtml(c.endDate) + (c.reason ? " — " + escapeHtml(c.reason) : "") + "</span>";
+        html += '<button class="btn btn-ghost btn-xs text-error shrink-0" data-del-closure="' + c.id + '"><i data-lucide="trash-2" class="w-4 h-4"></i></button>';
+        html += "</li>";
+      });
+      html += "</ul>";
+    } else {
+      html += '<p class="text-sm text-base-content/60">Geen sluitingsdagen ingesteld.</p>';
+    }
+    html += '<form id="closureForm" class="flex flex-wrap items-end gap-2 mt-3">';
+    html += '<div class="form-control"><label class="label py-0"><span class="label-text text-xs">Van</span></label><input type="date" name="startDate" class="input input-bordered input-sm" required /></div>';
+    html += '<div class="form-control"><label class="label py-0"><span class="label-text text-xs">Tot en met</span></label><input type="date" name="endDate" class="input input-bordered input-sm" required /></div>';
+    html += '<div class="form-control"><label class="label py-0"><span class="label-text text-xs">Reden (optioneel)</span></label><input type="text" name="reason" class="input input-bordered input-sm" placeholder="bv. kerstvakantie" /></div>';
+    html += '<button class="btn btn-accent btn-sm" type="submit"><i data-lucide="plus" class="w-4 h-4"></i> Toevoegen</button>';
+    html += "</form>";
+    html += '<p class="text-xs text-base-content/50 mt-2">Op deze dagen wordt niemand ingepland en de chatpost meldt de sluiting in plaats van een naam.</p>';
+    html += "</div></div>";
+    return html;
+  }
+  function notesCardHtml() {
+    var todayIso = toISO(todayMidnight());
+    var upcoming = cache.notes.slice()
+      .filter(function (n) { return n.date >= todayIso; })
+      .sort(function (a, b) { return a.date.localeCompare(b.date); });
+    var html = "";
+    html += '<div class="card bg-base-100 shadow-sm"><div class="card-body">';
+    html += '<h2 class="card-title text-base"><i data-lucide="sticky-note" class="w-4 h-4"></i> Extra notities (bv. "beenhouwer gesloten")</h2>';
+    if (upcoming.length) {
+      html += '<ul class="divide-y divide-base-300">';
+      upcoming.forEach(function (n) {
+        html += '<li class="flex items-center justify-between py-2 text-sm">';
+        html += "<span>" + escapeHtml(n.date) + " — " + escapeHtml(n.text) + "</span>";
+        html += '<button class="btn btn-ghost btn-xs text-error" data-del-note="' + n.id + '"><i data-lucide="trash-2" class="w-4 h-4"></i></button>';
+        html += "</li>";
+      });
+      html += "</ul>";
+    } else {
+      html += '<p class="text-sm text-base-content/60">Geen notities gepland.</p>';
+    }
+    html += '<form id="noteForm" class="flex flex-wrap items-end gap-2 mt-3">';
+    html += '<div class="form-control"><label class="label py-0"><span class="label-text text-xs">Datum</span></label><input type="date" name="date" class="input input-bordered input-sm" required /></div>';
+    html += '<div class="form-control flex-1 min-w-[180px]"><label class="label py-0"><span class="label-text text-xs">Notitie</span></label><input type="text" name="text" class="input input-bordered input-sm w-full" placeholder="bv. beenhouwer gesloten" required /></div>';
+    html += '<button class="btn btn-secondary btn-sm" type="submit"><i data-lucide="plus" class="w-4 h-4"></i> Toevoegen</button>';
+    html += "</form>";
+    html += '<p class="text-xs text-base-content/50 mt-2">Notities verschijnen op de bijhorende dag in Overzicht en worden meegenomen in de dagelijkse chatpost van die dag.</p>';
+    html += "</div></div>";
+    return html;
+  }
+  function createDailyTask(channelId, time) {
+    showBusy();
+    window.platform.schedule.create({
+      name: TASK_NAME,
+      recurrence: { frequency: "weekly", time: time || "11:00", daysOfWeek: WEEKDAY_NUMBERS },
+      deliveryMethod: "chat",
+      targetType: "channel",
+      targetChannelId: channelId,
+      messageTemplate: MESSAGE_TEMPLATE
+    }).then(function () {
+      showToast("Dagelijkse post ingesteld (enkel op werkdagen).");
+      return refreshChat();
+    }).catch(function (e) {
+      showToast("Kon taak niet instellen: " + e.message, "error");
+    }).finally(hideBusy);
+  }
+  // ---------- Rolgebonden UI ----------
+  // Chat & instellingen is enkel voor de maker/een Operations Manager-admin (isPrivileged). Diezelfde
+  // groep kan bij "Dag oppikken" ook een collega kiezen i.p.v. enkel zichzelf, via de select die hier
+  // gevuld wordt (zie pickupPersonWrap/-Select in de HTML en bindPickupModal hierboven).
+  function applyRoleUI() {
+    var privileged = !!(window.currentUser && window.currentUser.isPrivileged);
+    var chatTab = document.querySelector('[data-tab="chat"]');
+    if (chatTab) chatTab.classList.toggle("hidden", !privileged);
+    if (!privileged) return Promise.resolve();
+    return window.platform.listColleagues().then(function (list) {
+      cache.colleagues = list || [];
+      var select = document.getElementById("pickupPersonSelect");
+      var wrap = document.getElementById("pickupPersonWrap");
+      if (select) {
+        cache.colleagues.slice().sort(function (a, b) { return a.full_name.localeCompare(b.full_name); }).forEach(function (c) {
+          var opt = document.createElement("option");
+          opt.value = c.id;
+          opt.textContent = c.full_name;
+          select.appendChild(opt);
+        });
+      }
+      if (wrap) wrap.classList.remove("hidden");
+    }).catch(function (e) { console.error("Kon collega’s niet laden:", e); });
+  }
+  // ---------- Init ----------
+  function bindHeaderButtons() {
+    document.getElementById("refreshBtn").addEventListener("click", function () {
+      forceRefresh();
+    });
+  }
+  document.addEventListener("DOMContentLoaded", function () {
+    icons();
+    bindTabs();
+    bindHeaderButtons();
+    bindPickupModal();
+    Promise.all([waitForUser(), waitFor(sharedStorageReady)])
+      .then(function (res) {
+        updateUserBadge();
+        if (!res[1]) throw new Error("Gedeelde opslag is nog niet beschikbaar. Sluit de app en open ze opnieuw.");
+        return Promise.all([
+          window.sharedStorage.get(SCHEMA_TOUR_KEY),
+          window.sharedStorage.get(OVERZICHT_TOUR_KEY),
+          applyRoleUI()
+        ]).then(function (flags) {
+          schemaTourDismissed = flags[0] === "1";
+          overzichtTourDismissed = flags[1] === "1";
+        }).catch(function () {}).then(refreshAll);
+      })
+      .catch(function (e) {
+        console.error(e);
+        showToast("Kon de app niet initialiseren: " + (e && e.message ? e.message : e), "error");
+      });
+  });
+  window.addEventListener("unhandledrejection", function (e) {
+    console.error("Onverwerkte promise-fout:", e && e.reason);
+    showToast("Er ging iets mis: " + (e && e.reason && e.reason.message ? e.reason.message : e.reason), "error");
+    e.preventDefault();
+  });
+})();
+</script>
+</body>
+</html>

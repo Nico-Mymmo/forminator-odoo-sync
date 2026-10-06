@@ -1,78 +1,52 @@
 /**
- * Mini-Apps — Gedeelde opslag (shared storage), backed door R2
+ * Mini-Apps — Gedeelde opslag (window.sharedStorage)
  *
- * Kleine/document-achtige data die een mini-app over gebruikers heen wil delen
- * (bv. een teller, een gedeelde checklist, een recurring schema) -- in
- * tegenstelling tot de per-browser in-memory localStorage-shim in de iframe
- * (public/mini-apps.js), die niet persisteert en niet gedeeld wordt.
+ * Gegevens die een mini-app over gebruikers heen deelt (een teller, een
+ * gedeelde checklist, een rooster). Sinds 2026-10 heeft elke mini-app een
+ * EIGEN SQLite-database, in een Durable Object (lib/storage-do.js, binding
+ * MINI_APP_STORAGE). Dit bestand is de enige toegang ertoe: routes.js,
+ * scheduler.js en condition-scheduler.js roepen deze functies aan, nooit het
+ * Durable Object rechtstreeks.
  *
- * Waarom R2 en niet de Supabase-database (zoals de rest van deze module)?
- * Met een quotum van 10 MB per app zou dit, opgeteld over veel apps, de
- * 500 MB gratis Supabase-databaseopslag delen met alle echte bedrijfsdata
- * (forms, leads, event-registraties, ...). Cloudflare R2 heeft 10 GB gratis
- * opslag, geen egress-kosten, en is al de plek waar de app-inhoud zelf staat
- * (zie lib/r2-client.js) -- past dus beter bij "veel kleine documenten,
- * eventueel best wat data per app".
+ * Waarom het vroeger R2 was, en waarom dat niet meer hoeft: met 10 MB per
+ * app zou dit in Supabase de 500 MB gratis databaseopslag delen met alle
+ * echte bedrijfsdata, dus werd het R2, met één object per key of item. Dat
+ * dwong een krap quotum af (500 objecten, 10 MB), een volledige lijst van de
+ * app bij ELKE schrijfactie om het quotum na te rekenen, en een GET per item
+ * bij elke lijst. Een database per app heeft geen van die drie nodig, en kan
+ * op de server filteren (zie lib/storage-query.js).
  *
- * Key-layout in R2 (allemaal onder env.R2_ASSETS, key-prefix "mini-apps-storage/"):
- *   mini-apps-storage/{appId}/kv/{encodeURIComponent(key)}
- *     -- platte key/value-paren (get/set/remove/list)
- *   mini-apps-storage/{appId}/collections/{encodeURIComponent(collection)}/{itemId}
- *     -- collection-items; itemId = server-gegenereerde UUID, dus twee
- *     gebruikers die tegelijk een item toevoegen krijgen elk hun eigen key
- *     en botsen nooit (in tegenstelling tot één grote JSON-lijst die je in
- *     zijn geheel zou overschrijven -- daar verlies je dan de andere edit).
+ * De oude R2-objecten (mini-apps-storage/{appId}/...) blijven staan als
+ * back-up van de stand op het moment van verhuizen; ze worden niet meer
+ * gelezen of geschreven, behalve door die eenmalige verhuizing en bij het
+ * verwijderen van een app.
+ *
+ * De vorm naar buiten is ONGEWIJZIGD: dezelfde functies, dezelfde
+ * teruggavewaarden ({ id, value }), dezelfde foutcodes. Bestaande mini-apps
+ * merken niets van de verhuizing.
  *
  * Rechtencontrole (canView) gebeurt in routes.js, niet hier.
  */
 
-const PREFIX = 'mini-apps-storage/';
+import { normalizeQuery } from './storage-query.js';
 
 // ─── Quota's ─────────────────────────────────────────────────────────────────
-// Ruim genoeg voor "eigen kleine databases" (recurring schema's, checklists,
-// gedeelde lijsten) maar geen vervanging voor een echte database.
+// Een Durable Object kan 10 GB aan; de grens hier is wat een mini-app
+// redelijkerwijs nodig heeft, niet wat technisch kan.
 
 export const MAX_KEY_LENGTH = 200;
-export const MAX_VALUE_BYTES = 1 * 1024 * 1024;      // 1 MB per key/item
-export const MAX_OBJECTS_PER_APP = 500;              // max aantal keys + collection-items samen
-export const MAX_TOTAL_BYTES_PER_APP = 10 * 1024 * 1024; // 10 MB totaal per app
+export const MAX_COLLECTION_LENGTH = 200;
+export const MAX_ITEM_ID_LENGTH = 200;
+export const MAX_VALUE_BYTES = 1 * 1024 * 1024;           // 1 MB per key/item (een SQLite-rij in een DO mag max 2 MB)
+export const MAX_OBJECTS_PER_APP = 50000;                 // keys + collection-items samen (was 500)
+export const MAX_TOTAL_BYTES_PER_APP = 100 * 1024 * 1024; // 100 MB per app (was 10 MB)
+// Wat er in ÉÉN antwoord terug mag: een lijst zonder filter, of de context van
+// een geplande taak. Meer past niet veilig in het geheugen van een Worker; wie
+// meer heeft, haalt het in delen op met where/limit/offset.
+export const MAX_RESULT_BYTES = 16 * 1024 * 1024;
 
 function byteLength(str) {
   return new TextEncoder().encode(str).byteLength;
-}
-
-function encodeSegment(s) {
-  return encodeURIComponent(String(s));
-}
-
-function kvKey(appId, key) {
-  return `${PREFIX}${appId}/kv/${encodeSegment(key)}`;
-}
-
-function collectionPrefix(appId, collection) {
-  return `${PREFIX}${appId}/collections/${encodeSegment(collection)}/`;
-}
-
-function collectionItemKey(appId, collection, itemId) {
-  return `${collectionPrefix(appId, collection)}${encodeSegment(itemId)}`;
-}
-
-/**
- * Haalt ALLE objecten (kv + collection-items) van een app op, met hun grootte
- * -- alleen metadata, geen bodies. Gebruikt voor quota-controle en usage().
- * R2 list() geeft max 1000 objecten per call terug; bij ons quotum
- * (MAX_OBJECTS_PER_APP) is één call altijd voldoende, maar we volgen
- * `truncated`/`cursor` toch netjes op voor de zekerheid.
- */
-async function listAppObjects(env, appId) {
-  const objects = [];
-  let cursor;
-  do {
-    const page = await env.R2_ASSETS.list({ prefix: `${PREFIX}${appId}/`, cursor });
-    objects.push(...page.objects);
-    cursor = page.truncated ? page.cursor : undefined;
-  } while (cursor);
-  return objects;
 }
 
 function quotaError(message, code) {
@@ -81,73 +55,66 @@ function quotaError(message, code) {
   return err;
 }
 
-/**
- * Controleert of een nieuwe/vervangen waarde binnen de quota's van de app
- * blijft. `existingKey` is de volledige R2-key die vervangen wordt (undefined
- * bij een nieuw item, bv. altijd het geval voor collection-items).
- */
-async function assertWithinQuota(env, appId, existingKey, newValueBytes) {
-  const objects = await listAppObjects(env, appId);
-  const existing = existingKey ? objects.find(o => o.key === existingKey) : undefined;
-  const isNew = !existing;
-
-  if (isNew && objects.length >= MAX_OBJECTS_PER_APP) {
-    throw quotaError(`Maximum aantal keys/items per app (${MAX_OBJECTS_PER_APP}) bereikt.`, 'TOO_MANY_KEYS');
+function store(env, appId) {
+  if (!env.MINI_APP_STORAGE) {
+    throw new Error('Binding MINI_APP_STORAGE ontbreekt (zie durable_objects in wrangler.jsonc).');
   }
-
-  const currentTotal = objects.reduce((sum, o) => sum + o.size, 0);
-  const previousBytes = existing ? existing.size : 0;
-  const newTotal = currentTotal - previousBytes + newValueBytes;
-  if (newTotal > MAX_TOTAL_BYTES_PER_APP) {
-    throw quotaError(
-      `Totale opslag-limiet per app (${MAX_TOTAL_BYTES_PER_APP / 1024 / 1024} MB) bereikt.`,
-      'STORAGE_QUOTA_EXCEEDED'
-    );
-  }
+  return env.MINI_APP_STORAGE.get(env.MINI_APP_STORAGE.idFromName(appId));
 }
 
-function validateKeyAndValue(key, value) {
+/** Pakt het { ok, data } / { ok: false, code, message }-antwoord van het Durable Object uit. */
+async function unwrap(promise) {
+  const result = await promise;
+  if (!result || result.ok !== true) {
+    throw quotaError((result && result.message) || 'Onbekende opslagfout.', (result && result.code) || 'STORAGE_ERROR');
+  }
+  return result.data;
+}
+
+function validateKey(key) {
   if (typeof key !== 'string' || key.length === 0 || key.length > MAX_KEY_LENGTH) {
     throw quotaError(`Key moet 1-${MAX_KEY_LENGTH} tekens zijn.`, 'INVALID_KEY');
   }
+}
+
+function validateCollection(collection) {
+  if (typeof collection !== 'string' || collection.length === 0 || collection.length > MAX_COLLECTION_LENGTH) {
+    throw quotaError(`Naam van de collection moet 1-${MAX_COLLECTION_LENGTH} tekens zijn.`, 'INVALID_COLLECTION');
+  }
+}
+
+function validateItemId(itemId) {
+  if (typeof itemId !== 'string' || itemId.length === 0 || itemId.length > MAX_ITEM_ID_LENGTH) {
+    throw quotaError(`Item-id moet 1-${MAX_ITEM_ID_LENGTH} tekens zijn.`, 'INVALID_ITEM_ID');
+  }
+}
+
+function validateValue(value, what) {
   if (typeof value !== 'string') {
     throw quotaError('Waarde moet een string zijn.', 'INVALID_VALUE');
   }
-  const valueBytes = byteLength(value);
-  if (valueBytes > MAX_VALUE_BYTES) {
-    throw quotaError(`Waarde te groot. Maximum is ${MAX_VALUE_BYTES / 1024 / 1024} MB per key.`, 'VALUE_TOO_LARGE');
+  if (byteLength(value) > MAX_VALUE_BYTES) {
+    throw quotaError(`Waarde te groot. Maximum is ${MAX_VALUE_BYTES / 1024 / 1024} MB per ${what}.`, 'VALUE_TOO_LARGE');
   }
-  return valueBytes;
 }
 
 // ─── Platte key/value-opslag ─────────────────────────────────────────────────
 
 /**
- * Haalt alle key/value-paren van een app op als plain object.
- * N losse gets na de list (R2 list geeft geen bodies terug) -- prima voor de
- * kleine aantallen die deze quota's toelaten.
+ * Alle key/value-paren van een app als plain object.
  */
 export async function listStorage(env, appId) {
-  const page = await env.R2_ASSETS.list({ prefix: `${PREFIX}${appId}/kv/` });
-  const entries = await Promise.all(page.objects.map(async (o) => {
-    const obj = await env.R2_ASSETS.get(o.key);
-    const decodedKey = decodeURIComponent(o.key.slice(o.key.lastIndexOf('/') + 1));
-    return [decodedKey, obj ? await obj.text() : null];
-  }));
-  const result = {};
-  for (const [key, value] of entries) {
-    if (value !== null) result[key] = value;
-  }
-  return result;
+  return unwrap(store(env, appId).kvList(appId));
 }
 
 /**
- * Haalt één waarde op, of null als de key niet bestaat.
+ * Eén waarde, of null als de key niet bestaat. Een key die nooit gezet kon
+ * worden (te lang, leeg) bestaat per definitie niet: null, geen fout -- zo
+ * gedroeg het zich ook in R2.
  */
 export async function getStorageValue(env, appId, key) {
-  const obj = await env.R2_ASSETS.get(kvKey(appId, key));
-  if (!obj) return null;
-  return await obj.text();
+  if (typeof key !== 'string' || key.length === 0 || key.length > MAX_KEY_LENGTH) return null;
+  return unwrap(store(env, appId).kvGet(appId, key));
 }
 
 /**
@@ -155,117 +122,83 @@ export async function getStorageValue(env, appId, key) {
  * Gooit een Error met een `.code` property bij een quota-overschrijding.
  */
 export async function setStorageValue(env, appId, key, value) {
-  const valueBytes = validateKeyAndValue(key, value);
-  const r2Key = kvKey(appId, key);
-  await assertWithinQuota(env, appId, r2Key, valueBytes);
-  await env.R2_ASSETS.put(r2Key, value, { httpMetadata: { contentType: 'text/plain; charset=utf-8' } });
+  validateKey(key);
+  validateValue(value, 'key');
+  await unwrap(store(env, appId).kvSet(appId, key, value));
 }
 
 /**
- * Verwijdert één key. Geen fout als de key niet bestaat (idempotent, zoals R2.delete()).
+ * Verwijdert één key. Geen fout als de key niet bestaat (idempotent).
  */
 export async function deleteStorageValue(env, appId, key) {
-  await env.R2_ASSETS.delete(kvKey(appId, key));
+  if (typeof key !== 'string' || key.length === 0 || key.length > MAX_KEY_LENGTH) return;
+  await unwrap(store(env, appId).kvDelete(appId, key));
 }
 
-// ─── Collections (concurrency-veilig: 1 item = 1 R2-object) ────────────────
+// ─── Collections (concurrency-veilig: 1 item = 1 rij) ───────────────────────
 
 /**
- * Haalt alle items van een collection op als [{ id, value }, ...].
+ * Items van een collection als [{ id, value }, ...], in de volgorde waarin
+ * ze toegevoegd werden. `query` is optioneel (where/orderBy/order/limit/
+ * offset, zie lib/storage-query.js); zonder query: alles, zoals vroeger.
+ * Een ongeldig filter gooit een Error met code INVALID_QUERY.
  */
-export async function listCollectionItems(env, appId, collection) {
-  const page = await env.R2_ASSETS.list({ prefix: collectionPrefix(appId, collection) });
-  const items = await Promise.all(page.objects.map(async (o) => {
-    const obj = await env.R2_ASSETS.get(o.key);
-    const id = decodeURIComponent(o.key.slice(o.key.lastIndexOf('/') + 1));
-    return { id, value: obj ? await obj.text() : null };
-  }));
-  return items.filter(item => item.value !== null);
+export async function listCollectionItems(env, appId, collection, query) {
+  validateCollection(collection);
+  const normalized = normalizeQuery(query);
+  return unwrap(store(env, appId).itemsList(appId, collection, normalized));
 }
 
 /**
- * Voegt een nieuw item toe aan een collection. Genereert altijd een verse
- * UUID als item-id -- dit is precies waarom collections geen lost updates
- * kunnen hebben bij gelijktijdige toevoegingen door verschillende gebruikers.
+ * Aantal items in een collection dat aan het filter voldoet (limit/offset
+ * tellen niet mee).
+ */
+export async function countCollectionItems(env, appId, collection, query) {
+  validateCollection(collection);
+  const normalized = normalizeQuery(query);
+  return unwrap(store(env, appId).itemsCount(appId, collection, normalized));
+}
+
+/**
+ * Voegt een nieuw item toe. Het id is altijd een verse UUID van de server --
+ * daarom kunnen twee gelijktijdige toevoegingen elkaar nooit overschrijven.
  */
 export async function addCollectionItem(env, appId, collection, value) {
-  if (typeof value !== 'string') {
-    throw quotaError('Waarde moet een string zijn.', 'INVALID_VALUE');
-  }
-  const valueBytes = byteLength(value);
-  if (valueBytes > MAX_VALUE_BYTES) {
-    throw quotaError(`Waarde te groot. Maximum is ${MAX_VALUE_BYTES / 1024 / 1024} MB per item.`, 'VALUE_TOO_LARGE');
-  }
-  const id = crypto.randomUUID();
-  const r2Key = collectionItemKey(appId, collection, id);
-  await assertWithinQuota(env, appId, undefined, valueBytes); // altijd nieuw object
-  await env.R2_ASSETS.put(r2Key, value, { httpMetadata: { contentType: 'text/plain; charset=utf-8' } });
-  return { id, value };
+  validateCollection(collection);
+  validateValue(value, 'item');
+  return unwrap(store(env, appId).itemAdd(appId, collection, value));
 }
 
 /**
- * Wijzigt een BESTAAND item in-place (zelfde id blijft behouden) -- nodig om
- * bv. een boodschappenlijst-item als "aangekocht" te markeren zonder het als
- * nieuw item opnieuw te moeten aanmaken (dat zou het item-id laten
- * verspringen en is dus geen "update" meer voor de rest van de app).
- * Idempotent qua bestaan: als het item niet meer bestaat, wordt het gewoon
- * opnieuw aangemaakt onder hetzelfde id (upsert) -- eenvoudiger en even veilig
- * als een aparte 404 hier, de aanroeper bepaalt zelf de betekenis van het id.
+ * Wijzigt een BESTAAND item in-place (zelfde id). Bestaat het item niet
+ * (meer), dan komt het er opnieuw bij onder dat id (upsert) -- zoals het
+ * altijd gewerkt heeft; de aanroeper bepaalt zelf de betekenis van het id.
  */
 export async function updateCollectionItem(env, appId, collection, itemId, value) {
-  if (typeof value !== 'string') {
-    throw quotaError('Waarde moet een string zijn.', 'INVALID_VALUE');
-  }
-  const valueBytes = byteLength(value);
-  if (valueBytes > MAX_VALUE_BYTES) {
-    throw quotaError(`Waarde te groot. Maximum is ${MAX_VALUE_BYTES / 1024 / 1024} MB per item.`, 'VALUE_TOO_LARGE');
-  }
-  const r2Key = collectionItemKey(appId, collection, itemId);
-  await assertWithinQuota(env, appId, r2Key, valueBytes); // bestaand item -> niet dubbel meetellen in de quota
-  await env.R2_ASSETS.put(r2Key, value, { httpMetadata: { contentType: 'text/plain; charset=utf-8' } });
-  return { id: itemId, value };
+  validateCollection(collection);
+  validateItemId(itemId);
+  validateValue(value, 'item');
+  return unwrap(store(env, appId).itemUpdate(appId, collection, itemId, value));
 }
 
 /**
- * Verwijdert één item uit een collection. Idempotent.
+ * Verwijdert één item. Idempotent.
  */
 export async function removeCollectionItem(env, appId, collection, itemId) {
-  await env.R2_ASSETS.delete(collectionItemKey(appId, collection, itemId));
+  if (typeof collection !== 'string' || !collection || collection.length > MAX_COLLECTION_LENGTH) return;
+  if (typeof itemId !== 'string' || !itemId || itemId.length > MAX_ITEM_ID_LENGTH) return;
+  await unwrap(store(env, appId).itemRemove(appId, collection, itemId));
 }
 
 /**
- * Haalt ALLE collections van een app in één keer op, gegroepeerd per naam --
- * { collectionNaam: [{ id, value }, ...] }. Gebruikt door lib/scheduler.js om
- * de template-context voor een geplande taak op te bouwen: de taak kent enkel
- * de collection-naam die de app-bouwer zelf gebruikt (bv. "boodschappen"),
- * niet vooraf bekend bij ons -- dus lezen we alle collections onder de app in
- * één R2-list en groeperen we zelf, in plaats van per naam een aparte call te
- * vereisen. Blijft bounded door de bestaande MAX_OBJECTS_PER_APP-quota.
+ * ALLE collections van een app, gegroepeerd per naam --
+ * { collectionNaam: [{ id, value }, ...] }. Gebruikt door lib/scheduler.js en
+ * lib/condition-scheduler.js voor de template-context: een taak kent enkel de
+ * naam die de app-bouwer zelf koos, niet vooraf bekend bij ons. Begrensd op
+ * MAX_RESULT_BYTES (code RESULT_TOO_LARGE daarboven).
  */
 export async function listAllCollections(env, appId) {
-  const prefix = `${PREFIX}${appId}/collections/`;
-  const objects = [];
-  let cursor;
-  do {
-    const page = await env.R2_ASSETS.list({ prefix, cursor });
-    objects.push(...page.objects);
-    cursor = page.truncated ? page.cursor : undefined;
-  } while (cursor);
-
-  const grouped = {};
-  await Promise.all(objects.map(async (o) => {
-    const rest = o.key.slice(prefix.length); // "{collectionEnc}/{itemIdEnc}"
-    const slashIdx = rest.indexOf('/');
-    if (slashIdx === -1) return;
-    const collection = decodeURIComponent(rest.slice(0, slashIdx));
-    const id = decodeURIComponent(rest.slice(slashIdx + 1));
-    const obj = await env.R2_ASSETS.get(o.key);
-    if (!obj) return;
-    const value = await obj.text();
-    if (!grouped[collection]) grouped[collection] = [];
-    grouped[collection].push({ id, value });
-  }));
-  return grouped;
+  return unwrap(store(env, appId).allCollections(appId));
 }
 
 // ─── Quotum-overzicht (voor de Instellingen-tab) ────────────────────────────
@@ -274,27 +207,13 @@ export async function listAllCollections(env, appId) {
  * @returns {Promise<{usedBytes:number, maxBytes:number, objectCount:number, maxObjects:number}>}
  */
 export async function getStorageUsage(env, appId) {
-  const objects = await listAppObjects(env, appId);
-  return {
-    usedBytes: objects.reduce((sum, o) => sum + o.size, 0),
-    maxBytes: MAX_TOTAL_BYTES_PER_APP,
-    objectCount: objects.length,
-    maxObjects: MAX_OBJECTS_PER_APP
-  };
+  return unwrap(store(env, appId).usage(appId));
 }
 
 /**
- * Verwijdert ALLE gedeelde opslag (kv + collection-items) van één app in
- * één keer -- gebruikt door routes.js bij DELETE /api/apps/:id, zodat een
- * verwijderde app geen orphaned R2-objecten achterlaat onder
- * mini-apps-storage/{appId}/ (dat prefix wordt door niets anders opgeruimd:
- * het is geen databaserij met een FK/CASCADE, gewoon losse R2-objecten).
- * R2.delete() aanvaardt tot 1000 keys per aanroep -- ons quotum
- * (MAX_OBJECTS_PER_APP = 500) blijft daar ruim onder, dus altijd één call.
- * Idempotent: geen fout als er niets (meer) is om te verwijderen.
+ * Verwijdert ALLE gedeelde opslag van één app -- de database én de oude
+ * R2-back-up. Gebruikt door routes.js bij DELETE /api/apps/:id. Idempotent.
  */
 export async function deleteAllStorage(env, appId) {
-  const objects = await listAppObjects(env, appId);
-  if (objects.length === 0) return;
-  await env.R2_ASSETS.delete(objects.map(o => o.key));
+  await unwrap(store(env, appId).destroy(appId));
 }
