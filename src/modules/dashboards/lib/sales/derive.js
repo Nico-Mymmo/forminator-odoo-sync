@@ -61,15 +61,19 @@
 
 import { readSales, hasSalesDb } from '../../../../lib/sales-db.js';
 import { leadMerkWhy, leadProductWhy, leadWonDate, leadVerloren } from './lead-rules.js';
+import { resolveChannel, BRAND_LABELS } from '../leads-instroom.js';
 
-export const SHAPE_VERSION = 5; // 2: pendHist, 3: waarom (merk, product, leadnaam), 4: pakket, begeleiding, gratis, licentie-aandeel, experts, 5: testpartners
+export const SHAPE_VERSION = 6; // 2: pendHist, 3: waarom (merk, product, leadnaam), 4: pakket, begeleiding, gratis, licentie-aandeel, experts, 5: testpartners, 6: kanaal zoals Aanvragen, licenties gegroepeerd
 
 // Licenties: één per abonnement, de rest zijn opties. Volgorde = volgorde in de filter.
+// Basic, Smart en Coached zijn de licenties die vandaag verkocht worden; Unlimited is
+// net uitgefaseerd maar blijft apart zichtbaar. Alles van vroeger (early adopter,
+// Solo/Team, All in) en wat geen licentie heeft, staat samen: niemand stuurt daar nog op.
+const LEGACY = 'Legacy en overig';
 const LICENSE_FAMILY = {
-  34: 'Basic', 35: 'Smart', 36: 'Unlimited', 47: 'Coached',
-  43: 'OpenVME Professional', 42: 'Professional',
-  26: 'Legacy SO', 15: 'Legacy Solo/Team', 16: 'Legacy Solo/Team', 17: 'Legacy Solo/Team', 18: 'Legacy Solo/Team', 27: 'Legacy Solo/Team',
-  41: 'OpenVME Professional'
+  34: 'Basic', 35: 'Smart', 47: 'Coached', 36: 'Unlimited',
+  43: 'OpenVME Professional', 41: 'OpenVME Professional', 42: 'Professional',
+  26: LEGACY, 15: LEGACY, 16: LEGACY, 17: LEGACY, 18: LEGACY, 27: LEGACY
 };
 const ADDON = { 31: 'bank', 32: 'bank', 44: 'bank', 38: 'peppol', 28: 'discount' };
 // Klanttypes zoals ze intern heten. Odoo noemt type 1 kortweg "VME"; dat is de VME
@@ -261,7 +265,8 @@ export async function deriveSalesFacts(env, settings) {
       ctId: ctId || 0,
       merk: D.merk.add(merk),
       mw: D.mw.add(mw ? merkTekst(mw) : GEEN_LEAD), lh,
-      ch: D.ch.add(lead && lead.lead_channel ? lkName('sel:crm.lead.x_studio_lead_channel', lead.lead_channel) : (lead ? 'Geen kanaal' : 'Geen lead')),
+      // Kanaal zoals in Aanvragen (merk-herkomst + x_studio_lead_channel), uit dezelfde lead als het merk.
+      ch: D.ch.add(lead ? BRAND_LABELS[resolveChannel(lead.brand_origin, lead.lead_channel)] : 'Geen lead'),
       org: D.org.add(lead && lead.brand_origin ? lkName('sel:crm.lead.x_studio_brand_origin', lead.brand_origin) : (lead ? 'Geen herkomst' : 'Geen lead')),
       syn: D.syn.add(syn ? lkName(synKind, syn) : 'Onbekend'),
       plotsN: (sheet && (sheet.plots || sheet.apartments)) || p.number_of_plots || p.number_of_apartments || 0,
@@ -307,7 +312,7 @@ export async function deriveSalesFacts(env, settings) {
     // dan is het aantal op de licentielijn het aantal kavels.
     if (!k && !c && !h && lic && [34, 35, 47].includes(lic.product_id)) k = lic.qty;
     return {
-      fam: lic ? LICENSE_FAMILY[lic.product_id] : (ls.length ? 'Overig' : 'Geen licentie'),
+      fam: lic ? LICENSE_FAMILY[lic.product_id] : LEGACY,
       licId: lic ? lic.product_id : null,
       k: r2(k), c: r2(c), h: r2(h), bank: r2(bank), peppol: r2(peppol),
       // lf: aandeel van de licentie in de MRR (alles behalve bank en Peppol; een korting
@@ -499,7 +504,7 @@ export async function deriveSalesFacts(env, settings) {
     const cust = p ? (p.commercial_id || p.id) : null;
     leads.push([l.id, cd, merk === 'syndicoach' ? 1 : 0, PROD.add(prod), nr, verloren ? 1 : 0, won || '',
       D.user.add(lkName('user', l.user_id) || 'Geen verkoper'),
-      D.ch.add(l.lead_channel ? lkName('sel:crm.lead.x_studio_lead_channel', l.lead_channel) : 'Geen kanaal'),
+      D.ch.add(BRAND_LABELS[resolveChannel(l.brand_origin, l.lead_channel)]),
       D.org.add(l.brand_origin ? lkName('sel:crm.lead.x_studio_brand_origin', l.brand_origin) : 'Geen herkomst'),
       D.lost.add(l.lost_reason_id ? lkName('lost_reason', l.lost_reason_id) : (verloren ? 'Gearchiveerd zonder reden' : '')),
       l.type === 'opportunity' ? 1 : 0, cust && custIdx.has(cust) ? custIdx.get(cust) : -1,

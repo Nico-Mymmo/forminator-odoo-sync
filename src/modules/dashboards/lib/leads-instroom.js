@@ -79,7 +79,9 @@ const BRAND_KEYS = [
   'manual_overig'
 ];
 
-const BRAND_LABELS = {
+// Ook gebruikt door het verkoopdashboard (lib/sales/derive.js): EEN kanaalindeling
+// voor leads, zodat "Kanaal (lead)" in Verkoop en Targets hetzelfde zegt als hier.
+export const BRAND_LABELS = {
   syndicoach_vme_check: 'Syndicoach: VME-Check',
   syndicoach_meta_lead_ad: 'Syndicoach: Meta lead ad',
   syndicoach_contact_form: 'Syndicoach: Contactform',
@@ -117,7 +119,7 @@ const KNOWN_CHANNEL_VALUES = new Set([
  * @param {string|false} channelValue - x_studio_lead_channel
  * @returns {string} één van BRAND_KEYS
  */
-function resolveChannel(brandOrigin, channelValue) {
+export function resolveChannel(brandOrigin, channelValue) {
   // Bevestigde bedrijfsregels, geen gok: rechtstreeks op de betrouwbare
   // brand_origin-property toepassen, zodat dit ook al werkt vóór elke
   // individuele lead een los kanaalveld heeft.

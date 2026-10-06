@@ -203,6 +203,7 @@ document.addEventListener('click', e => {
 | mini-apps | `/mini-apps` | `mini_apps` | `public/mini-apps.html` + dedicated JS | ✅ Correct (zie hieronder) |
 | booking-links | `/afspraaklinks` | `booking_links` | `public/booking-links.html` + `.js` | ✅ Correct (zie "Afspraaklinks") |
 | web-story | `/webgedrag` | `web_story` | `public/webgedrag.html` + `.js` | ✅ Correct (zie "Webgedrag") |
+| av-slides | `/av-slides` | `av_slides` | `public/av-slides.html` + `.js` | ✅ Correct (zie "AV-slides") |
 
 **Legacy modules NIET aanraken tenzij expliciet gevraagd.** Bij aanpassingen aan legacy `ui.js`: string-concatenatie (+), geen geneste template literals, geen variabelen in inline event handlers. `src/lib/components/navbar.js` is de legacy server-rendered navbar voor deze ui.js-bestanden.
 
@@ -4686,6 +4687,23 @@ Afspraken die bewust zo zijn:
   is een SUGGESTIE op de naam: ze tellen mee tot iemand ze in Odoo archiveert of op
   "Niet gefactureerde klant" zet. Zet ze dus niet in `sales_exclusions` -- dan
   verdwijnen ze uit beeld en ruimt niemand ze op.
+- **Het verloop: maat x opsplitsing, en de legende kiest.** Maten: ARR, Abonnementen,
+  Kavels (`MEASURES` in dashboards-sales.js; "Klanten" is weg: een klant heeft geen
+  abonnementen in twee groepen, dus het zei hetzelfde als Abonnementen). Opsplitsingen:
+  Klanttype, Pakket, Begeleiding, Licentie, Kanaal (lead). Bewust GEEN Plan (iedereen
+  heeft een jaarplan) en GEEN Totaal. Begeleiding toont elke expert met minstens
+  `BEG_MIN` (5) lopende abonnementen apart, de rest onder "Andere experts".
+  Een klik in de legende toont ENKEL dat item, verdere klikken zetten er bij of af,
+  het laatste wegklikken zet alles terug (`K.soloLegend` in dashboards-kit.js, ook op
+  Wat veranderde en Omzet). De keuze blijft staan bij een hertekening (per canvas,
+  op label). Een vergelijkingslijn (`omRef`) doet daar niet aan mee.
+- **Licenties gegroepeerd** (`LICENSE_FAMILY` in derive.js): Basic, Smart, Coached
+  (vandaag verkocht), Unlimited (uitgefaseerd, apart), OpenVME Professional (VME in
+  beheer), Professional (professionele syndicus), en "Legacy en overig" (early
+  adopter, Solo/Team, All in, zonder licentie).
+- **Kanaal (lead) = de indeling van het tabblad Aanvragen**: `resolveChannel()` en
+  `BRAND_LABELS` uit `lib/leads-instroom.js`, in Verkoop en in Targets. Geen tweede
+  indeling ernaast: wijzig je ze, dan geldt het op alle drie de plekken.
 - **Prijs per kavel = licentie-MRR / kavels.** `lf` per periode (derive.js
   `licenseOf()`) is het deel van de MRR dat de licentie is: alles behalve bank- en
   Peppol-koppelingen (een korting hoort bij de licentie). Een licentie met een vaste
@@ -4712,6 +4730,75 @@ Afspraken die bewust zo zijn:
 - **Nog niet over, bewust:** de zes andere pagina's van het Looker-rapport (leads,
   actiebladen, gebouwen) en het uitzetten van de Apps Script-triggers. Eerst een tijd
   naast Looker laten lopen.
+
+## AV-slides — Wist-je-weetje en het prikbord (2026-10)
+
+**Regel: de twee slides waarmee de maandelijkse AV eindigt, worden in de OM
+klaargezet en met één klik als GEWONE Slides-vormen in de presentatie van die
+maand gezet, namens wie klikt. Er is EEN opmaak (`lib/layout.js`); het voorbeeld
+in het scherm en de verzoeken naar Google zijn er allebei maar een omzetting van.**
+
+| Wat | Waar |
+|---|---|
+| Opmaak: inhoud -> vormen in een vlak van 960 x 540 (puur) | `src/modules/av-slides/lib/layout.js` |
+| Verjaardagen, events, feestdagen, beginversie, opnieuw ophalen | `lib/sources.js` + `lib/holidays.js` |
+| Weetjes (lijst die mag groeien) | `lib/insights.js` (`BRONNEN`) |
+| Opslag per maand + vorm van de inhoud | `lib/editions.js`, tabel `av_slide_editions` |
+| Google Slides: invoegen, vervangen | `lib/slides-api.js` |
+| Google-token met domeinbrede delegatie (gedeeld, voor nieuwe code) | `src/lib/google-auth.js` |
+| Scherm | `public/av-slides.html` + `.js` |
+| Migratie | `supabase/migrations/20261006140000_av_slides.sql` |
+
+Afspraken die bewust zo zijn:
+
+- **Het voorbeeld schildert, het beslist niets.** `POST /api/layout` geeft exact de
+  vormen die ook naar Google gaan; `public/av-slides.js` zet ze enkel om naar
+  div's. Wil je iets op de slide anders, dan is dat `layout.js`, nooit de browser.
+- **De opmaak is gebouwd rond wat de Slides-API NIET kan:** de straal van een
+  `ROUND_RECTANGLE` ligt vast (1/6 van de kortste zijde, `ROUND_RATIO`), de
+  binnenmarge van een tekstvak ook (0,1", `TEXT_INSET_PT` -- het tekstvak wordt
+  daarom zoveel groter gemaakt), en tekst krimpt niet vanzelf: `pasGrootte()`
+  schat de tekenbreedte en kiest de lettergrootte. Geen tekstschaduw, geen
+  omlijnde letters. Het voorbeeld rekent met dezelfde straal en marge.
+- **Invoegen gebeurt NAMENS de gebruiker** (subject = zijn @mymmo.com-adres), dus
+  met zijn eigen rechten op de presentatie. Eenmalig nodig: de Google Slides API
+  aan in het Cloud-project van het service-account, en de scope
+  `https://www.googleapis.com/auth/presentations` bij de client-ID in de Admin
+  Console, NAAST de scopes die er al staan (het veld is de volledige lijst; wie
+  enkel de nieuwe invult, zet de handtekeningen en de Gmail-koppelingen af). De
+  foutmelding en het scherm zeggen allebei welke client-ID.
+- **Herkennen = objectId-prefix `avs_wist_` / `avs_prik_`.** Nog eens invoegen
+  VERVANGT ze op dezelfde plek, ook in een kopie van de presentatie van vorige
+  maand (een kopie houdt de id's). Volgorde: eerst twee nieuwe slides, dan in één
+  batch vullen en de oude weghalen; faalt het vullen, dan gaan de nieuwe weg en
+  staat de vorige versie er nog.
+- **Bronnen, geen kopieën:** verjaardagen uit `hr.employee.birthday`, events via
+  `listEvents()` van Eventbeheer (published + done), de kopkleur uit de
+  eventcategorie, feestdagen uitgerekend (`resource.calendar.leaves` is leeg in
+  Odoo). Een LEEFTIJD komt nergens op een slide.
+- **"Gegevens ophalen" gooit niets weg:** het beeld, de review, eigen kaarten,
+  wat aan- of uitgezet is en elke tekst met `edited: true` blijven staan
+  (`vernieuwInhoud()`). Enkel wat onaangeroerd uit een bron kwam, wordt vervangen.
+- **Weetjes zijn kandidaten, nooit automatisch op de slide.** Ze gaan over de
+  VORIGE kalendermaand tegenover de maand daarvoor. De websitecijfers gebruiken
+  dezelfde sessies, kanaalindeling en uitsluitingen als het dashboard en
+  Webgedrag (prospecten: geen klanten, geen enkel-inloggen, geen testpagina's,
+  geen uitgeslotenen) -- er komt geen tweede definitie van een bezoek. Valt een
+  maand (deels) voor 29-09-2026, dan krijgt het weetje een noot over de oude
+  historiek; het wordt niet weggelaten. Een nieuw weetje = een functie in
+  `BRONNEN`; faalt ze, dan valt enkel zij weg met een melding.
+- **Het beeld links staat in R2 onder `av-slides/<uuid>`** en is via de publieke
+  `/assets/`-route te lezen, want Google haalt het zelf op. Niet te raden, wel
+  zonder aanmelding. `av-slides/` staat in `FOREIGN_MODULE_PREFIXES`. Enkel PNG,
+  JPEG of GIF (Slides kent niets anders); de browser zet de rest om naar PNG.
+- **De review wordt met de hand ingevuld**, bewust: Google geeft via de Places API
+  hoogstens vijf reviews en vraagt een API-sleutel met facturatie, en LinkedIn
+  vraagt goedkeuring. Plakken werkt voor elke bron.
+- **Nog niet gebouwd, bewust:** reviews automatisch ophalen, LinkedIn-posts, een
+  weetje over nieuwe klanten/ARR (uit `SALES_DB`), sprekersnotities, en de
+  andere Google-modules laten overstappen op `src/lib/google-auth.js`.
+
+---
 
 ## Bestandsstructuur
 

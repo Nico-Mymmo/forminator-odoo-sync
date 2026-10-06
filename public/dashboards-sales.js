@@ -21,11 +21,11 @@
   var STORE = 'dashboards.verkoop.v1';
 
   // seg = klanttype (VME in advies / in beheer / professionele syndicus); free '0' = zonder gratis licenties.
-  var DEFAULTS = { seg: 'all', pack: '', beg: '', free: '0', merk: '', plan: '', lic: '', user: '', ch: '', org: '', syn: '', plots: '', expert: '' };
+  var DEFAULTS = { seg: 'all', pack: '', beg: '', free: '0', merk: '', lic: '', user: '', ch: '', org: '', syn: '', plots: '', expert: '' };
   var SEGS = { all: 'alle klanttypes', advies: "VME's in advies", beheer: "VME's in beheer", pro: 'professionele syndici' };
   var SEG_CT = { advies: 1, beheer: 3, pro: 2 };
   var PERIODS = { '30d': 'laatste 30 dagen', '90d': 'laatste 90 dagen', fy: 'dit boekjaar', '12m': 'laatste 12 maanden', '24m': 'laatste 24 maanden' };
-  var st = { data: null, loading: false, period: '12m', f: Object.assign({}, DEFAULTS), split: 'ct', basis: 'order', renewWin: 90 };
+  var st = { data: null, loading: false, period: '12m', f: Object.assign({}, DEFAULTS), split: 'ct', measure: 'arr', basis: 'order', renewWin: 90 };
 
   try {
     var saved = JSON.parse(localStorage.getItem(STORE) || 'null');
@@ -33,13 +33,14 @@
       if (PERIODS[saved.period]) st.period = saved.period;
       if (saved.f) Object.keys(DEFAULTS).forEach(function (k) { if (saved.f[k] !== undefined) st.f[k] = saved.f[k]; });
       if (saved.split) st.split = saved.split;
+      if (saved.measure) st.measure = saved.measure;
       if (saved.basis) st.basis = saved.basis;
     }
     // Een oude bewaarde keuze ("vme") bestaat niet meer.
     if (!SEGS[st.f.seg]) st.f.seg = DEFAULTS.seg;
   } catch (_) { /* geen opslag */ }
   function save() {
-    try { localStorage.setItem(STORE, JSON.stringify({ period: st.period, f: st.f, split: st.split, basis: st.basis })); } catch (_) { /* geen opslag */ }
+    try { localStorage.setItem(STORE, JSON.stringify({ period: st.period, f: st.f, split: st.split, measure: st.measure, basis: st.basis })); } catch (_) { /* geen opslag */ }
   }
 
   // ── Het geraamte ──────────────────────────────────────────────────────────
@@ -66,7 +67,7 @@
     +     '<div class="text-xs font-semibold uppercase tracking-wide text-base-content/50 mb-2">Kerncijfers</div>'
     +     '<div id="slKpis" class="grid grid-cols-2 md:grid-cols-3 gap-3 2xl:grid-cols-1 2xl:gap-0 2xl:divide-y om-lijnen"></div></div></aside>'
     + '<div class="min-w-0 space-y-5 lg:col-start-2 lg:row-start-2 2xl:row-start-1">'
-    +   card('slArr', 'ARR-verloop', 'Jaarlijks terugkerende omzet (12 × MRR) op het einde van elke maand. Klik op een vlak voor wie erin zit en waarom.')
+    +   card('slArr', 'Verloop', 'Jaarlijks terugkerende omzet (12 × MRR) op het einde van elke maand. Klik op een vlak voor wie erin zit en waarom.')
     +   card('slBridge', 'Wat veranderde', 'Per maand: nieuwe klanten, uitbreidingen, verlagingen, wissels en verloren klanten, in ARR. Klik op een staaf voor de lijst.')
     +   '<div class="grid grid-cols-1 xl:grid-cols-2 gap-5">'
     +     card('slNew', 'Nieuwe abonnementen', 'Eerste contract van een klant (een wissel bij een bestaande klant telt niet als nieuw).')
@@ -155,7 +156,6 @@
     if (!alive(ch)) return false;
     if (!custOk(cust(ch), skip)) return false;
     var f = st.f;
-    if (skip !== 'plan' && f.plan !== '' && String(ch.plan) !== String(f.plan)) return false;
     if (skip !== 'lic' && f.lic !== '' && String(ch.licNow) !== String(f.lic)) return false;
     if (skip !== 'user' && f.user !== '' && String(ch.user) !== String(f.user)) return false;
     return true;
@@ -199,12 +199,12 @@
     });
     return m;
   }
-  var CHIP = { seg: 'Klanttype', pack: 'Syndicoach-pakket', beg: 'Begeleiding', free: 'Licenties', merk: 'Merk (lead)', plan: 'Plan', lic: 'Licentie', user: 'Verkoper', ch: 'Kanaal', org: 'Herkomst', syn: 'Huidig beheer', plots: 'Kavels', expert: 'Adviserend expert' };
+  var CHIP = { seg: 'Klanttype', pack: 'Syndicoach-pakket', beg: 'Begeleiding', free: 'Licenties', merk: 'Merk (lead)', lic: 'Licentie', user: 'Verkoper', ch: 'Kanaal', org: 'Herkomst', syn: 'Huidig beheer', plots: 'Kavels', expert: 'Adviserend expert' };
   function chipValue(k) {
     var v = st.f[k];
     if (k === 'seg') return { advies: 'VME in advies', beheer: 'VME in beheer', pro: 'professionele syndici', all: 'alle' }[v];
     if (k === 'free') return { '0': 'zonder gratis', '1': 'enkel gratis', '': 'betalend en gratis' }[v];
-    var kind = { lic: 'lic', plan: 'plan', user: 'user' }[k] || k;
+    var kind = { lic: 'lic', user: 'user' }[k] || k;
     return D(kind, Number(v));
   }
   function renderFilters() {
@@ -225,9 +225,8 @@
       + K.pills(A, 'free', 'free', [['0', 'Betalend'], ['1', 'Gratis'], ['', 'Alle']], st.f.free, true) + '</div>'
       + '<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-2 pt-3 border-t border-base-content/10">'
       + K.select('data-sl-select', 'lic', 'Licentie', opts('lic', 'lic', countBy('lic', 'licNow')), st.f.lic, 'De licentie van de lopende periode.')
-      + K.select('data-sl-select', 'plan', 'Plan', opts('plan', 'plan', countBy('plan', 'plan')), st.f.plan)
       + K.select('data-sl-select', 'user', 'Verkoper', opts('user', 'user', countBy('user', 'user')), st.f.user)
-      + K.select('data-sl-select', 'ch', 'Kanaal (lead)', opts('ch', 'ch', countBy('ch')), st.f.ch)
+      + K.select('data-sl-select', 'ch', 'Kanaal (lead)', opts('ch', 'ch', countBy('ch')), st.f.ch, 'Zelfde indeling als het tabblad Aanvragen: merk-herkomst + kanaal van de lead.')
       + K.select('data-sl-select', 'org', 'Merk-herkomst (lead)', opts('org', 'org', countBy('org')), st.f.org)
       + K.select('data-sl-select', 'syn', 'Huidig beheer', opts('syn', 'syn', countBy('syn')), st.f.syn, 'Uit het actieblad van het gebouw, anders van de partner.')
       + K.select('data-sl-select', 'plots', 'Aantal kavels', opts('plots', 'plots', countBy('plots')), st.f.plots, 'Actieblad of partner, anders het aantal op de licentielijn.')
@@ -369,40 +368,71 @@
   }
 
   // ── Grafieken en lijsten ──────────────────────────────────────────────────
-  var SPLITS = { ct: ['ct', 'Klanttype'], pack: ['pack', 'Pakket'], beg: ['beg', 'Begeleiding'], lic: ['licNow', 'Licentie'], merk: ['merk', 'Merk (lead)'], plan: ['plan', 'Plan'], none: [null, 'Totaal'] };
+  // Geen "Plan" (iedereen heeft een jaarplan) en geen "Totaal" (de legende toont er EEN door erop te klikken).
+  var SPLITS = { ct: ['ct', 'Klanttype'], pack: ['pack', 'Pakket'], beg: ['beg', 'Begeleiding'], lic: ['licNow', 'Licentie'], ch: ['ch', 'Kanaal (lead)'] };
+  // Een expert krijgt een eigen vlak vanaf zoveel lopende abonnementen; de rest staat samen.
+  var BEG_MIN = 5;
   function splitValue(ch) {
     var s = SPLITS[st.split][0]; if (!s) return 'Totaal';
     if (s === 'licNow') return D('lic', ch.licNow);
-    if (s === 'plan') return D('plan', ch.plan);
+    if (s === 'beg') {
+      var ex = D('expert', cust(ch).expert);
+      return ex === 'Geen' ? 'Geen expert' : (st.begBig && st.begBig[ex]) ? ex : 'Andere experts';
+    }
     return D(s, cust(ch)[s]);
   }
+  /**
+   * Wat het verloop meet: EEN definitie per maat, gebruikt door de grafiek, de
+   * vergelijking met een jaar eerder en het venster dat een klik opent. Een klant
+   * met abonnementen in twee groepen (bv. twee licenties) telt bij "Klanten" in beide.
+   */
+  var MEASURES = {
+    arr: { label: 'ARR', money: true, sub: 'Jaarlijks terugkerende omzet (12 × MRR) op het einde van elke maand.',
+      at: function (l, d) { return Math.round(arrAt(l, d)); } },
+    n: { label: 'Abonnementen', sub: 'Aantal lopende abonnementen op het einde van elke maand.',
+      at: function (l, d) { return activeAt(l, d).length; } },
+    kav: { label: 'Kavels', sub: 'Kavels in de lopende abonnementen op het einde van elke maand (appartementen/kavels + commerciële units + huizen). Een licentie met een vaste prijs heeft er geen.',
+      at: function (l, d) { return kavAt(l, d).kav; } }
+  };
+  function measure() { return MEASURES[st.measure] || MEASURES.arr; }
   function renderArr(list, w) {
-    $('slArrControls').innerHTML = K.pills(A, 'split', null, Object.keys(SPLITS).map(function (k) { return [k, SPLITS[k][1]]; }), st.split);
+    // Een bewaarde keuze die niet meer bestaat (Plan, Totaal, Klanten) valt terug op de standaard.
+    if (!MEASURES[st.measure]) st.measure = 'arr';
+    if (!SPLITS[st.split]) st.split = 'ct';
+    // Begeleiding: welke experts een eigen vlak krijgen (genoeg lopende abonnementen in deze selectie).
+    var perEx = {};
+    activeAt(list, w.to).forEach(function (ch) { var ex = D('expert', cust(ch).expert); perEx[ex] = (perEx[ex] || 0) + 1; });
+    st.begBig = {}; Object.keys(perEx).forEach(function (ex) { if (perEx[ex] >= BEG_MIN) st.begBig[ex] = 1; });
+    var M = measure();
+    $('slArrControls').innerHTML = K.pills(A, 'measure', null, Object.keys(MEASURES).map(function (k) { return [k, MEASURES[k].label]; }), st.measure)
+      + K.pills(A, 'split', null, Object.keys(SPLITS).map(function (k) { return [k, SPLITS[k][1]]; }), st.split);
+    $('slArrSub').textContent = M.sub + ' Klik op een vlak voor wie erin zit en waarom; klik in de legende om enkel die te tonen.';
+    var fmtM = function (v, short) { return M.money ? eur(v, short) : nf(v); };
     var ms = chartMonths(w);
     var groups = {};
     list.forEach(function (ch) { groups[splitValue(ch)] = groups[splitValue(ch)] || []; groups[splitValue(ch)].push(ch); });
-    var keys = Object.keys(groups).sort(function (a, b) { return arrAt(groups[b], w.to) - arrAt(groups[a], w.to); });
+    var keys = Object.keys(groups).sort(function (a, b) { return M.at(groups[b], w.to) - M.at(groups[a], w.to); });
     st.arrKeys = keys;
     var at = function (m) { return m === K.monthOf(w.to) ? w.to : K.monthEnd(m); };
     var sets = keys.map(function (k, i) {
       // Gestapeld: de eerste vult tot de as, elke volgende tot de vorige.
-      return K.area(k, ms.map(function (m) { return isFuture(m) ? null : Math.round(arrAt(groups[k], at(m))); }), i, { stack: 'a', fill: i === 0 ? 'origin' : '-1' });
+      return K.area(k, ms.map(function (m) { return isFuture(m) ? null : M.at(groups[k], at(m)); }), i, { stack: 'a', fill: i === 0 ? 'origin' : '-1' });
     });
     if (keys.length === 1) {
       // Zoals de trend in Webgedrag: de vergelijking in grijs, hier een jaar eerder.
-      sets.push(K.refLine('Een jaar eerder', ms.map(function (m) { return Math.round(arrAt(list, K.addMonths(at(m), -12))); }), { stack: 'b', borderDash: [] }));
+      sets.push(K.refLine('Een jaar eerder', ms.map(function (m) { return M.at(list, K.addMonths(at(m), -12)); }), { stack: 'b', borderDash: [] }));
     }
-    $('slArr').innerHTML = '<div style="height:260px"><canvas id="slArrChart" aria-label="ARR per maand"></canvas></div>';
+    $('slArr').innerHTML = '<div style="height:260px"><canvas id="slArrChart" aria-label="' + esc(M.label) + ' per maand"></canvas></div>';
     K.chart('slArrChart', {
       type: 'line', plugins: [bandPlugin(ms, w)], data: { labels: ms.map(function (m) { return K.monthLabel(m); }), datasets: sets },
-      options: K.baseOptions({ scales: { y: { stacked: true, ticks: { callback: function (v) { return eur(v, true); } } } },
-        plugins: { tooltip: { callbacks: { label: function (c) { return ' ' + c.dataset.label + ': ' + eur(c.parsed.y); } } } },
+      options: K.baseOptions({ scales: { y: { stacked: true, ticks: { precision: 0, callback: function (v) { return fmtM(v, true); } } } },
+        plugins: { legend: { onClick: K.soloLegend }, tooltip: { callbacks: { label: function (c) { return ' ' + c.dataset.label + ': ' + fmtM(c.parsed.y); } } } },
         // Welk vlak: de hoogte van de klik tegen de gestapelde waarden (de tooltip toont alle vlakken van die maand).
         onClick: function (evt, els, chart) {
           if (!els.length) return;
           var i = els[0].index, gi = '';
           if (isFuture(ms[i])) return;
-          if (st.split !== 'none') {
+          if (keys.length > 1) {
             var v = chart.scales.y.getValueForPixel(evt.y), cum = 0;
             for (var k = 0; k < keys.length; k++) {
               if (!chart.isDatasetVisible(k)) continue;
@@ -451,7 +481,7 @@
       }) },
       options: K.baseOptions({
         scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: false, ticks: { callback: function (v) { return eur(v, true); } } } },
-        plugins: { tooltip: { callbacks: { label: function (c) { return ' ' + c.dataset.label + ': ' + eur(c.parsed.y); } } } },
+        plugins: { legend: { onClick: K.soloLegend }, tooltip: { callbacks: { label: function (c) { return ' ' + c.dataset.label + ': ' + eur(c.parsed.y); } } } },
         onClick: function (evt, els) { if (!els.length) return; var e = els[0]; openDrill('bridge:' + ms[e.index] + ':' + BRIDGE[e.datasetIndex][0]); }
       })
     });
@@ -568,7 +598,7 @@
     K.chart('slRevChart', {
       type: 'bar', plugins: [bandPlugin(ms, w)], data: { labels: ms.map(function (m) { return K.monthLabel(m); }), datasets: sets },
       options: K.baseOptions({ scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: false, ticks: { callback: function (v) { return eur(v, true); } } } },
-        plugins: { tooltip: { callbacks: { label: function (c) { return ' ' + c.dataset.label + ': ' + eur(c.parsed.y); } } } },
+        plugins: { legend: { onClick: K.soloLegend }, tooltip: { callbacks: { label: function (c) { return ' ' + c.dataset.label + ': ' + eur(c.parsed.y); } } } },
         onClick: function (evt, els) { if (els.length) openKpi('rev', els[0].index); } })
     });
   }
@@ -700,13 +730,13 @@
     ct: 'Klanttype = het klanttype van de klant (commerciële partner) in Odoo, anders dat van de order. VME in advies heet in Odoo kortweg "VME".',
     seg: 'VME in advies = de VME beheert het gebouw zelf (eigenaar-syndicus) en wordt ondersteund door haar adviserend expert; in Odoo heet dat klanttype kortweg "VME". VME in beheer = een professionele syndicus beheert het gebouw, soms Syndicoach zelf. Professionele syndicus = gebruikt het platform voor al zijn gebouwen en betaalt per kavel. Klanttype van de klant (commerciële partner), anders van de order.',
     pack: 'Syndicoach-pakket = de dienst van Syndicoach aan het gebouw, naast de OpenVME-software: Assistant (ondersteuning, uren in regie per credit), Captain (Syndicoach is de syndicus), Coach. Uit het veld "Syndicoach Pakket" op het gebouw in Odoo. Syndicoach factureert nog niet in Odoo: de omzet van de pakketten staat hier nog niet, enkel het OpenVME-abonnement van die gebouwen.',
-    beg: 'Begeleiding = de adviserend expert op het gebouw in Odoo: Syndicoach zelf, een andere expert (een professionele syndicus of adviseur), of niemand.',
+    beg: 'Begeleiding = de adviserend expert op het gebouw in Odoo: Syndicoach zelf, een andere expert (een professionele syndicus of adviseur), of niemand. In het verloop krijgt elke expert met minstens 5 lopende abonnementen een eigen vlak; de rest staat samen onder Andere experts.',
     free: 'Gratis = "Niet gefactureerde klant" aangevinkt in Odoo: interne gebruikers met een gratis licentie. Standaard tellen ze niet mee. Op 6 oktober 2026 stond dat vinkje bij niemand.',
     kav: 'Kavels = appartementen of kavels + commerciële units + huizen op de licentielijnen van de lopende periode. Een licentie met een vaste prijs (Unlimited, early adopter) heeft er geen.',
     kavPrijs: 'Per kavel per maand = de licentie-MRR (de MRR zonder bank- en Peppol-koppelingen) gedeeld door de kavels; abonnementen zonder kavels tellen daar niet in mee. VME in beheer via OpenVME betaalt de standaardprijs (~€ 4), een professionele syndicus zijn eigen prijs (vaak € 1).',
     via: 'Facturatie via expert = op het gebouw in Odoo aangevinkt: de expert (professionele syndicus) factureert het zelf. Het gebouw heeft dan GEEN eigen abonnement; zijn kavels horen in het abonnement van die professional, tegen diens prijs.',
-    lic: 'Licentie = het licentieproduct op de orderlijnen van de lopende periode.',
-    plan: 'Plan = het abonnementsplan van de laatste order.'
+    lic: 'Licentie = het licentieproduct op de orderlijnen van de lopende periode. Basic, Smart en Coached worden vandaag verkocht; Unlimited is uitgefaseerd; OpenVME Professional = een VME in beheer die OpenVME factureert; Professional = een professionele syndicus. Early adopter, Solo/Team, All in en abonnementen zonder licentie staan samen onder Legacy en overig.',
+    ch: 'Kanaal (lead) = dezelfde indeling als het tabblad Aanvragen: de merk-herkomst en het kanaal (x_studio_lead_channel) van de lead; "overig/onbekend" = een lead zonder kanaal. Uit dezelfde lead als het merk; Geen lead = de klant heeft er geen.'
   };
   /** De selectie waarbinnen de lijst geldt: segment, de filters links en wat altijd buiten valt. */
   function selectieWhy() {
@@ -821,22 +851,28 @@
       var grp = gi === null ? null : (st.arrKeys || [])[gi];
       var src = grp === null || grp === undefined ? list : list.filter(function (ch) { return splitValue(ch) === grp; });
       var act = activeAt(src, d).sort(function (a, b) { return mrrAt(b, d) - mrrAt(a, d); });
-      title = (grp ? 'ARR · ' + SPLITS[st.split][1].toLowerCase() + ' ' + grp : 'Actieve abonnementen') + (am ? ' — eind ' + K.monthLabel(am, true) : ' — vandaag');
-      sub = 'Stand op ' + K.dayLabel(d) + '.';
-      why = [WHY.actief(d), WHY.arr, WHY.keten];
+      // Uit het verloop: de maat die daar gekozen is. Uit een tegel: altijd ARR.
+      var M = parts[0] === 'arrsplit' ? measure() : MEASURES.arr, metKav = parts[0] === 'arrsplit' && st.measure === 'kav';
+      var klantenA = {}; act.forEach(function (ch) { klantenA[ch.c] = 1; });
+      title = (grp ? M.label + ' · ' + SPLITS[st.split][1].toLowerCase() + ' ' + grp : parts[0] === 'arrsplit' ? M.label : 'Actieve abonnementen') + (am ? ' — eind ' + K.monthLabel(am, true) : ' — vandaag');
+      sub = 'Stand op ' + K.dayLabel(d) + ': ' + nf(act.length) + ' abonnementen bij ' + nf(Object.keys(klantenA).length) + ' klanten'
+        + (metKav ? ', ' + nf(kavAt(act, d).kav) + ' kavels' : parts[0] === 'arrsplit' ? ', ' + eur(arrAt(act, d)) + ' ARR' : '') + '.';
+      why = [WHY.actief(d), WHY.arr, WHY.keten].concat(metKav ? [WHY.kav] : []);
       if (grp && WHY[st.split] && typeof WHY[st.split] === 'string') why.push(WHY[st.split]);
       if (grp && st.split === 'merk') merkOn = true;
+      if (metKav) head.push('Kavels');
       head.push('Status', 'Waarom');
       rows = act.map(function (ch) {
         var p = periodAt(ch, d), stt = d !== w.to ? 'actief' : ch.pend ? 'wacht op betaling' : ch.paused ? 'gepauzeerd' : 'actief';
         var bewijs = 'Periode ' + periodTxt(p) + ' · MRR ' + eur(mrrAt(ch, d))
           + (d === w.to && ch.pend ? ' · verlengingsofferte ' + K.odooLink('sale.order', ch.pend.o, ch.pend.n) + ' staat open' : '');
-        return withMerk(ch, chainRow(ch, d, [stt === 'wacht op betaling' ? '<span class="badge badge-warning badge-sm">wacht op betaling</span>' : stt, bewijs]));
+        var cellen = (metKav ? [nf(kavOf(p))] : []).concat([stt === 'wacht op betaling' ? '<span class="badge badge-warning badge-sm">wacht op betaling</span>' : stt, bewijs]);
+        return withMerk(ch, chainRow(ch, d, cellen));
       });
       if (parts[0] === 'arrsplit' && !extra.chart) {
         var msA = chartMonths(w), atA = function (m) { return m === K.monthOf(w.to) ? w.to : K.monthEnd(m); }, selA = am ? msA.indexOf(am) : -1;
-        extra = Object.assign({}, extra, { keep: true, chart: monthChart(msA, msA.map(function (m) { return isFuture(m) ? null : Math.round(arrAt(src, atA(m))); }),
-          'ARR' + (grp ? ' · ' + grp : ''), true, selA, function (i) { openDrill('arrsplit:' + (i === selA ? '' : msA[i]) + ':' + (gi === null ? '' : gi)); }, true) });
+        extra = Object.assign({}, extra, { keep: true, chart: monthChart(msA, msA.map(function (m) { return isFuture(m) ? null : M.at(src, atA(m)); }),
+          M.label + (grp ? ' · ' + grp : ''), !!M.money, selA, function (i) { openDrill('arrsplit:' + (i === selA ? '' : msA[i]) + ':' + (gi === null ? '' : gi)); }, true) });
       }
     } else if (key === 'new' || parts[0] === 'newm' || parts[0] === 'newlic') {
       var nw = list.filter(function (ch) {
@@ -1124,6 +1160,7 @@
     else if (a === 'clear') { st.f[el.dataset.key] = DEFAULTS[el.dataset.key]; render(); }
     else if (a === 'reset') { st.f = Object.assign({}, DEFAULTS); render(); }
     else if (a === 'split') { st.split = v; renderArr(chains(), win()); save(); }
+    else if (a === 'measure') { st.measure = v; renderArr(chains(), win()); save(); }
     else if (a === 'basis') { st.basis = v; render(); }
     else if (a === 'renewWin') { st.renewWin = Number(v); renderRenew(chains(), win()); K.icons(); }
     else if (a === 'drill') { openDrill(el.dataset.drill); }

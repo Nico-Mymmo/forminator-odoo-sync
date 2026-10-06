@@ -145,7 +145,7 @@
       + '<div>' + K.groupLabel('Merk', 'Filtert de funnel, de verkopers en de verliesredenen. De realisatie per product heeft haar merk al.')
       + K.pills(A, 'merk', null, [['', 'Alle'], ['0', 'OpenVME'], ['1', 'Syndicoach']], st.f.merk, true) + '</div>'
       + K.select('data-tg-select', 'user', 'Verkoper', mk('user', uc), st.f.user, 'Geldt voor de funnel en voor de realisatie uit orders en leads (niet voor opstarthulp en credits: die hebben geen verkoper).')
-      + K.select('data-tg-select', 'ch', 'Kanaal', mk('ch', cc), st.f.ch, 'Kanaal van de lead (x_studio_lead_channel). Geldt voor de funnel.')
+      + K.select('data-tg-select', 'ch', 'Kanaal', mk('ch', cc), st.f.ch, 'Kanaal van de lead, ingedeeld zoals in het tabblad Aanvragen (merk-herkomst + x_studio_lead_channel). Geldt voor de funnel.')
       + '<div class="pt-3 border-t border-base-content/10">' + K.groupLabel('Ratiokeuze', '(a) cumulatief sinds het begin van de instroom, (b) de laatste drie rijpe maanden, (c) handmatige doelratio\'s (onderaan).')
       + K.pills(A, 'ratio', null, [['a', 'a · cumulatief'], ['b', 'b · 3 maanden'], ['c', 'c · handmatig']], st.ratio, true) + '</div>'
       + '<div>' + K.groupLabel('Onrijpe leads in ratio (a)', 'Leads van de laatste 30 dagen zijn nog niet doorgestroomd en drukken de ratio\'s. Standaard tellen ze niet mee in de ratio; in de funnel staan ze wel, gearceerd.')

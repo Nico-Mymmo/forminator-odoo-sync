@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AV-slides - Operations Manager</title>
+  <script>
+    (function () {
+      var t = localStorage.getItem('selectedTheme') || 'light';
+      document.documentElement.setAttribute('data-theme', t);
+    })();
+  </script>
+  <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet" type="text/css" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script src="/shared-navbar.js"></script>
+  <style>
+    /* Het voorbeeld: een vlak van 960 x 540, geschaald naar de breedte van het kader. */
+    .av-slide { position: relative; width: 100%; aspect-ratio: 16 / 9; overflow: hidden; border-radius: 6px; background: #fff; }
+    .av-slide-binnen { position: absolute; left: 0; top: 0; width: 960px; height: 540px; transform-origin: 0 0; }
+    .av-el { position: absolute; box-sizing: border-box; }
+    .av-tekst { display: flex; flex-direction: column; overflow: visible; }
+    .av-tekst > div { white-space: pre-wrap; overflow-wrap: break-word; }
+    .av-drop { border: 2px dashed oklch(var(--bc) / 0.2); }
+    .av-drop.is-over { border-color: oklch(var(--p)); background: oklch(var(--p) / 0.06); }
+  </style>
+</head>
+<body class="bg-base-200 min-h-screen">
+
+  <div id="navbar"></div>
+
+  <main class="max-w-7xl mx-auto px-4 py-6" style="padding-top: calc(48px + 1.5rem);">
+
+    <div class="flex flex-wrap items-end justify-between gap-3 mb-4">
+      <div>
+        <h1 class="text-2xl font-bold">AV-slides</h1>
+        <p class="text-sm opacity-70">Wist-je-weetje en het prikbord voor de AV, uit Odoo en de cijfers van de vorige maand.</p>
+      </div>
+      <span id="saveState" class="text-xs opacity-60"></span>
+    </div>
+
+    <!-- Maand en vensters -->
+    <div class="card bg-base-100 mb-4">
+      <div class="card-body p-4">
+        <div class="flex flex-wrap items-end gap-3">
+          <label class="form-control">
+            <span class="label-text text-xs mb-1">Maand van de AV</span>
+            <input type="month" id="fMonth" class="input input-bordered input-sm">
+          </label>
+          <label class="form-control">
+            <span class="label-text text-xs mb-1">Datum van de AV</span>
+            <input type="date" id="fAvDate" class="input input-bordered input-sm" data-control="av_date">
+          </label>
+          <div class="w-px h-8 bg-base-content/10 mx-1 hidden sm:block"></div>
+          <label class="form-control">
+            <span class="label-text text-xs mb-1">Prikbord van</span>
+            <input type="date" id="fFrom" class="input input-bordered input-sm">
+          </label>
+          <label class="form-control">
+            <span class="label-text text-xs mb-1">tot en met</span>
+            <input type="date" id="fUntil" class="input input-bordered input-sm">
+          </label>
+          <button class="btn btn-sm btn-primary" data-action="generate" id="generateBtn">
+            <i data-lucide="refresh-cw" class="w-4 h-4"></i> Gegevens ophalen
+          </button>
+        </div>
+        <p class="text-xs opacity-60 mt-2">
+          "Gegevens ophalen" haalt verjaardagen, events, feestdagen en weetjes opnieuw op. Wat je zelf aanpaste of toevoegde, blijft staan.
+        </p>
+      </div>
+    </div>
+
+    <div id="meldingen" class="hidden mb-4"></div>
+
+    <!-- Geen versie voor deze maand -->
+    <div id="emptyState" class="card bg-base-100 hidden">
+      <div class="card-body items-center text-center py-12">
+        <i data-lucide="presentation" class="w-10 h-10 opacity-40"></i>
+        <h2 class="font-semibold text-lg">Nog niets klaargezet voor deze maand</h2>
+        <p class="text-sm opacity-70 max-w-md">
+          Kies de datum van de AV en het venster van het prikbord hierboven, en klik op "Gegevens ophalen".
+        </p>
+        <button class="btn btn-primary btn-sm mt-2" data-action="generate">
+          <i data-lucide="sparkles" class="w-4 h-4"></i> Gegevens ophalen
+        </button>
+      </div>
+    </div>
+
+    <div id="workspace" class="hidden">
+      <div role="tablist" class="tabs tabs-boxed mb-4 w-fit">
+        <button role="tab" class="tab tab-active" data-av-tab="wist">Wist-je-weetje</button>
+        <button role="tab" class="tab" data-av-tab="prik">Prikbord</button>
+      </div>
+
+      <div class="grid gap-4 lg:grid-cols-5 items-start">
+        <div class="lg:col-span-3 lg:sticky lg:top-16 space-y-3">
+          <div class="card bg-base-100">
+            <div class="card-body p-3">
+              <div id="preview" class="av-slide shadow-sm"></div>
+            </div>
+          </div>
+          <div id="warnings"></div>
+
+          <!-- In de presentatie zetten -->
+          <div class="card bg-base-100">
+            <div class="card-body p-4 gap-3">
+              <h2 class="font-semibold">In de presentatie zetten</h2>
+              <p class="text-xs opacity-70">
+                Plak de link van de AV-presentatie van deze maand. Beide slides komen achteraan als gewone, bewerkbare
+                Slides-vormen. Staan ze er al (ook uit een kopie van vorige maand), dan worden ze op dezelfde plek vervangen.
+              </p>
+              <div class="flex flex-wrap gap-2">
+                <input type="url" id="fPresentation" class="input input-bordered input-sm flex-1 min-w-[16rem]"
+                  placeholder="https://docs.google.com/presentation/d/...">
+                <button class="btn btn-sm btn-primary" data-action="insert" id="insertBtn">
+                  <i data-lucide="send" class="w-4 h-4"></i> In presentatie zetten
+                </button>
+              </div>
+              <div id="insertResult"></div>
+              <details class="collapse collapse-arrow bg-base-200" id="setupHelp">
+                <summary class="collapse-title text-sm font-medium min-h-0 py-2">Eenmalige instelling in Google</summary>
+                <div class="collapse-content text-xs space-y-2">
+                  <p>De OM werkt namens jou, met jouw rechten op de presentatie. Daarvoor zijn twee dingen nodig:</p>
+                  <ol class="list-decimal pl-5 space-y-1">
+                    <li>In de Google Cloud Console, in het project van het service-account: <strong>APIs &amp; Services &rarr; Library &rarr; Google Slides API &rarr; Enable</strong>.</li>
+                    <li>In de Google Admin Console: <strong>Beveiliging &rarr; API-beheer &rarr; Domeinbrede delegatie</strong>, client-ID
+                      <code id="setupClientId">...</code> bewerken en deze scope <strong>toevoegen aan de lijst die er al staat</strong>:
+                      <code id="setupScope" class="break-all">...</code>.
+                      Vervang de lijst niet: de handtekeningen en de Gmail-koppelingen gebruiken de andere scopes.</li>
+                  </ol>
+                  <p>Daarnaast moet je zelf bewerkrechten hebben op de presentatie.</p>
+                </div>
+              </details>
+            </div>
+          </div>
+        </div>
+
+        <div class="lg:col-span-2">
+          <div id="editorWist" class="space-y-3"></div>
+          <div id="editorPrik" class="space-y-3 hidden"></div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <input type="file" id="imageInput" accept="image/png,image/jpeg,image/gif,image/webp" class="hidden">
+  <div id="toastHost" class="toast toast-end z-50"></div>
+
+  <script src="/av-slides.js"></script>
+</body>
+</html>

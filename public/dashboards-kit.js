@@ -101,7 +101,7 @@
   /** Vergelijkings- of targetlijn: grijs, gestippeld. */
   function refLine(label, data, extra) {
     return Object.assign({ type: 'line', label: label, data: data, borderColor: REF, borderWidth: 1.5, borderDash: [5, 4], tension: 0.3,
-      pointRadius: 0, pointHoverRadius: 4, fill: false, spanGaps: true }, extra || {});
+      pointRadius: 0, pointHoverRadius: 4, fill: false, spanGaps: true, omRef: true }, extra || {});
   }
 
   // ── Filterbediening (zelfde vorm als Webgedrag) ───────────────────────────
@@ -223,8 +223,40 @@
     var el = $(id);
     if (!el || !window.Chart) return null;
     if (charts[id]) charts[id].destroy();
+    // Wat iemand in de legende wegklikte, blijft weg na een hertekening (andere periode,
+    // filter of maat) -- zolang die reeksen nog bestaan.
+    var weg = verborgen[id];
+    if (weg && config.data && config.data.datasets) {
+      var labels = config.data.datasets.map(function (ds) { return ds.label; });
+      var blijft = config.data.datasets.some(function (ds) { return !ds.omRef && !weg[ds.label]; });
+      if (blijft) config.data.datasets.forEach(function (ds) { if (!ds.omRef && weg[ds.label]) ds.hidden = true; });
+      else delete verborgen[id];
+      if (!labels.length) delete verborgen[id];
+    }
     charts[id] = new window.Chart(el, config);
     return charts[id];
+  }
+  var verborgen = {};
+  /**
+   * Klik op een item in de legende: eerst ENKEL dat item tonen; daarna klik je andere
+   * erbij of weer weg. Valt het laatste weg, dan staat alles weer aan. Een
+   * vergelijkingslijn ("Een jaar eerder", een target) gaat gewoon aan en uit.
+   * Gebruik: options.plugins.legend.onClick = K.soloLegend.
+   */
+  function soloLegend(e, item, legend) {
+    var ch = legend.chart, i = item.datasetIndex, sets = ch.data.datasets;
+    if (sets[i].omRef) { ch.setDatasetVisibility(i, !ch.isDatasetVisible(i)); ch.update(); return; }
+    var groep = sets.map(function (ds, k) { return ds.omRef ? -1 : k; }).filter(function (k) { return k >= 0; });
+    var alles = groep.every(function (k) { return ch.isDatasetVisible(k); });
+    if (alles) groep.forEach(function (k) { ch.setDatasetVisibility(k, k === i); });
+    else if (ch.isDatasetVisible(i)) {
+      ch.setDatasetVisibility(i, false);
+      if (!groep.some(function (k) { return ch.isDatasetVisible(k); })) groep.forEach(function (k) { ch.setDatasetVisibility(k, true); });
+    } else ch.setDatasetVisibility(i, true);
+    ch.update();
+    var weg = {};
+    groep.forEach(function (k) { if (!ch.isDatasetVisible(k)) weg[sets[k].label] = 1; });
+    if (Object.keys(weg).length) verborgen[ch.canvas.id] = weg; else delete verborgen[ch.canvas.id];
   }
   /** Arceert de eerste `n` emmers: de cijfers blijven staan (nooit weglaten), met een label. */
   function hatchPlugin(n, label) {
@@ -518,7 +550,7 @@
     fyStart: fyStart, fyLabel: fyLabel,
     C: C, palette: palette, gradient: gradient, area: area, bars: bars, refLine: refLine, REF: REF, ink: ink, groupLabel: groupLabel, pills: pills, select: select, sparkline: sparkline, tile: tile, delta: delta, compact: compact, COMPACT: COMPACT,
     achievedClass: achievedClass, achievedBg: achievedBg,
-    chart: chart, hatchPlugin: hatchPlugin, baseOptions: baseOptions,
+    chart: chart, hatchPlugin: hatchPlugin, baseOptions: baseOptions, soloLegend: soloLegend,
     odooUrl: odooUrl, odooLink: odooLink, drill: drill, parseSort: parseSort, api: api, loadSales: loadSales, freshness: freshness
   };
 })();
