@@ -296,6 +296,16 @@
   transition: border-color 0.12s ease, box-shadow 0.12s ease;
 }
 
+/* De display:block hierboven wint van het hidden-attribuut (dat is maar een
+   regel van de browser). Het gemeenteveld heeft een tekstvak EN een verborgen
+   keuzelijst, en mymmo-forms-postcode.js wisselt tussen de twee met hidden --
+   zonder deze regel stonden ze er allebei, als een dubbel veld. Zelfde gewicht
+   plus een attribuut, dus ook sterker dan `select { display: block }` van een
+   thema. */
+.mymmo-form-wrap .mymmo-form-input[hidden] {
+  display: none;
+}
+
 .mymmo-form-input:focus {
   outline: none;
   border-color: var(--mf-border-focus);

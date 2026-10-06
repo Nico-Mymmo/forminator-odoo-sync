@@ -67,7 +67,7 @@
       document.querySelectorAll('[data-detail-tab]').forEach(function (t) {
         t.classList.toggle('tab-active', t.dataset.detailTab === tabName);
       });
-      ['fields', 'form', 'mapping', 'history', 'documents', 'stats'].forEach(function (name) {
+      ['fields', 'form', 'mapping', 'history', 'kaart', 'documents', 'stats'].forEach(function (name) {
         var panel = document.getElementById('detailTab' + name.charAt(0).toUpperCase() + name.slice(1));
         if (panel) panel.style.display = name === tabName ? '' : 'none';
       });
@@ -79,6 +79,8 @@
       // forminator-sync-v2-detail-lifecycle.js.)
       if (tabName === 'form' && window.FSV2.renderDetailForm) window.FSV2.renderDetailForm();
       if (tabName === 'documents' && window.FSV2.renderDetailDocuments) window.FSV2.renderDetailDocuments();
+      // De kaart (en Leaflet) pas laden als iemand het tabblad opent.
+      if (tabName === 'kaart' && window.FSV2.renderDetailKaart) window.FSV2.renderDetailKaart();
       return;
     }
 
@@ -183,6 +185,17 @@
       if (action === 'goto-links') {
         window.FSV2.showView('links');
         window.FSV2.renderLinks();
+        return;
+      }
+      // Botcontrole: wat Turnstile tegenhield. Alle logica staat in
+      // forminator-sync-v2-bot-log.js; dit is enkel het doorgeefluik.
+      if (action === 'goto-botlog') {
+        window.FSV2.showView('botlog');
+        if (window.FSV2.laadBotLog) await window.FSV2.laadBotLog();
+        return;
+      }
+      if (action.indexOf('botlog-') === 0) {
+        if (window.FSV2.handleBotLogAction) await window.FSV2.handleBotLogAction(action, btn);
         return;
       }
       // ── Link registry CRUD ────────────────────────────────────────────
@@ -1962,6 +1975,12 @@
     if (el && el.dataset && window.FSV2.handleFormBuilderChange &&
         (el.dataset.fbForm || el.dataset.fbField || el.dataset.fbOptionField)) {
       if (window.FSV2.handleFormBuilderChange(el, 'input')) return;
+    }
+
+    // Zoekveld Botcontrole — enkel de lijst eronder wordt hertekend.
+    if (el && el.dataset && el.dataset.botlogSearch !== undefined) {
+      if (window.FSV2.handleBotLogSearch) window.FSV2.handleBotLogSearch(el.value);
+      return;
     }
 
     // Zoekveld overzicht koppelingen — enkel de kaarten herrenderen (behoudt focus)

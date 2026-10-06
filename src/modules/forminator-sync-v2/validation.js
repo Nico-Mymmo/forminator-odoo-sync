@@ -217,6 +217,13 @@ export function validateTargetPayload(payload, { allowedModels } = {}) {
     if (!hasValue(payload.mail_recipient_source)) {
       throw createError('send_mail vereist een mail_recipient_source (welk formulierveld of welke stap het e-mailadres levert).');
     }
+    // 'fixed:<adres>' = altijd naar dat adres (bv. intern). Hier nakijken, niet
+    // pas bij een inzending: daar zou een tikfout enkel een overgeslagen mail
+    // in het spoor opleveren, en dat ziet niemand.
+    const ontvanger = String(payload.mail_recipient_source).trim();
+    if (ontvanger.startsWith('fixed:') && !/^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/.test(ontvanger.slice('fixed:'.length).trim())) {
+      throw createError('Het vaste e-mailadres van de ontvanger is geen geldig adres: "' + ontvanger.slice('fixed:'.length) + '".');
+    }
 
     if (payload.mail_delay_minutes !== undefined && payload.mail_delay_minutes !== null) {
       const vertraging = Number(payload.mail_delay_minutes);

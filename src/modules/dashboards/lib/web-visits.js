@@ -6,8 +6,9 @@
  * opgeslagen en worden hier afgeleid, met dezelfde regels als de tracker
  * (website-tracker/docs/ontwerp-web-visitor-events.md §5):
  *   - sessie: nieuw na 30 min stilte of na een exit-klik (§5.2)
- *   - geëngageerd: >1 pagina, een betekenisvolle klik, een conversie, een
- *     terugkeer naar de tab, >5 s op een pagina of >= 75% gescrold (§5.7)
+ *   - klikt verder (vlag `engaged`): >1 pagina, een betekenisvolle klik of een
+ *     actie. Bewust strenger dan §5.7: tijd en scroll tellen sinds 2026-10-02
+ *     niet meer mee (zie de toelichting in getWebVisitsData()).
  *
  * De server doet het zware werk (één SQL-query die per sessie samenvat) en
  * stuurt COMPACTE SESSIES naar de browser; filteren en doorklikken gebeurt daar,
@@ -394,12 +395,23 @@ export async function getWebVisitsData(env, { period }) {
     const [ch, det] = channelOf(r, reopened);
     const dur = Math.max(0, Math.round((Date.parse(r.en + 'Z') - Date.parse(r.st + 'Z')) / 1000), Number(r.md) || 0);
     const distinct = new Set(pages).size;
-    // Voor de betrokkenheid telt ELKE actie, niet enkel een aanvraag.
+    // "Klikt verder": een tweede pagina, een klik die iets deed (de cookiebanner en
+    // "Inloggen" zitten niet in `ck`) of een actie -- elke actie, niet enkel een
+    // aanvraag. Bewust NIET: tijd op een pagina, scrollen, terugkeren naar het
+    // tabblad (`rs`) en een partner-login (`pl`). Met die signalen erbij (tot
+    // 2026-10-02: meer dan 5 s, of 75% gescrold) telde ook wie zes seconden op de
+    // instappagina bleef en wegging, en stond er "74% doet er iets mee" naast een
+    // padverkenner waarin 84% na de eerste pagina stopte. Duur en scroll blijven
+    // gewone kolommen; ze zijn alleen geen voorwaarde meer. Dezelfde regel staat in
+    // web-story/lib/behaviour.js; wijzig ze samen. `possible_bounce` in de tracker
+    // (lib/compress.js) volgt de oude regel: dat is een ander begrip, voor Odoo.
     const conv = (r.ca || 0) + (r.er || 0) + (r.fs || 0) + (r.nb || 0) + (r.ac || 0) + (r.rg || 0);
-    const engaged = distinct > 1 || (r.ck || 0) > 0 || conv > 0 || (r.pl || 0) > 0 || (r.rs || 0) > 0
-      || (Number(r.md) || 0) > 5 || (Number(r.sd) || 0) >= 75;
+    const engaged = distinct > 1 || (r.ck || 0) > 0 || conv > 0;
     const isNew = !!(r.vf && Math.abs(Date.parse(r.st + 'Z') - Date.parse(r.vf + 'Z')) < 30 * 60 * 1000);
-    if (!r.hi && (!oudsteLive || r.st < oudsteLive)) oudsteLive = r.st;
+    // Volledig gemeten = live EN met een pagina. Een sessie met enkel een conversie die
+    // de OM meldde (bron 'server', sinds augustus) of een geimporteerd touchpoint is
+    // geen live bezoek; die zette deze datum weken te vroeg (live begon 29-09-2026).
+    if (!r.hi && pages.length && (!oudsteLive || r.st < oudsteLive)) oudsteLive = r.st;
     sessions.push([
       id('v', r.u),                       // 0 bezoeker
       Math.round(Date.parse(r.st + 'Z') / 1000), // 1 start (unix s)

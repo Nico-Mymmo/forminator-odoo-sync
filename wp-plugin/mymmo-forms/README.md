@@ -576,6 +576,36 @@ injectiepad zijn naar elke site die het formulier toont.
 
 ## Versies
 
+**1.23.1** — het gemeenteveld stond er DUBBEL: het tekstvak en, eronder, een
+lege keuzelijst. Die keuzelijst hoort verborgen te staan (`hidden`) tot een
+postcode meerdere plaatsen heeft, maar `.mymmo-form-wrap .mymmo-form-input`
+zet `display: block`, en dat wint van het `hidden`-attribuut -- dat is maar een
+regel van de browser zelf. Nu staat er `.mymmo-form-wrap .mymmo-form-input[hidden]
+{ display: none }` in `public/mymmo-forms.css` (de enige bron; de plugin krijgt
+een kopie). Zelfde fout in het voorbeeld van de bouwer in de OM, en daar met
+dezelfde regel opgelost.
+
+**1.23.0** — twee veldtypes uit de OM: **Postcode** en **Gemeente**. Een
+postcode wordt in de browser opgezocht in de officiële lijst
+(`assets/data/postcodes-be.json`, gemaakt door `build-mymmo-forms.sh` uit de
+lijst van de OM -- FOD BOSA BeST Address, CC BY 4.0; voor Nederland GeoNames).
+Is ze gekend, dan wordt het gemeenteveld eronder ingevuld; heeft ze meerdere
+plaatsen (1790: Affligem, Essene, Hekelgem, Teralfene), dan wordt dat veld een
+keuzelijst met "Andere plaats…" als uitweg. Brussel volgt de taal van het
+formulier (Elsene / Ixelles). Een onbekende of verkeerd gevormde postcode geeft
+een melding uit `MESSAGES` (via `setCustomValidity()`, getoond door
+mymmo-forms.js zoals elke andere melding). Nieuw script
+`mymmo-forms-postcode.js`, als afhankelijkheid van `mymmo-forms` geladen, zodat
+het meekomt in pagina, pop-up, callout en blok; de lijst zelf wordt pas
+opgehaald als iemand in een postcodeveld klikt. Waarom: een postcode was tot
+nu een gewoon tekstveld, met "B-9000", "9000 Gent" en tikfouten in Odoo, en de
+OM kon de aanvragen daardoor niet op een kaart zetten. De controle die telt
+blijft in de Worker: zonder JavaScript werkt het veld gewoon, en vult de
+Worker de gemeente in. VOLGORDE: eerst de Worker deployen (en de migratie
+`20261005090000_fsv2_form_fields_postcode.sql`), dan deze versie -- een oudere
+Worker kent de veldtypes niet, en een formulier met zo'n veld kan dan niet
+bewaard worden.
+
 **1.22.0** — de popup meldt wat er gebeurt, voor Webgedrag in de OM: venster
 geopend (en via welke knop), tabblad gekozen, stap bereikt (naam en nummer),
 formulier gestart (eerste ingevulde veld) en een verzendpoging. Als CustomEvent

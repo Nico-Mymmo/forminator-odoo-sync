@@ -116,6 +116,16 @@
       return (gewichtKolom(c.field_type) / totaalGewicht * 100).toFixed(1) + '%';
     };
     var targets = (S().detail && S().detail.targets) || [];
+    // Stapnummer zoals op het tabblad Koppeling: de POSITIE in de pijplijn, niet
+    // execution_order. Dat volgnummer begint meestal al bij 1 (step.1.record_id),
+    // dus "execution_order + 1" zette hier elke stap een hoger dan op Koppeling.
+    var stapPositie = {};
+    targets.slice().sort(function (a, b) {
+      return window.FSV2.getTargetOrder(a, 0) - window.FSV2.getTargetOrder(b, 0);
+    }).forEach(function (t, idx) {
+      var o = window.FSV2.getTargetOrder(t, idx);
+      if (stapPositie[o] === undefined) stapPositie[o] = idx + 1;
+    });
 
     function normalizeKey(k) { return String(k || '').toLowerCase().replace(/[-_\s]+/g, '_'); }
     function lookupPayloadValue(payload, sourceValue) {
@@ -558,7 +568,10 @@
             var sl              = (a.skipped_reason && skipLabels[a.skipped_reason]) || '';
             var isReplaySkip    = a.skipped_reason === 'retry_skip_already_successful';
             var isConditionSkip = a.skipped_reason === 'condition_not_met';
-            var stepNum         = a.execution_order != null ? (Number(a.execution_order) + 1) : null;
+            // Een stap die intussen weg is, houdt zijn eigen volgnummer.
+            var stepNum         = a.execution_order != null
+              ? (stapPositie[Number(a.execution_order)] || Number(a.execution_order))
+              : null;
             var stepLabel       = isConditionSkip
               ? 'overgeslagen (conditie)'
               : (isReplaySub && (a.action === 'created' || a.action === 'updated'))

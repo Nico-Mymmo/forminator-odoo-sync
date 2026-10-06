@@ -65,6 +65,11 @@
       // zelfde patroon als warnings/field-transforms hierboven: de indieningen
       // hoeven hier niet op te wachten, ze tonen zich meteen zonder funnel en
       // krijgen die erbij zodra de bulk-call terug is.
+      // Tabblad Kaart: enkel als het formulier een postcodeveld heeft.
+      // Fire-and-forget, zelfde patroon als hierboven -- het tabblad verschijnt
+      // zodra het antwoord er is (forminator-sync-v2-detail-kaart-tab.js).
+      if (window.FSV2.controleerKaartTab) window.FSV2.controleerKaartTab(id);
+
       S().mailEventsBySubmission = {};
       var detailTargetsForMail = (S().detail && S().detail.targets) || [];
       if (detailTargetsForMail.some(function (t) { return t.operation_type === 'send_mail'; })) {

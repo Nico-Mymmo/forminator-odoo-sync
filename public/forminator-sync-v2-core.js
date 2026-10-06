@@ -142,7 +142,7 @@
   }
   function showView(name) {
     S.view = name;
-    ['list', 'connections', 'wizard', 'detail', 'defaults', 'links'].forEach(function (v) {
+    ['list', 'connections', 'wizard', 'detail', 'defaults', 'links', 'botlog'].forEach(function (v) {
       var el = document.getElementById('view-' + v);
       if (el) el.style.display = (v === name) ? '' : 'none';
     });

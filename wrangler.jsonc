@@ -56,6 +56,16 @@
 			// remote: true = ook in wrangler dev de echte database; zonder dit krijg je
 			// lokaal een lege D1 ("no such table: events").
 			"remote": true
+		},
+		{
+			// Spiegel van de verkoopgegevens uit Odoo (Dashboards: Verkoop en Targets).
+			// De OM is de ENIGE schrijver; schema in d1/om-sales/migrations/.
+			// Zie docs/ontwerp-om-verkoopdashboard.md.
+			"binding": "SALES_DB",
+			"database_name": "om-sales",
+			"database_id": "a33b235c-256e-40b9-8419-a1105b43a0e0",
+			"migrations_dir": "d1/om-sales/migrations",
+			"remote": true
 		}
 	],
 	"browser": {
@@ -102,8 +112,10 @@
 		// Pas van "log" naar "on" na minstens 6 uur (MAX_SECONDS in class-submit.php:
 		// een oudere pagina kan toch niet meer versturen) EN nadat de log toont
 		// dat echte inzendingen "ok" krijgen.
-		"FORMS_TURNSTILE_MODE": "off",
-		"FORMS_TURNSTILE_SITE_KEY": "",
+		// Op "on" sinds 2026-10-06: in "log" hadden alle 249 spaminzendingen
+		// "geen_token" en alle 6 echte "ok".
+		"FORMS_TURNSTILE_MODE": "on",
+		"FORMS_TURNSTILE_SITE_KEY": "0x4AAAAAAFOLN57a5gYOjyhK",
 		// Event Operations v2 -- auto-done cron (draait mee in de 15-min-cron-tak,
 		// zie src/modules/event-operations-v2/lib/cron.js). Standaard AAN; zet op
 		// "0" om 'm zonder deploy uit te zetten (Cloudflare-dashboard volstaat).

@@ -178,6 +178,39 @@
   }
 
   /**
+   * De records van VORIGE schrijf- of zoekstappen (`step.N.record_id`), voor
+   * twee keuzelijsten in "Gedrag bij verwerking": het contact waar de mail
+   * naartoe gaat, en (bij een formulierveld of vast adres) de chatter waar ze
+   * optioneel in bewaard wordt. `leeg` is de tekst van de lege keuze.
+   * `data-model` gaat mee omdat odoo_model van de mailstap het model van DAT
+   * record moet zijn (leesGedrag zet het mee).
+   * Een bewaarde bron die niet meer in de lijst staat (stap weg of verplaatst)
+   * blijft zichtbaar en gekozen -- anders zet opslaan ze stil op leeg.
+   */
+  function hangtAanOpties(sortedTargets, tid, huidige, leeg) {
+    var lijst = Array.isArray(sortedTargets) ? sortedTargets : [];
+    var mijn = lijst.find(function (t) { return String(t.id) === String(tid); });
+    var mijnOrder = mijn ? window.FSV2.getTargetOrder(mijn, 0) : Infinity;
+    var gevonden = false;
+    var html = `<option value=""${huidige ? '' : ' selected'}>${esc(leeg)}</option>`;
+    lijst.forEach(function (t, idx) {
+      var order = window.FSV2.getTargetOrder(t, idx);
+      if (order >= mijnOrder || !t.odoo_model) return;
+      var handeling = ['send_mail', 'chatter_message', 'create_activity', 'generate_pdf', 'mailing_list']
+        .indexOf(String(t.operation_type || '')) !== -1;
+      if (handeling) return;
+      var waarde = 'step.' + order + '.record_id';
+      if (waarde === huidige) gevonden = true;
+      var label = 'Stap ' + (idx + 1) + ' — ' + (t.label || window.FSV2.modelLabel(t.odoo_model)) + ': het record';
+      html += `<option value="${esc(waarde)}" data-model="${esc(t.odoo_model)}"${waarde === huidige ? ' selected' : ''}>${esc(label)}</option>`;
+    });
+    if (huidige && !gevonden) {
+      html += `<option value="${esc(huidige)}" selected>${esc(huidige)} (die stap bestaat niet meer)</option>`;
+    }
+    return html;
+  }
+
+  /**
    * Welke van de drie afzenderkeuzes deze stap is. Opgeslagen staat dat in
    * twee velden (mail_from_source + mail_signature_source); de UI toont er één
    * keuze van, want afzender en handtekening horen bij dezelfde persoon.
@@ -209,81 +242,139 @@
     if (terugKop) terugKop.style.display = modus === 'fixed' ? 'none' : '';
   }
 
-  function renderMailComposer(target, tid, sortedTargets) {
-    var el = document.getElementById('det-mc-' + tid);
-    if (!el) return;
+  // ─── Gedrag bij verwerking ─────────────────────────────────────────────────
 
-    // Tekst per fase (zie forminator-sync-v2-detail-mapping-tab.js): een
-    // fase-tab krijgt een STERK VEREENVOUDIGDE versie van deze editor —
-    // alleen onderwerp + tekst. Vertraging, ontvanger, afzender, bijlagen,
-    // ... zijn stap-brede instellingen en blijven op de "Standaard"-tab.
-    var activeFase = window.FSV2.getComposerFase(tid);
-    if (activeFase !== 'default') {
-      renderMailComposerFaseTab(target, tid, activeFase);
-      return;
+  /**
+   * Naar wie gaat de mail? Drie keuzes, in de bestaande kolommen:
+   *   contact -> mail_recipient_source 'record.email' + mail_res_id_source 'step.N.record_id'
+   *   field   -> mail_recipient_source 'field.<veld-id>'
+   *   fixed   -> mail_recipient_source 'fixed:<adres>'
+   * Bij field en fixed hangt de mail aan NIETS, tenzij er bij "Ook bewaren in
+   * de chatter van" bewust een stap gekozen is -- en ook dan vertrekt ze als
+   * die stap niemand vond (mail-step.js). Een contact uit een vorige stap is
+   * het enige dat van een andere stap afhangt, en dat staat er dan ook zo.
+   */
+  function ontvangerStand(target) {
+    var bron = String(target.mail_recipient_source || '');
+    if (bron.indexOf('fixed:') === 0) return { modus: 'fixed', adres: bron.slice('fixed:'.length), veld: '' };
+    if (bron === '' || bron === 'record.email') return { modus: 'contact', adres: '', veld: '' };
+    return { modus: 'field', adres: '', veld: bron };
+  }
+
+  /** Formuliervelden als 'field.<id>'. Een bewaard veld dat er niet (meer) bij staat, blijft gekozen. */
+  function ontvangerVeldOpties(huidige) {
+    var gevonden = false;
+    var html = `<option value=""${huidige ? '' : ' selected'}>— kies een formulierveld —</option>`;
+    formulierTokens().forEach(function (t) {
+      var val = 'field.' + t.pad.slice('form.'.length);
+      if (val === huidige) gevonden = true;
+      html += `<option value="${esc(val)}"${val === huidige ? ' selected' : ''}>${esc(t.label)}</option>`;
+    });
+    if (huidige && !gevonden) {
+      html += `<option value="${esc(huidige)}" selected>${esc(huidige.replace(/^field\./, ''))}</option>`;
     }
+    return html;
+  }
 
-    // De bijlagen staan in een eigen toestand (window.FSV2._mailAttachments),
-    // want ze worden na het kiezen en na het voorbeeld apart hertekend zonder
-    // de hele composer -- anders verlies je de tekst in de editor.
-    window.FSV2.initMailAttachments(tid, target);
+  /**
+   * Eén regel voor de kop van de stap en voor "Gedrag bij verwerking": waar de
+   * mail heen gaat. Tot 2026-10 stond daar "Mail naar " + het model van de stap
+   * ("Mail naar Contact"), ook als de mail naar een formulierveld ging.
+   */
+  function mailOntvangerSamenvatting(target, sortedTargets) {
+    var stand = ontvangerStand(target);
+    if (stand.modus === 'fixed') return 'Mail naar ' + (stand.adres || '(nog geen adres)');
+    if (stand.modus === 'field') {
+      var tok = formulierTokens().find(function (t) { return 'field.' + t.pad.slice('form.'.length) === stand.veld; });
+      return 'Mail naar formulierveld: ' + (tok ? tok.label : stand.veld.replace(/^field\./, ''));
+    }
+    var lijst = Array.isArray(sortedTargets) ? sortedTargets : [];
+    var res = String(target.mail_res_id_source || '');
+    var idx = -1;
+    lijst.forEach(function (t, i) {
+      if (idx === -1 && 'step.' + window.FSV2.getTargetOrder(t, i) + '.record_id' === res) idx = i;
+    });
+    if (idx === -1) return 'Mail naar een contact uit een vorige stap (nog geen stap gekozen)';
+    return 'Mail naar ' + window.FSV2.modelLabel(lijst[idx].odoo_model) + ' uit stap ' + (idx + 1);
+  }
 
+  /** De velden van de gekozen ontvanger tonen, de rest verbergen. */
+  function toonOntvangerModus(tid, modus) {
+    var stap  = document.getElementById('mailRecipientStep-' + tid);
+    var veld  = document.getElementById('mailRecipientField-' + tid);
+    var vast  = document.getElementById('mailRecipientFixed-' + tid);
+    var extra = document.getElementById('mailChatterExtra-' + tid);
+    if (stap)  stap.style.display  = modus === 'contact' ? '' : 'none';
+    if (veld)  veld.style.display  = modus === 'field' ? '' : 'none';
+    if (vast)  vast.style.display  = modus === 'fixed' ? '' : 'none';
+    if (extra) extra.style.display = modus === 'contact' ? 'none' : '';
+  }
+
+  /**
+   * "Gedrag bij verwerking" van een mailstap: naar wie, wanneer, van wie en
+   * hoe ze vertrekt. Tot 2026-10 stond dat tussen de tekst van de mail, en
+   * toonde dit paneel de keuzes van een schrijfstap (zoeken, bijwerken,
+   * aanmaken) -- die betekenen niets voor een mail.
+   * Wordt getekend voor elke stap, ook dichtgeklapt (renderDetailMappings),
+   * dus leesGedrag() vindt deze velden bij het opslaan via hun id terug.
+   */
+  function renderMailGedrag(target, tid, sortedTargets) {
+    var el = document.getElementById('det-optype-' + tid);
+    if (!el) return;
     var vertraging = splitsVertraging(target.mail_delay_minutes);
-    var layout     = String(target.mail_layout || 'plain');
     var afzender   = afzenderStand(target);
-    var tokens     = alleTokens().concat(voorgaandeStapTokens(tid));
-    var velden     = formulierTokens();
-
-    var tokenOpties = tokens.map(function (t) {
-      return `<option value="${esc(t.pad)}">${esc(t.label)}</option>`;
-    }).join('');
-
-    var ontvangerOpties = [`<option value="record.email"${target.mail_recipient_source === 'record.email' ? ' selected' : ''}>Het e-mailadres van het record zelf (aanbevolen)</option>`]
-      .concat(velden.map(function (t) {
-        var val = 'field.' + t.pad.slice('form.'.length);
-        return `<option value="${esc(val)}"${target.mail_recipient_source === val ? ' selected' : ''}>Formulierveld: ${esc(t.label)}</option>`;
-      })).join('');
+    var naar       = ontvangerStand(target);
+    var res        = String(target.mail_res_id_source || '');
 
     el.innerHTML = `
-      ${window.FSV2.renderComposerFaseTabs(target, tid)}
-      <div data-mail-composer="${esc(tid)}">
+      <div class="px-3.5 py-3 border-t border-base-200 bg-base-200/30 flex flex-col gap-4">
 
-        ${layout === 'blocks' ? `
-        <div class="alert alert-warning py-2 text-xs mb-3">
-          <span>Deze stap staat op opgemaakte mail (<code>blocks</code>). Deze editor is voor platte tekst;
-          de blokken pas je aan in de mailstudio.</span>
-        </div>` : ''}
-
-        <div class="form-control mb-3">
-          <label class="label pt-0 pb-1"><span class="label-text text-sm font-medium">Onderwerp</span></label>
-          <input type="text" id="mailSubject-${esc(tid)}" class="input input-bordered input-sm w-full"
-                 value="${esc(target.mail_subject_template || '')}"
-                 placeholder="Bijv: Bedankt voor je interesse, even kennismaken?">
-        </div>
-
-        <div class="form-control mb-1">
-          <label class="label pt-0 pb-1 flex items-center justify-between">
-            <span class="label-text text-sm font-medium">Tekst</span>
-            <span class="flex items-center gap-1">
-              <select id="mailToken-${esc(tid)}" class="select select-bordered select-xs">
-                <option value="">Veld invoegen…</option>
-                ${tokenOpties}
-              </select>
-              <button type="button" class="btn btn-xs" data-mail-action="insert-token" data-tid="${esc(tid)}">Invoegen</button>
-            </span>
-          </label>
-          <div id="mailQuill-${esc(tid)}" class="min-w-0"></div>
+        <div class="form-control">
+          <label class="label pt-0 pb-1"><span class="label-text text-sm font-medium">Naar wie gaat de mail?</span></label>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input type="radio" name="mailTo-${esc(tid)}" value="contact" class="radio radio-sm"
+                     data-mail-to-mode="${esc(tid)}" ${naar.modus === 'contact' ? 'checked' : ''}>
+              <span class="text-sm">Een contact uit een vorige stap</span>
+            </label>
+            <select id="mailRecipientStep-${esc(tid)}" class="select select-bordered select-sm w-full ml-6 max-w-[calc(100%-1.5rem)]"
+                    ${naar.modus === 'contact' ? '' : 'style="display:none"'}>
+              ${hangtAanOpties(sortedTargets, tid, naar.modus === 'contact' ? res : '', '— kies een stap —')}
+            </select>
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input type="radio" name="mailTo-${esc(tid)}" value="field" class="radio radio-sm"
+                     data-mail-to-mode="${esc(tid)}" ${naar.modus === 'field' ? 'checked' : ''}>
+              <span class="text-sm">Een e-mailadres uit het formulier</span>
+            </label>
+            <select id="mailRecipientField-${esc(tid)}" class="select select-bordered select-sm w-full ml-6 max-w-[calc(100%-1.5rem)]"
+                    ${naar.modus === 'field' ? '' : 'style="display:none"'}>
+              ${ontvangerVeldOpties(naar.veld)}
+            </select>
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input type="radio" name="mailTo-${esc(tid)}" value="fixed" class="radio radio-sm"
+                     data-mail-to-mode="${esc(tid)}" ${naar.modus === 'fixed' ? 'checked' : ''}>
+              <span class="text-sm">Een vast e-mailadres (bv. intern)</span>
+            </label>
+            <input type="email" id="mailRecipientFixed-${esc(tid)}"
+                   class="input input-bordered input-sm w-full ml-6 max-w-[calc(100%-1.5rem)]"
+                   value="${esc(naar.adres)}" placeholder="bv. sales@syndicoach.be"
+                   ${naar.modus === 'fixed' ? '' : 'style="display:none"'}>
+          </div>
           <label class="label pt-1 pb-0">
             <span class="label-text-alt text-base-content/50">
-              Vet, cursief, onderstreept, lijstjes en links. Een afspraaklink achter een woord: selecteer
-              het woord en kies <strong>Afspraaklink afzender</strong> bij "Veld invoegen". Een andere link:
-              selecteer de tekst en klik op het schakeltje. Bewust geen kleuren, lettergroottes of
-              afbeeldingen — dit is een gewone mail, geen mailing.
+              Een formulierveld of een vast adres: de mail vertrekt altijd, wat de andere stappen ook doen.
+              Een contact uit een vorige stap: vond die stap niemand, dan wordt de mail overgeslagen.
             </span>
           </label>
+          <div id="mailChatterExtra-${esc(tid)}" ${naar.modus === 'contact' ? 'style="display:none"' : ''}>
+            <label class="label pt-1 pb-1"><span class="label-text text-xs">Ook bewaren in de chatter van</span></label>
+            <select id="mailResSource-${esc(tid)}" class="select select-bordered select-sm w-full">
+              ${hangtAanOpties(sortedTargets, tid, naar.modus === 'contact' ? '' : res, 'Nergens')}
+            </select>
+          </div>
         </div>
 
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3 mt-3">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div class="form-control">
             <label class="label pt-0 pb-1"><span class="label-text text-sm font-medium">Wanneer versturen</span></label>
             <div class="flex items-center gap-2">
@@ -315,16 +406,9 @@
               </span>
             </label>
           </div>
-
-          <div class="form-control">
-            <label class="label pt-0 pb-1"><span class="label-text text-sm font-medium">Naar welk adres</span></label>
-            <select id="mailRecipient-${esc(tid)}" class="select select-bordered select-sm w-full">
-              ${ontvangerOpties}
-            </select>
-          </div>
         </div>
 
-        <div class="form-control mb-3">
+        <div class="form-control">
           <label class="label pt-0 pb-1"><span class="label-text text-sm font-medium">Wie verstuurt deze mail?</span></label>
           <div class="flex flex-col gap-1.5">
             <label class="flex items-center gap-2 cursor-pointer">
@@ -385,7 +469,7 @@
           </label>
         </div>
 
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div class="form-control">
             <label class="label pt-0 pb-1"><span class="label-text text-sm font-medium">Antwoorden naar</span></label>
             <input type="email" id="mailReplyTo-${esc(tid)}" class="input input-bordered input-sm w-full"
@@ -404,9 +488,7 @@
           </div>
         </div>
 
-        ${window.FSV2.renderMailAttachmentsSection(tid)}
-
-        <div class="flex flex-col gap-1 mb-3">
+        <div class="flex flex-col gap-1">
           <label class="flex items-center gap-2 cursor-pointer">
             <input type="checkbox" id="mailTrackOpens-${esc(tid)}" class="checkbox checkbox-sm"
                    ${target.mail_track_opens !== false ? 'checked' : ''}>
@@ -422,6 +504,91 @@
             naar wie zich heeft uitgeschreven.
           </span>
         </div>
+      </div>
+    `;
+
+    // Eén listener per paneel; het paneel kan twee keer getekend worden
+    // (alle stappen + de open kaart), het element blijft hetzelfde.
+    if (!el._mailGedragLuistert) {
+      el._mailGedragLuistert = true;
+      el.addEventListener('change', function (e) {
+        if (e.target.matches('[data-mail-sender-mode]')) toonAfzenderModus(tid, e.target.value);
+        if (e.target.matches('[data-mail-to-mode]'))     toonOntvangerModus(tid, e.target.value);
+      });
+    }
+  }
+
+  function renderMailComposer(target, tid, sortedTargets) {
+    var el = document.getElementById('det-mc-' + tid);
+    if (!el) return;
+
+    // Tekst per fase (zie forminator-sync-v2-detail-mapping-tab.js): een
+    // fase-tab krijgt een STERK VEREENVOUDIGDE versie van deze editor —
+    // alleen onderwerp + tekst. Naar wie, wanneer en van wie staan in
+    // "Gedrag bij verwerking" (renderMailGedrag); de bijlagen blijven op de
+    // "Standaard"-tab.
+    var activeFase = window.FSV2.getComposerFase(tid);
+    if (activeFase !== 'default') {
+      renderMailComposerFaseTab(target, tid, activeFase);
+      return;
+    }
+
+    // De bijlagen staan in een eigen toestand (window.FSV2._mailAttachments),
+    // want ze worden na het kiezen en na het voorbeeld apart hertekend zonder
+    // de hele composer -- anders verlies je de tekst in de editor.
+    window.FSV2.initMailAttachments(tid, target);
+
+    var layout     = String(target.mail_layout || 'plain');
+    var tokens     = alleTokens().concat(voorgaandeStapTokens(tid));
+
+    var tokenOpties = tokens.map(function (t) {
+      return `<option value="${esc(t.pad)}">${esc(t.label)}</option>`;
+    }).join('');
+
+    el.innerHTML = `
+      ${window.FSV2.renderComposerFaseTabs(target, tid)}
+      <div data-mail-composer="${esc(tid)}">
+
+        ${layout === 'blocks' ? `
+        <div class="alert alert-warning py-2 text-xs mb-3">
+          <span>Deze stap staat op opgemaakte mail (<code>blocks</code>). Deze editor is voor platte tekst;
+          de blokken pas je aan in de mailstudio.</span>
+        </div>` : ''}
+
+        <div class="form-control mb-3">
+          <label class="label pt-0 pb-1"><span class="label-text text-sm font-medium">Onderwerp</span></label>
+          <input type="text" id="mailSubject-${esc(tid)}" class="input input-bordered input-sm w-full"
+                 value="${esc(target.mail_subject_template || '')}"
+                 placeholder="Bijv: Bedankt voor je interesse, even kennismaken?">
+        </div>
+
+        <div class="form-control mb-1">
+          <label class="label pt-0 pb-1 flex items-center justify-between">
+            <span class="label-text text-sm font-medium">Tekst</span>
+            <span class="flex items-center gap-1">
+              <select id="mailToken-${esc(tid)}" class="select select-bordered select-xs">
+                <option value="">Veld invoegen…</option>
+                ${tokenOpties}
+              </select>
+              <button type="button" class="btn btn-xs" data-mail-action="insert-token" data-tid="${esc(tid)}">Invoegen</button>
+            </span>
+          </label>
+          <div id="mailQuill-${esc(tid)}" class="min-w-0"></div>
+          <label class="label pt-1 pb-0">
+            <span class="label-text-alt text-base-content/50">
+              Vet, cursief, onderstreept, lijstjes en links. Een afspraaklink achter een woord: selecteer
+              het woord en kies <strong>Afspraaklink afzender</strong> bij "Veld invoegen". Een andere link:
+              selecteer de tekst en klik op het schakeltje. Bewust geen kleuren, lettergroottes of
+              afbeeldingen — dit is een gewone mail, geen mailing.
+            </span>
+          </label>
+        </div>
+
+        <p class="text-xs text-base-content/50 mt-3 mb-3">
+          Naar wie, wanneer en van wie deze mail vertrekt, stel je in bij <strong>Gedrag bij verwerking</strong>.
+        </p>
+
+        ${window.FSV2.renderMailAttachmentsSection(tid)}
 
         <div class="mb-2">
           <div class="flex items-center justify-between mb-1">
@@ -475,12 +642,6 @@
       if (actie === 'insert-token') voegTokenIn(doelTid);
       if (actie === 'preview')      vernieuwVoorbeeld(doelTid);
     });
-
-    // Afzender: stap / vaste medewerker / vast adres.
-    el.addEventListener('change', function (e) {
-      if (!e.target.matches('[data-mail-sender-mode]')) return;
-      toonAfzenderModus(tid, e.target.value);
-    });
   }
 
   /**
@@ -502,9 +663,9 @@
       ${window.FSV2.renderComposerFaseTabs(target, tid)}
       <div data-mail-composer-fase="${esc(tid)}">
         <div class="alert alert-info py-2 text-xs mb-3">
-          <span>Eigen onderwerp en tekst voor deze fase. Vertraging, ontvanger, afzender en bijlagen
-          staan op de tab "Standaard" en gelden voor elke fase. Laat onderwerp of tekst leeg om de
-          standaardtekst van die tab te gebruiken.</span>
+          <span>Eigen onderwerp en tekst voor deze fase. Naar wie, wanneer en van wie staat bij
+          "Gedrag bij verwerking", de bijlagen op de tab "Standaard"; dat geldt voor elke fase. Laat
+          onderwerp of tekst leeg om de standaardtekst van die tab te gebruiken.</span>
         </div>
 
         <div class="form-control mb-3">
@@ -613,6 +774,9 @@
     var map = Object.assign({}, target.calendly_behavior || {});
     map[fromFase] = Object.assign({}, map[fromFase], tekst);
     target.calendly_behavior = map;
+    // "Gedrag bij verwerking" staat ook naast een fase-tab open, en wat daar
+    // gewijzigd werd geldt voor de hele stap: dat gaat dus mee.
+    Object.assign(target, leesGedrag(tid));
     await window.FSV2.api('/integrations/' + integrationId + '/targets/' + tid, {
       method: 'PUT',
       body: JSON.stringify(Object.assign({}, target, { calendly_behavior: map })),
@@ -703,9 +867,13 @@
     }
   }
 
-  /** Alles uit de DOM lezen. Eén plek, gebruikt door zowel opslaan als voorbeeld. */
-  function leesVelden(tid) {
-    var qi = window.FSV2._mailQuills && window.FSV2._mailQuills[tid];
+  /**
+   * Wat in "Gedrag bij verwerking" staat (renderMailGedrag). Leeg als dat
+   * paneel er niet staat: dan blijft wat bewaard is staan, in plaats van stil
+   * terug te vallen op standaardwaarden.
+   */
+  function leesGedrag(tid) {
+    if (!document.getElementById('mailDelayH-' + tid)) return {};
     var uren = Number((document.getElementById('mailDelayH-' + tid) || {}).value || 0);
     var min  = Number((document.getElementById('mailDelayM-' + tid) || {}).value || 0);
     var modusEl = document.querySelector('input[name="mailSender-' + tid + '"]:checked');
@@ -713,12 +881,8 @@
     var serverRaw = (document.getElementById('mailServerId-' + tid) || {}).value;
     // Eén keuze in de UI, twee velden in de database -- zie afzenderStand().
     var sigSourceVal = modus === 'step' ? 'dynamic' : (modus === 'employee' ? 'fixed' : '');
-    return {
-      mail_layout:            'plain',
-      mail_subject_template:  (document.getElementById('mailSubject-' + tid) || {}).value || '',
-      mail_body_html:         qi ? qi.getHTML() : '',
+    var velden = {
       mail_delay_minutes:     Math.max(0, (Number.isFinite(uren) ? uren : 0) * 60 + (Number.isFinite(min) ? min : 0)),
-      mail_recipient_source:  (document.getElementById('mailRecipient-' + tid) || {}).value || 'record.email',
       mail_window_start_min:  alsMinuten((document.getElementById('mailWinStart-' + tid) || {}).value) ?? 480,
       mail_window_end_min:    alsMinuten((document.getElementById('mailWinEnd-' + tid) || {}).value) ?? 1200,
       mail_from_source:       modus === 'fixed' ? 'fixed' : 'record_user',
@@ -729,25 +893,92 @@
       mail_server_id:         serverRaw ? Number(serverRaw) : null,
       mail_track_opens:       !!(document.getElementById('mailTrackOpens-' + tid) || {}).checked,
       mail_respect_blacklist: !!(document.getElementById('mailBlacklist-' + tid) || {}).checked,
-      mail_attachments:       window.FSV2.mailAttachmentsPayload(tid),
       mail_signature_source:       sigSourceVal || null,
       mail_signature_employee_id:  sigSourceVal === 'fixed'
         ? Number((document.getElementById('mailSigEmployeeId-' + tid) || {}).value) || null : null,
       mail_signature_source_value: sigSourceVal === 'dynamic'
         ? ((document.getElementById('mailSenderStep-' + tid) || {}).value || null) : null
     };
+    // Naar wie -- zie ontvangerStand(). Het model volgt de gekozen stap; zonder
+    // stap blijft het staan (de validatie eist een model, en zonder record-id
+    // wordt het nergens voor gebruikt).
+    var naarEl = document.querySelector('input[name="mailTo-' + tid + '"]:checked');
+    if (naarEl) {
+      var keuzeEl;
+      if (naarEl.value === 'contact') {
+        keuzeEl = document.getElementById('mailRecipientStep-' + tid);
+        velden.mail_recipient_source = 'record.email';
+      } else {
+        keuzeEl = document.getElementById('mailResSource-' + tid);
+        velden.mail_recipient_source = naarEl.value === 'fixed'
+          ? 'fixed:' + String((document.getElementById('mailRecipientFixed-' + tid) || {}).value || '').trim()
+          : ((document.getElementById('mailRecipientField-' + tid) || {}).value || '');
+      }
+      velden.mail_res_id_source = (keuzeEl && keuzeEl.value) || null;
+      var gekozen = keuzeEl && keuzeEl.options[keuzeEl.selectedIndex];
+      var model = gekozen && gekozen.getAttribute('data-model');
+      if (model) velden.odoo_model = model;
+    }
+    return velden;
+  }
+
+  /** Alles uit de DOM lezen. Eén plek, gebruikt door zowel opslaan als voorbeeld. */
+  function leesVelden(tid) {
+    var qi = window.FSV2._mailQuills && window.FSV2._mailQuills[tid];
+    return Object.assign({
+      mail_layout:            'plain',
+      mail_subject_template:  (document.getElementById('mailSubject-' + tid) || {}).value || '',
+      mail_body_html:         qi ? qi.getHTML() : '',
+      mail_attachments:       window.FSV2.mailAttachmentsPayload(tid)
+    }, leesGedrag(tid));
   }
 
   // ─── Opslaan ───────────────────────────────────────────────────────────────
+
+  /**
+   * Klopt wat er in "Gedrag bij verwerking" staat? Geeft de melding terug, of
+   * ''. Ook bij opslaan vanop een fase-tab: dat paneel staat daar evengoed open.
+   */
+  function controleerGedrag(velden, tid) {
+    if (!('mail_delay_minutes' in velden)) return '';
+    var naar = String(velden.mail_recipient_source || '');
+    if (naar === 'record.email' && !velden.mail_res_id_source) return 'Kies van welke stap het contact komt.';
+    if (naar === '') return 'Kies het formulierveld met het e-mailadres.';
+    if (naar.indexOf('fixed:') === 0 && !/^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/.test(naar.slice('fixed:'.length))) {
+      return 'Vul een geldig vast e-mailadres in voor de ontvanger.';
+    }
+    if (velden.mail_from_source === 'fixed' && !velden.mail_from_email.trim()) {
+      return 'Vul het vaste afzenderadres in, of kies een medewerker als afzender.';
+    }
+    if (velden.mail_signature_source === 'fixed' && !(velden.mail_signature_employee_id > 0)) {
+      return 'Vul een geldig medewerker-ID in, of kies een andere afzender.';
+    }
+    if (velden.mail_signature_source === 'dynamic' && !velden.mail_signature_source_value) {
+      return 'Kies uit welke stap de afzender komt.';
+    }
+    // Een afzender uit een vorige stap bestaat niet als die stap niemand vond.
+    // Zonder terugvaladres vertrekt de mail dan niet ("geen afzenderadres"), en
+    // dat zie je alleen in het spoor van een indiening -- zo ging het op
+    // 2026-10-02 bij Academy - Inschrijven.
+    if (velden.mail_signature_source === 'dynamic' && !velden.mail_from_email.trim()) {
+      var terugval = document.getElementById('mailFromFallback-' + tid);
+      if (terugval) terugval.open = true;
+      return 'Vul een terugval-afzender in: vindt die stap niemand, dan heeft de mail anders geen afzender en vertrekt ze niet.';
+    }
+    return '';
+  }
 
   async function handleSaveMailComposer(tid) {
     var targets = (S().detail && S().detail.targets) ? S().detail.targets : [];
     var target  = targets.find(function (t) { return String(t.id) === tid; });
     if (!target) { window.FSV2.showAlert('Stap niet gevonden.', 'error'); return; }
 
-    // Een fase-tab heeft geen vertraging/ontvanger/afzender/bijlagen in de DOM
-    // staan -- dat zijn stap-brede instellingen die alleen via "Standaard"
-    // wijzigen. Enkel onderwerp/tekst gaan naar calendly_behavior[fase].
+    var fout = controleerGedrag(leesGedrag(tid), tid);
+    if (fout) { window.FSV2.showAlert(fout, 'error'); return; }
+
+    // Een fase-tab heeft geen bijlagen in de DOM staan -- die wijzigen alleen
+    // via "Standaard". Onderwerp/tekst gaan naar calendly_behavior[fase], het
+    // paneel "Gedrag bij verwerking" gaat mee (autoSaveMailFase).
     var activeFase = window.FSV2.getComposerFase(tid);
     if (activeFase !== 'default') {
       try {
@@ -771,18 +1002,6 @@
       window.FSV2.showAlert('De mailtekst is leeg.', 'error');
       return;
     }
-    if (velden.mail_from_source === 'fixed' && !velden.mail_from_email.trim()) {
-      window.FSV2.showAlert('Vul het vaste afzenderadres in, of kies een medewerker als afzender.', 'error');
-      return;
-    }
-    if (velden.mail_signature_source === 'fixed' && !(velden.mail_signature_employee_id > 0)) {
-      window.FSV2.showAlert('Vul een geldig medewerker-ID in, of kies een andere afzender.', 'error');
-      return;
-    }
-    if (velden.mail_signature_source === 'dynamic' && !velden.mail_signature_source_value) {
-      window.FSV2.showAlert('Kies uit welke stap de afzender komt.', 'error');
-      return;
-    }
 
     try {
       var res = await window.FSV2.api('/integrations/' + (S().detail.integration && S().detail.integration.id) +
@@ -796,7 +1015,8 @@
           execution_order: target.execution_order,
           order_index:     target.order_index,
           is_enabled:      target.is_enabled !== false,
-          mail_res_id_source: target.mail_res_id_source || null,
+          mail_res_id_source:    target.mail_res_id_source || null,
+          mail_recipient_source: target.mail_recipient_source || null,
         }, velden)),
       });
       if (!res || !res.success) throw new Error((res && res.error) || 'Opslaan mislukt');
@@ -809,6 +1029,8 @@
 
   Object.assign(window.FSV2, {
     renderMailComposer: renderMailComposer,
+    renderMailGedrag: renderMailGedrag,
+    mailOntvangerSamenvatting: mailOntvangerSamenvatting,
     handleSaveMailComposer: handleSaveMailComposer,
     autoSaveMailFase: autoSaveMailFase,
     _mailComposerReadFields: leesVelden

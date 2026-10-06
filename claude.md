@@ -321,6 +321,8 @@ kent. Volledige onderbouwing: `docs/ontwerp-om-formulieren.md`.
 | Waarden leesbaar maken (labels, tijdstippen) | `src/modules/forminator-sync-v2/display-values.js` |
 | Botcontrole: Turnstile nakijken + modus | `src/modules/forminator-sync-v2/forms/turnstile.js` (aangeroepen in `handleSubmit()` van `forms/public-api.js`) |
 | Turnstile in de browser | `maakTurnstile()` in `wp-plugin/mymmo-forms/assets/js/mymmo-forms.js` |
+| Wat Turnstile tegenhield: bewaren, negeren, alsnog doorlaten | `forms/bot-rejections.js` + `forms/bot-rejection-routes.js`, tabel `fs_v2_bot_rejections` |
+| Scherm Instellingen -> Botcontrole | `public/forminator-sync-v2-bot-log.js` |
 
 Afspraken die bewust zo zijn:
 
@@ -637,7 +639,31 @@ Afspraken die bewust zo zijn:
     `niet_gecontroleerd`, doorgelaten.
   - **`meta_bot_check` zet de Worker, nooit de site** (`delete meta.bot_check`
     in `handleSubmit()`). Waarden: `ok`, `geen_token`, `ongeldig`,
-    `niet_gecontroleerd`.
+    `niet_gecontroleerd`, en `vrijgegeven` (zie hieronder).
+  - **Staat op `on` sinds 2026-10-06.** Gemeten in `log` (5-6 okt): een bot
+    ("RobertWeits", prijsvraag in willekeurige talen) stuurde 249 inzendingen
+    op Contactaanvraag, alle 249 `geen_token`; de 6 echte inzendingen in die
+    periode alle 6 `ok`. De bot haalt de pagina op en post het formulier
+    zonder JavaScript -- daarom kwam hij langs honeypot, invultijd, nonce en
+    rate limit, en daarom heeft hij ook nooit een bezoeker-UUID.
+  - **Een geweigerde inzending wordt EERST BEWAARD** (`recordBotRejection()`
+    in `forms/bot-rejections.js`, tabel `fs_v2_bot_rejections`, 30 dagen,
+    opgeruimd in de 15-minutencron). Zonder dat is een echte bezoeker die ten
+    onrechte strandt spoorloos. Bewaren faalt nooit naar buiten: de 403 hangt
+    er niet van af. De body wordt GEFILTERD (`compacteInzending()`: enkel de
+    veldsleutels van het formulier en `META_KEYS`, met een maximale lengte),
+    want hij komt van een bot.
+  - **Koppelingen -> Instellingen -> Botcontrole** toont ze, met per inzending
+    de signalen om te beoordelen: bezoeker-UUID ja/nee (een AANWIJZING, geen
+    regel -- er wordt nooit automatisch iets mee beslist), UTM, de
+    Turnstile-codes, en "later wel verstuurd" (zelfde e-mailadres kwam daarna
+    alsnog binnen op die koppeling; doorlaten maakt dan een tweede lead).
+  - **Doorlaten is GEEN tweede pad naar Odoo.** De bewaarde inzending gaat
+    door `submitFormEntry()`, met `meta_bot_check = 'vrijgegeven'` zodat je in
+    Indieningen ziet dat een mens ze doorliet. De rij wordt eerst GECLAIMD
+    (open/dismissed -> released in één update): twee keer klikken mag geen
+    twee leads geven. Mislukt het verwerken, dan gaat de rij terug naar open
+    met de reden in `release_error`.
   - **In de browser** laadt het script pas bij de eerste klik IN het formulier
     en haalt het meteen een token; bij "Versturen" wordt alleen gewacht als het
     er nog niet is (max. 15 s, of tot de bezoeker het vinkje aanklikt als
@@ -667,6 +693,126 @@ het secret `FORMS_TURNSTILE_SECRET` plus de vars `FORMS_TURNSTILE_SITE_KEY` en
 **Nog niet gebouwd, bewust:** bestandsupload, betalingen, meerstaps-formulieren,
 berekeningen en voorwaardelijke velden. Voorwaardelijke velden zijn de meest
 waarschijnlijke eerste uitbreiding; het schema laat er ruimte voor.
+
+---
+
+## Koppelingen — postcode, gemeente en de kaart (2026-10)
+
+**Regel: een postcode is een eigen veldtype (`postcode`) dat nagekeken wordt
+tegen de OFFICIËLE lijst, en een gemeenteveld (`city`) wordt ingevuld vanuit het
+dichtstbijzijnde postcodeveld erboven. Die ene lijst voedt ook de kaart in
+Dashboards: er is nergens een tweede bron van "waar ligt 9000".**
+
+| Wat | Waar |
+|---|---|
+| De lijsten (GEGENEREERD, nooit met de hand) | `src/modules/forminator-sync-v2/forms/postcodes/be.js` + `nl.js` |
+| Ze opnieuw maken | `python scripts/postcodes/build-postcodes.py` (downloadt ~230 MB; `--cache <map>` hergebruikt) |
+| Normaliseren, opzoeken, plaatsnaam per taal (puur) | `forms/postcodes.js` |
+| Veldtypes, `koppelPostcodeVelden()`, controle bij inzending | `forms/schema.js` |
+| Migratie (check-constraint op `field_type`) | `supabase/migrations/20261005090000_fsv2_form_fields_postcode.sql` |
+| Bouwer: palet zet postcode + gemeente naast elkaar, land, koppeling | `public/forminator-sync-v2-detail-form-builder.js` (`renderPostcodeUitleg()`) |
+| Renderers | `templates/partials/field.php` + `public/forminator-sync-v2-form-preview.js` |
+| In de browser: opzoeken, gemeente invullen, keuzelijst | `wp-plugin/mymmo-forms/assets/js/mymmo-forms-postcode.js` |
+| Kopie van de lijst voor de browser | `assets/data/postcodes-<land>.json`, gemaakt door `scripts/postcodes/export-plugin.mjs` (draait in `build-mymmo-forms.sh`) |
+| De kaart tekenen (EEN component, twee plekken) | `public/aanvragen-kaart.js` (`window.OMAanvragenKaart.maak()`) |
+| De data (EEN serverfunctie) | `getAanvragenKaart()` in `src/modules/dashboards/lib/aanvragen-kaart.js` |
+| Kaart over alle koppelingen | tab "Kaart" in `public/dashboards.html` + `public/dashboards-map.js`, `GET /dashboards/api/aanvragen-kaart` |
+| Kaart van één koppeling | tabblad "Kaart" naast Indieningen, `public/forminator-sync-v2-detail-kaart-tab.js`, `GET /forminator-v2/api/integrations/:id/aanvragen-kaart` (+ `/postcode-velden` om te weten of het tabblad er hoort) |
+
+Afspraken die bewust zo zijn:
+
+- **De bron is FOD BOSA BeST Address (CC BY 4.0), niet bpost.** De bpost-lijst
+  is niet open gelicentieerd en niet rechtstreeks downloadbaar; BeST is de
+  federale export van de drie regionale adresregisters en wordt wekelijks
+  bijgewerkt. Het zwaartepunt van een postcode is het GEMIDDELDE VAN ALLE
+  ADRESSEN erin (waar de mensen wonen), niet het midden van een vlak. Nederland
+  komt uit GeoNames (PC4, CC BY 4.0) -- grover, genoeg voor herkennen en kaart.
+  CC BY vraagt een bronvermelding: die staat onder de kaart (`bronnen` in het
+  antwoord).
+- **De rechtzettingen op BeST staan in `build-postcodes.py`, met de reden.**
+  Vlaanderen geeft per adres de volledige plaatslijst met de hoofdplaats in
+  hoofdletters ("AFFLIGEM/Essene/..."); Brussel en de Duitstalige Gemeenschap
+  hebben GEEN postnaam (dan de gemeentenaam, meertalig); 1020/1120/1130 heten
+  bij bpost Laken / Neder-Over-Heembeek / Haren maar bij BeST enkel Brussel
+  (`AANVULLING`); Wallonië heeft per adres de GEHUCHTEN (4960 had er 28), dus
+  een plaats telt pas vanaf `MIN_ADRESSEN` (100) adressen. Wie in een weggelaten
+  gehucht woont, kiest de hoofdplaats of "Andere plaats".
+- **Een meertalige plaats is `{nl, fr}` of `{de, fr}`, en de taal van het
+  FORMULIER kiest** (`plaatsNaam()`). Ontbreekt die taal, dan de eerste: dat is
+  de taal van de streek zelf. Liège blijft dus Liège op een Nederlands
+  formulier; enkel Brussel en de Duitstalige Gemeenschap zijn officieel
+  meertalig.
+- **De postcode wordt GENORMALISEERD bewaard** ("b-9000 " → `9000`,
+  "nl 1011ab" → `1011 AB`) en moet in de lijst staan -- dat is strenger dan bij
+  een e-mailadres, en bewust: de lijst IS de waarheid, en een onbekende postcode
+  is bijna altijd een tikfout die anders in Odoo en op de kaart belandt.
+  Meldingen: `postcode` en `postcode_unknown` in `MESSAGES`.
+- **Het land staat in `validation.country`** (gesloten lijst
+  `POSTCODE_LANDEN`, standaard BE), niet in een eigen kolom. EEN land per veld;
+  een landkeuze voor de bezoeker is nog niet gebouwd.
+- **De koppeling postcode → gemeente is GEEN instelling.** Een gemeenteveld
+  hoort bij het dichtstbijzijnde postcodeveld erboven
+  (`koppelPostcodeVelden()`); de bouwer toont bij beide velden welk veld welk
+  vult, of een waarschuwing als er geen postcodeveld boven staat. Een instelling
+  die je kan vergeten, is een gemeenteveld dat stil leeg blijft. De publieke
+  payload geeft `city_field` / `postcode_field` mee, zodat de plugin de regel
+  niet zelf hoeft te kennen.
+- **Een LEEG gemeenteveld onder een gekende postcode vult de WORKER zelf in**
+  (hoofdplaats, in de taal van het formulier) -- voor wie zonder JavaScript
+  verstuurde, en zodat een verplicht gemeenteveld nooit een reden is om te
+  weigeren als de postcode het antwoord al geeft.
+- **In de browser is het gemeenteveld een tekstvak met een VERBORGEN
+  keuzelijst ernaast**, allebei server-side uitgeschreven. Heeft een postcode
+  meerdere plaatsen, dan zet het script de keuzelijst aan en het tekstvak uit;
+  altijd heeft er maar EEN een `name`, dus er gaat EEN waarde mee. "Andere
+  plaats…" zet het tekstvak terug. Wat de bezoeker ZELF typte wordt nooit
+  overschreven (`data-mymmo-auto` markeert wat het script invulde); een keuze
+  uit de lijst volgt wel een nieuwe postcode.
+- **Het script blokkeert niets als het niet kan.** Lijst niet geladen, oude
+  browser: geen melding, de Worker beslist. Een foute postcode zet een melding
+  met `setCustomValidity()`; `meldingVoor()` in mymmo-forms.js toont die
+  (`customError`) op hetzelfde moment als elke andere melding.
+- **De lijst staat op TWEE plekken als kopie, en ÉÉN keer als bron.** De OM
+  (`forms/postcodes/*.js`) is de bron; de plugin krijgt bij het bouwen een
+  afgeslankte JSON (enkel postcode → plaatsen, 44 kB voor BE). Zelfde regel als
+  `public/mymmo-forms.css`. De VORMREGELS per land (regex, NL-spatie) staan wel
+  twee keer: `POSTCODE_LANDEN` in postcodes.js en `LANDEN` in
+  mymmo-forms-postcode.js -- de plugin kan geen Worker-code importeren. Een land
+  erbij = op beide plekken + een tak in build-postcodes.py.
+- **De kaart leest de INZENDINGEN, niet de leads in Odoo.** Een koppeling doet
+  mee zodra haar formulier een veld van het type Postcode heeft. Er wordt op de
+  veldNAAM gelezen (JSON-pad in de select, niet de hele payload), dus wie een
+  bestaand tekstveld "postcode" omzet naar het type Postcode, krijgt ook de
+  oudere inzendingen op de kaart; wat daar niet herkend wordt, telt als
+  "onbekend" en staat in de KPI-kaart -- nooit stil weg.
+  Wat NIET meetelt, zelfde regel als de conversies in Webgedrag: `received`
+  (koppeling uit = test), `duplicate_inflight`, en oude replay-rijen.
+- **Op de kaart EEN tint, licht naar donker** (blauw), met een eigen schaal
+  voor het donkere thema. De standaardkleuren van leaflet.heat zijn een
+  regenboog en suggereren grenzen die er niet zijn. De ondergrond
+  (OpenStreetMap) staat in grijs via een CSS-filter, zodat de aanvragen de
+  enige kleur zijn. "Vol" is het 90e percentiel, niet het maximum: anders maakt
+  Antwerpen alles anders bleek. De bollen liggen ook onder de warmtekaart
+  (onzichtbaar), zodat je per postcode het aantal ziet bij het aanwijzen.
+- **EEN kaart, twee plekken.** Dashboards toont alle koppelingen (met aan/uit
+  per koppeling), het tabblad Kaart van een koppeling enkel die ene. Beide
+  tekenen met `public/aanvragen-kaart.js` en beide routes roepen
+  `getAanvragenKaart()` aan (met `integrationId` voor één koppeling). Bouw er
+  geen tweede kaart naast: dan loopt de ene achter zodra de andere een
+  verbetering krijgt. De route per koppeling staat bewust in KOPPELINGEN, niet
+  in Dashboards: wie koppelingen beheert, heeft niet per se die module.
+- **Het tabblad Kaart bestaat enkel met een postcodeveld in het formulier.**
+  `controleerKaartTab()` vraagt dat na bij het openen van de koppeling en na
+  het bewaren in de bouwer (er kan net een veld bijgekomen of weggegaan zijn).
+  Een tabblad dat altijd leeg is, leest als een storing.
+- **Leaflet en leaflet.heat komen van cdnjs, en pas bij het openen van het
+  tabblad.** `.om-kaart` heeft `isolation: isolate`: anders schuiven de
+  zoomknoppen van Leaflet (z-index 1000) over de navbar.
+- **Nog niet gebouwd, bewust:** een landkeuze IN het formulier (BE/NL door
+  elkaar), straat + huisnummer (dat vraagt de volledige adreslijst, ~6,6
+  miljoen adressen), de kaart van Forminator- en webhookkoppelingen (geen veldtype om op te steunen),
+  en een kaart "per inwoner" (`a` = aantal adressen per postcode staat al in de
+  lijst, om de aanvragen tegen af te zetten).
 
 ---
 
@@ -3844,9 +3990,10 @@ tweede schrijver maakt de belofte "elk event staat er zoals het binnenkwam" stuk
   (`website-tracker...workers.dev`) werd door adblockers geblokkeerd: bezoeker-UUID
   wel, events niet.
 
-- **Niets afgeleids staat in D1.** Sessie, duur, engagement en kanaal worden in
+- **Niets afgeleids staat in D1.** Sessie, duur en kanaal worden in
   `web-visits.js` berekend met dezelfde regels als de tracker (§5 van het
-  ontwerp). Wijzig je daar een drempel, wijzig hem aan beide kanten.
+  ontwerp). Wijzig je daar een drempel, wijzig hem aan beide kanten. "Klikt
+  verder" is de uitzondering: bewust strenger dan §5.7, zie Webgedrag hieronder.
 - **De server stuurt compacte SESSIES, de browser telt.** Zo kost een klik op een
   kanaal of landingspagina geen nieuwe query. De vorige, even lange periode komt
   mee voor de vergelijking. Het antwoord wordt 10 minuten in `caches.default`
@@ -3958,6 +4105,32 @@ Afspraken die bewust zo zijn:
   valt; het verhaal en de attributie slaan inlogbezoeken over (`buildJourney`).
   De inlogklik en klikken op de cookiebanner (`NOISE_TEXTS`) tellen niet als
   betrokkenheid. Nieuwe knoptekst voor inloggen? Zet ze in `LOGIN_TEXTS`.
+- **"Klikt verder" is de enige betrokkenheidsmaat** (2026-10-02). Klikt verder
+  (vlag `engaged`) = een tweede pagina, een klik die iets deed (geen cookiebanner,
+  niet "Inloggen") of een actie; in `getWebVisitsData()` (web-visits.js) en
+  `behaviour.js`, wijzig ze samen. Tot dan heette het "Doet er iets mee" /
+  "Engagement" en telde ook meer dan 5 s op een pagina, 75% scroll, terugkeren
+  naar het tabblad en een partner-login mee: 74% "deed er iets mee" terwijl de
+  padverkenner 84% na de eerste pagina zag stoppen. Zet tijd en scroll er niet
+  terug in; het blijven gewone kolommen. "Haakt meteen af" = een pagina, geen
+  klik, geen actie en weg binnen 10 s (`QUICK_S`): zonder tijdsgrens is het exact
+  het omgekeerde van Klikt verder. Narekenbaar: elk bezoek in de lijst zegt
+  waarom het meetelt, de tegel heeft een filterknop, de zijkolom een filter.
+- **De oude historiek telt OVERAL mee. Ze wordt GEARCEERD, nooit weggelaten.**
+  Live meten begon op 29-09-2026 08:36; alles daarvoor is `odoo-historiek`: een
+  jaar gegevens, en die moeten gebruikt worden. Ze bevat wel klikken, scroll en
+  duur, maar werd met de tijd gesaneerd (`compressHistory()` in de tracker: hoe
+  ouder, hoe minder korte bezoeken en losse klikken), dus een sprong op die grens
+  kan door de opslag komen. Daarom staat die periode in de trend en in het venster
+  van een kerncijfer gearceerd (`hatchPlugin()` + `histBuckets()` in
+  webgedrag-behaviour.js) met een zin eronder; de cijfers en de vergelijking met
+  de vorige periode blijven staan. Een eerste versie (2026-10-02) haalde de oude
+  historiek uit de kerncijfers en liet de trend vóór 29 september leeg: een jaar
+  gegevens leek verdwenen. Meteen teruggedraaid -- zet dat nooit terug, en
+  beweer ook niet dat de oude historiek "geen klikken heeft". Een sessie met enkel
+  een conversie die de server meldde is geen live bezoek: `oudsteLive` en
+  `liveFromOf()` tellen alleen sessies met een pagina. `possible_bounce` in de
+  tracker (`lib/compress.js`) volgt de oude regel; dat is een ander begrip, voor Odoo.
 - **Een browser heeft ALLE adressen die hij ooit gebruikte, niet een** (tabel
   `visitor_emails` in D1, gevuld door de tracker; `src/modules/web-story/lib/identities.js`
   leest ze). Een adres wordt HERLEID voor het herkennen van een persoon: `+tag`
@@ -4032,6 +4205,18 @@ Afspraken die bewust zo zijn:
   ervoor een kaart "Komt binnen": bezoeken die daar beginnen. Zonder die kaart leek
   het alsof iedereen van een andere pagina kwam. Token `ENTRY` (-100): geen pagina
   en geen actie; vastzetten erop kan.
+- **Een klik op een kaart bij "Vanaf de instap" zet ze IN HET MIDDEN** (2026-10-05).
+  Vooruit staat dezelfde pagina of actie vaak in meerdere kolommen; de klik voegt die
+  samen (uitgelijnd op de eerste keer in het bezoek, acties via `mergeTok()`) en
+  toont de stappen ervoor en erna. Ook een ACTIE kan dus in het midden staan
+  (`st.flow.act`, ook te kiezen in de keuzelijst "In het midden"); `focusTok()` geeft
+  wat er staat, met `null` voor niets -- `-1` kan niet, dat is "Formulier". De
+  weergave van daarvoor, met haar spelden, staat in `st.flowPrev`: de kaart in het
+  midden opnieuw aanklikken, het kruisje bij "In het midden" of de standknop van
+  daarvoor zet ze terug (`flowBack()`). Vooruit vastzetten op een stap gaat enkel
+  nog via "Meest gevolgde paden" (een vastgezette kaart maakt een klik weer los); in
+  de uitgelijnde standen zet een klik nog altijd het pad vast. In localStorage komt
+  de weergave van VOOR de klik: in het midden zetten is verkennen, net als een speld.
 - **Een vastgezette pagina houdt haar oordeel in "Waar het stokt".** In haar kolom
   staat ze na het vastzetten alleen, dus ze is haar eigen gemiddelde: "Waar het
   stokt" werd leeg terwijl "Wat werkt" bleef staan, en dat las als goed nieuws
@@ -4179,6 +4364,116 @@ Afspraken die bewust zo zijn:
   sanitizer knipt de shorthand stil weg (zie het vrije chatter-bericht).
 
 ---
+
+## Dashboards — tabs "Verkoop" en "Targets" (2026-10)
+
+**Regel: de verkoopcijfers komen uit een SPIEGEL van Odoo in D1 (`om-sales`,
+binding `SALES_DB`), en de OM is daar de ENIGE schrijver. Alle regels (wat een
+abonnement, periode, wissel of stopzetting is) staan in ÉÉN bestand:
+`src/modules/dashboards/lib/sales/derive.js`. De browser telt en filtert, maar
+beslist niets.** Vervangt de keten odoo-proxy → Apps Script → Google Sheet → Looker
+("Top KPIs") én Odoo-dashboard 19 ("Targets & Funnel 2026-2027"). Volledige analyse
+en de nagerekende Looker-tegels: `docs/ontwerp-om-verkoopdashboard.md`.
+
+| Wat | Waar |
+|---|---|
+| Schema (alles behalve de momentopnames is een kopie van Odoo) | `d1/om-sales/migrations/` (`npx wrangler d1 migrations apply om-sales --remote`) |
+| Toegang (lezen overal, schrijven enkel via upsertRows/deleteMissing) | `src/lib/sales-db.js` |
+| Odoo → D1: elk kwartier incrementeel op `write_date`, dagelijks volledig | `lib/sales/sync.js` (`*/15`-tak in `index.js`, `runSalesCron`) |
+| De regels + compacte feiten voor de browser | `lib/sales/derive.js` |
+| Merk- en productregel voor leads | `lib/sales/lead-rules.js` |
+| Targets, instellingen, uitsluitingen, geplande professionals (Supabase) | `lib/sales/settings.js`, migratie `20261005120000_sales_dashboard.sql` |
+| Routes `/dashboards/api/sales*` | `lib/sales/routes.js` (gespreid in `dashboards/routes.js`) |
+| Tab Verkoop / Targets / gedeelde UI | `public/dashboards-sales.js`, `dashboards-targets.js`, `dashboards-kit.js` |
+
+Afspraken die bewust zo zijn:
+
+- **Groeperen op `origin_order_id`, NOOIT op `subscription_id`.** Odoo zet
+  `subscription_id` op het DIRECT vorige contract. De proxy groepeerde daarop en
+  keek één niveau diep: vanaf de tweede verlenging viel elke order stil weg
+  (oktober 2026: 135 orders, waarvan 43 lopende abonnementen). De totalen klopten
+  toevallig, "verlengd dit jaar" telde 54 in plaats van 82.
+- **Een verlengingsOFFERTE (`2_renewal`) is geen periode.** Het lopende contract
+  blijft gelden tegen zijn prijs; het abonnement staat op "Wachten op betaling".
+  De oude keten nam de offerte als huidige periode, met de prijs van de offerte.
+- **Wissel = stopzetting terwijl dezelfde KLANT (commercial partner) binnen
+  `sales.switch_window_days` (30) een ander abonnement heeft of start.** Geen
+  verloren klant, en het andere abonnement is geen nieuwe klant. Odoo maakt bij een
+  planwissel of correctie (redenen 7, 13, 14, 16) meestal een NIEUW, ongekoppeld
+  contract; zonder deze regel stond dat als verloren + nieuw. Deze regel vervangt
+  ook de hardgecodeerde uitzonderingen in odoo-proxy (Brutopia 51/218) en de filter
+  "reden 14" van Looker.
+- **De klant is `commercial_partner_id`.** Een order op een contactpersoon ("VME
+  Gilmar, Maikel Beckers") hoort bij de VME, ook voor het klanttype. De proxy viel
+  daar terug op type 9 en Looker telde ze als "ES".
+- **ARR = 12 × `recurring_monthly` van de lopende periode.** Een bevestigde upsell
+  zit daar in Odoo al in; vóór zijn startdatum wordt hij eraf gehaald (`u` per
+  periode, `mrrAt()` in de browser).
+- **De historiek komt uit de PERIODES van de orders, niet uit `sale.order.log`.**
+  Alle abonnementen zijn op 2025-03-11 (opnieuw) in Odoo aangemaakt; het MRR-logboek
+  dateert de start van elk ouder abonnement op die dag. De orders hebben hun echte
+  startdatum.
+- **De ARR-brug klopt per constructie met het ARR-verloop**: dezelfde periodes,
+  dezelfde `mrrAt()`. Nieuw + uitbreiding + wissel − verlaging − verloren = verschil.
+- **"Na te kijken" verzint geen regels.** Reden 7 zonder opvolger, een verlengings-
+  offerte die maanden openstaat, een lopend contract waarvan de periode voorbij is,
+  gewonnen kansen zonder product: ze tellen mee zoals beschreven en staan in de lijst,
+  met een link naar Odoo. Stil weglaten leest als een kleiner cijfer.
+- **Uitsluitingen staan in Supabase `sales_exclusions`, met reden.** Solvio (partner
+  325) valt overal weg; het dashboard zegt altijd wat er buiten valt.
+- **Targets: één tabel (`dashboard_targets`, nu NUMERIC) voor alle tabbladen.**
+  Productdoelen (`assistant`, `opstarthulp`, `expert_uren`, `captain`,
+  `prof_syndici`, `openvme_professional`) hebben scope `all`; het merk zit in het
+  product (`PRODUCT_TARGETS` in derive.js). Verkoop toont de target Assistant +
+  OpenVME Professional bij de nieuwe abonnementen; Targets kan de benodigde MQL's
+  als `leads_instroom`-target zetten voor het tabblad Aanvragen. Een lege cel =
+  geen target, niet 0.
+- **De merk- en productregel voor leads staat TWEE keer**: `lead-rules.js` en de
+  Odoo-serveracties 1209/1210 (die de `x_dash_*`-velden voor dashboard 19 vullen).
+  De OM leest die velden niet en rekent zelf, zodat een lead van vanochtend al
+  meetelt. Zolang dashboard 19 bestaat: wijzig ze samen.
+- **Ratio's van de omgekeerde funnel rekenen altijd met alle leads van het merk**
+  (geen verkoper- of kanaalfilter), zoals in dashboard 19. Onrijpe leads (laatste
+  30 dagen) zijn gearceerd in de funnel en tellen standaard niet mee in ratio (a).
+- **Transactioneel = bevestigde orderlijnen met een niet-recurring product**; de
+  datumbasis is een knop (verkocht / gefactureerd / betaald). Expert-uren = credits ÷ 3.
+- **"Gepland, nog niet in Odoo"** (`sales_planned_professionals`) vervangt de sheet
+  "Datacheck 26-04-09". Een rij met een Odoo-partner telt niet meer zodra die
+  professional een lopend abonnement heeft. Faseert zich uit.
+- **`subscription_snapshots` is het enige in D1 dat niet te herbouwen is**: één rij
+  per dag per keten, want Odoo overschrijft `subscription_state`.
+- **Elk getal, elke grafiek en elke tabelrij is klikbaar, en elk venster zegt WAAROM.**
+  `K.drill(..., { why: [...] })` zet bovenaan "Waarom staan ze erin": de regels die de
+  lijst bepalen plus de selectie (segment, filters, wat altijd buiten valt). Elke lijst
+  heeft daarnaast per rij de gegevens die het STAVEN (kolom "Waarom": de periode met
+  haar order, de opvolger of het ontbreken ervan, de lead en het signaal). Die teksten
+  BESCHRIJVEN derive.js en lead-rules.js (`WHY` in dashboards-sales.js, `TWHY` in
+  dashboards-targets.js); wijzig je een regel, wijzig de tekst mee. Een grafiek zonder
+  klik, of een venster zonder "waarom", hoort er niet bij.
+- **Merk van een KLANT = het merk van EEN lead**: de kans van het eerste contract,
+  anders de oudste gewonnen lead, anders de oudste lead (`lh` op de klant). OpenVME
+  heeft GEEN eigen signaal: het is wat overblijft zonder Syndicoach-signaal. Onbekend =
+  geen enkele lead (2026-10-06: 52 lopende abonnementen, € 27,5K ARR -- vooral
+  professionele syndici en VME's in beheer zonder eigen lead, en VME's van 2024 van voor
+  het CRM). `leadMerkWhy()`/`leadProductWhy()` geven het signaal mee; derive.js zet het
+  als `mw` (klant en lead) en `pw` (lead) in de woordenlijsten, zodat de popup per rij
+  kan tonen waarom.
+- **EEN maandreeks per periode: `chartMonths()` in dashboards-sales.js.** Elke
+  grafiek, elk mini-verloop en het venster van een tegel gebruiken ze. Boekjaar =
+  het volledige boekjaar (komende maanden leeg, targets zichtbaar); 12/24 m = die
+  maanden; 30/90 d = zes maanden context met de periode als band. Eerst had de
+  ARR-grafiek een eigen venster en de rest "minstens zes maanden": bij Boekjaar
+  begon de ene in okt '25 en de andere in mei '26. Targets doet hetzelfde met het
+  gekozen boekjaar (`fyMonths()`).
+- **Een tegel opent eerst het verloop in het groot, dan de records**
+  (`openKpi()` in beide bestanden, `K.drill(..., {chart})` in dashboards-kit.js).
+  Het mini-verloop en de grote grafiek zijn EXACT dezelfde reeks (`st.sp`); een klik
+  op een maand beperkt de lijst. De lijst in het venster heeft zoeken, kolomfilters
+  (voor kolommen met weinig waarden), sorteerbare koppen en een totaalrij; tabellen
+  op de pagina met `data-om-sortable` sorteren met dezelfde `parseSort()`.
+- **Nog niet over, bewust:** de zes andere pagina's van het Looker-rapport (leads,
+  actiebladen, gebouwen) en het uitzetten van de Apps Script-triggers. Eerst een tijd
+  naast Looker laten lopen.
 
 ## Bestandsstructuur
 

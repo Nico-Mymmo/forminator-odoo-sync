@@ -43,6 +43,18 @@ fi
 cp "$WORTEL/public/mymmo-forms.css" "$PLUGIN/assets/css/mymmo-forms.css"
 echo "stylesheet gekopieerd uit public/mymmo-forms.css"
 
+# ── 2b. De postcodelijsten uit de OM halen ──────────────────────────────────
+# Zelfde regel als de stylesheet: de OM heeft de lijst
+# (src/modules/forminator-sync-v2/forms/postcodes/*.js, gegenereerd door
+# scripts/postcodes/build-postcodes.py), de plugin krijgt hier een afgeslankte
+# kopie voor de browser (assets/data/postcodes-<land>.json). Vanuit de wortel,
+# want node op Windows kent een pad als /c/Users/... niet.
+if ! command -v node >/dev/null 2>&1; then
+  echo "node ontbreekt -- nodig om de postcodelijsten uit de OM te halen." >&2
+  exit 1
+fi
+( cd "$WORTEL" && node scripts/postcodes/export-plugin.mjs )
+
 # ── 3. Schone kopie, nooit in-place ─────────────────────────────────────────
 rm -rf "$BOUW"
 mkdir -p "$BOUW"

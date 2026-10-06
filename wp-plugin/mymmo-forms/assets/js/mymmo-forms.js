@@ -70,6 +70,11 @@
 
     if (v.valueMissing) return vul(t.required, { label: label });
 
+    // Een eigen melding van een ander script: mymmo-forms-postcode.js zet
+    // "We kennen postcode 1005 niet" met setCustomValidity(). Die tekst komt al
+    // uit MESSAGES, in de taal van het formulier, dus hij staat er zoals hij is.
+    if (v.customError) return veld.validationMessage || vul(t.check_fields, { label: label });
+
     if (v.typeMismatch) {
       if (veld.type === 'email') return vul(t.email, { label: label });
       return vul(t.required, { label: label });

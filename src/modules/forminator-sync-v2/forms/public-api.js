@@ -25,6 +25,7 @@ import { listPublicCalendlyAppointments } from '../calendly/database.js';
 import { toPublicFormPayload, toPublicFormListItem, t } from './schema.js';
 import { submitFormEntry, taalVanInzending } from './submit.js';
 import { checkTurnstile, publicTurnstileConfig } from './turnstile.js';
+import { recordBotRejection } from './bot-rejections.js';
 import { conversieSoort } from '../../../lib/web-conversions.js';
 import { signAcademyToken } from '../../../lib/academy-token.js';
 import { getLinkBySlug, toPublicBookingLink, fetchOwnerAvatar, ALGEMEEN } from '../../booking-links/lib/links.js';
@@ -418,6 +419,11 @@ async function handleSubmit(request, env, { form, fields }, site) {
     meta.bot_check = controle.uitkomst;
   }
   if (controle.blokkeer) {
+    // Eerst bewaren, dan weigeren. Zonder dit is een echte bezoeker die hier
+    // ten onrechte strandt spoorloos; nu staat hij in Instellingen ->
+    // Botcontrole en kan iemand hem daar alsnog doorlaten. Faalt nooit naar
+    // buiten: de weigering hangt er niet van af (forms/bot-rejections.js).
+    await recordBotRejection(env, { form, fields, inzending, meta, controle });
     // 403 met een leesbare zin: de plugin toont hem letterlijk, met de
     // ingevulde waarden er nog in. Een mens die hier ten onrechte strandt,
     // kan meteen opnieuw proberen -- de browser haalt dan een nieuw token.

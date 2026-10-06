@@ -16,7 +16,9 @@
  *   ""/"off"  niets: geen sitesleutel in de payload, niets nagekeken
  *   "log"     widget actief, token nagekeken, uitkomst gelogd en als
  *             meta_bot_check bij de inzending bewaard -- maar NOOIT geweigerd
- *   "on"      weigeren als het token ontbreekt of ongeldig is
+ *   "on"      weigeren als het token ontbreekt of ongeldig is. De geweigerde
+ *             inzending wordt eerst bewaard (forms/bot-rejections.js) en is
+ *             in Instellingen -> Botcontrole alsnog door te laten.
  *
  * Bewust NIET geweigerd, ook niet in "on":
  *   - een inzending ZONDER turnstile-veld: een plugin van voor 1.21.0, of een

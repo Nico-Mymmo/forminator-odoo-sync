@@ -113,13 +113,15 @@
             <div class="flex items-center gap-2">
               <div class="join">
                 <button class="btn btn-xs join-item btn-active" data-bh-action="metric" data-value="sessions">Bezoeken</button>
-                <button class="btn btn-xs join-item" data-bh-action="metric" data-value="eng">Doet er iets mee</button>
+                <button class="btn btn-xs join-item" data-bh-action="metric" data-value="eng">Klikt verder</button>
                 <button class="btn btn-xs join-item" data-bh-action="metric" data-value="conv">Aanvraag</button>
               </div>
               <button class="btn btn-xs btn-ghost" data-bh-action="trend-table" title="Toon de waarden als tabel"><i data-lucide="table" class="w-3.5 h-3.5"></i></button>
             </div>
           </div>
           <div style="height: 240px;"><canvas id="bhTrendChart" aria-label="Trend van het segment, met de vorige periode in grijs"></canvas></div>
+          <!-- Wat de arcering (oude historiek) in de trend betekent: renderTrend(). -->
+          <p id="bhTrendNote" class="text-xs text-base-content/50 mt-2 empty:hidden"></p>
           <div id="bhTrendTable" class="overflow-x-auto max-h-64"></div>
         </div>
 

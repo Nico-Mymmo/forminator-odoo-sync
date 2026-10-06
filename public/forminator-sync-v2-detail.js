@@ -777,7 +777,7 @@
         tabBar.querySelectorAll('[data-detail-tab]').forEach(function (t) {
           t.classList.toggle('tab-active', t.dataset.detailTab === targetTab);
         });
-        ['fields', 'form', 'mapping', 'history', 'documents', 'stats'].forEach(function (name) {
+        ['fields', 'form', 'mapping', 'history', 'kaart', 'documents', 'stats'].forEach(function (name) {
           var panel = document.getElementById('detailTab' + name.charAt(0).toUpperCase() + name.slice(1));
           if (panel) panel.style.display = name === targetTab ? '' : 'none';
         });

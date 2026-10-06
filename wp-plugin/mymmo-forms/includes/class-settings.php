@@ -126,6 +126,8 @@ final class Mymmo_Forms_Settings {
                 MYMMO_FORMS_URL . 'assets/css/mymmo-forms-steps.css' . $v,
             ],
             'js'      => [
+                // Voor mymmo-forms.js, net als op de site (afhankelijkheid).
+                MYMMO_FORMS_URL . 'assets/js/mymmo-forms-postcode.js' . $v,
                 MYMMO_FORMS_URL . 'assets/js/mymmo-forms.js' . $v,
                 MYMMO_FORMS_URL . 'assets/js/mymmo-forms-modal.js' . $v,
                 // Het voorbeeld draait op dezelfde bestanden als een bezoeker,

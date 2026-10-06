@@ -13,6 +13,8 @@
  * type handwerk kost.
  */
 
+import { POSTCODE_LANDEN, STANDAARD_LAND, isPostcodeLand, normalizePostcode, plaatsNaam } from './postcodes.js';
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Veldtypes
 // ─────────────────────────────────────────────────────────────────────────────
@@ -29,6 +31,11 @@ export const FIELD_TYPES = {
   text:           { input: true,  options: false, multi: false, odooType: 'text',      label: 'Tekst' },
   email:          { input: true,  options: false, multi: false, odooType: 'text',      label: 'E-mailadres' },
   tel:            { input: true,  options: false, multi: false, odooType: 'text',      label: 'Telefoonnummer' },
+  // Een postcode, nagekeken tegen de officiële lijst (forms/postcodes.js), en
+  // de gemeente die daarbij hoort. Een gemeenteveld wordt ingevuld vanuit het
+  // DICHTSTBIJZIJNDE postcodeveld erboven (koppelPostcodeVelden()).
+  postcode:       { input: true,  options: false, multi: false, odooType: 'text',      label: 'Postcode' },
+  city:           { input: true,  options: false, multi: false, odooType: 'text',      label: 'Gemeente' },
   number:         { input: true,  options: false, multi: false, odooType: 'integer',   label: 'Getal' },
   date:           { input: true,  options: false, multi: false, odooType: 'text',      label: 'Datum' },
   textarea:       { input: true,  options: false, multi: false, odooType: 'text',      label: 'Lange tekst' },
@@ -85,6 +92,9 @@ export const MESSAGES = {
     email:          '{label} is geen geldig e-mailadres.',
     number:         '{label} moet een getal zijn.',
     date:           '{label} moet een datum zijn (jjjj-mm-dd).',
+    postcode:       '{label} is geen geldige postcode.',
+    postcode_unknown: 'We kennen postcode {value} niet. Kijk ze even na.',
+    city_other:     'Andere plaats…',
     unknown_choice: '{label}: onbekende keuze "{value}".',
     minlength:      '{label} moet minstens {n} tekens bevatten.',
     maxlength:      '{label} mag hoogstens {n} tekens bevatten.',
@@ -117,6 +127,9 @@ export const MESSAGES = {
     email:          '{label} n\'est pas une adresse e-mail valide.',
     number:         '{label} doit être un nombre.',
     date:           '{label} doit être une date (aaaa-mm-jj).',
+    postcode:       '{label} n\'est pas un code postal valide.',
+    postcode_unknown: 'Nous ne connaissons pas le code postal {value}. Veuillez le vérifier.',
+    city_other:     'Autre localité…',
     unknown_choice: '{label} : choix inconnu « {value} ».',
     minlength:      '{label} doit contenir au moins {n} caractères.',
     maxlength:      '{label} ne peut pas dépasser {n} caractères.',
@@ -143,6 +156,9 @@ export const MESSAGES = {
     email:          '{label} is not a valid email address.',
     number:         '{label} must be a number.',
     date:           '{label} must be a date (yyyy-mm-dd).',
+    postcode:       '{label} is not a valid postal code.',
+    postcode_unknown: 'We do not recognise postal code {value}. Please check it.',
+    city_other:     'Other place…',
     unknown_choice: '{label}: unknown choice "{value}".',
     minlength:      '{label} must be at least {n} characters.',
     maxlength:      '{label} may be at most {n} characters.',
@@ -198,7 +214,52 @@ export const SUCCESS_MODES = ['message', 'redirect'];
  * en mymmo_forms_knop_naast_index() in wp-plugin/mymmo-forms/includes/helpers.php.
  */
 export const SUBMIT_LAYOUTS = ['below', '1:1', '2:1', '3:1'];
-export const KNOP_NAAST_TYPES = ['text', 'email', 'tel', 'number', 'date', 'select'];
+export const KNOP_NAAST_TYPES = ['text', 'email', 'tel', 'postcode', 'city', 'number', 'date', 'select'];
+
+/**
+ * Welk postcodeveld vult welk gemeenteveld?
+ *
+ * Een gemeenteveld hoort bij het DICHTSTBIJZIJNDE postcodeveld erboven. Geen
+ * aparte instelling: postcode en gemeente staan in elk formulier naast of
+ * onder elkaar, en een instelling die je kan vergeten in te vullen is een
+ * gemeenteveld dat stil leeg blijft. Een formulier met twee adressen werkt
+ * gewoon, zolang elk gemeenteveld onder zijn eigen postcode staat. De bouwer
+ * toont bij een gemeenteveld welk postcodeveld het vult -- of dat er geen is.
+ *
+ * Een postcodeveld vult hoogstens EEN gemeenteveld: het eerste eronder.
+ *
+ * @returns {{gemeenteVan: Object<string,string>, postcodeVan: Object<string,string>}}
+ *          gemeenteVan[postcodeKey] = cityKey, postcodeVan[cityKey] = postcodeKey
+ */
+export function koppelPostcodeVelden(fields) {
+  const gemeenteVan = {};
+  const postcodeVan = {};
+  let laatste = null;
+  for (const f of fields || []) {
+    const type = f && (f.field_type || f.type);
+    const key = f && (f.field_key || f.key);
+    if (!key) continue;
+    if (type === 'postcode') laatste = key;
+    if (type === 'city' && laatste) {
+      postcodeVan[key] = laatste;
+      if (!gemeenteVan[laatste]) gemeenteVan[laatste] = key;
+    }
+  }
+  return { gemeenteVan, postcodeVan };
+}
+
+/** Het land van een postcodeveld (validation.country), standaard België. */
+export function postcodeLandVan(field) {
+  const land = field && field.validation && field.validation.country;
+  return isPostcodeLand(land) ? land : STANDAARD_LAND;
+}
+
+/** Voor de bouwer: welke landen er zijn, met een voorbeeld. */
+export function postcodeLandenLijst() {
+  return Object.entries(POSTCODE_LANDEN).map(([code, spec]) => ({
+    code, label: spec.label, voorbeeld: spec.voorbeeld,
+  }));
+}
 
 /**
  * Sleutels die de submit-handler zelf zet. Een veld mag ze niet claimen, want
@@ -234,6 +295,8 @@ export const RESERVED_FIELD_KEYS = new Set([
  * `bot_check` is de uitkomst van Turnstile (forms/turnstile.js): ok,
  * geen_token, ongeldig of niet_gecontroleerd. Die zet de WORKER, nooit de site
  * (public-api.js wist wat de plugin meestuurt). Leeg zolang Turnstile uit staat.
+ * `vrijgegeven` = geweigerd, en daarna door iemand alsnog doorgelaten in
+ * Instellingen -> Botcontrole (forms/bot-rejections.js).
  */
 export const META_KEYS = [
   'site', 'page_url', 'page_title', 'referrer', 'submitted_at',
@@ -557,7 +620,7 @@ export function validateFormDefinition(input, opts = {}) {
       label_hidden: Boolean(raw && raw.label_hidden) && !['checkbox', 'radio', 'checkbox_group'].includes(type) && spec.input,
       options,
       width: FIELD_WIDTHS.includes(raw && raw.width) ? raw.width : 'full',
-      validation: normalizeValidation(raw && raw.validation),
+      validation: normalizeValidation(raw && raw.validation, type),
       odoo_field_type: odooType,
       prefill_param: prefillParam || null,
       i18n: normalizeI18n(
@@ -630,12 +693,17 @@ export function validateFormDefinition(input, opts = {}) {
   return { errors, form, fields };
 }
 
-function normalizeValidation(raw) {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+function normalizeValidation(raw, type) {
+  const bron = (!raw || typeof raw !== 'object' || Array.isArray(raw)) ? {} : raw;
   const out = {};
   for (const key of ['minlength', 'maxlength', 'min', 'max']) {
-    const value = Number(raw[key]);
+    const value = Number(bron[key]);
     if (Number.isFinite(value)) out[key] = value;
+  }
+  // Het land van een postcodeveld: een gesloten lijst, nooit vrije tekst. Het
+  // bepaalt tegen welke lijst de postcode nagekeken wordt.
+  if (type === 'postcode') {
+    out.country = isPostcodeLand(bron.country) ? bron.country : STANDAARD_LAND;
   }
   // Geen vrij patroon in v1: een regex uit de UI is een aanvalsvlak
   // (catastrophic backtracking) en er is vandaag geen enkel formulier dat het
@@ -674,6 +742,10 @@ export function toPublicFormPayload(form, fields, { busy = '', turnstile = null 
     messages[lang] = busy && tabel[`busy_${busy}`] ? { ...tabel, busy: tabel[`busy_${busy}`] } : tabel;
   }
 
+  // Welk gemeenteveld bij welk postcodeveld hoort. De plugin zet het als
+  // data-attribuut op de velden; zo hoeft ze de regel zelf niet te kennen.
+  const postcodeKoppeling = koppelPostcodeVelden(fields);
+
   return {
     id: form.id,
     slug: form.slug,
@@ -711,6 +783,8 @@ export function toPublicFormPayload(form, fields, { busy = '', turnstile = null 
       // data-mymmo-prefill-param-attribuut op de live pagina terecht, ongeacht
       // cache-status.
       prefill_param: f.prefill_param || '',
+      ...(postcodeKoppeling.gemeenteVan[f.field_key] ? { city_field: postcodeKoppeling.gemeenteVan[f.field_key] } : {}),
+      ...(postcodeKoppeling.postcodeVan[f.field_key] ? { postcode_field: postcodeKoppeling.postcodeVan[f.field_key] } : {}),
       i18n: (f.i18n && typeof f.i18n === 'object' && !Array.isArray(f.i18n)) ? f.i18n : {},
     })),
   };
@@ -772,6 +846,12 @@ export function validateSubmissionValues(fields, rawValues, lang = DEFAULT_LANGU
   const values = {};
   const source = (rawValues && typeof rawValues === 'object' && !Array.isArray(rawValues)) ? rawValues : {};
 
+  // Postcodes die al nagekeken zijn, per veldsleutel -- het gemeenteveld eronder
+  // leest hieruit. Velden komen in de volgorde van het formulier, dus de
+  // postcode is altijd eerst aan de beurt.
+  const { postcodeVan } = koppelPostcodeVelden(fields);
+  const gekendePostcodes = {};
+
   for (const field of fields || []) {
     const spec = FIELD_TYPES[field.field_type];
     if (!spec || !spec.input) continue;
@@ -794,6 +874,35 @@ export function validateSubmissionValues(fields, rawValues, lang = DEFAULT_LANGU
     // Nederlands veldlabel verwijst laat iemand zoeken naar een veld dat zo niet
     // op zijn scherm staat.
     const naam = pickText(field, field.i18n, taal, 'label') || key;
+
+    // Een postcode wordt GENORMALISEERD voor ze bewaard wordt ("b-9000 " wordt
+    // "9000", "1011ab" wordt "1011 AB"), en moet in de officiële lijst staan.
+    // Strenger dan bij een e-mailadres, en dat is bewust: de lijst IS de
+    // waarheid, en een onbekende postcode is bijna altijd een tikfout die
+    // anders in Odoo en op de kaart belandt.
+    if (field.field_type === 'postcode' && raw) {
+      const uitkomst = normalizePostcode(postcodeLandVan(field), raw);
+      if (!uitkomst.ok) {
+        errors.push(uitkomst.reden === 'onbekend'
+          ? t(taal, 'postcode_unknown', { label: naam, value: raw })
+          : t(taal, 'postcode', { label: naam }));
+        values[key] = raw;
+        continue;
+      }
+      raw = uitkomst.waarde;
+      gekendePostcodes[key] = uitkomst;
+    }
+
+    // Een LEEG gemeenteveld onder een gekende postcode vullen we zelf in, met de
+    // hoofdplaats. In de browser doet het script dat al; dit is voor wie zonder
+    // JavaScript verstuurde, en het maakt een verplicht gemeenteveld nooit een
+    // reden om een inzending te weigeren als de postcode het antwoord al geeft.
+    if (field.field_type === 'city' && !raw) {
+      const bron = gekendePostcodes[postcodeVan[key]];
+      if (bron && bron.entry && Array.isArray(bron.entry.p) && bron.entry.p.length) {
+        raw = plaatsNaam(bron.entry.p[0], taal);
+      }
+    }
 
     if (field.is_required && !raw) {
       errors.push(t(taal, 'required', { label: naam }));

@@ -17,6 +17,8 @@ import { runDueScheduledTasks } from './modules/mini-apps/lib/scheduler.js';
 import { runDueConditionTasks } from './modules/mini-apps/lib/condition-scheduler.js';
 import { runGmailChatterSync } from './modules/gmail-chatter/lib/sync.js';
 import { runWebStoryCron } from './modules/web-story/lib/push.js';
+import { runSalesCron } from './modules/dashboards/lib/sales/routes.js';
+import { purgeOldBotRejections } from './modules/forminator-sync-v2/forms/bot-rejections.js';
 
 export default {
   async fetch(request, env, ctx) {
@@ -110,6 +112,20 @@ export default {
       ctx.waitUntil(
         runWebStoryCron(env, { scheduledTime: event?.scheduledTime }).catch(err =>
           console.error('[scheduled][web-story] CRASH:', err?.message, err?.stack)
+        )
+      );
+      // Verkoop: Odoo -> D1 om-sales (Dashboards, tabs Verkoop en Targets).
+      // Doet niets zolang de SALES_DB-binding ontbreekt.
+      ctx.waitUntil(
+        runSalesCron(env).catch(err =>
+          console.error('[scheduled][dashboards][sales] CRASH:', err?.message, err?.stack)
+        )
+      );
+      // Koppelingen -> Botcontrole: wat Turnstile tegenhield blijft 30 dagen
+      // staan (forms/bot-rejections.js). Eén DELETE, meestal op niets.
+      ctx.waitUntil(
+        purgeOldBotRejections(env).catch(err =>
+          console.error('[scheduled][forminator-sync-v2][botcontrole] CRASH:', err?.message, err?.stack)
         )
       );
     }

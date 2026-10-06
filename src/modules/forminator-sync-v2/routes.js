@@ -93,9 +93,11 @@ import {
   deleteForm,
   seedFieldTransforms
 } from './forms/database.js';
-import { FIELD_TYPES, ODOO_FIELD_TYPES, META_KEYS, META_PREFIX, LANGUAGES, validateFormDefinition, slugifyForm } from './forms/schema.js';
+import { FIELD_TYPES, ODOO_FIELD_TYPES, META_KEYS, META_PREFIX, LANGUAGES, validateFormDefinition, slugifyForm, postcodeLandenLijst } from './forms/schema.js';
+import { getAanvragenKaart, normalizeKaartPeriode, postcodeveldenVanKoppeling } from '../dashboards/lib/aanvragen-kaart.js';
 import { calendlyRoutes } from './calendly/routes.js';
 import { ensureCalendlySystemSteps } from './calendly/system-step.js';
+import { botRejectionRoutes } from './forms/bot-rejection-routes.js';
 
 function jsonResponse(data, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -823,6 +825,9 @@ export const routes = {
   // dit bestand niet verder groeit. De ONTVANGST van een boeking staat daar
   // niet bij -- die is publiek en loopt via router/public-routes.js.
   ...calendlyRoutes,
+  // Botcontrole: wat Turnstile tegenhield bekijken, negeren of alsnog
+  // doorlaten (Instellingen -> Botcontrole). Zie forms/bot-rejections.js.
+  ...botRejectionRoutes,
   'GET /': async (context) => {
     return context.env.ASSETS.fetch(
       new Request(new URL('/forminator-sync-v2.html', context.request.url))
@@ -2270,6 +2275,8 @@ export const routes = {
           odoo_type: spec.odooType
         })),
         odoo_field_types: ODOO_FIELD_TYPES,
+        // De landen waarvoor een postcodeveld kan gelden (forms/postcodes.js).
+        postcode_countries: postcodeLandenLijst(),
         languages: Object.entries(LANGUAGES).map(([code, spec]) => ({
           code, naam: spec.label, eigen: spec.native
         })),
@@ -2305,6 +2312,35 @@ export const routes = {
         success: true,
         data: { ...bundle, locked_keys: [...lockedKeys] }
       });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
+    }
+  },
+
+  // Tabblad Kaart van een koppeling: enkel als haar formulier een postcodeveld
+  // heeft. Zelfde implementatie als de kaart in Dashboards
+  // (src/modules/dashboards/lib/aanvragen-kaart.js), hier op EEN koppeling --
+  // en achter de toegang van Koppelingen, want wie koppelingen beheert heeft
+  // niet noodzakelijk de module Dashboards.
+  'GET /api/integrations/:id/postcode-velden': async (context) => {
+    try {
+      const integrationId = context.params?.id;
+      assertIntegrationSelected(integrationId);
+      const velden = await postcodeveldenVanKoppeling(context.env, integrationId);
+      return jsonResponse({ success: true, data: velden });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
+    }
+  },
+
+  'GET /api/integrations/:id/aanvragen-kaart': async (context) => {
+    try {
+      const integrationId = context.params?.id;
+      assertIntegrationSelected(integrationId);
+      const url = new URL(context.request.url);
+      const periode = normalizeKaartPeriode(url.searchParams.get('period'));
+      const data = await getAanvragenKaart(context.env, { periode, integrationId });
+      return jsonResponse({ success: true, data });
     } catch (error) {
       return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
     }

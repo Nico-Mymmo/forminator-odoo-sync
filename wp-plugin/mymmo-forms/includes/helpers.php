@@ -967,7 +967,7 @@ function mymmo_forms_knop_naast_index(array $form): array {
     $velden = array_values((array) ($form['fields'] ?? []));
     for ($i = count($velden) - 1; $i >= 0; $i--) {
         $type = is_array($velden[$i]) ? (string) ($velden[$i]['type'] ?? 'text') : '';
-        if (in_array($type, ['text', 'email', 'tel', 'number', 'date', 'select'], true)) {
+        if (in_array($type, ['text', 'email', 'tel', 'postcode', 'city', 'number', 'date', 'select'], true)) {
             return [$i, $verhoudingen[$stand]];
         }
     }

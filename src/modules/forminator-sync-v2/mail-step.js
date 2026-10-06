@@ -489,16 +489,25 @@ export async function runSendMailStep(env, {
   target, integration, submissionId, form, lookupForm, contextObject, now = new Date()
 }) {
   // ── 1. Waar hangt de mail aan? ─────────────────────────────────────────────
+  //
+  // Aan het record van een vorige stap, of aan niets (mail_res_id_source leeg).
+  // Leverde die stap GEEN record op -- een zoekstap die niets vond, of een stap
+  // die faalde -- dan vertrekt de mail toch, los van een record. De mail gaat
+  // naar een persoon; het record bepaalt enkel in welke chatter ze staat. Tot
+  // 2026-10 gooide dit, en dan kreeg wie zich via een formulierveld inschreef
+  // nooit zijn mail zodra hij nog niet als contact in Odoo stond.
+  // Zonder record is er ook geen adres VAN het record: staat de ontvanger op
+  // "record.email", dan wordt de stap hieronder overgeslagen (no_recipient).
   const model = String(target.odoo_model || '').trim() || null;
   let recordId = null;
+  let losReden = null;
   if (target.mail_res_id_source) {
     const ruw = contextObject ? contextObject[target.mail_res_id_source] : null;
     const n = Number(ruw);
     recordId = Number.isInteger(n) && n > 0 ? n : null;
     if (!recordId) {
-      throw new MailStepError(
-        `send_mail: vorige stap gaf geen geldig record-ID (bron: "${target.mail_res_id_source}", waarde: "${String(ruw)}").`
-      );
+      const stap = String(target.mail_res_id_source).replace(/^step\./, '').replace(/\.record_id$/, '');
+      losReden = `Niet aan een record gehangen: stap ${stap} leverde geen record op.`;
     }
   }
 
@@ -506,22 +515,34 @@ export async function runSendMailStep(env, {
   const bron = String(target.mail_recipient_source || '').trim();
   if (bron === '') throw new MailStepError('send_mail: geen mail_recipient_source ingesteld.');
 
+  // Drie vormen (ontvangerStand() in de mail-editor): 'record.email' = het
+  // adres van het record waar de mail aan hangt, 'field.<veld>' = een
+  // formulierveld, 'fixed:<adres>' = altijd dat adres (bv. intern).
+  // 'record.email' gaat bewust NIET door lookupForm: dat zoekt vaag, en een
+  // mail die naar een contact uit een vorige stap hoort, mag nooit stil naar
+  // een formulierveld gaan.
+  const vastAdres = bron.startsWith('fixed:');
   let adres = '';
-  if (bron.startsWith('step.') || (contextObject && contextObject[bron] !== undefined)) {
+  if (vastAdres) {
+    adres = bron.slice('fixed:'.length).trim();
+  } else if (bron === 'record.email') {
+    // Komt hieronder uit het record zelf.
+  } else if (bron.startsWith('step.') || (contextObject && contextObject[bron] !== undefined)) {
     adres = String((contextObject && contextObject[bron]) || '').trim();
   } else {
     const sleutel = bron.startsWith('field.') ? bron.slice('field.'.length) : bron;
     adres = String(lookupForm(form, sleutel) || '').trim();
   }
-  // Laatste kans: het record zelf kent zijn e-mailadres.
-  if (!lijktOpEmail(adres) && model && recordId) {
+  // Laatste kans: het record zelf kent zijn e-mailadres. Nooit bij een vast
+  // adres: een tikfout daarin mag de mail niet naar de klant omleiden.
+  if (!lijktOpEmail(adres) && !vastAdres && model && recordId) {
     const veld = model === 'crm.lead' ? 'email_from' : 'email';
     const rec = await readRecordFields(env, { model, recordId, fields: [veld] });
     if (rec && lijktOpEmail(rec[veld])) adres = String(rec[veld]).trim();
   }
   if (!lijktOpEmail(adres)) {
     return { action: 'mail_skipped', recordId: null, skipped: 'no_recipient',
-             detail: `Geen geldig e-mailadres via "${bron}".` };
+             detail: [`Geen geldig e-mailadres via "${bron}".`, losReden].filter(Boolean).join(' ') };
   }
 
   // ── 3. Blacklist ───────────────────────────────────────────────────────────
@@ -673,6 +694,6 @@ export async function runSendMailStep(env, {
     action: scheduled ? 'mail_scheduled' : 'mail_queued',
     recordId: mailId,
     skipped: null,
-    detail: signatureReden ? `${basisDetail} ${signatureReden}` : basisDetail
+    detail: [basisDetail, losReden, signatureReden].filter(Boolean).join(' ')
   };
 }

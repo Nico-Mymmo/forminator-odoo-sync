@@ -20,6 +20,11 @@
  * achter de laatste kolom. Staat er een pagina in focus (een speld, of die in het
  * midden), dan legt "Pagina onder de loep" uit hoe ze scoort en wie er stopt.
  *
+ * Vanaf de instap staat dezelfde pagina of actie vaak in meerdere kolommen. Een klik
+ * op zo'n kaart voegt ze samen en zet ze in het MIDDEN ("rond een pagina", ook voor
+ * een actie: st.flow.act), met de stappen ervoor en erna. De weergave van daarvoor
+ * staat in st.flowPrev; de kaart in het midden nog eens aanklikken zet ze terug.
+ *
  * REGEL 3: één centrale listener, data-bh-*-attributen. Individuele trajecten
  * opent window.WebGedrag.open() (webgedrag.js).
  */
@@ -100,14 +105,19 @@
   var st = {
     period: '30d', data: null, F: null, loading: false, chart: null, metric: 'sessions', showTable: false,
     // purpose: 'prospect' (standaard) | 'customer' | 'all'. Klant = vanaf de eerste login (web-visits.js).
-    f: { site: null, ch: null, det: null, land: null, visited: null, dev: null, who: 'all', conv: 'all', visit: 'all', purpose: 'prospect' },
+    f: { site: null, ch: null, det: null, land: null, visited: null, dev: null, who: 'all', conv: 'all', eng: 'all', visit: 'all', purpose: 'prospect' },
     pins: {},           // vooruit: stap (0-based) -> token (pagina >= 0, actie < 0)
     bpins: {},          // naar het doel: afstand (1 = vlak ervoor, 0 = het doel, -1 = daarna) -> token
     ppins: {},          // rond een pagina: afstand (1 = vlak ervoor, 0 = de pagina, -1 = vlak erna) -> token
     focusV: null,       // vooruit: de stap van de vastgezette pagina onder de loep (leeg = de diepste)
     // mode: 'fwd' | 'back' | 'page'. page = de pagina in het midden, op NAAM (het ruwe
-    // pad): het volgnummer verschilt per geladen periode. pb/pa = stappen ervoor en erna.
-    flow: { mode: 'fwd', goal: 'aanvraag', n: 4, page: null, pb: 2, pa: 2 },
+    // pad): het volgnummer verschilt per geladen periode. act = in de plaats daarvan een
+    // ACTIE in het midden (code uit ACT, samengesmolten: zie mergeTok). pb/pa = stappen
+    // ervoor en erna.
+    flow: { mode: 'fwd', goal: 'aanvraag', n: 4, page: null, act: null, pb: 2, pa: 2 },
+    // De weergave van VOOR een klik die een kaart in het midden zette (centerOn): stand,
+    // midden en spelden. null = niet via zo'n klik hier. Wordt niet bewaard.
+    flowPrev: null,
     sort: { key: 'n', dir: -1 }, pageQuery: '', pageLimit: 20,
     // De lijst onderaan: per bezoek of per persoon, de sortering, de zoekopdracht en hoeveel er staan.
     ses: { view: 'visits', sort: 'recent', q: '', limit: 25 }
@@ -126,7 +136,7 @@
   // alles gewoon, enkel zonder geheugen.
   var STORE_KEY = 'webgedrag.gedrag.v1';
   var NAMED = { site: 'site', ch: 'ch', det: 'det', dev: 'dev', land: 'p', visited: 'p' };
-  var SCALAR = ['purpose', 'who', 'conv', 'visit'];
+  var SCALAR = ['purpose', 'who', 'conv', 'eng', 'visit'];
   var pendingNames = null;
 
   function namesOf() {
@@ -150,7 +160,10 @@
     try {
       var f = {};
       SCALAR.forEach(function (k) { f[k] = st.f[k]; });
-      localStorage.setItem(STORE_KEY, JSON.stringify({ period: st.period, metric: st.metric, sort: st.sort, f: f, names: namesOf(), flow: st.flow, ses: { view: st.ses.view, sort: st.ses.sort } }));
+      // Een kaart in het midden zetten is verkennen, net als een speld: bewaard wordt de
+      // weergave van daarvoor.
+      var P = st.flowPrev, flow = P ? Object.assign({}, st.flow, { mode: P.mode, page: P.page, act: P.act }) : st.flow;
+      localStorage.setItem(STORE_KEY, JSON.stringify({ period: st.period, metric: st.metric, sort: st.sort, f: f, names: namesOf(), flow: flow, ses: { view: st.ses.view, sort: st.ses.sort } }));
     } catch (_) { /* geen opslag beschikbaar */ }
   }
 
@@ -173,6 +186,8 @@
         var n = Math.round(Number(s.flow.n));
         if (n >= MIN_STEPS && n <= MAX_STEPS) st.flow.n = n;
         if (typeof s.flow.page === 'string' && s.flow.page) st.flow.page = s.flow.page;
+        var ac = Math.round(Number(s.flow.act));
+        if (ACT[ac] && mergeTok(-ac) === -ac) st.flow.act = ac;
         ['pb', 'pa'].forEach(function (k) {
           var x = Math.round(Number(s.flow[k]));
           if (x >= MIN_SIDE && x <= MAX_SIDE) st.flow[k] = x;
@@ -277,7 +292,7 @@
    */
   var focusMemo = { data: null, page: null, idx: -1 };
   function focusPage() {
-    if (!st.data || !st.flow.page) return -1;
+    if (!st.data || !st.flow.page || st.flow.act) return -1;
     if (focusMemo.data !== st.data || focusMemo.page !== st.flow.page) {
       focusMemo = { data: st.data, page: st.flow.page, idx: st.data.dict.p.indexOf(st.flow.page) };
     }
@@ -285,11 +300,29 @@
   }
   /** Het pad zoals het in st.flow.page staat, leesbaar ("/" heet Homepage). */
   function rawPageText(p) { return p === '/' ? 'Homepage' : String(p || ''); }
-  /** Waarop een bezoek uitgelijnd wordt: de eerste keer het doel, of de eerste keer de pagina in het midden. -1 = niet. */
+  /**
+   * Wat in het midden staat (stand "rond een pagina"): een pagina (>= 0) of een actie
+   * (-code, samengesmolten). null = niets: -1 kan het niet zijn, dat is "Formulier".
+   */
+  function focusTok() {
+    if (st.flow.act) return -st.flow.act;
+    var t = focusPage();
+    return t >= 0 ? t : null;
+  }
+  function focusWord() { return st.flow.act ? 'actie' : 'pagina'; }
+  /** De naam van een actie in het midden: "Formulier" telt ook wie enkel begon (mergeTok). */
+  function actFocusName(code) { return code === 1 || code === 7 ? ACT[code].short : ACT[code] ? ACT[code].label : 'Actie'; }
+  function centerName(t) { return t < 0 ? actFocusName(-t) : pageName(t); }
+  function centerLabel(t) { return t < 0 ? actFocusName(-t) : pageLabel(t); }
+  /** Waarop een bezoek uitgelijnd wordt: de eerste keer het doel, of de eerste keer wat in het midden staat. -1 = niet. */
   function alignIdx(s) {
     if (st.flow.mode === 'back') return goalIdx(s);
-    var t = focusPage();
-    return t < 0 ? -1 : steps(s).indexOf(t);
+    var t = focusTok();
+    if (t === null) return -1;
+    var p = steps(s);
+    if (t >= 0) return p.indexOf(t);
+    for (var i = 0; i < p.length; i++) if (mergeTok(p[i]) === t) return i;
+    return -1;
   }
   /** Het token op positie k van een pad: ENTRY net voor de eerste stap (daar begint het bezoek), undefined nog daarvoor. */
   function tokAt(p, k) { return k >= 0 ? p[k] : k === -1 ? ENTRY : undefined; }
@@ -335,6 +368,8 @@
     if (f.conv === 'ev' && !(fl & F.event)) return false;
     if (f.conv === 'ac' && !(fl & F.academy)) return false;
     if (f.conv === 'no' && (fl & ALLE_ACTIES)) return false;
+    if (f.eng === 'yes' && !(fl & F.engaged)) return false;
+    if (f.eng === 'no' && (fl & F.engaged)) return false;
     if (f.visit === 'new' && !(fl & F.isNew)) return false;
     if (f.visit === 'return' && (fl & F.isNew)) return false;
     return true;
@@ -366,6 +401,64 @@
 
   // ── Kerncijfers ────────────────────────────────────────────────────────────
 
+  // "Haakt meteen af": een pagina, geen klik, geen actie, en weg binnen deze tijd.
+  // 10 s is wat de tracker "geskimd" noemt (TIMING.skim in lib/compress.js). Zonder
+  // tijdsgrens is dit exact het omgekeerde van "Klikt verder", en dan zeggen twee
+  // tegels hetzelfde.
+  var QUICK_S = 10;
+
+  /**
+   * De oude historiek (bron 'odoo-historiek', alles voor de start van de live meting
+   * op 29-09-2026) telt OVERAL mee: dat is een jaar gegevens. Ze werd wel met de tijd
+   * ingekort bewaard (compressHistory() in de tracker: hoe ouder, hoe minder korte
+   * bezoeken en losse klikken), dus in de grafieken staat die periode GEARCEERD.
+   * Weglaten is hier al eens gebeurd (2026-10-02) en was fout: zet dat nooit terug.
+   */
+  function isLive(s) { return !(s[C.flags] & st.F.historic) && path(s).length > 0; }
+  /** De start van het eerste live bezoek in de geladen gegevens (unix s), of null. */
+  function liveFromOf(data) {
+    var m = null;
+    data.sessions.forEach(function (s) { if (isLive(s) && (m === null || s[C.start] < m)) m = s[C.start]; });
+    return m;
+  }
+  function liveTxt() { return st.liveFrom ? fmtDay.format(new Date(st.liveFrom * 1000)) : 'de start van de live meting'; }
+  /** Hoeveel emmers vooraan liggen voor de emmer waarin de live meting begon (0 = geen arcering). */
+  function histBuckets(keys, keyOf, sessions) {
+    if (!keys.length || !sessions.some(function (s) { return s[C.flags] & st.F.historic; })) return 0;
+    if (!st.liveFrom) return keys.length;
+    var k = keyOf(st.liveFrom), i = keys.indexOf(k);
+    if (i >= 0) return i;
+    return k > keys[keys.length - 1] ? keys.length : 0;
+  }
+  /** Chart.js-plugin: arceert de eerste `n` emmers, de cijfers zelf blijven staan. */
+  function hatchPlugin(n) {
+    return {
+      id: 'bhOudeHistoriek',
+      beforeDatasetsDraw: function (chart) {
+        var area = chart.chartArea, x = chart.scales.x, total = chart.data.labels.length;
+        if (!n || !area || !x || !total) return;
+        var end = n >= total ? area.right : (x.getPixelForValue(n - 1) + x.getPixelForValue(n)) / 2;
+        var c = document.createElement('canvas');
+        c.width = 8; c.height = 8;
+        var g = c.getContext('2d');
+        g.strokeStyle = 'rgba(127,127,127,0.3)';
+        g.lineWidth = 1;
+        g.beginPath(); g.moveTo(0, 8); g.lineTo(8, 0); g.stroke();
+        var ctx = chart.ctx;
+        ctx.save();
+        ctx.fillStyle = ctx.createPattern(c, 'repeat');
+        ctx.fillRect(area.left, area.top, end - area.left, area.bottom - area.top);
+        if (end - area.left > 90) {
+          ctx.fillStyle = 'rgba(127,127,127,0.95)';
+          ctx.font = '11px sans-serif';
+          ctx.textBaseline = 'top';
+          ctx.fillText('oude historiek', area.left + 6, area.top + 4);
+        }
+        ctx.restore();
+      }
+    };
+  }
+
   function stats(list) {
     var n = list.length, eng = 0, bounce = 0, conv = 0, pages = 0, durs = [], scroll = 0;
     list.forEach(function (s) {
@@ -373,7 +466,7 @@
       pages += p;
       durs.push(s[C.dur]);
       if (s[C.flags] & st.F.engaged) eng++;
-      else if (p <= 1) bounce++;
+      else if (p <= 1 && s[C.dur] < QUICK_S) bounce++;
       if (converted(s)) conv++;
       if (s[C.scroll] >= 75) scroll++;
     });
@@ -460,12 +553,20 @@
   // de waarde en het verschil links en het mini-verloop rechts. Wisselt het scherm
   // over die grens, dan tekent render() opnieuw (luisteraar onderaan).
   var KPI_COMPACT = window.matchMedia ? window.matchMedia('(min-width: 1536px)') : null;
-  function tile(label, value, deltaHtml, help, metric, series) {
+  /** Een filterknopje naast het label van een tegel: dezelfde filter als in de zijkolom. */
+  function filtBtn(filt) {
+    if (!filt) return '';
+    var on = st.f[filt.key] === filt.value;
+    return '<button type="button" class="shrink-0 inline-flex rounded p-0.5 ' + (on ? 'text-primary' : 'text-base-content/40 hover:text-base-content') + '"'
+      + ' data-bh-action="seg-toggle" data-key="' + filt.key + '" data-value="' + filt.value + '" aria-pressed="' + on + '"'
+      + ' title="' + esc(on ? 'Filter weghalen' : filt.title) + '" aria-label="' + esc(on ? 'Filter weghalen' : filt.title) + '"><i data-lucide="filter" class="w-3 h-3"></i></button>';
+  }
+  function tile(label, value, deltaHtml, help, metric, series, filt) {
     var spark = series ? sparkline(series) : '';
     if (KPI_COMPACT && KPI_COMPACT.matches) {
       return '<div class="flex items-center gap-2 py-2">'
         + '<div class="min-w-0 flex-1">'
-        +   '<div class="text-xs text-base-content/60 truncate" title="' + esc(help || label) + '">' + esc(label) + '</div>'
+        +   '<div class="flex items-center gap-1 min-w-0"><span class="text-xs text-base-content/60 truncate" title="' + esc(help || label) + '">' + esc(label) + '</span>' + filtBtn(filt) + '</div>'
         +   '<div class="flex flex-wrap items-baseline gap-x-2"><span class="text-lg font-semibold leading-tight">' + value + '</span>'
         +   '<span class="leading-tight">' + deltaHtml + '</span></div>'
         + '</div>'
@@ -476,7 +577,7 @@
     return '<div class="relative rounded-xl border border-base-content/10 bg-base-100 p-4">'
       + (spark ? '<button type="button" class="absolute top-2 right-2 rounded-md p-1 om-hover focus:outline-none focus:ring-2 focus:ring-primary/40" '
         + 'data-bh-action="kpi-chart" data-metric="' + metric + '" title="' + esc(sparkTitle()) + '" aria-label="Toon het verloop van ' + esc(label) + '">' + spark + '</button>' : '')
-      + '<div class="text-xs text-base-content/60 pr-20" title="' + esc(help || '') + '">' + esc(label) + '</div>'
+      + '<div class="flex items-center gap-1 text-xs text-base-content/60 pr-20"><span title="' + esc(help || '') + '">' + esc(label) + '</span>' + filtBtn(filt) + '</div>'
       + '<div class="text-2xl font-semibold mt-1">' + value + '</div>'
       + '<div class="mt-1 min-h-[1rem]">' + deltaHtml + '</div></div>';
   }
@@ -486,7 +587,7 @@
     { key: 'n', label: 'Bezoeken', fmt: function (v) { return nf(v); } },
     { key: 'dur', label: 'Duur (mediaan)', fmt: durTxt },
     { key: 'pages', label: 'Pagina\'s per bezoek', fmt: function (v) { return v === null ? '—' : nf(v, 1); } },
-    { key: 'eng', label: 'Doet er iets mee', fmt: pctTxt, pct: true },
+    { key: 'eng', label: 'Klikt verder', fmt: pctTxt, pct: true },
     { key: 'bounce', label: 'Haakt meteen af', fmt: pctTxt, pct: true },
     { key: 'conv', label: 'Aanvraag', fmt: pctTxt, pct: true },
     { key: 'of', label: 'Offerte', fmt: pctTxt, pct: true },
@@ -540,7 +641,7 @@
       hero.innerHTML = '<p class="text-lg 2xl:text-sm leading-relaxed">Het gemiddelde bezoek duurt <strong>' + durTxt(a.dur) + '</strong>, '
         + 'bekijkt <strong>' + nf(a.pages, 1) + ' pagina\'s</strong>'
         + (top !== undefined ? ' en begint het vaakst op <a class="link link-primary" data-bh-action="filter" data-key="land" data-value="' + top + '">' + topTxt + '</a> (' + pctTxt(pct(land[top], a.n)) + topSites + ')' : '')
-        + '. <strong>' + pctTxt(a.eng) + '</strong> doet er iets mee; <strong>' + pctTxt(a.conv) + '</strong> eindigt in een aanvraag.</p>';
+        + '. <strong>' + pctTxt(a.eng) + '</strong> klikt verder; <strong>' + pctTxt(a.conv) + '</strong> eindigt in een aanvraag.</p>';
     }
     var sp = sparkSeries(cur);
     $('bhTiles').innerHTML =
@@ -548,8 +649,10 @@
         delta(a.n, b.n, 'n', true), 'Bezoeken (sessies) in dit segment, en door hoeveel personen. Een persoon = een e-mailadres; een anonieme browser telt apart.', 'n', sp.n) +
       tile('Duur (mediaan)', durTxt(a.dur), delta(a.dur, b.dur, 'n', true), 'De helft van de bezoeken duurt korter, de helft langer', 'dur', sp.dur) +
       tile('Pagina\'s per bezoek', a.pages === null ? '—' : nf(a.pages, 1), delta(a.pages, b.pages, 'n', true), 'Herladen van dezelfde pagina telt niet', 'pages', sp.pages) +
-      tile('Doet er iets mee', pctTxt(a.eng), delta(a.eng, b.eng, 'pct', true), 'Meer dan één pagina, een klik, scrollen, of langer dan 5 seconden', 'eng', sp.eng) +
-      tile('Haakt meteen af', pctTxt(a.bounce), delta(a.bounce, b.bounce, 'pct', false), 'Eén pagina en verder niets', 'bounce', sp.bounce) +
+      tile('Klikt verder', pctTxt(a.eng), delta(a.eng, b.eng, 'pct', true), 'Klikte door naar een tweede pagina, klikte op iets (niet op de cookiebanner of Inloggen) of deed een actie. '
+        + 'Lang lezen of scrollen zonder te klikken telt niet. Bij elk bezoek onderaan staat waarom het meetelt.', 'eng', sp.eng,
+        { key: 'eng', value: 'yes', title: 'Toon enkel de bezoeken die verder klikten' }) +
+      tile('Haakt meteen af', pctTxt(a.bounce), delta(a.bounce, b.bounce, 'pct', false), 'Eén pagina, geen klik en geen actie, en binnen ' + QUICK_S + ' seconden weg.', 'bounce', sp.bounce) +
       tile('Aanvraag', pctTxt(a.conv), delta(a.conv, b.conv, 'pct', true), nf(a.convN) + ' contact- of offerteformulieren en Calendly-afspraken', 'conv', sp.conv);
     // Andere belangrijke acties: geen aanvraag, maar wel een stap. Met het aantal erbij.
     var aantal = function (x) { return ' <span class="text-sm font-normal text-base-content/50">(' + nf(x) + ')</span>'; };
@@ -614,19 +717,28 @@
     };
     var labels = keys.map(bucketLabel);
     var cur_ = keys.map(function (k) { return val(a[k]); }), prev_ = keys.map(function (k) { return val(b[k]); });
-    var label = { sessions: 'Bezoeken', eng: 'Doet er iets mee (%)', conv: 'Aanvraag (%)' }[st.metric];
+    var label = { sessions: 'Bezoeken', eng: 'Klikt verder (%)', conv: 'Aanvraag (%)' }[st.metric];
     $('bhTrendTitle').textContent = label + ' per ' + unit;
+    // De oude historiek staat erin, gearceerd (zie isLive()). Een sprong op die grens kan
+    // door de opslag komen; dat zeggen we, de cijfers zelf blijven staan.
+    var nOud = histBuckets(keys, bucketOf, cur);
+    var prevOud = prev.some(function (s) { return s[C.flags] & st.F.historic; });
+    $('bhTrendNote').textContent = nOud || prevOud
+      ? 'Gearceerd: de oude historiek, tot ' + liveTxt() + '. Die werd met de tijd ingekort bewaard (vooral korte bezoeken en losse klikken), '
+        + 'dus een sprong op die grens kan door de opslag komen.' + (prevOud ? ' De vorige periode komt (deels) uit diezelfde historiek.' : '')
+      : '';
 
     var cs = getComputedStyle(document.body);
     var ink = cs.color || '#374151';
     if (st.chart) st.chart.destroy();
     st.chart = new Chart($('bhTrendChart'), {
       type: 'line',
+      plugins: [hatchPlugin(nOud)],
       data: {
         labels: labels,
         datasets: [
           { label: 'Deze periode', data: cur_, borderColor: themeColor(), backgroundColor: areaGradient, fill: true, borderWidth: 2, tension: 0.3, pointRadius: 0, pointHoverRadius: 5, pointBackgroundColor: themeColor(), spanGaps: true },
-          { label: 'Vorige periode', data: prev_, borderColor: '#94a3b8', borderWidth: 1.5, tension: 0.3, pointRadius: 0, pointHoverRadius: 4, fill: false, spanGaps: true }
+          { label: 'Vorige periode' + (prevOud ? ' (oude historiek)' : ''), data: prev_, borderColor: '#94a3b8', borderWidth: 1.5, tension: 0.3, pointRadius: 0, pointHoverRadius: 4, fill: false, spanGaps: true }
         ]
       },
       options: {
@@ -774,6 +886,7 @@
     if (kpi.chart) kpi.chart.destroy();
     kpi.chart = new Chart($('bhKpiChart'), {
       type: 'line',
+      plugins: [hatchPlugin(histBuckets(keys, spec.keyOf, ds.sessions))],
       data: { labels: labels, datasets: [{ label: m.label, data: vals, borderColor: themeColor(), backgroundColor: areaGradient, fill: true,
         borderWidth: 2, tension: 0.3, pointRadius: 4, pointHoverRadius: 6, pointBackgroundColor: themeColor(),
         pointBorderColor: getComputedStyle(document.body).backgroundColor || '#fff', pointBorderWidth: 2, spanGaps: true }] },
@@ -842,7 +955,7 @@
   function tokLabel(t) { return t === ENTRY ? 'Komt binnen' : t < 0 ? (ACT[-t] ? ACT[-t].label : 'Actie') : pageLabel(t); }
   /** Een afstand in de uitgelijnde standen: positief = ervoor, 0 = het doel of de pagina, negatief = erna. */
   function distLabel(d, page) {
-    if (page) return d === 0 ? 'de pagina' : d > 0 ? d + ' ' + stepWord(d) + ' ervoor' : (-d) + ' ' + stepWord(-d) + ' erna';
+    if (page) return d === 0 ? 'de ' + focusWord() : d > 0 ? d + ' ' + stepWord(d) + ' ervoor' : (-d) + ' ' + stepWord(-d) + ' erna';
     return d === 0 ? 'het doel' : d < 0 ? 'daarna' : d + ' ' + stepWord(d) + ' ervoor';
   }
   function whereLabel(m, v) { return m.aligned ? distLabel(v, m.page) : v === 0 ? 'instap' : 'stap ' + (v + 1); }
@@ -944,7 +1057,7 @@
       if (aligned && al[j] > before) moreBefore++;
       if (aligned ? P[j].length - 1 - al[j] > after : P[j].length > n) moreAfter++;
     }
-    return { mode: mode, back: back, page: page, aligned: aligned, n: n, before: before, after: after, focus: page ? focusPage() : -1,
+    return { mode: mode, back: back, page: page, aligned: aligned, n: n, before: before, after: after, focus: page ? focusTok() : null,
       goal: goal, view: view, total: total, gi: gi, al: al, P: P, cols: cols, links: links, moreBefore: moreBefore, moreAfter: moreAfter };
   }
 
@@ -996,7 +1109,8 @@
    */
   function pinVerdicts(cur, m) {
     if (m.page) {
-      if (m.focus < 0) return [];
+      // Een actie in het midden: "stopt hier" gaat over pagina's, dus geen oordeel.
+      if (m.focus === null || m.focus < 0) return [];
       var R = pageRoles(cur, m.focus), r = R.page;
       var n = r.entry.n + r.later.n, stop = r.entry.stop + r.later.stop;
       if (!n) return [];
@@ -1057,8 +1171,8 @@
     function row(x, bad) {
       var where = whereLabel(m, x.c.v);
       return '<button type="button" class="w-full grid grid-cols-[1fr_auto] gap-x-3 items-center rounded-lg px-2 py-1.5 text-left om-hover"'
-        + ' ' + pinAttrs(m, x.c.v, x.e.tok)
-        + ' title="' + esc(pageName(x.e.tok) + ' (' + where + '): ' + outcomeText(x.e, m.goal) + (bad ? ' Gemiddeld in die stap: ' + pctTxt(x.avg * 100) + ' stopt.' : '') + ' Klik om dit pad vast te zetten.') + '">'
+        + ' ' + cardAttrs(m, x.c.v, x.e.tok)
+        + ' title="' + esc(pageName(x.e.tok) + ' (' + where + '): ' + outcomeText(x.e, m.goal) + (bad ? ' Gemiddeld in die stap: ' + pctTxt(x.avg * 100) + ' stopt.' : '') + cardHint(m, x.c.v, x.e.tok)) + '">'
         + '<span class="min-w-0"><span class="block text-[13px] font-medium truncate">' + esc(tokLabel(x.e.tok)) + '</span>'
         + '<span class="block text-[11px] text-base-content/55 tabular-nums">' + esc(where) + ' · ' + nf(x.e.n) + ' bezoeken</span></span>'
         + '<span class="text-right"><span class="block text-base font-semibold tabular-nums leading-5" style="color:' + (bad ? BAD : GOOD) + '">' + pctTxt(x.rate * 100) + '</span>'
@@ -1153,6 +1267,23 @@
     var a = m.page ? 'data-bh-action="ppin" data-dist="' + v + '"' : m.back ? 'data-bh-action="bpin" data-dist="' + v + '"' : 'data-bh-action="pin" data-step="' + v + '"';
     return a + ' data-page="' + t + '"';
   }
+  /**
+   * Wat een klik op een kaart doet. Vanaf de instap: de kaart in het midden zetten,
+   * samengevoegd over alle stappen (centerOn) -- dezelfde pagina of actie staat daar
+   * vaak in meerdere kolommen. In de uitgelijnde standen: dat pad vastzetten. Een kaart
+   * die vooruit al vaststaat (via "Meest gevolgde paden"), maakt een klik weer los.
+   */
+  function cardAttrs(m, v, t) { return m.aligned || st.pins[v] === t ? pinAttrs(m, v, t) : 'data-bh-action="center" data-page="' + t + '"'; }
+  function cardHint(m, v, t) {
+    if (m.aligned) return ' Klik om dit pad vast te zetten.';
+    if (st.pins[v] === t) return ' Klik om los te maken.';
+    return ' Klik om ' + (t < 0 ? 'deze actie' : 'deze pagina') + ' in het midden te zetten: alle bezoeken ermee samen, met de stappen ervoor en erna.';
+  }
+  /** De kaart in het midden: aanklikken zet de weergave van daarvoor terug, of opent de uitleg van een pagina. */
+  function centerAttrs(t) { return st.flowPrev ? 'data-bh-action="flow-back"' : t >= 0 ? 'data-bh-action="focus-scroll"' : ''; }
+  function centerHint(t) {
+    return st.flowPrev ? ' Klik om terug te gaan naar "' + prevViewLabel() + '".' : t >= 0 ? ' Klik voor de uitleg eronder.' : '';
+  }
 
   function headCell(m, c, col) {
     var v = c.v, share = c.reached / m.total, color = ACCENT, title, help;
@@ -1162,9 +1293,12 @@
       help = v > 0 ? pctTxt(share * 100) + ' was toen al op de site; de rest kwam pas later binnen.'
         : v === 0 ? 'Alle bezoeken met ' + m.goal.kort + '.' : pctTxt(share * 100) + ' bleef daarna nog op de site.';
     } else if (m.page) {
-      title = v > 0 ? v + ' ' + stepWord(v) + ' ervoor' : v === 0 ? 'De pagina' : (-v) + ' ' + stepWord(-v) + ' erna';
+      var isAct = m.focus < 0;
+      title = v > 0 ? v + ' ' + stepWord(v) + ' ervoor' : v === 0 ? (isAct ? 'De actie' : 'De pagina') : (-v) + ' ' + stepWord(-v) + ' erna';
+      if (v === 0 && isAct) color = GOOD;
       help = v > 0 ? pctTxt(share * 100) + ' was toen al op de site. "Komt binnen" = bezoeken die daar beginnen.'
-        : v === 0 ? 'Alle bezoeken met ' + pageName(m.focus) + ', op de eerste keer dat ze die pagina bekeken.'
+        : v === 0 ? 'Alle bezoeken met ' + centerName(m.focus) + ', op de eerste keer dat ' + (isAct ? 'het in dat bezoek gebeurde.' : 'ze die pagina bekeken.')
+          + (st.flowPrev ? ' Klik de kaart om terug te gaan naar "' + prevViewLabel() + '".' : '')
         : pctTxt(share * 100) + ' is dan nog op de site.';
     } else {
       title = v === 0 ? 'Instap' : 'Stap ' + (v + 1);
@@ -1184,18 +1318,19 @@
       help += ', ' + pctTxt(pct(e.n, m.total)) + ' van de bezoeken met ' + m.goal.kort + (tm !== null ? '. Mediaan ' + durTxt(tm) + ' tot ' + m.goal.kort : '') + '.';
       bar = '<div class="h-1.5 rounded-full om-spoor overflow-hidden"><div class="h-full rounded-full" style="width:' + Math.max(e.n / m.total * 100, 2) + '%;background-color:' + ACCENT + '"></div></div>';
     } else {
-      help += ' (' + pctTxt(pct(e.n, m.total)) + ' van ' + (m.page ? 'de bezoeken met deze pagina' : 'het segment') + '). ' + outcomeText(e, m.goal)
-        + (m.page && tm !== null ? ' Mediaan ' + durTxt(tm) + (c.v > 0 ? ' tot' : ' na') + ' de pagina.' : '');
+      help += ' (' + pctTxt(pct(e.n, m.total)) + ' van ' + (m.page ? 'de bezoeken met deze ' + focusWord() : 'het segment') + '). ' + outcomeText(e, m.goal)
+        + (m.page && tm !== null ? ' Mediaan ' + durTxt(tm) + (c.v > 0 ? ' tot' : ' na') + ' de ' + focusWord() + '.' : '');
       bar = outcomeBar(e);
     }
     // De pagina in het midden: vastzetten zou niets filteren (iedereen staat erop). Een
-    // klik brengt je naar "Pagina onder de loep".
+    // klik zet de weergave van daarvoor terug (kwam je hier met een klik op een kaart),
+    // of brengt je naar "Pagina onder de loep".
     var center = m.page && c.v === 0;
     var cls = center || e.isPin ? 'bg-primary/10 border-primary ring-1 ring-primary' : 'bg-base-100 border-base-content/10 om-hover';
     return '<button type="button" class="w-full text-left rounded-lg border px-2.5 py-2 flex flex-col justify-between transition-colors ' + cls + '"'
       + ' style="grid-row:' + row + ';grid-column:' + col + ';height:' + CARD_H + 'px" data-flow-node="' + e.id + '" '
-      + (center ? 'data-bh-action="focus-scroll"' : pinAttrs(m, c.v, e.tok))
-      + ' title="' + esc(help + (center ? ' Klik voor de uitleg eronder.' : ' Klik om dit pad vast te zetten.')) + '">'
+      + (center ? centerAttrs(e.tok) : cardAttrs(m, c.v, e.tok))
+      + ' title="' + esc(help + (center ? centerHint(e.tok) : cardHint(m, c.v, e.tok))) + '">'
       + '<div class="flex items-start gap-2 min-w-0"><span class="flex-1 min-w-0 text-[13px] font-medium leading-4 line-clamp-2" style="overflow-wrap:anywhere">' + esc(tokLabel(e.tok)) + '</span>'
       + '<span class="text-sm font-semibold tabular-nums leading-4">' + nf(e.n) + '</span></div>'
       + bar + '</button>';
@@ -1217,15 +1352,25 @@
       + '<span class="text-sm font-semibold tabular-nums">' + nf(e.n) + '</span></button>';
   }
 
+  /** Een actiekaart is groen; voller als ze vastgezet is of in het midden staat. */
+  function actStyle(row, col, sel) {
+    return 'grid-row:' + row + ';grid-column:' + col + ';height:' + ACT_H + 'px;'
+      + 'background-color:oklch(var(--su) / ' + (sel ? '0.24' : '0.12') + ');border-color:oklch(var(--su) / 0.55);'
+      + (sel ? 'box-shadow:0 0 0 1px oklch(var(--su));' : '');
+  }
+  /** Wat een klik op een actiekaart doet, als [attributen, uitleg]. In het midden: zie centerAttrs(). */
+  function actClick(m, c, e) {
+    if (m.page && c.v === 0) return [centerAttrs(e.tok), centerHint(e.tok)];
+    return [cardAttrs(m, c.v, e.tok), cardHint(m, c.v, e.tok)];
+  }
+
   function actCard(m, c, e, row, col) {
     var a = ACT[-e.tok];
     if (e.started) return formCard(m, c, e, row, col, a);
-    var style = 'grid-row:' + row + ';grid-column:' + col + ';height:' + ACT_H + 'px;'
-      + 'background-color:oklch(var(--su) / ' + (e.isPin ? '0.24' : '0.12') + ');border-color:oklch(var(--su) / 0.55);'
-      + (e.isPin ? 'box-shadow:0 0 0 1px oklch(var(--su));' : '');
+    var k = actClick(m, c, e), style = actStyle(row, col, e.isPin || (m.page && c.v === 0));
     return '<button type="button" class="w-full text-left rounded-lg border px-2.5 flex items-center gap-2 hover:brightness-95" style="' + style + '"'
-      + ' data-flow-node="' + e.id + '" ' + pinAttrs(m, c.v, e.tok)
-      + ' title="' + esc(tokName(e.tok) + ' (' + whereLabel(m, c.v) + '): ' + nf(e.n) + ' bezoeken. Klik om dit pad vast te zetten.') + '">'
+      + ' data-flow-node="' + e.id + '" ' + k[0]
+      + ' title="' + esc(tokName(e.tok) + ' (' + whereLabel(m, c.v) + '): ' + nf(e.n) + ' bezoeken.' + k[1]) + '">'
       + '<i data-lucide="' + (a ? a.icon : 'check') + '" class="w-4 h-4 shrink-0" style="color:oklch(var(--su))"></i>'
       + '<span class="flex-1 min-w-0 text-[13px] font-medium leading-4 line-clamp-2">' + esc(tokLabel(e.tok)) + '</span>'
       + '<span class="text-sm font-semibold tabular-nums">' + nf(e.n) + '</span></button>';
@@ -1237,15 +1382,13 @@
    * ook wie verstuurde (dat is per definitie begonnen).
    */
   function formCard(m, c, e, row, col, a) {
-    var verstuurd = e.n - e.started;
-    var style = 'grid-row:' + row + ';grid-column:' + col + ';height:' + ACT_H + 'px;'
-      + 'background-color:oklch(var(--su) / ' + (e.isPin ? '0.24' : '0.12') + ');border-color:oklch(var(--su) / 0.55);'
-      + (e.isPin ? 'box-shadow:0 0 0 1px oklch(var(--su));' : '');
+    var verstuurd = e.n - e.started, k = actClick(m, c, e);
+    var style = actStyle(row, col, e.isPin || (m.page && c.v === 0));
     var naam = a ? a.short : 'Formulier';
     var uitleg = naam + ' (' + whereLabel(m, c.v) + '): ' + nf(e.n) + ' bezoeken begonnen eraan, ' + nf(verstuurd) + ' verstuurden'
-      + (e.geschat ? ' (' + nf(e.geschat) + ' begonnen geschat uit klikken, van voor de popup zelf iets meldde)' : '') + '. Klik om dit pad vast te zetten.';
+      + (e.geschat ? ' (' + nf(e.geschat) + ' begonnen geschat uit klikken, van voor de popup zelf iets meldde)' : '') + '.' + k[1];
     return '<button type="button" class="w-full text-left rounded-lg border px-2.5 flex items-center gap-2 hover:brightness-95" style="' + style + '"'
-      + ' data-flow-node="' + e.id + '" ' + pinAttrs(m, c.v, e.tok) + ' title="' + esc(uitleg) + '">'
+      + ' data-flow-node="' + e.id + '" ' + k[0] + ' title="' + esc(uitleg) + '">'
       + '<i data-lucide="' + (a ? a.icon : 'check') + '" class="w-4 h-4 shrink-0" style="color:oklch(var(--su))"></i>'
       + '<span class="flex-1 min-w-0 text-[13px] font-medium leading-4 truncate">' + esc(naam) + (e.geschat ? '<span class="text-base-content/50">*</span>' : '') + '</span>'
       + '<span class="text-right leading-4 tabular-nums shrink-0"><span class="block text-[11px] text-base-content/70">' + nf(e.n) + ' gestart</span>'
@@ -1393,19 +1536,32 @@
   // ── Bediening, spelden, legende ────────────────────────────────────────────
 
   var UNPIN = { fwd: ['unpin', 'step'], back: ['bunpin', 'dist'], page: ['punpin', 'dist'] };
+  // De standen, voor de weg terug na een klik die een kaart in het midden zette.
+  var VIEW_LABELS = { fwd: 'Vanaf de instap', back: 'Naar het doel toe', page: 'Rond een pagina' };
+  var VIEW_BACK = { fwd: 'terug naar de instap', back: 'terug naar het doel', page: 'terug' };
+  function prevViewLabel() { return st.flowPrev ? VIEW_LABELS[st.flowPrev.mode] : ''; }
   function pinLabel(mode, k) { return mode === 'fwd' ? 'stap ' + (Number(k) + 1) : distLabel(Number(k), mode === 'page'); }
   /** De spelden in leesvolgorde: vooruit op stap, uitgelijnd van ver ervoor naar erna. */
   function pinKeys(mode, pins) { return Object.keys(pins).sort(function (a, b) { return mode === 'fwd' ? a - b : b - a; }); }
 
   function renderPinsLine(total, persons) {
     var mode = st.flow.mode, pins = curPins(), keys = pinKeys(mode, pins), u = UNPIN[mode];
-    if (!keys.length) { $('bhPins').innerHTML = ''; return; }
-    $('bhPins').innerHTML = '<span class="text-xs text-base-content/60">Vastgezet:</span> ' + keys.map(function (k) {
-        return '<span class="badge badge-primary badge-outline gap-1">' + esc(pinLabel(mode, k)) + ': ' + esc(tokLabel(pins[k]))
-          + '<button data-bh-action="' + u[0] + '" data-' + u[1] + '="' + k + '" aria-label="Losmaken">✕</button></span>';
-      }).join(' ') + ' <button class="btn btn-ghost btn-xs" data-bh-action="unpin-all">alles losmaken</button>'
-      + '<span class="text-xs text-base-content/60 ml-2">' + nf(total) + ' bezoeken'
-      + (persons ? ' van ' + nf(persons) + ' ' + personWord(persons) : '') + ' volgen dit pad</span>';
+    // Kwam je hier met een klik op een kaart: wat in het midden staat, met het kruisje terug.
+    var mid = mode === 'page' && st.flowPrev ? focusTok() : null;
+    if (!keys.length && mid === null) { $('bhPins').innerHTML = ''; return; }
+    var html = '';
+    if (mid !== null) {
+      html += '<span class="badge badge-primary gap-1" title="' + esc(centerName(mid)) + '">In het midden: ' + esc(centerLabel(mid))
+        + '<button data-bh-action="flow-back" aria-label="Terug naar ' + esc(prevViewLabel()) + '" title="Terug naar ' + esc(prevViewLabel()) + '">✕</button></span> ';
+    }
+    if (keys.length) {
+      html += '<span class="text-xs text-base-content/60">Vastgezet:</span> ' + keys.map(function (k) {
+          return '<span class="badge badge-primary badge-outline gap-1">' + esc(pinLabel(mode, k)) + ': ' + esc(tokLabel(pins[k]))
+            + '<button data-bh-action="' + u[0] + '" data-' + u[1] + '="' + k + '" aria-label="Losmaken">✕</button></span>';
+        }).join(' ') + ' <button class="btn btn-ghost btn-xs" data-bh-action="unpin-all">alles losmaken</button>';
+    }
+    $('bhPins').innerHTML = html + '<span class="text-xs text-base-content/60 ml-2">' + nf(total) + ' bezoeken'
+      + (persons ? ' van ' + nf(persons) + ' ' + personWord(persons) : '') + (keys.length ? ' volgen dit pad' : ' met deze ' + focusWord()) + '</span>';
   }
 
   function stepper(label, action, side, value, min, max, help) {
@@ -1426,6 +1582,19 @@
     });
     return Object.keys(m).map(Number).sort(function (a, b) { return m[b] - m[a]; }).slice(0, 200).map(function (p) { return [p, m[p]]; });
   }
+  /** De acties van het segment, samengesmolten (mergeTok), op aantal bezoeken: ook die kunnen in het midden. */
+  function actOptions(cur) {
+    var m = {};
+    cur.forEach(function (s) {
+      var seen = {};
+      steps(s).forEach(function (t) {
+        if (t >= 0) return;
+        var code = -mergeTok(t);
+        if (!seen[code]) { seen[code] = 1; m[code] = (m[code] || 0) + 1; }
+      });
+    });
+    return Object.keys(m).map(Number).sort(function (a, b) { return m[b] - m[a]; }).map(function (code) { return [code, m[code]]; });
+  }
 
   function renderFlowControls(cur) {
     var F = st.F, mode = st.flow.mode, counts = {};
@@ -1438,11 +1607,21 @@
       + '<div>' + groupLabel('Bekijk', 'Vanaf de instap: de eerste stappen van een bezoek. Rond een pagina: een pagina in het midden, met hoe bezoekers er komen en wat ze daarna doen, waar ze ook in het bezoek stond. Naar het doel toe: enkel bezoeken met het doel, uitgelijnd op de eerste keer dat het gebeurde.')
       + pills('flow-mode', null, [['fwd', 'Vanaf de instap'], ['page', 'Rond een pagina'], ['back', 'Naar het doel toe']], mode) + '</div>';
     if (mode === 'page') {
-      var t = focusPage(), opts = focusOptions(cur), has = opts.some(function (o) { return o[0] === t; });
-      html += '<label class="block min-w-0">' + groupLabel('Pagina', 'De pagina in het midden. Ook te kiezen met het vizier in de tabel "Per pagina", of met "Zet in het midden" bij "Pagina onder de loep".')
+      // Een pagina of een actie in het midden; een actie heeft de waarde "a<code>".
+      var t = focusTok(), opts = focusOptions(cur), aopts = actOptions(cur);
+      var has = t !== null && (t < 0 ? aopts.some(function (o) { return o[0] === -t; }) : opts.some(function (o) { return o[0] === t; }));
+      var none = st.flow.act ? actFocusName(st.flow.act) + ' (niet in dit segment)'
+        : st.flow.page ? short(rawPageText(st.flow.page), 40) + ' (niet in dit segment)' : 'Kies een pagina';
+      html += '<label class="block min-w-0">' + groupLabel('In het midden', 'De pagina of actie in het midden. Ook te kiezen door bij "Vanaf de instap" een kaart aan te klikken, met het vizier in de tabel "Per pagina", of met "Zet in het midden" bij "Pagina onder de loep".')
         + '<select class="select select-bordered select-sm max-w-[24rem] border-primary bg-primary/5 font-medium" data-bh-flow-page>'
-        + (has ? '' : '<option value="" selected>' + esc(st.flow.page ? short(rawPageText(st.flow.page), 40) + ' (niet in dit segment)' : 'Kies een pagina') + '</option>')
+        + (has ? '' : '<option value="" selected>' + esc(none) + '</option>')
+        + '<optgroup label="Pagina\'s">'
         + opts.map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === t ? ' selected' : '') + '>' + esc(short(pageName(o[0]), 60)) + ' (' + nf(o[1]) + ')</option>'; }).join('')
+        + '</optgroup>'
+        + (aopts.length ? '<optgroup label="Acties">' + aopts.map(function (o) {
+            return '<option value="a' + o[0] + '"' + (-o[0] === t ? ' selected' : '') + '>'
+              + esc(actFocusName(o[0]) + (o[0] === 1 || o[0] === 7 ? ', gestart of verstuurd' : '')) + ' (' + nf(o[1]) + ')</option>';
+          }).join('') + '</optgroup>' : '')
         + '</select></label>';
     }
     html += '<label class="block">' + groupLabel('Doel', 'Vooruit en rond een pagina tonen bij elke pagina hoeveel bezoeken daarna dit doel haalden (groen). "Naar het doel toe" toont enkel bezoeken met dit doel, uitgelijnd op de eerste keer dat het gebeurde.')
@@ -1467,12 +1646,15 @@
         ? '<span>Balk = deel van de bezoeken met ' + esc(m.goal.kort) + '.</span>'
         : '<span>Balk = wat die bezoekers daarna deden:</span>' + sw(GOOD, esc(m.goal.naam)) + sw(MOVE, 'gaat verder') + sw(DONE, 'stopt na ' + esc(m.goal.naam)) + sw(BAD, 'stopt hier'))
       + (hasIn ? '<span class="text-base-content/45">Komt binnen = het bezoek begint daar; de eerste stap staat in de kolom erna.</span>' : '')
-      + '<span class="text-base-content/45">Linten = wie van de ene stap naar de volgende ging. Klik een kaart om dat pad vast te zetten.</span></div>';
+      + '<span class="text-base-content/45">Linten = wie van de ene stap naar de volgende ging. '
+      + (m.aligned
+        ? 'Klik een kaart om dat pad vast te zetten.' + (m.page && st.flowPrev ? ' Klik de kaart in het midden om terug te gaan naar "' + esc(prevViewLabel()) + '".' : '')
+        : 'Klik een kaart om ze in het midden te zetten: dezelfde pagina of actie uit alle stappen samen, met wat ervoor en erna kwam.') + '</span></div>';
   }
 
   function renderFlow(cur) {
     // Rond een pagina zonder gekozen pagina (eerste keer, of kapotte opslag): de drukst bezochte.
-    if (st.flow.mode === 'page' && !st.flow.page) { var o = focusOptions(cur)[0]; if (o) st.flow.page = d('p', o[0]); }
+    if (st.flow.mode === 'page' && !st.flow.page && !st.flow.act) { var o = focusOptions(cur)[0]; if (o) st.flow.page = d('p', o[0]); }
     renderFlowControls(cur);
     var m = buildFlow(cur), fv = m.total ? pinVerdicts(cur, m) : [];
     flowModel = m.total ? m : null;
@@ -1484,9 +1666,9 @@
       var msg = m.back
         ? 'Geen bezoeken met ' + esc(m.goal.kort) + (Object.keys(st.bpins).length ? ' langs dit pad' : ' in dit segment') + '.'
         : m.page
-          ? (m.focus < 0
+          ? (m.focus === null
             ? (st.flow.page ? 'De pagina ' + esc(short(rawPageText(st.flow.page), 60)) + ' komt in deze periode niet voor. Kies hierboven een andere pagina.' : 'Kies hierboven een pagina.')
-            : 'Geen bezoeken met ' + esc(pageLabel(m.focus)) + (Object.keys(st.ppins).length ? ' langs dit pad.' : ' in dit segment.'))
+            : 'Geen bezoeken met ' + esc(centerLabel(m.focus)) + (Object.keys(st.ppins).length ? ' langs dit pad.' : ' in dit segment.'))
           : 'Geen bezoeken met dit pad.';
       $('bhFlow').innerHTML = '<p class="text-sm text-base-content/60 p-4">' + msg + '</p>';
       return;
@@ -1503,7 +1685,7 @@
 
   /** De pagina onder de loep: die in het midden, anders de laatst aangeklikte of de diepste vastgezette pagina. */
   function focusOf(m) {
-    if (m.page) return m.focus >= 0 ? { t: m.focus, v: 0 } : null;
+    if (m.page) return m.focus !== null && m.focus >= 0 ? { t: m.focus, v: 0 } : null;
     var pins = m.back ? st.bpins : st.pins, list = [];
     Object.keys(pins).forEach(function (k) { if (pins[k] >= 0) list.push({ t: pins[k], v: Number(k) }); });
     if (!list.length) return null;
@@ -1760,7 +1942,7 @@
     if (t === ENTRY) return '<span class="text-base-content/50">Komt binnen</span>';
     if (t < 0) {
       var a = ACT[-t];
-      return '<span class="inline-flex items-center gap-1 rounded-md bg-success/20 px-1.5 font-medium" title="' + esc(tokName(t)) + '">'
+      return '<span class="inline-flex items-center gap-1 rounded-md bg-success/20 px-1.5 font-medium' + (strong ? ' ring-1 ring-success' : '') + '" title="' + esc(tokName(t)) + '">'
         + '<i data-lucide="' + (a ? a.icon : 'check') + '" class="w-3 h-3"></i>' + esc(a ? a.short : 'Actie') + '</span>';
     }
     return '<span class="truncate max-w-[14rem]' + (strong ? ' font-semibold text-primary' : '') + '" title="' + esc(pageName(t)) + '">' + esc(pageLabel(t)) + '</span>';
@@ -1768,7 +1950,7 @@
 
   function renderPaths(cur) {
     var mode = st.flow.mode, back = mode === 'back', page = mode === 'page', n = st.flow.n, goal = GOALS[st.flow.goal], m = {};
-    var ft = page ? focusPage() : -1;
+    var ft = page ? focusTok() : null;
     var view = back || page ? cur.filter(function (s) { return alignIdx(s) >= 0; }).filter(pinned) : cur.filter(pinned);
     view.forEach(function (s) {
       var full = steps(s), g = goalIdx(s), a = page ? alignIdx(s) : g, from, to;
@@ -1786,11 +1968,11 @@
     var rows = Object.keys(m).map(function (k) { return m[k]; }).sort(function (a, b) { return b.n - a.n; }).slice(0, 8);
     var max = rows.length ? rows[0].n : 1;
     $('bhPathsTitle').textContent = back ? 'Meest gevolgde wegen naar ' + goal.kort
-      : page ? 'Meest gevolgde wegen langs ' + (ft >= 0 ? pageLabel(ft) : 'de pagina') : 'Meest gevolgde paden';
+      : page ? 'Meest gevolgde wegen langs ' + (ft !== null ? centerLabel(ft) : 'de pagina') : 'Meest gevolgde paden';
     $('bhPathsSub').textContent = back
       ? 'De laatste ' + n + ' ' + stepWord(n) + ' voor ' + goal.kort + ' (de eerste keer in dat bezoek). Klik om de weg vast te zetten.'
       : page
-        ? 'Tot ' + st.flow.pb + ' ' + stepWord(st.flow.pb) + ' ervoor en ' + st.flow.pa + ' erna; de pagina staat vet. Klik om de weg vast te zetten.'
+        ? 'Tot ' + st.flow.pb + ' ' + stepWord(st.flow.pb) + ' ervoor en ' + st.flow.pa + ' erna; de ' + focusWord() + ' staat ' + (st.flow.act ? 'omlijnd' : 'vet') + '. Klik om de weg vast te zetten.'
         : 'De eerste ' + n + ' ' + stepWord(n) + ' van een bezoek; acties staan in het groen. Klik om het pad vast te zetten.';
     $('bhPaths').innerHTML = rows.length ? rows.map(function (r) {
       var act = back ? 'bpin-path' : page ? 'ppin-path' : 'pin-path';
@@ -1804,7 +1986,7 @@
         + '<span class="text-xs text-base-content/60 tabular-nums w-28 text-right">' + nf(r.n) + ' · ' + pctTxt(pct(r.n, view.length)) + '</span>'
         + (back ? '' : '<span class="text-xs text-success tabular-nums w-14 text-right" title="Deel van deze bezoeken met ' + esc(goal.kort) + '">' + (r.conv ? '✓ ' + pctTxt(pct(r.conv, r.n)) : '') + '</span>')
         + '</div></button>';
-    }).join('') : '<p class="text-sm text-base-content/60">' + (back ? 'Geen bezoeken met ' + esc(goal.kort) + '.' : page ? 'Geen bezoeken met deze pagina.' : 'Geen paden.') + '</p>';
+    }).join('') : '<p class="text-sm text-base-content/60">' + (back ? 'Geen bezoeken met ' + esc(goal.kort) + '.' : page ? 'Geen bezoeken met deze ' + focusWord() + '.' : 'Geen paden.') + '</p>';
   }
 
   // ── Per pagina ─────────────────────────────────────────────────────────────
@@ -1891,24 +2073,28 @@
     var mode = st.flow.mode, pins = curPins(), keys = pinKeys(mode, pins), page = mode === 'page';
     // Rond een pagina filtert altijd (enkel bezoeken met die pagina), ook zonder spelden: zeggen.
     if (!keys.length && !page) { $('bhPinSummary').innerHTML = ''; return; }
-    var view = cur.filter(pinned), pn = personCount(view), ft = page ? focusPage() : -1;
-    var title = page ? 'Rond een pagina' : 'Vastgezet pad' + (mode === 'back' ? ' · naar ' + esc(GOALS[st.flow.goal].kort) : '');
+    var view = cur.filter(pinned), pn = personCount(view), ft = page ? focusTok() : null;
+    var title = page ? 'Rond een ' + focusWord() : 'Vastgezet pad' + (mode === 'back' ? ' · naar ' + esc(GOALS[st.flow.goal].kort) : '');
+    // Via een klik op een kaart hier gekomen: terug naar die weergave, met wat er vaststond.
+    var btn = page && st.flowPrev
+      ? '<button class="btn btn-ghost btn-xs" data-bh-action="flow-back" title="Terug naar ' + esc(prevViewLabel()) + ', met wat er vaststond">' + VIEW_BACK[st.flowPrev.mode] + '</button>'
+      : page ? '<button class="btn btn-ghost btn-xs" data-bh-action="flow-mode" data-value="fwd">terug naar de instap</button>'
+      : '<button class="btn btn-ghost btn-xs" data-bh-action="unpin-all">losmaken</button>';
     $('bhPinSummary').innerHTML = '<div class="border-t border-base-content/10 pt-3 space-y-2">'
       + '<div class="flex items-center justify-between gap-2">'
       +   '<span class="text-[11px] font-semibold uppercase tracking-wide text-base-content/50">' + title + '</span>'
-      +   (page ? '<button class="btn btn-ghost btn-xs" data-bh-action="flow-mode" data-value="fwd">terug naar de instap</button>'
-             : '<button class="btn btn-ghost btn-xs" data-bh-action="unpin-all">losmaken</button>') + '</div>'
+      +   btn + '</div>'
       + '<div class="flex flex-wrap gap-1">'
-      + (page ? '<span class="badge badge-primary max-w-full" title="' + esc(rawPageText(st.flow.page)) + '"><span class="truncate">'
-          + esc(ft >= 0 ? pageLabel(ft) : short(rawPageText(st.flow.page), 30)) + '</span></span>' : '')
+      + (page ? '<span class="badge badge-primary max-w-full" title="' + esc(ft !== null && ft < 0 ? centerName(ft) : rawPageText(st.flow.page)) + '"><span class="truncate">'
+          + esc(ft !== null ? centerLabel(ft) : short(rawPageText(st.flow.page), 30)) + '</span></span>' : '')
       + keys.map(function (k) {
           return '<span class="badge badge-primary badge-outline max-w-full" title="' + esc(tokLabel(pins[k])) + '"><span class="truncate">'
             + esc(pinLabel(mode, k)) + ': ' + esc(tokLabel(pins[k])) + '</span></span>';
         }).join('') + '</div>'
       + '<p class="text-sm"><strong>' + nf(view.length) + ' bezoeken</strong> van ' + nf(pn) + ' ' + personWord(pn)
-      + (page ? ' bekeken deze pagina' + (keys.length ? ' langs dit pad' : '') : ' volgen dit pad') + '.</p>'
+      + (page ? (st.flow.act ? ' met deze actie' : ' bekeken deze pagina') + (keys.length ? ' langs dit pad' : '') : ' volgen dit pad') + '.</p>'
       + '<p class="text-xs text-base-content/60">' + (page
-          ? 'De padverkenner, de paden, per pagina en de bezoekerslijst tonen enkel bezoeken met deze pagina. De kerncijfers en de trend gaan over het hele segment.'
+          ? 'De padverkenner, de paden, per pagina en de bezoekerslijst tonen enkel bezoeken met deze ' + focusWord() + '. De kerncijfers en de trend gaan over het hele segment.'
           : 'Dit geldt voor de padverkenner, de paden, per pagina en de bezoekerslijst. De kerncijfers en de trend gaan over het hele segment.') + '</p>'
       + (page && keys.length ? '<button class="btn btn-ghost btn-xs" data-bh-action="unpin-all">spelden losmaken</button>' : '')
       + dominant(view).map(function (x) { return warnHtml(x, view.length); }).join('')
@@ -2108,12 +2294,21 @@
     facts.sort(function (a, b) { return b.lvl - a.lvl || a.i - b.i; });
     var sig = [];
     if (fl & F.loginOnly) sig.push('enkel om in te loggen');
-    if (fl & F.historic) sig.push('oude historiek: klikken en scroll niet bewaard');
-    else {
-      if (s[C.scroll] >= 25) sig.push('tot ' + nf(Math.min(100, s[C.scroll])) + '% gescrold');
-      if (s[C.clicks] > 0) sig.push(nf(s[C.clicks]) + (s[C.clicks] === 1 ? ' klik' : ' klikken'));
+    // WAAROM dit bezoek wel of niet "verder klikt": zo is de tegel per bezoek na te rekenen.
+    var nP = 0, gezien = {}, nA = 0;
+    path(s).forEach(function (p) { if (!gezien[p]) { gezien[p] = 1; nP++; } });
+    (s[C.acts] || []).forEach(function (x) { if (x[1] < 8) nA++; });
+    if (fl & F.engaged) {
+      var w = [];
+      if (nP > 1) w.push(nf(nP) + ' pagina\'s');
+      if (s[C.clicks] > 0) w.push(nf(s[C.clicks]) + (s[C.clicks] === 1 ? ' klik' : ' klikken'));
+      if (nA > 0) w.push(nA === 1 ? 'een actie' : nf(nA) + ' acties');
+      sig.push('klikt verder' + (w.length ? ': ' + w.join(', ') : ''));
+    } else {
+      sig.push(s[C.dur] < QUICK_S ? 'meteen weg' : 'bleef op één pagina, klikte nergens');
     }
-    if (lvl === LVL.weg) sig.unshift('meteen weg');
+    if (s[C.scroll] >= 25) sig.push('tot ' + nf(Math.min(100, s[C.scroll])) + '% gescrold');
+    if (fl & F.historic) sig.push('oude historiek (ingekort bewaard)');
     s._fx = { lvl: lvl, facts: facts, sig: sig };
     return s._fx;
   }
@@ -2388,7 +2583,7 @@
   // Er staat nooit twee keer hetzelfde woord zonder label erboven: dat was het
   // probleem van de eerste versie ("Iedereen" stond er twee keer, in twee groepen).
 
-  var DEFAULTS = { site: null, ch: null, det: null, land: null, visited: null, dev: null, who: 'all', conv: 'all', visit: 'all', purpose: 'prospect' };
+  var DEFAULTS = { site: null, ch: null, det: null, land: null, visited: null, dev: null, who: 'all', conv: 'all', eng: 'all', visit: 'all', purpose: 'prospect' };
 
   function groupLabel(text, help) {
     return '<div class="text-[11px] font-semibold uppercase tracking-wide text-base-content/50 mb-1 flex items-center gap-1">' + esc(text)
@@ -2437,6 +2632,7 @@
       case 'purpose': return f.purpose === 'customer' ? 'Enkel klanten' : 'Prospecten + klanten';
       case 'who': return { anon: 'Anoniem', known: 'Met e-mailadres', lead: 'Gekoppeld aan een lead' }[f.who];
       case 'conv': return { yes: 'Met aanvraag', of: 'Met offerteaanvraag', reg: 'Registratie gestart', nb: 'Nieuwsbrief', ev: 'Event', ac: 'Academy', no: 'Zonder actie' }[f.conv];
+      case 'eng': return f.eng === 'yes' ? 'Klikt verder' : 'Klikt niet verder';
       case 'visit': return f.visit === 'new' ? 'Nieuwe bezoekers' : 'Terugkerende bezoekers';
     }
     return key;
@@ -2470,6 +2666,8 @@
             'Met e-mail = de bezoeker liet ooit een adres achter. Met lead = hij hangt aan een lead in Odoo.')
       +   seg('conv', 'Actie', [['all', 'Alle'], ['yes', 'Aanvraag'], ['of', 'Offerte'], ['reg', 'Registratie'], ['nb', 'Nieuwsbrief'], ['ev', 'Event'], ['ac', 'Academy'], ['no', 'Geen actie']],
             'Een formulier, een afspraak of een inschrijving in dat bezoek.')
+      +   seg('eng', 'Klikt verder', [['all', 'Alle'], ['yes', 'Ja'], ['no', 'Nee']],
+            'Ja = klikte door naar een tweede pagina, klikte op iets (niet op de cookiebanner of Inloggen) of deed een actie. Nee = bleef op één pagina zonder te klikken.')
       +   seg('visit', 'Bezoek', [['all', 'Alle'], ['new', 'Eerste bezoek'], ['return', 'Terugkerend']])
       + '</div>'
       // 3. verfijn
@@ -2512,6 +2710,7 @@
     var actieZin = { yes: 'met een aanvraag', of: 'met een offerteaanvraag', reg: 'waarin een registratie gestart werd', nb: 'met een inschrijving op de nieuwsbrief',
       ev: 'met een inschrijving voor een event', ac: 'met een inschrijving in de academy', no: 'zonder enige actie' };
     if (actieZin[f.conv]) w.push(actieZin[f.conv]);
+    if (f.eng === 'yes') w.push('die verder klikten'); else if (f.eng === 'no') w.push('die niet verder klikten');
     return s + (w.length ? ' ' + w.join(' ') : '') + '.';
   }
 
@@ -2542,7 +2741,8 @@
       if (klant) notes.push(nf(klant) + ' bezoeken van klanten tellen hier niet mee, waarvan ' + nf(login) + ' enkel om in te loggen. Kies "Klanten" of "Iedereen" om ze te zien.');
     }
     if (st.data.sessions.some(function (s) { return s[C.flags] & st.F.historic; })) {
-      notes.push('Bezoeken van vóór 29 september 2026 komen uit de oude historiek: daar is de bron vaak niet bewaard ("Direct / onbekend") en ontbreken klikken.');
+      notes.push('Bezoeken van vóór ' + liveTxt() + ' komen uit de oude historiek: daar is de bron vaak niet bewaard ("Direct / onbekend"), en de opslag werd met de tijd '
+        + 'ingekort (vooral korte bezoeken en losse klikken). Ze tellen gewoon mee; in de grafieken is die periode gearceerd.');
     }
     var excluded = st.f.purpose === 'prospect' && notes.length && notes[0].indexOf('klanten') >= 0 ? notes.shift() : '';
     // Wie op de lijst Uitgesloten staat (lib/exclusions.js), haalt de server eruit.
@@ -2578,10 +2778,13 @@
       if (!j.data.available) throw new Error(j.data.reason || 'Geen gegevens');
       st.data = j.data;
       st.F = j.data.flags;
+      st.liveFrom = liveFromOf(st.data);
       // Filters terugzetten op naam; wat in deze periode niet bestaat, valt weg.
       applyNames(names);
       pendingNames = null;
       clearPins();
+      // De spelden van de weergave van daarvoor zijn volgnummers van de vorige periode.
+      if (st.flowPrev) { st.flowPrev.pins = {}; st.flowPrev.bpins = {}; st.flowPrev.focusV = null; }
       numberVisits(st.data);
       $('bhStatus').innerHTML = '';
       render();
@@ -2610,8 +2813,7 @@
       return;
     }
     if (a === 'focus-page') {
-      // Het RUWE pad bewaren ("/" en niet "Homepage"): zo zoekt focusPage() het terug.
-      st.flow.mode = 'page'; st.flow.page = d('p', Number(el.dataset.page)); clearPins();
+      centerOn(Number(el.dataset.page));
       render(); scrollToEl('bhFlowCard');
       return;
     }
@@ -2630,6 +2832,7 @@
     // Vastzetten gebeurt altijd met het samengesmolten token (mergeTok): een kaart
     // "Formulier" telt ook wie enkel begon, en een pad uit de lijst kan -8 bevatten.
     if (a === 'seg') { st.f[el.dataset.key] = v; }
+    else if (a === 'seg-toggle') { var sk = el.dataset.key; st.f[sk] = st.f[sk] === v ? DEFAULTS[sk] : v; }
     else if (a === 'filter') { var k = el.dataset.key, n = Number(v); st.f[k] = st.f[k] === n ? null : n; }
     else if (a === 'reset') { st.f = Object.assign({}, DEFAULTS); clearPins(); }
     else if (a === 'clear') { st.f[el.dataset.key] = DEFAULTS[el.dataset.key]; if (el.dataset.key === 'ch') st.f.det = null; }
@@ -2655,7 +2858,13 @@
       if (el.dataset.cut !== '1' && an + 1 <= st.flow.pb) st.ppins[an + 1] = ENTRY;
     }
     else if (a === 'punpin') { delete st.ppins[el.dataset.dist]; }
-    else if (a === 'flow-mode') { if (st.flow.mode !== v) { if (v === 'page') adoptFocus(); st.flow.mode = v; clearPins(); } }
+    else if (a === 'center') { centerOn(mergeTok(Number(el.dataset.page))); }
+    else if (a === 'flow-back') { flowBack(); }
+    else if (a === 'flow-mode') {
+      // De stand van voor een klik op een kaart: terug MET haar spelden, zoals het kruisje.
+      if (st.flowPrev && st.flowPrev.mode === v) flowBack();
+      else if (st.flow.mode !== v) { st.flowPrev = null; if (v === 'page') adoptFocus(); st.flow.mode = v; clearPins(); }
+    }
     else if (a === 'flow-steps') { setSteps(st.flow.n + Number(v)); }
     else if (a === 'flow-side') { setSide(el.dataset.side, st.flow[el.dataset.side] + Number(v)); }
     else if (a === 'metric') { st.metric = v; }
@@ -2677,6 +2886,35 @@
   function clearPins() { st.pins = {}; st.bpins = {}; st.ppins = {}; st.focusV = null; }
   function scrollToEl(id) { var x = $(id); if (x && x.scrollIntoView) x.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
 
+  /**
+   * Een pagina (>= 0) of een actie (< 0, samengesmolten) in het midden zetten, stand
+   * "rond een pagina". Kom je uit een andere stand, dan wordt die eerst onthouden
+   * (st.flowPrev), met haar spelden: flowBack() zet ze terug. Een pagina op het RUWE
+   * pad ("/" en niet "Homepage"): zo zoekt focusPage() ze terug.
+   */
+  function centerOn(t) {
+    if (!st.data || isNaN(t) || t === ENTRY) return;
+    if (st.flow.mode !== 'page' && !st.flowPrev) {
+      st.flowPrev = { mode: st.flow.mode, page: st.flow.page, act: st.flow.act, goal: st.flow.goal,
+        pins: st.pins, bpins: st.bpins, focusV: st.focusV };
+    }
+    if (t < 0) st.flow.act = -mergeTok(t);
+    else { st.flow.act = null; st.flow.page = d('p', t); }
+    st.flow.mode = 'page';
+    clearPins();
+  }
+  /** Terug naar de weergave van voor centerOn(). Een ander doel = een andere uitlijning: die spelden vallen weg. */
+  function flowBack() {
+    var p = st.flowPrev;
+    if (!p) return;
+    st.flowPrev = null;
+    st.flow.mode = p.mode; st.flow.page = p.page; st.flow.act = p.act;
+    clearPins();
+    st.pins = p.pins || {};
+    st.bpins = p.goal === st.flow.goal ? (p.bpins || {}) : {};
+    st.focusV = p.focusV;
+  }
+
   /** Naar "rond een pagina": een vastgezette pagina komt in het midden; anders blijft de vorige keuze staan. */
   function adoptFocus() {
     var back = st.flow.mode === 'back', pins = back ? st.bpins : st.pins, best = null;
@@ -2686,7 +2924,7 @@
       var rank = back ? (kv > 0 ? kv : 99) : (st.focusV === kv ? -1000 : -kv);
       if (!best || rank < best.rank) best = { rank: rank, t: t };
     });
-    if (best) st.flow.page = d('p', best.t);
+    if (best) { st.flow.page = d('p', best.t); st.flow.act = null; }
   }
 
   /** Een speld op een stap die niet meer getoond wordt, zou onzichtbaar blijven filteren: weg ermee. */
@@ -2713,7 +2951,12 @@
     var pageSel = e.target.closest('[data-bh-flow-page]');
     if (pageSel) {
       // Een andere pagina in het midden = een andere uitlijning: de spelden vallen weg.
-      if (pageSel.value !== '') { st.flow.page = d('p', Number(pageSel.value)); st.ppins = {}; render(); }
+      var pv = pageSel.value;
+      if (pv !== '') {
+        if (pv.charAt(0) === 'a') st.flow.act = Number(pv.slice(1));
+        else { st.flow.act = null; st.flow.page = d('p', Number(pv)); }
+        st.ppins = {}; render();
+      }
       return;
     }
     var el = e.target.closest('[data-bh-select]');

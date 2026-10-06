@@ -274,20 +274,29 @@
     }
 
     if (objectId === 'send_mail') {
-      // Een mailstap hangt aan een record uit een eerdere stap: daar komt de
-      // ontvanger uit, en de eigenaar van dat record wordt de afzender. Zelfde
-      // eis als bij een chatter-stap.
+      // Een mailstap is een NIEUW BEGIN: ze gaat naar het e-mailveld van het
+      // formulier en hangt aan geen enkele andere stap, tenzij iemand dat zelf
+      // kiest bij "In welke chatter". Tot 2026-10 werd ze hier ongevraagd aan de
+      // eerste schrijfstap gehangen (record, ontvanger en afzender uit dat
+      // record). Vond die stap niets, dan vertrok de mail niet -- terwijl niets
+      // op het scherm zei dat de twee stappen iets met elkaar te maken hadden.
+      // Enkel een formulier ZONDER e-mailveld valt nog terug op het record van
+      // een eerdere stap: dan is dat de enige plek waar een adres vandaan komt.
+      var mailVelden = (window.FSV2.buildDetailFlatFields(S().detailFormFields || []) || {}).flatFields || [];
+      var mailEmailVeld = mailVelden.find(function (f) { return String(f.type || '') === 'email'; }) ||
+        mailVelden.find(function (f) { return /^e-?mail/i.test(String(f.field_id || '')); }) || null;
+
       var mailCompat = targets.filter(function (t) {
         return t.operation_type !== 'chatter_message' && t.operation_type !== 'send_mail' && t.odoo_model;
       }).sort(function (a, b) { return window.FSV2.getTargetOrder(a, 0) - window.FSV2.getTargetOrder(b, 0); });
 
-      if (!mailCompat.length) {
-        window.FSV2.showAlert('Voeg eerst een schrijfdoel (upsert/aanmaken/bijwerken) toe voordat je een mailstap kunt koppelen.', 'error');
+      if (!mailEmailVeld && !mailCompat.length) {
+        window.FSV2.showAlert('Dit formulier heeft geen e-mailveld en er is nog geen stap met een record. Voeg eerst een e-mailveld toe aan het formulier.', 'error');
         return;
       }
 
-      var mailParent      = mailCompat[0];
-      var mailParentOrder = window.FSV2.getTargetOrder(mailParent, 0);
+      var mailParent      = mailEmailVeld ? null : mailCompat[0];
+      var mailParentOrder = mailParent ? window.FSV2.getTargetOrder(mailParent, 0) : null;
       var mailNewOrder    = maxOrder + 1;
 
       // De stap wordt aangemaakt MET een startsjabloon, niet leeg: de validatie
@@ -297,7 +306,9 @@
       var mailRes = await window.FSV2.api('/integrations/' + integrationId + '/targets', {
         method: 'POST',
         body: JSON.stringify({
-          odoo_model:      mailParent.odoo_model,
+          // De validatie eist een model; zonder record wordt het nergens voor
+          // gebruikt.
+          odoo_model:      mailParent ? mailParent.odoo_model : 'res.partner',
           identifier_type: 'mapped_fields',
           update_policy:   'always_overwrite',
           operation_type:  'send_mail',
@@ -310,11 +321,13 @@
           mail_layout:            'plain',
           mail_subject_template:  'Bedankt voor je aanvraag',
           mail_body_html:         'Hoi {{contact.first_name}},\n\nBedankt voor je aanvraag!\n\nTot binnenkort,\n{{sender.name}}',
-          // 'record.email' betekent: het adres van het record zelf (email_from
-          // bij een lead, email bij een contact). Een formulierveld kiezen kan
-          // ook, met 'field.<veld-id>'.
-          mail_recipient_source:  'record.email',
-          mail_res_id_source:     'step.' + mailParentOrder + '.record_id',
+          // 'field.<veld-id>' = het e-mailveld van het formulier. 'record.email'
+          // (het adres van het record zelf) enkel als er geen e-mailveld is.
+          mail_recipient_source:  mailEmailVeld ? 'field.' + mailEmailVeld.field_id : 'record.email',
+          mail_res_id_source:     mailParent ? 'step.' + mailParentOrder + '.record_id' : null,
+          // Zonder record is er geen eigenaar: de editor laat pas opslaan als er
+          // een afzender gekozen is. Tot dan vertrekt het startsjabloon niet
+          // ("geen afzenderadres"), en dat is hier de veilige kant.
           mail_from_source:       'record_user',
           // Anderhalf uur. Meteen versturen ondermijnt de indruk dat een mens
           // het typte; instelbaar per stap in de composer.

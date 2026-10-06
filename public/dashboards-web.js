@@ -5,8 +5,9 @@
 // filteren, doorklikken, vergelijken — gebeurt in de browser op die sessies,
 // zodat een klik op een kanaal of pagina geen nieuwe query kost.
 //
-// De definities (sessie, geëngageerd, kanaal) staan in web-visits.js en in
-// website-tracker/docs/ontwerp-web-visitor-events.md §5. Hier wordt enkel geteld.
+// De definities (sessie, kanaal) staan in web-visits.js en in
+// website-tracker/docs/ontwerp-web-visitor-events.md §5; "klikt verder" staat enkel
+// in web-visits.js (bewust strenger dan §5). Hier wordt enkel geteld.
 
 (function () {
   var web = {
@@ -182,12 +183,13 @@
     document.getElementById('webKpis').innerHTML = [
       tile('Bezoekers', nf(a.visitors), deltaHtml(a.visitors, P(b.visitors)), pctTxt(a.newPct, 0) + ' nieuw', 'Unieke bezoekers (browser-id) in de periode.'),
       tile('Sessies', nf(a.sessions), deltaHtml(a.sessions, P(b.sessions)), (a.visitors ? (a.sessions / a.visitors).toLocaleString('nl-BE', { maximumFractionDigits: 1 }) : '0') + ' per bezoeker', 'Een sessie eindigt na 30 minuten stilte of bij het verlaten van de site via login of registratie.'),
-      tile('Engagement', pctTxt(a.engagedPct), deltaHtml(a.engagedPct, P(b.engagedPct), { points: true }), nf(a.engaged) + ' geëngageerde sessies', 'Geëngageerd: meer dan één pagina, een klik, een conversie, terugkeren naar de tab, meer dan 5 seconden op een pagina of 75% gescrold.'),
+      tile('Klikt verder', pctTxt(a.engagedPct), deltaHtml(a.engagedPct, P(b.engagedPct), { points: true }), nf(a.engaged) + ' sessies klikten verder',
+        'Klikte door naar een tweede pagina, klikte op iets (niet op de cookiebanner of Inloggen) of deed een conversie. Lang lezen of scrollen zonder te klikken telt niet.'),
       tile('Conversies', nf(a.convSessions), deltaHtml(a.convSessions, P(b.convSessions)), nf(a.cal) + ' afspraken · ' + nf(a.ev) + ' inschrijvingen · ' + nf(a.forms) + ' formulieren', 'Sessies met een Calendly-afspraak, een event-inschrijving of een verstuurd formulier.'),
       tile('Conversieratio', pctTxt(a.convRate, 2), deltaHtml(a.convRate, P(b.convRate), { points: true }), 'van alle sessies', 'Sessies met minstens één conversie, gedeeld door alle sessies.'),
       tile('Contactkliks', nf(a.contact), deltaHtml(a.contact, P(b.contact)), 'klik op telefoon of e-mail', 'Sessies met een klik op een telefoonnummer of e-mailadres: een contactpoging buiten de formulieren om.'),
       tile("Pagina's per sessie", a.pagesPerSession.toLocaleString('nl-BE', { maximumFractionDigits: 1 }), deltaHtml(a.pagesPerSession, P(b.pagesPerSession)), '', ''),
-      tile('Mediane sessieduur', durTxt(a.medianDur), deltaHtml(a.medianDur, P(b.medianDur)), 'van geëngageerde sessies', 'De helft van de geëngageerde sessies duurt korter, de andere helft langer.')
+      tile('Mediane sessieduur', durTxt(a.medianDur), deltaHtml(a.medianDur, P(b.medianDur)), 'van sessies die verder klikten', 'De helft van de sessies die verder klikten duurt korter, de andere helft langer.')
     ].join('');
   }
 
@@ -196,7 +198,7 @@
   function renderFunnel(cur) {
     var steps = [
       { label: 'Sessies', n: cur.length },
-      { label: 'Geëngageerd', n: cur.filter(function (s) { return s[C.flags] & F.engaged; }).length },
+      { label: 'Klikt verder', n: cur.filter(function (s) { return s[C.flags] & F.engaged; }).length },
       { label: 'Interesse (klik of contact)', n: cur.filter(function (s) { return s[C.clicks] > 0 || s[C.contact] > 0 || conv(s) > 0; }).length },
       { label: 'Conversie', n: cur.filter(function (s) { return conv(s) > 0; }).length }
     ];
@@ -533,7 +535,7 @@
     var countries = groupBy(cur.filter(function (s) { return s[C.co] >= 0; }), function (s) { return s[C.co]; }).slice(0, 6);
     document.getElementById('webDeviceExtra').innerHTML =
       (inapp.length ? '<div class="text-xs text-base-content/60 mt-3 mb-1">In-app-browsers (klik uit een app, vaak advertenties)</div>'
-        + inapp.map(function (g) { return '<span class="badge badge-sm badge-outline mr-1 mb-1">' + esc(web.data.dict.ia[g.key]) + ' ' + nf(g.n) + ' · ' + pctTxt(pct(g.eng, g.n), 0) + ' geëngageerd</span>'; }).join('') : '')
+        + inapp.map(function (g) { return '<span class="badge badge-sm badge-outline mr-1 mb-1">' + esc(web.data.dict.ia[g.key]) + ' ' + nf(g.n) + ' · ' + pctTxt(pct(g.eng, g.n), 0) + ' klikt verder</span>'; }).join('') : '')
       + (countries.length ? '<div class="text-xs text-base-content/60 mt-3 mb-1">Landen</div>'
         + countries.map(function (g) { return '<span class="badge badge-sm badge-ghost mr-1 mb-1">' + esc(web.data.dict.co[g.key]) + ' ' + nf(g.n) + '</span>'; }).join('') : '');
   }
@@ -712,6 +714,13 @@
   function showTab(name) {
     document.querySelectorAll('[data-dash-tab]').forEach(function (t) { t.classList.toggle('tab-active', t.dataset.dashTab === name); });
     document.querySelectorAll('[data-dash-panel]').forEach(function (p) { p.classList.toggle('hidden', p.dataset.dashPanel !== name); });
+    // Verkoop en Targets hebben drie kolommen (zoals Gedrag in Webgedrag): breder dan de rest.
+    var main = document.getElementById('dashMain');
+    if (main) {
+      var wide = name === 'verkoop' || name === 'targets';
+      main.classList.toggle('max-w-7xl', !wide);
+      main.classList.toggle('max-w-[1800px]', wide);
+    }
     try { localStorage.setItem('dashboardsTab', name); } catch (_) { /* geen opslag */ }
     if (name === 'web' && !web.loaded) { web.loaded = true; load(); }
   }
@@ -736,5 +745,6 @@
 
   var saved = null;
   try { saved = localStorage.getItem('dashboardsTab'); } catch (_) { saved = null; }
-  if (saved === 'web') showTab('web');
+  // 'kaart' wordt door dashboards-map.js getekend zodra het paneel zichtbaar is.
+  if (['web', 'kaart', 'verkoop', 'targets'].indexOf(saved) >= 0) showTab(saved);
 })();

@@ -858,6 +858,8 @@
           </select>
         </label>
 
+        ${renderPostcodeUitleg(veld, index)}
+
         ${spec.input ? `
           <label class="form-control mb-2">
             <span class="label label-text text-xs">
@@ -966,6 +968,61 @@
 
         ${spec.options ? renderOpties(veld, index) : ''}
       </div>`;
+  }
+
+  /**
+   * Postcode en gemeente: het land kiezen, en zien welk veld welk vult.
+   *
+   * Die koppeling is GEEN instelling: een gemeenteveld hoort bij het
+   * dichtstbijzijnde postcodeveld erboven (koppelPostcodeVelden() in
+   * forms/schema.js -- deze twee lussen volgen dezelfde regel). Daarom staat
+   * ze hier zwart op wit, of de waarschuwing dat er geen postcodeveld boven
+   * staat: een gemeenteveld dat stil leeg blijft, merk je anders pas in Odoo.
+   */
+  function renderPostcodeUitleg(veld, index) {
+    if (veld.field_type === 'postcode') {
+      var landen = (B.meta && B.meta.postcode_countries) || [];
+      var land = (veld.validation && veld.validation.country) || 'BE';
+      var gemeente = null;
+      for (var i = index + 1; i < B.fields.length; i += 1) {
+        if (B.fields[i].field_type === 'postcode') break;
+        if (B.fields[i].field_type === 'city') { gemeente = B.fields[i]; break; }
+      }
+      return `
+        <label class="form-control mb-2" ${bewerktStandaardtaal() ? '' : 'hidden'}>
+          <span class="label label-text text-xs">Land</span>
+          <select class="select select-bordered select-sm" data-fb-change="postcode-land">
+            ${landen.map(function (l) {
+              return `<option value="${esc(l.code)}" ${l.code === land ? 'selected' : ''}>${esc(l.label)} — bv. ${esc(l.voorbeeld)}</option>`;
+            }).join('')}
+          </select>
+        </label>
+        <p class="text-xs text-base-content/50 -mt-1 mb-2">
+          Nagekeken tegen de officiële postcodelijst. De bezoeker typt zoals hij wil
+          ("B-9000", "1011ab"); in de koppeling komt altijd dezelfde vorm aan.
+          ${gemeente
+            ? `Vult het gemeenteveld <strong>${esc(gemeente.label || gemeente.field_key)}</strong> in.`
+            : 'Zet er een veld <strong>Gemeente</strong> onder, dan wordt dat vanzelf ingevuld.'}
+        </p>`;
+    }
+    if (veld.field_type === 'city') {
+      var bron = null;
+      for (var j = index - 1; j >= 0; j -= 1) {
+        if (B.fields[j].field_type === 'postcode') { bron = B.fields[j]; break; }
+      }
+      return bron ? `
+        <p class="text-xs text-base-content/50 -mt-1 mb-2">
+          Wordt ingevuld vanuit <strong>${esc(bron.label || bron.field_key)}</strong>. Heeft een
+          postcode meerdere plaatsen (1790: Affligem, Essene, Hekelgem, Teralfene), dan kiest de
+          bezoeker uit een lijst; "Andere plaats" laat hem vrij typen.
+        </p>` : `
+        <p class="text-xs text-warning -mt-1 mb-2 flex items-start gap-1">
+          <i data-lucide="alert-triangle" class="w-3 h-3 mt-0.5 shrink-0"></i>
+          <span>Er staat geen postcodeveld boven dit veld, dus het wordt niet vanzelf ingevuld.
+          Sleep het onder een postcodeveld.</span>
+        </p>`;
+    }
+    return '';
   }
 
   function renderOpties(veld, index) {
@@ -1224,8 +1281,21 @@
     }
 
     if (action === 'form-builder-add-field') {
-      voegVeldToe(btn.dataset.type);
-      B.sel = B.fields.length - 1;
+      if (btn.dataset.type === 'postcode') {
+        // Postcode en gemeente horen samen, naast elkaar. Twee gewone velden
+        // (elk een eigen veldnaam, label en vertaling, elk apart te mappen naar
+        // zip en city), de gemeente onder de postcode zodat ze gekoppeld zijn.
+        voegVeldToe('postcode', 'Postcode');
+        var postcodeVeld = B.fields[B.fields.length - 1];
+        postcodeVeld.width = 'half';
+        postcodeVeld.validation = { country: 'BE' };
+        voegVeldToe('city', 'Gemeente');
+        B.fields[B.fields.length - 1].width = 'half';
+        B.sel = B.fields.length - 2;
+      } else {
+        voegVeldToe(btn.dataset.type);
+        B.sel = B.fields.length - 1;
+      }
       tekenCanvas();
       tekenInspector();
       return;
@@ -1489,6 +1559,11 @@
       var spec = specVoor(inp.value);
       veld.field_type = inp.value;
       veld.odoo_field_type = spec.odoo_type;
+      if (inp.value === 'postcode') {
+        veld.validation = Object.assign({}, veld.validation, {
+          country: (veld.validation && veld.validation.country) || 'BE'
+        });
+      }
       if (spec.options && veld.options.length === 0) veld.options = [{ value: '', label: '' }];
       if (!spec.options) veld.options = [];
       tekenCanvas();
@@ -1499,6 +1574,12 @@
     if (soort === 'width' && veld) {
       veld.width = inp.value;
       tekenCanvas();
+      return true;
+    }
+
+    // Het land van een postcodeveld. Aan het voorbeeld verandert niets.
+    if (soort === 'postcode-land' && veld) {
+      veld.validation = Object.assign({}, veld.validation, { country: inp.value });
       return true;
     }
 
@@ -1625,6 +1706,9 @@
       if (window.FSV2.fetchOmFormFields) {
         window.FSV2.fetchOmFormFields(B.integrationId).catch(function () {});
       }
+      // Er kan net een postcodeveld bijgekomen of weggegaan zijn: dan hoort het
+      // tabblad Kaart te verschijnen of te verdwijnen, zonder heropenen.
+      if (window.FSV2.controleerKaartTab) window.FSV2.controleerKaartTab(B.integrationId);
     } catch (err) {
       // De server geeft de eerste fout als bericht; alleen die tonen, want een
       // toast met acht regels leest niemand.

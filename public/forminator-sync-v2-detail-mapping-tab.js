@@ -106,12 +106,15 @@
         opTypeLbl = _chLbl ? ('Notitie bij ' + _chLbl) : 'Notitie in chatter';
         if (!target.label) stepName = 'Notitie';
       }
-      // Een mailstap erft het model van de stap waaraan hij hangt (res.partner,
-      // crm.lead, ...). Zonder eigen naam heette de kaart daardoor "Contact",
-      // wat niets zegt over wat de stap doet.
+      // Een mailstap: NAAR WIE ze gaat (contact uit stap N, formulierveld, vast
+      // adres). Tot 2026-10 stond hier "Mail naar " + het model van de stap, en
+      // "Mail naar Contact" las als "hangt aan het contact uit stap 1", ook als
+      // de mail naar een formulierveld ging. Zonder eigen naam heet de kaart
+      // "Mail", niet "Contact".
       if (target.operation_type === 'send_mail') {
-        var _mlLbl = target.odoo_model ? window.FSV2.modelLabel(target.odoo_model) : '';
-        opTypeLbl = _mlLbl ? ('Mail naar ' + _mlLbl) : 'Mail versturen';
+        opTypeLbl = window.FSV2.mailOntvangerSamenvatting
+          ? window.FSV2.mailOntvangerSamenvatting(target, sortedTargets)
+          : 'Mail versturen';
         if (!target.label) stepName = 'Mail';
       }
       if (target.operation_type === 'generate_pdf') {
@@ -574,7 +577,7 @@
       var tid = String(target.id);
       renderStepConditionSection(target, tid, flatFields);
       if (isFaseContentStap(target)) { renderStepFaseContentSection(target, tid); } else { renderStepFaseSection(target, tid); }
-      renderStepOpTypeSection(target, tid, flatFields);
+      renderStepOpTypeSection(target, tid, flatFields, sortedTargets);
       renderStepChainSection(target, tid, sortedTargets, idx);
     });
 
@@ -820,7 +823,7 @@
 
       renderStepConditionSection(target, tid, flatFields);
       if (isFaseContentStap(target)) { renderStepFaseContentSection(target, tid); } else { renderStepFaseSection(target, tid); }
-      renderStepOpTypeSection(target, tid, flatFields);
+      renderStepOpTypeSection(target, tid, flatFields, sortedTargets);
       renderStepChainSection(target, tid, sortedTargets, idx);
   }
 
@@ -849,12 +852,15 @@
   // GEDRAGSBALK SECTION RENDERERS
   // ────────────────────────────────────────────────────────────────────────────
 
-  function renderStepOpTypeSection(target, tid, flatFields) {
+  function renderStepOpTypeSection(target, tid, flatFields, sortedTargets) {
     var el = document.getElementById('det-optype-' + tid);
     if (!el) return;
     var currentOpType = target.operation_type || 'upsert';
     if (currentOpType === 'chatter_message' || currentOpType === 'create_activity') return;
     if (currentOpType === 'mailing_list') { window.FSV2.renderMailingListBehaviorSection(target, tid); return; }
+    // Een mail zoekt, schrijft en maakt niets aan: hier staat naar wie, wanneer
+    // en van wie ze vertrekt (forminator-sync-v2-detail-mail-composer.js).
+    if (currentOpType === 'send_mail') { window.FSV2.renderMailGedrag(target, tid, sortedTargets); return; }
 
     var odooCache = (S().odooFieldsCache || {})[target.odoo_model] || [];
     var dbMappings = (S().detail.mappingsByTarget && S().detail.mappingsByTarget[target.id]) || [];

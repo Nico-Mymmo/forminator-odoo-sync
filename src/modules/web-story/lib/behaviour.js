@@ -191,8 +191,9 @@ export async function getBehaviourData(env, { period }) {
     const [ch, det, kanaalMeta] = channelOf(r, reopened);
     const conv = (r.ca || 0) + (r.er || 0) + (r.fs || 0) + (r.nb || 0) + (r.ac || 0) + (r.rg || 0);
     const distinct = new Set(views.map(v => v[1])).size;
-    const engaged = distinct > 1 || (r.ck || 0) > 0 || conv > 0 || (r.pl || 0) > 0 || (r.rs || 0) > 0
-      || (Number(r.md) || 0) > 5 || (Number(r.sd) || 0) >= 75;
+    // "Klikt verder": zelfde regel als getWebVisitsData() in dashboards/lib/web-visits.js
+    // (daar staat waarom duur en scroll niet meer meetellen); wijzig ze samen.
+    const engaged = distinct > 1 || (r.ck || 0) > 0 || conv > 0;
     const isNew = !!(r.vf && Math.abs(Date.parse(r.st + 'Z') - Date.parse(r.vf + 'Z')) < 30 * 60 * 1000);
     const flags = (engaged ? FLAGS.engaged : 0) | (isNew ? FLAGS.isNew : 0) | (r.hi ? FLAGS.historic : 0)
       | (r.st < startTs ? FLAGS.previous : 0) | (r.kn ? FLAGS.known : 0) | (linked.has(r.u) ? FLAGS.linked : 0)

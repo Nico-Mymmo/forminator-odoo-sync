@@ -71,10 +71,23 @@ final class Mymmo_Forms_Shortcodes {
             MYMMO_FORMS_VERSION
         );
 
+        // Postcode herkennen en de gemeente invullen. Een afhankelijkheid van
+        // mymmo-forms, zodat het overal meekomt waar een formulier staat
+        // (pagina, pop-up, callout, blok) zonder dat elke plek het apart moet
+        // laden. Het is klein en doet niets zolang er geen postcodeveld is; de
+        // postcodelijst zelf wordt pas opgehaald als iemand in zo'n veld klikt.
+        wp_register_script(
+            'mymmo-forms-postcode',
+            MYMMO_FORMS_URL . 'assets/js/mymmo-forms-postcode.js',
+            [],
+            MYMMO_FORMS_VERSION,
+            true
+        );
+
         wp_register_script(
             'mymmo-forms',
             MYMMO_FORMS_URL . 'assets/js/mymmo-forms.js',
-            [],
+            ['mymmo-forms-postcode'],
             MYMMO_FORMS_VERSION,
             true
         );

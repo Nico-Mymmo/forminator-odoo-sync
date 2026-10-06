@@ -195,6 +195,61 @@ if ($type === 'hidden') {
                 <?php endforeach; ?>
             </select>
 
+        <?php elseif ($type === 'postcode') :
+            // Een postcode. Nagekeken tegen de officiele lijst door
+            // mymmo-forms-postcode.js (in de browser) en door de Worker (de enige
+            // controle die telt). Het land komt uit de OM (validation.country);
+            // de lijst voor de browser zit in de plugin (assets/data/), gemaakt
+            // door build-mymmo-forms.sh uit de lijst van de OM.
+            //
+            // Bewust GEEN pattern-attribuut: de vorm verschilt per land en de
+            // browser zou zijn eigen ballon tonen. Het script zet een eigen
+            // melding met setCustomValidity().
+            $land = strtoupper((string) ($validatie['country'] ?? 'BE'));
+            if (!preg_match('/^[A-Z]{2}$/', $land)) {
+                $land = 'BE';
+            }
+            $lijst    = MYMMO_FORMS_URL . 'assets/data/postcodes-' . strtolower($land) . '.json?ver=' . rawurlencode(MYMMO_FORMS_VERSION);
+            $gemeente = (string) ($veld['city_field'] ?? '');
+            ?>
+            <input type="text"
+                   id="<?php echo esc_attr($veld_id); ?>"
+                   name="<?php echo esc_attr($key); ?>"
+                   class="mymmo-form-input"
+                   value="<?php echo esc_attr($waarde); ?>"
+                   placeholder="<?php echo esc_attr($plaats); ?>"
+                   autocomplete="postal-code"
+                   inputmode="<?php echo $land === 'BE' ? 'numeric' : 'text'; ?>"
+                   autocapitalize="characters"
+                   spellcheck="false"
+                   maxlength="12"
+                   data-mymmo-postcode="<?php echo esc_attr($land); ?>"
+                   data-mymmo-postcode-lijst="<?php echo esc_url($lijst); ?>"<?php echo $gemeente !== '' ? ' data-mymmo-gemeente="' . esc_attr($gemeente) . '"' : ''; ?>
+                   <?php echo $req_attr . $beschrijft . $prefill_attr; ?>>
+
+        <?php elseif ($type === 'city') :
+            // De gemeente bij een postcode. Een gewoon tekstvak, zodat het ook
+            // zonder JavaScript werkt; heeft de postcode meerdere plaatsen
+            // (1790: Affligem, Essene, Hekelgem, Teralfene), dan zet het script
+            // de keuzelijst eronder aan en het tekstvak uit -- er is altijd maar
+            // EEN van de twee met een name, dus er gaat EEN waarde mee.
+            // De keuzelijst staat hier al (verborgen en uitgeschakeld), zodat
+            // haar id en aria-describedby er vanaf het begin zijn.
+            ?>
+            <input type="text"
+                   id="<?php echo esc_attr($veld_id); ?>"
+                   name="<?php echo esc_attr($key); ?>"
+                   class="mymmo-form-input"
+                   value="<?php echo esc_attr($waarde); ?>"
+                   placeholder="<?php echo esc_attr($plaats); ?>"
+                   autocomplete="address-level2"
+                   data-mymmo-gemeente-van="<?php echo esc_attr((string) ($veld['postcode_field'] ?? '')); ?>"
+                   <?php echo $req_attr . $beschrijft . $lengte_attrs . $prefill_attr; ?>>
+            <select id="<?php echo esc_attr($veld_id . '-keuze'); ?>"
+                    class="mymmo-form-input"
+                    data-mymmo-gemeente-keuze
+                    hidden disabled<?php echo $beschrijft; ?>></select>
+
         <?php else :
             // text, email, tel, number, date -- en alles wat we nog niet kennen.
             $html_type = in_array($type, ['email', 'tel', 'number', 'date'], true) ? $type : 'text';

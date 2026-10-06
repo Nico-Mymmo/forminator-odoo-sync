@@ -182,6 +182,18 @@
           return '<option>' + esc(o.label || o.value) + '</option>';
         }).join('');
         invoer = '<select class="mymmo-form-input"' + prefillAttr + ' disabled><option>' + esc(eerste) + '</option>' + opts + '</select>';
+      } else if (type === 'postcode') {
+        // Zoals field.php: een tekstvak, geen type=number (een postcode is geen
+        // getal -- een NL-postcode heeft letters, en "0612" mag geen 612 worden).
+        invoer = '<input type="text" class="mymmo-form-input" value="' + esc(veld.default_value) +
+          '" placeholder="' + esc(plaats) + '" autocomplete="postal-code"' + prefillAttr + ' disabled>';
+      } else if (type === 'city') {
+        // Het tekstvak plus de (verborgen) keuzelijst die het script op de site
+        // aanzet als een postcode meerdere plaatsen heeft. Ook hier, omdat de
+        // pariteitstest de elementen van beide renderers vergelijkt.
+        invoer = '<input type="text" class="mymmo-form-input" value="' + esc(veld.default_value) +
+          '" placeholder="' + esc(plaats) + '" autocomplete="address-level2"' + prefillAttr + ' disabled>' +
+          '<select class="mymmo-form-input" hidden disabled></select>';
       } else {
         var htmlType = TYPES_MET_INVOERVAK.indexOf(type) !== -1 ? type : 'text';
         invoer = '<input type="' + esc(htmlType) + '" class="mymmo-form-input" value="' +
@@ -204,7 +216,7 @@
 
   // Spiegelt submitLayoutVoor-regel in forms/schema.js (SUBMIT_LAYOUTS,
   // KNOP_NAAST_TYPES) en mymmo_forms_knop_naast_index() in helpers.php.
-  var KNOP_NAAST_TYPES = ['text', 'email', 'tel', 'number', 'date', 'select'];
+  var KNOP_NAAST_TYPES = ['text', 'email', 'tel', 'postcode', 'city', 'number', 'date', 'select'];
   var KNOP_NAAST = { '1:1': '1-1', '2:1': '2-1', '3:1': '3-1' };
 
   /** Het laatste eenregelige veld: daar komt de knop naast. -1 = knop onder de velden. */

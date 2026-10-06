@@ -15,16 +15,36 @@
   <script src="https://unpkg.com/lucide@latest"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
   <script src="/shared-navbar.js"></script>
+  <style>
+    /* Tabs Verkoop en Targets: dezelfde zijkolommen als Gedrag in Webgedrag
+       (public/webgedrag.html). Een smalle schuifbalk die pas verschijnt als je erover gaat. */
+    .om-scroll { scrollbar-width: thin; scrollbar-color: transparent transparent; }
+    .om-scroll:hover { scrollbar-color: oklch(var(--bc) / 0.25) transparent; }
+    .om-scroll::-webkit-scrollbar { width: 6px; }
+    .om-scroll::-webkit-scrollbar-thumb { background-color: transparent; border-radius: 3px; }
+    .om-scroll:hover::-webkit-scrollbar-thumb { background-color: oklch(var(--bc) / 0.25); }
+    /* Neutrale lijnen en vlakken die in een donker thema niet zwart worden (CLAUDE.md, REGEL 7). */
+    .om-spoor { background-color: oklch(var(--bc) / 0.1); }
+    .om-hover:hover { background-color: oklch(var(--bc) / 0.06); }
+    .om-lijnen > :not([hidden]) ~ :not([hidden]) { border-color: oklch(var(--bc) / 0.1); }
+    /* Minder rijpe of minder betrouwbare cijfers: arceren, nooit weglaten. */
+    .om-hatch { background-image: repeating-linear-gradient(135deg, oklch(var(--bc) / 0.06) 0 6px, transparent 6px 12px); }
+    select option { background-color: oklch(var(--b1)); color: oklch(var(--bc)); }
+  </style>
 </head>
 <body class="bg-base-200">
   <div id="navbar"></div>
 
   <div style="padding-top: 48px;">
-    <main class="max-w-7xl mx-auto p-4 md:p-6">
+    <!-- id: dashboards-web.js maakt de pagina breder voor Verkoop en Targets (drie kolommen). -->
+    <main id="dashMain" class="max-w-7xl mx-auto p-4 md:p-6">
 
       <div role="tablist" class="tabs tabs-boxed mb-5 w-fit">
         <button role="tab" class="tab tab-active" data-dash-tab="instroom">Aanvragen</button>
         <button role="tab" class="tab" data-dash-tab="web">Website-bezoeken</button>
+        <button role="tab" class="tab" data-dash-tab="kaart">Kaart</button>
+        <button role="tab" class="tab" data-dash-tab="verkoop">Verkoop</button>
+        <button role="tab" class="tab" data-dash-tab="targets">Targets</button>
       </div>
 
       <!-- ── Tab: Aanvragen (public/dashboards.js) ───────────────────────────── -->
@@ -146,6 +166,21 @@
 
       </div>
 
+      <!-- ── Tab: Kaart (public/dashboards-map.js; tekenen: public/aanvragen-kaart.js) -->
+      <div data-dash-panel="kaart" class="hidden">
+
+        <div class="mb-4">
+          <h1 class="text-2xl font-bold">Waar komen de aanvragen vandaan?</h1>
+          <p class="text-sm text-base-content/60 mt-1">
+            Inzendingen van alle formulieren met een postcodeveld, per postcode op de kaart.
+            Per koppeling staat dezelfde kaart ook in Koppelingen, op het tabblad Kaart.
+          </p>
+        </div>
+
+        <div id="dashKaart"></div>
+
+      </div>
+
       <!-- ── Tab: Website-bezoeken (public/dashboards-web.js) ──────────────── -->
       <div data-dash-panel="web" class="hidden">
 
@@ -212,7 +247,7 @@
               <p class="grow-0 text-xs text-base-content/50 -mt-1">Groen = duidelijk beter dan gemiddeld, rood = duidelijk slechter.</p>
               <div class="overflow-x-auto">
                 <table class="table table-sm">
-                  <thead><tr><th>Kanaal</th><th class="text-right">Sessies</th><th class="text-right">Bezoekers</th><th class="text-right">Engagement</th><th class="text-right">Conv.</th><th class="text-right">Conv.-ratio</th></tr></thead>
+                  <thead><tr><th>Kanaal</th><th class="text-right">Sessies</th><th class="text-right">Bezoekers</th><th class="text-right" title="Klikte door naar een tweede pagina, klikte op iets of deed een conversie.">Klikt verder</th><th class="text-right">Conv.</th><th class="text-right">Conv.-ratio</th></tr></thead>
                   <tbody id="webChannels"></tbody>
                 </table>
               </div>
@@ -224,7 +259,7 @@
               <p class="grow-0 text-xs text-base-content/50 -mt-1">Campagne, bron of verwijzende site.</p>
               <div class="overflow-x-auto">
                 <table class="table table-sm">
-                  <thead><tr><th>Bron</th><th class="text-right">Sessies</th><th class="text-right">Engagement</th><th class="text-right">Conv.</th><th class="text-right">Conv.-ratio</th></tr></thead>
+                  <thead><tr><th>Bron</th><th class="text-right">Sessies</th><th class="text-right" title="Klikte door naar een tweede pagina, klikte op iets of deed een conversie.">Klikt verder</th><th class="text-right">Conv.</th><th class="text-right">Conv.-ratio</th></tr></thead>
                   <tbody id="webDetails"></tbody>
                 </table>
               </div>
@@ -239,7 +274,7 @@
               <p class="grow-0 text-xs text-base-content/50 -mt-1">De eerste pagina van een sessie. Klik om te filteren.</p>
               <div class="overflow-x-auto">
                 <table class="table table-sm">
-                  <thead><tr><th>Pagina</th><th class="text-right">Sessies</th><th class="text-right">Engagement</th><th class="text-right">Conv.-ratio</th></tr></thead>
+                  <thead><tr><th>Pagina</th><th class="text-right">Sessies</th><th class="text-right" title="Klikte door naar een tweede pagina, klikte op iets of deed een conversie.">Klikt verder</th><th class="text-right">Conv.-ratio</th></tr></thead>
                   <tbody id="webLandings"></tbody>
                 </table>
               </div>
@@ -300,7 +335,7 @@
               <h2 class="text-base font-semibold">Toestel</h2>
               <p class="grow-0 text-xs text-base-content/50 -mt-1" id="webDevicesNote"></p>
               <table class="table table-sm">
-                <thead><tr><th>Toestel</th><th class="text-right">Sessies</th><th class="text-right">Eng.</th><th class="text-right">Conv.</th></tr></thead>
+                <thead><tr><th>Toestel</th><th class="text-right">Sessies</th><th class="text-right" title="Klikte door naar een tweede pagina, klikte op iets of deed een conversie.">Klikt verder</th><th class="text-right">Conv.</th></tr></thead>
                 <tbody id="webDevices"></tbody>
               </table>
               <div id="webDeviceExtra"></div>
@@ -347,6 +382,12 @@
 
       </div>
 
+      <!-- ── Tab: Verkoop (public/dashboards-sales.js tekent het geraamte zelf) ── -->
+      <div data-dash-panel="verkoop" class="hidden"></div>
+
+      <!-- ── Tab: Targets (public/dashboards-targets.js) ──────────────────────── -->
+      <div data-dash-panel="targets" class="hidden"></div>
+
     </main>
   </div>
 
@@ -374,5 +415,32 @@
 
   <script src="/dashboards.js"></script>
   <script src="/dashboards-web.js"></script>
+  <script src="/aanvragen-kaart.js"></script>
+  <script src="/dashboards-map.js"></script>
+
+  <!-- "Wat zit hierachter": één venster voor elke doorklik in Verkoop en Targets (dashboards-kit.js). -->
+  <dialog id="omDrill" class="modal">
+    <div class="modal-box max-w-6xl">
+      <div class="flex items-start justify-between gap-3">
+        <div><h3 class="font-bold text-lg" id="omDrillTitle"></h3><p class="text-xs text-base-content/60 mt-0.5" id="omDrillSub"></p></div>
+        <form method="dialog"><button class="btn btn-sm btn-ghost" aria-label="Sluiten">✕</button></form>
+      </div>
+      <!-- Waarom deze records erin staan (de regels), dan het verloop in het groot (een klik op
+           een maand beperkt de lijst), dan de records met per rij de gegevens die het staven. -->
+      <div id="omDrillWhy" class="hidden mt-3 rounded-xl bg-base-200/60 px-3 py-2"></div>
+      <div id="omDrillChartWrap" class="hidden mt-3">
+        <div style="height: 240px;"><canvas id="omDrillCanvas" aria-label="Verloop"></canvas></div>
+        <p id="omDrillChartNote" class="text-[11px] text-base-content/50 mt-1"></p>
+      </div>
+      <div id="omDrillTools" class="flex flex-wrap items-end gap-2 mt-4 pt-3 border-t border-base-content/10"></div>
+      <div class="text-xs text-base-content/50 mt-2" id="omDrillCount"></div>
+      <div class="overflow-auto mt-1 max-h-[50vh]" id="omDrillBody"></div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>Sluiten</button></form>
+  </dialog>
+
+  <script src="/dashboards-kit.js"></script>
+  <script src="/dashboards-sales.js"></script>
+  <script src="/dashboards-targets.js"></script>
 </body>
 </html>

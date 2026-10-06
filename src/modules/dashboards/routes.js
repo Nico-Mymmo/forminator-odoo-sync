@@ -11,6 +11,8 @@
  *    GET  /api/targets          → Instelbaar maand-venster (?monthsBack=5&monthsAhead=6&scope=...)
  *    POST /api/targets/batch    → Meerdere maand-targets in één keer opslaan (body: {scope, items: [{periodMonth, targetValue}]})
  *    GET  /api/web-visits       → Tab "Website-bezoeken": compacte sessies uit D1 (?period=7d|30d|90d|12m)
+ *    GET  /api/aanvragen-kaart  → Tab "Kaart": aanvragen per postcode (?period=30d|90d|12m|alles)
+ *    *    /api/sales*          → Tabs "Verkoop" en "Targets": zie lib/sales/routes.js
  *
  * @module modules/dashboards/routes
  */
@@ -19,6 +21,8 @@ import { listTargetWindow, getTargetsForMonths, buildTargetTrend, upsertTargets 
 import { getWebVisitsCached, WEB_PERIODS } from './lib/web-visits.js';
 import { getWebAttributionCached } from './lib/web-attribution.js';
 import { loadExclusions, dropExcluded } from '../web-story/lib/exclusions.js';
+import { getAanvragenKaart, normalizeKaartPeriode } from './lib/aanvragen-kaart.js';
+import { salesRoutes } from './lib/sales/routes.js';
 
 const VALID_SCOPES = ['all', 'syndicoach', 'openvme', 'onbekend'];
 
@@ -62,9 +66,27 @@ function shiftMonthKey(monthKey, deltaMonths) {
 
 export const routes = {
 
+  // ── Verkoop en Targets (D1 om-sales) ─────────────────────────────────────
+  ...salesRoutes,
+
   // ── UI ────────────────────────────────────────────────────────────────────
   'GET /': async (context) => {
     return context.env.ASSETS.fetch(new Request(new URL('/dashboards.html', context.request.url)));
+  },
+
+  // ── Kaart: de aanvragen per postcode ─────────────────────────────────────
+  // Enkel koppelingen met een postcodeveld in hun formulier; zie
+  // lib/aanvragen-kaart.js voor wat er wel en niet meetelt.
+  'GET /api/aanvragen-kaart': async ({ env, request }) => {
+    const url = new URL(request.url);
+    const periode = normalizeKaartPeriode(url.searchParams.get('period'));
+    try {
+      const data = await getAanvragenKaart(env, { periode });
+      return json({ success: true, data });
+    } catch (err) {
+      console.error('[dashboards] aanvragen-kaart', err);
+      return json({ success: false, error: err.message || String(err) }, 500);
+    }
   },
 
   // ── Instroom-widget ──────────────────────────────────────────────────────
