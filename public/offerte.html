@@ -32,34 +32,51 @@
        een navbar, en de sandbox laat het iframe het venster niet wegnavigeren. -->
   <script>try { if (window.self !== window.top) document.getElementById('ovKnopTerug').hidden = true; } catch (e) { document.getElementById('ovKnopTerug').hidden = true; }</script>
   <span class="ov-werkbalk-titel">Offerte</span>
-  <button type="button" class="ov-knop" id="ovKnopBewerken" data-action="bewerken">Tekst bewerken</button>
-  <button type="button" class="ov-knop" id="ovKnopOpmaak" data-action="opmaak">Opmaak</button>
-  <button type="button" class="ov-knop" id="ovKnopIndelingHerstel" data-action="indeling" data-doe="alles-herstel" hidden>Indeling terugzetten</button>
-  <button type="button" class="ov-knop" data-action="gegevens">Gegevens invullen&hellip;</button>
-  <button type="button" class="ov-knop" data-action="instellingen">Nummering &amp; geldigheid&hellip;</button>
-  <button type="button" class="ov-knop" data-action="bedrijven">Bedrijven&hellip;</button>
-  <button type="button" class="ov-knop" data-action="json">JSON&hellip;</button>
-  <button type="button" class="ov-knop" data-action="json-kopieren">JSON kopiëren</button>
-  <button type="button" class="ov-knop" data-action="herstellen">Herstellen</button>
-  <button type="button" class="ov-knop" data-action="documenten">Recente pdf's&hellip;</button>
+  <!-- Wat collega's elke dag nodig hebben staat in de balk; al de rest zit
+       onder Instellingen. Het menu is een <details>: werkt met het
+       toetsenbord zonder eigen code, offerte-render.js sluit het enkel na een
+       keuze, bij een klik ernaast en met Escape. -->
+  <button type="button" class="ov-knop" data-action="gegevens">Offerte opstellen&hellip;</button>
+  <button type="button" class="ov-knop" data-action="documenten">Geschiedenis&hellip;</button>
   <button type="button" class="ov-knop" data-action="afdrukken" title="Afdrukken via de browser -- wordt niet bewaard">Afdrukken</button>
-  <button type="button" class="ov-knop ov-knop--hoofd" id="ovKnopPdf" data-action="pdf-maken" title="Maakt de pdf op de server en bewaart ze 30 dagen bij Recente pdf's">Pdf maken</button>
+  <details class="ov-menu">
+    <summary class="ov-knop">Instellingen</summary>
+    <div class="ov-menu-lijst">
+      <button type="button" class="ov-menu-item" id="ovKnopBewerken" data-action="bewerken">Tekst bewerken</button>
+      <button type="button" class="ov-menu-item" id="ovKnopOpmaak" data-action="opmaak">Opmaak</button>
+      <hr class="ov-menu-lijn">
+      <button type="button" class="ov-menu-item" data-action="sjabloongegevens">Sjabloongegevens&hellip;</button>
+      <button type="button" class="ov-menu-item" data-action="instellingen">Nummering &amp; geldigheid&hellip;</button>
+      <button type="button" class="ov-menu-item" data-action="bedrijven">Bedrijven&hellip;</button>
+      <hr class="ov-menu-lijn">
+      <button type="button" class="ov-menu-item" data-action="json">JSON&hellip;</button>
+      <button type="button" class="ov-menu-item" data-action="json-kopieren">JSON kopiëren</button>
+      <hr class="ov-menu-lijn">
+      <button type="button" class="ov-menu-item" data-action="herstellen">Herstellen</button>
+    </div>
+  </details>
+  <!-- In de bewerk- of opmaakstand: de weg terug, in de balk zelf. -->
+  <button type="button" class="ov-knop ov-knop--actief" id="ovKnopKlaar" data-action="bewerken" hidden>Klaar met bewerken</button>
+  <button type="button" class="ov-knop" id="ovKnopIndelingHerstel" data-action="indeling" data-doe="alles-herstel" hidden>Indeling terugzetten</button>
+  <button type="button" class="ov-knop ov-knop--hoofd" id="ovKnopPdf" data-action="pdf-maken" title="Maakt de pdf op de server en bewaart ze 30 dagen bij Geschiedenis">Pdf maken</button>
   <span class="ov-werkbalk-hint" id="ovMelding"></span>
 </div>
 
 <main class="ov-doc" id="ovDocument"></main>
 
-<!-- De gegevens die per offerte verschillen. Het formulier wordt opgebouwd
-     uit window.OFFERTE_VELDEN in offerte-data.js. -->
+<!-- Twee standen, opgebouwd door toonGegevens() uit window.OFFERTE_VELDEN:
+     "Offerte opstellen" (wat per klant verschilt) en "Sjabloongegevens"
+     (bedrijf en beelden, menu Instellingen). Zie hoortInStand(). -->
 <dialog class="ov-dialoog" id="ovGegevensDialoog">
   <div class="ov-dialoog-kop">
-    <span>Gegevens invullen</span>
+    <span id="ovGegevensTitel">Offerte opstellen</span>
     <button type="button" class="ov-knop" data-action="sluiten">Sluiten</button>
   </div>
   <div class="ov-dialoog-body" id="ovGegevensBody"></div>
   <div class="ov-dialoog-voet">
     <button type="button" class="ov-knop" data-action="sluiten">Annuleren</button>
-    <button type="button" class="ov-knop ov-knop--hoofd" data-action="gegevens-bewaren">Invullen</button>
+    <button type="button" class="ov-knop" id="ovGegevensInvullen" data-action="gegevens-bewaren">Invullen</button>
+    <button type="button" class="ov-knop ov-knop--hoofd" id="ovGegevensPdf" data-action="gegevens-pdf">Invullen en pdf maken</button>
   </div>
 </dialog>
 
@@ -139,12 +156,12 @@
   </div>
 </dialog>
 
-<!-- Recente pdf's: alles van de laatste 30 dagen, uit de editor EN uit de
+<!-- Geschiedenis: alles van de laatste 30 dagen, uit de editor EN uit de
      koppelingen (fs_v2_generated_documents). Opgebouwd door toonDocumenten()
      in offerte-render.js. -->
 <dialog class="ov-dialoog ov-dialoog--breed" id="ovDocumentenDialoog">
   <div class="ov-dialoog-kop">
-    <span>Recente pdf's (laatste 30 dagen)</span>
+    <span>Geschiedenis (laatste 30 dagen)</span>
     <button type="button" class="ov-knop" data-action="sluiten">Sluiten</button>
   </div>
   <div class="ov-dialoog-body">

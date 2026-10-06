@@ -2199,6 +2199,43 @@ Afspraken die bewust zo zijn:
   standaardwaarde van het sjabloon -- `buildPdfGegevens()` schrijft alleen
   paden die in `template.data.velden` voorkomen; een verdwenen of hernoemd pad
   wordt genegeerd (met een waarschuwing), niet fataal.
+- **Een GEKOPPELD veld zonder waarde wordt LEEG, het houdt de sjabloonwaarde
+  niet** (sinds 2026-10-06). Tot dan bleef bij een lege waarde staan wat in het
+  sjabloon stond -- en dat was niet de demo, maar wat een collega er als laatste
+  in de editor had ingevuld voor een handmatige offerte. Gemeten: drie
+  automatische offertes (29/09 en 05/10) kregen zo de voorzieningen van een
+  andere klant, terwijl de bezoeker er geen had aangeduid. Het spoor van de stap
+  zegt nu "leeg gelaten". Een veld ZONDER koppeling houdt wel de sjabloonwaarde.
+- **De datum van een automatische offerte is de dag waarop ze gemaakt wordt**
+  (Europe/Brussels), tenzij een koppeling `offerte.datum` zelf vult. Tot
+  2026-10-06 zette de pipeline die nergens, en droeg elke automatische offerte
+  de datum van de laatste handmatige -- soms dagen oud. `offerte.geldig_tot`
+  volgt dezelfde regel, maar ENKEL als het sjabloon een `geldigheid_dagen` heeft;
+  zonder termijn is de datum in het sjabloon een bewuste vaste datum ("Tarieven
+  geldig tot 31/12/2026").
+- **De editor wijzigt van `gegevens` in het sjabloon enkel `bedrijf` en
+  `beeld`** (`SJABLOON_GEGEVENS`). Klant, gebouw, offerte, contactpersoon en
+  eigen velden verschillen per offerte, en de editor is ook de plek waar
+  collega's met de
+  hand offertes opmaken: wat ze daar intypen werd tot 2026-10-06 meteen de
+  "standaardwaarde" van het sjabloon. `updatePdfTemplate()` laat die delen nu
+  staan zoals ze in de database staan (`mergeSjabloonGegevens()` in
+  pdf-step.js), en de editor stuurt ze niet meer mee (`gegevensVoorSjabloon()`
+  in offerte-render.js). BEIDE plekken, en de lijst staat dus TWEE keer:
+  zonder de server-kant blijft een open tabblad met de oude editor
+  klantgegevens wegschrijven. De demowaarden van die delen wijzig je enkel nog
+  rechtstreeks in de database.
+  Wat iemand voor een offerte invult, blijft in localStorage van die browser
+  (sleutel `offerte-ontwerp-<id>`) en komt na een verversing terug
+  (`herstelConcept()`), maar niet na 12 uur: de volgende dag begin je niet met
+  de klant van gisteren in de velden. "Herstellen" wist dat concept en het
+  genomen offertenummer.
+  De PRIJZEN liggen vast (`VASTE_GEGEVENS` in offerte-render.js, en niet in
+  `SJABLOON_GEGEVENS`): een collega hoeft ze niet aan te passen, en een
+  korting voor een handmatige offerte werd anders de prijs van elke volgende
+  automatische offerte. Ze staan in geen enkel venster van de editor, en komen
+  ook niet terug uit het concept. Een prijs wijzigen kan enkel in de database
+  (`fs_v2_pdf_templates.data.gegevens.prijs`).
 - **De contactpersoon is GEEN gegevens-veld.** `pdf_contact_source` (`fixed` |
   `dynamic` | leeg) bepaalt of naam/e-mail/foto uit een vast gekozen
   `hr.employee`-id komen, uit het record-id dat een vorige stap opleverde, of
@@ -2277,7 +2314,8 @@ Afspraken die bewust zo zijn:
   stap). Ze komt in `fs_v2_generated_documents` met `source = 'manual'`,
   `created_by` en zonder `integration_id` (migratie
   `20260929120000_fsv2_generated_documents_manual.sql`). "Afdrukken"
-  (`window.print`) bewaart niets. **"Recente pdf's"** in de werkbalk
+  (`window.print`) bewaart niets. **"Geschiedenis"** in de werkbalk (tot
+  2026-10-06 "Recente pdf's")
   (`GET /api/generated-documents`) toont alles van de laatste 30 dagen,
   handmatig én uit elke koppeling -- het tabblad "Documenten" per koppeling
   blijft daarnaast bestaan. Er wordt NIETS automatisch verwijderd: de
@@ -2285,12 +2323,30 @@ Afspraken die bewust zo zijn:
   werken.
 - **De contactpersoon in de editor is standaard de AANGEMELDE medewerker**
   (`GET /api/pdf-contacten/mij`, op werkadres / login / hetzelfde adres op
-  @mymmo.com), maar dat gaat NIET mee naar het sjabloon zolang niemand zelf
-  een contactpersoon koos (`contactAuto` + `gegevensVoorSjabloon()` in
-  offerte-render.js). Anders zet elke collega die de editor opent zichzelf in
-  het sjabloon, en daarmee in elke koppeling zonder `pdf_contact_source`. Het
-  adres volgt het merk van het bedrijf (zelfde regel als
+  @mymmo.com), maar dat gaat NOOIT mee naar het sjabloon, ook niet als iemand
+  zelf een contactpersoon koos (zie `SJABLOON_GEGEVENS` hierboven). Anders zet
+  elke collega die een offerte opmaakt zijn keuze in het sjabloon, en daarmee
+  in elke koppeling zonder `pdf_contact_source`. Een zelf gekozen contact komt
+  na een verversing terug uit localStorage (`contactAuto: false` in het
+  concept). Het adres volgt het merk van het bedrijf (zelfde regel als
   `emailOpBedrijfsdomein()`), met een domeinkiezer om dat bij te sturen.
+- **De editor is in de eerste plaats het werkscherm van collega's die vele
+  offertes per dag maken.** De werkbalk heeft daarom vier knoppen plus "Pdf
+  maken": Offerte opstellen, Geschiedenis, Afdrukken en het menu Instellingen
+  (tekst, opmaak, sjabloongegevens, nummering, bedrijven, JSON, herstellen).
+  "Offerte opstellen" toont ENKEL wat per klant verschilt: klant, gebouw,
+  eigen velden, het nummer en de contactpersoon (een kiezer, geen
+  invoervelden: naam, adres en foto komen uit Odoo). GEEN prijzen (vast) en
+  geen bedrijf of beelden: die staan onder Instellingen -> Sjabloongegevens en
+  gelden voor iedereen. `hoortInStand()` in offerte-render.js beslist welk
+  veld waar staat; zet een veld van het sjabloon nooit terug in "Offerte
+  opstellen". De voorbeeldwaarden van het sjabloon staan er als HINT in een
+  leeg veld, niet als waarde: anders blijft wat iemand vergeet te
+  overschrijven ("26 kavels") op de offerte van een echte klant staan.
+  "Nieuwe offerte" bovenaan maakt de klantvelden leeg en neemt een nieuw
+  nummer; is er van het ingevulde nummer al een pdf, dan zegt het venster dat
+  in het geel -- anders krijgt de volgende klant het nummer van de vorige.
+  "Invullen en pdf maken" doet beide in een klik.
 - **De editor (`offerte.html`) is bewust NIET verplaatst.** Ze blijft een
   volwaardige, zelfstandige pagina met eigen toolbar/dialogen; Instellingen ->
   PDF-ontwerpen beheert enkel de LIJST (naam, gebruikt-in-hoeveel-stappen,

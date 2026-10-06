@@ -563,14 +563,14 @@
         </div>
 
         <div class="form-control mb-1">
-          <label class="label pt-0 pb-1 flex items-center justify-between">
-            <span class="label-text text-sm font-medium">Tekst</span>
-            <span class="flex items-center gap-1">
-              <select id="mailToken-${esc(tid)}" class="select select-bordered select-xs">
+          <label class="label pt-0 pb-1 flex items-center justify-between gap-2">
+            <span class="label-text text-sm font-medium shrink-0">Tekst</span>
+            <span class="flex items-center justify-end gap-1 min-w-0">
+              <select id="mailToken-${esc(tid)}" class="select select-bordered select-xs min-w-0 w-full max-w-xs">
                 <option value="">Veld invoegen…</option>
                 ${tokenOpties}
               </select>
-              <button type="button" class="btn btn-xs" data-mail-action="insert-token" data-tid="${esc(tid)}">Invoegen</button>
+              <button type="button" class="btn btn-xs shrink-0" data-mail-action="insert-token" data-tid="${esc(tid)}">Invoegen</button>
             </span>
           </label>
           <div id="mailQuill-${esc(tid)}" class="min-w-0"></div>
@@ -676,14 +676,14 @@
         </div>
 
         <div class="form-control mb-3">
-          <label class="label pt-0 pb-1 flex items-center justify-between">
-            <span class="label-text text-sm font-medium">Tekst</span>
-            <span class="flex items-center gap-1">
-              <select id="mailToken-${esc(tid)}" class="select select-bordered select-xs">
+          <label class="label pt-0 pb-1 flex items-center justify-between gap-2">
+            <span class="label-text text-sm font-medium shrink-0">Tekst</span>
+            <span class="flex items-center justify-end gap-1 min-w-0">
+              <select id="mailToken-${esc(tid)}" class="select select-bordered select-xs min-w-0 w-full max-w-xs">
                 <option value="">Veld invoegen…</option>
                 ${tokenOpties}
               </select>
-              <button type="button" class="btn btn-xs" data-mail-action="insert-token" data-tid="${esc(tid)}">Invoegen</button>
+              <button type="button" class="btn btn-xs shrink-0" data-mail-action="insert-token" data-tid="${esc(tid)}">Invoegen</button>
             </span>
           </label>
           <div id="mailQuill-${esc(tid)}" class="min-w-0"></div>

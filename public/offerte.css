@@ -589,6 +589,72 @@ html, body{
 }
 .ov-werkbalk-hint{ color: #64748b; margin-left: auto; font-size: 12px; }
 
+/* Menu "Instellingen": een <details> met de knopstijl op de <summary>. */
+.ov-menu{ position: relative; }
+.ov-menu > summary{
+  list-style: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  user-select: none;
+}
+.ov-menu > summary::-webkit-details-marker{ display: none; }
+.ov-menu > summary::after{
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: translateY(-2px) rotate(45deg);
+}
+.ov-menu[open] > summary{ border-color: var(--ov-blauw); color: var(--ov-blauw); }
+.ov-menu[open] > summary::after{ transform: translateY(1px) rotate(-135deg); }
+.ov-menu-lijst{
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 60;
+  min-width: 230px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  border: 1px solid #cbd5e1;
+  border-radius: 9px;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, .12);
+}
+.ov-menu-item{
+  border: 0;
+  background: none;
+  text-align: left;
+  padding: 7px 10px;
+  border-radius: 6px;
+  font: 500 13px var(--ov-font-tekst);
+  color: #1e293b;
+  cursor: pointer;
+}
+.ov-menu-item:hover,
+.ov-menu-item:focus-visible{ background: #f1f5f9; color: var(--ov-blauw); outline: none; }
+.ov-menu-item.ov-knop--actief{ background: none; color: var(--ov-blauw); font-weight: 600; }
+.ov-menu-lijn{ border: 0; border-top: 1px solid #e2e8f0; margin: 5px 4px; }
+
+/* "Offerte opstellen": bovenaan de volgende offerte beginnen. Geel als er
+   van het ingevulde nummer al een pdf is. */
+.ov-nieuw{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  margin-bottom: 4px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+  font-size: 12px;
+  color: #475569;
+}
+.ov-nieuw--let-op{ background: #fffbeb; border-color: #fcd34d; color: #92400e; }
+
 /* melding wanneer een pagina overloopt */
 .ov-vol-melding{
   display: none;

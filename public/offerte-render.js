@@ -32,8 +32,10 @@
 
   /* ?server=1     -- Browser Rendering (pdf-step.js): geen localStorage, geen
                        bewaren, enkel window.OFFERTE.zet(data) van buitenaf.
-     ?template=ID  -- de editor onder Instellingen: laadt/bewaart een sjabloon
-                       op de server i.p.v. (enkel) in localStorage. */
+     ?template=ID  -- de editor onder Instellingen: laadt het sjabloon van de
+                       server en bewaart er enkel de sjabloondelen naartoe
+                       (SJABLOON_GEGEVENS). Wat je voor EEN offerte invult,
+                       blijft in localStorage van deze browser. */
   var params = new URLSearchParams(window.location.search);
   var SERVER = params.get('server') === '1';
   var TEMPLATE_ID = params.get('template') || null;
@@ -42,6 +44,30 @@
      succesvol is opgehaald -- anders overschrijft de allereerste bewaar() de
      inhoud van het sjabloon met de demo-gegevens uit OFFERTE_DATA. */
   var serverKlaar = !TEMPLATE_ID;
+
+  /* Welke delen van de gegevens de editor in het SJABLOON mag wijzigen. De
+     rest -- klant, gebouw, offerte, contactpersoon -- is wat iemand voor EEN
+     offerte invult en gaat niet naar de server (gegevensVoorSjabloon). Ging
+     het wel, dan werden de gegevens van de laatste handmatige offerte de
+     standaardwaarden van het sjabloon, en kreeg een automatische offerte met
+     een leeg veld die van een andere klant (2026-10-05). De server dwingt
+     hetzelfde af (SJABLOON_GEGEVENS + mergeSjabloonGegevens in pdf-step.js);
+     wijzig ze samen. */
+  var SJABLOON_GEGEVENS = ['bedrijf', 'beeld'];
+
+  /* Vast in het sjabloon: gaat nooit naar de server, komt niet terug uit het
+     concept van deze browser en staat in geen enkel venster (hoortInStand).
+     Wijzigen kan enkel in de database. */
+  var VASTE_GEGEVENS = ['prijs'];
+
+  /* Wat je voor een offerte invulde, komt na een verversing terug uit deze
+     browser (herstelConcept) -- maar niet de volgende dag: dan begin je aan
+     een nieuwe offerte, en niet met de gegevens van gisteren erin. */
+  var CONCEPT_GELDIG_MS = 12 * 60 * 60 * 1000;
+
+  /* De gegevens van het sjabloon zoals ze van de server kwamen. In "Offerte
+     opstellen" staan die voorbeeldwaarden als hint in een leeg veld. */
+  var sjabloonVoorbeeld = null;
 
   var staat = laadStaat();
   var bewerken = false;
@@ -849,6 +875,14 @@
       knop.classList.toggle('ov-knop--actief', bewerken);
       knop.textContent = bewerken ? 'Klaar met bewerken' : 'Tekst bewerken';
     }
+    /* De schakelaars zitten in het menu Instellingen; de weg TERUG staat in
+       de balk zelf, anders zie je niet dat je nog in een stand zit. */
+    var knopKlaar = document.getElementById('ovKnopKlaar');
+    if (knopKlaar) {
+      knopKlaar.hidden = !bewerken && !opmaakStand;
+      knopKlaar.dataset.action = opmaakStand ? 'opmaak' : 'bewerken';
+      knopKlaar.textContent = opmaakStand ? 'Klaar met opmaak' : 'Klaar met bewerken';
+    }
     controleerOverloop();
     meetLaterOpnieuw(doc);
   }
@@ -984,11 +1018,43 @@
         var ruw = window.localStorage.getItem(OPSLAGSLEUTEL);
         if (ruw) {
           var o = JSON.parse(ruw);
-          if (o && o.gegevens && o.copy) return o;
+          if (o && o.gegevens && o.copy) return { gegevens: o.gegevens, copy: o.copy };
         }
       } catch (e) { /* privévenster of opslag geblokkeerd: geen probleem */ }
     }
     return kopie(window.OFFERTE_DATA);
+  }
+
+  /* Het concept van deze browser terugzetten over het pas geladen sjabloon:
+     alles behalve de sjabloondelen en de vaste prijzen. Zo gooit een
+     verversing je werk niet weg,
+     ook al gaat dat werk niet meer naar de server. De contactpersoon enkel als
+     iemand die zelf koos; anders zet pasStandaardContactToe() de aangemelde
+     medewerker.
+     @returns {boolean} of er een zelf gekozen contactpersoon terugkwam */
+  function herstelConcept() {
+    if (SERVER || !TEMPLATE_ID || !staat || !staat.gegevens) return false;
+    var o = null;
+    try { o = JSON.parse(window.localStorage.getItem(OPSLAGSLEUTEL) || 'null'); }
+    catch (e) { return false; }
+    if (!o || !o.gegevens || typeof o.bewaardOp !== 'number') return false;
+    if (Date.now() - o.bewaardOp > CONCEPT_GELDIG_MS) return false;
+
+    var eigenContact = false;
+    Object.keys(o.gegevens).forEach(function (sleutel) {
+      if (SJABLOON_GEGEVENS.indexOf(sleutel) !== -1 || VASTE_GEGEVENS.indexOf(sleutel) !== -1) return;
+      if (sleutel === 'contact') {
+        var c = o.gegevens.contact;
+        var sj = staat.gegevens.contact || {};
+        if (o.contactAuto !== false || !c || !c.naam) return;
+        /* Bewaard voor de aangemelde medewerker er stond: dat is gewoon het
+           contact van het sjabloon, geen keuze. */
+        if (c.naam === sj.naam && c.email === sj.email) return;
+        eigenContact = true;
+      }
+      staat.gegevens[sleutel] = o.gegevens[sleutel];
+    });
+    return eigenContact;
   }
 
   var bewaarTimer = null;
@@ -998,13 +1064,21 @@
 
     clearTimeout(bewaarTimer);
     bewaarTimer = setTimeout(function () {
-      try { window.localStorage.setItem(OPSLAGSLEUTEL, JSON.stringify(staat)); }
+      try {
+        window.localStorage.setItem(OPSLAGSLEUTEL, JSON.stringify({
+          gegevens: staat.gegevens,
+          copy: staat.copy,
+          contactAuto: contactAuto,
+          bewaardOp: Date.now()
+        }));
+      }
       catch (e) { /* niet erg */ }
       bewaarNaarServer();
     }, 250);
   }
 
-  /* Gedebouncede PUT naar het sjabloon op de server. Alleen als er een
+  /* Gedebouncede PUT naar het sjabloon op de server, met enkel de
+     sjabloondelen van de gegevens (gegevensVoorSjabloon). Alleen als er een
      template-id is EN het sjabloon succesvol geladen werd (serverKlaar) --
      anders zou de allereerste, nog niet-geladen staat de bewaarde inhoud
      overschrijven. */
@@ -1041,8 +1115,9 @@
         var data = json.data.data || {};
         window.OFFERTE_VELDEN = data.velden || window.OFFERTE_VELDEN;
         staat = { gegevens: data.gegevens, copy: data.copy };
+        sjabloonVoorbeeld = kopie(staat.gegevens || {});
         contactAuto = false;
-        sjabloonContact = null;
+        var eigenContact = herstelConcept();
         /* Het sjabloon staat weer op zijn voorbeeldnummer; een al genomen
            nummer wordt bij het openen of de pdf opnieuw ingevuld. */
         nummer.toegepast = false;
@@ -1056,7 +1131,7 @@
           bewaar();
           melding('Nieuwe invulvelden toegevoegd aan het sjabloon.');
         }
-        pasStandaardContactToe();
+        if (!eigenContact) pasStandaardContactToe();
       })
       .catch(function () {
         melding('Sjabloon kon niet geladen worden — wijzigingen worden NIET bewaard.');
@@ -1114,17 +1189,55 @@
     return (groep.velden || []).some(function (v) { return v[0] === pad; });
   }
 
-  function toonGegevens() {
+  /* Welke velden een stand van het venster toont.
+     'offerte'  -- Offerte opstellen: wat per klant verschilt (klant, gebouw,
+                   nummer, contactpersoon, eigen velden). Collega's doen dat
+                   vele keren per dag, dus GEEN prijzen (vast) en geen bedrijf
+                   of beelden (van het sjabloon).
+     'sjabloon' -- Sjabloongegevens (menu Instellingen): bedrijf en beelden,
+                   voor iedereen (SJABLOON_GEGEVENS).
+     De prijzen staan in geen van beide (VASTE_GEGEVENS). */
+  function hoortInStand(pad, stand) {
+    var deel = String(pad).split('.')[0];
+    if (VASTE_GEGEVENS.indexOf(deel) !== -1) return false;
+    var vanSjabloon = SJABLOON_GEGEVENS.indexOf(deel) !== -1;
+    return stand === 'sjabloon' ? vanSjabloon : !vanSjabloon;
+  }
+
+  function veldHtml(v, waarde, hint) {
+    return '<label class="ov-veld"><span>' + esc(v[1]) + '</span>' +
+      '<input type="text" data-gegeven="' + esc(v[0]) + '" value="' + esc(waarde) + '"' +
+        (hint ? ' placeholder="bv. ' + esc(hint) + '"' : '') + '>' +
+    '</label>';
+  }
+
+  function toonGegevens(stand) {
+    var opstellen = stand !== 'sjabloon';
     var body = document.getElementById('ovGegevensBody');
-    body.innerHTML = (window.OFFERTE_VELDEN || []).map(function (groep) {
+    var groepen = (window.OFFERTE_VELDEN || []).map(function (groep) {
       var gewoon = [];
       var contact = [];
       var offerte = [];
-      groep.velden.forEach(function (v) {
-        (/^contact\./.test(v[0]) ? contact : /^offerte\./.test(v[0]) ? offerte : gewoon).push('<label class="ov-veld"><span>' + esc(v[1]) + '</span>' +
-          '<input type="text" data-gegeven="' + esc(v[0]) + '" value="' + esc(lees(v[0], staat.gegevens)) + '">' +
-        '</label>');
+      (groep.velden || []).forEach(function (v) {
+        var pad = v[0];
+        if (!hoortInStand(pad, opstellen ? 'offerte' : 'sjabloon')) return;
+        var waarde = lees(pad, staat.gegevens);
+        if (/^contact\./.test(pad)) {
+          /* Geen invoervelden: naam, adres en foto komen van de gekozen
+             medewerker. Verborgen, zodat de kiezer en "Invullen" ze blijven
+             lezen en schrijven. */
+          contact.push('<input type="hidden" data-gegeven="' + esc(pad) + '" value="' + esc(waarde) + '">');
+        } else if (/^offerte\./.test(pad)) {
+          offerte.push(veldHtml(v, waarde, ''));
+        } else {
+          /* De voorbeeldwaarde van het sjabloon staat er als hint, niet als
+             waarde: anders moet je elk veld eerst leegmaken, en blijft wat je
+             vergeet ("26 kavels") op de offerte van een echte klant staan. */
+          var voorbeeld = (opstellen && sjabloonVoorbeeld) ? String(lees(pad, sjabloonVoorbeeld)) : '';
+          gewoon.push(veldHtml(v, (voorbeeld && String(waarde) === voorbeeld) ? '' : waarde, voorbeeld));
+        }
       });
+      if (!gewoon.length && !contact.length && !offerte.length) return '';
       var velden = gewoon.join('');
 
       /* Nummer en datums worden automatisch gezet; ze staan dus kort op een
@@ -1134,22 +1247,61 @@
           '<details class="ov-contact-handmatig"><summary>Met de hand aanpassen</summary>' + offerte.join('') + '</details>' +
           velden;
       }
-      /* De contactpersoon als kaartje met de kiezers erboven; de ruwe velden
-         (met de foto als base64) staan ingeklapt eronder. */
-      if (contact.length) {
-        velden = contactKiezerHtml() +
-          '<details class="ov-contact-handmatig"><summary>Met de hand aanpassen</summary>' + contact.join('') + '</details>' +
-          velden;
-      }
+      /* De contactpersoon als kaartje met de kiezers erboven. */
+      if (contact.length) velden = contactKiezerHtml() + contact.join('') + velden;
 
       return '<div class="ov-groepkop">' + esc(groep.groep) + '</div>' + velden;
     }).join('');
 
+    body.innerHTML = (opstellen
+      ? nieuweOfferteHtml()
+      : '<p class="ov-veld-hint">Bedrijfsgegevens en beelden van het sjabloon. Wat je hier wijzigt, geldt voor iedereen.</p>') +
+      (groepen || '<p class="ov-veld-hint">Niets om in te vullen.</p>');
+
+    document.getElementById('ovGegevensTitel').textContent = opstellen ? 'Offerte opstellen' : 'Sjabloongegevens';
+    var knopPdf = document.getElementById('ovGegevensPdf');
+    if (knopPdf) knopPdf.hidden = !opstellen;
+    var knopInvullen = document.getElementById('ovGegevensInvullen');
+    if (knopInvullen) knopInvullen.classList.toggle('ov-knop--hoofd', !opstellen);
+
     contactGewijzigd = false;
     tekenContactKaart();
-    laadContacten();
-    nummerBijOpenen();
+    if (opstellen) {
+      laadContacten();
+      nummerBijOpenen();
+    }
     document.getElementById('ovGegevensDialoog').showModal();
+  }
+
+  /* Bovenaan "Offerte opstellen": de volgende offerte beginnen. Staat er al
+     een pdf van het nummer dat nu ingevuld is, dan zegt het venster dat --
+     anders vult een collega de volgende klant in over de vorige heen, met het
+     nummer van de vorige erop. */
+  function nieuweOfferteHtml() {
+    var nr = String(lees('offerte.nummer', staat.gegevens) || '');
+    var alGemaakt = !!laatstePdfNummer && nr === laatstePdfNummer;
+    return '<div class="ov-nieuw' + (alGemaakt ? ' ov-nieuw--let-op' : '') + '">' +
+      '<span>' + (alGemaakt
+        ? 'Van offerte <strong>' + esc(nr) + '</strong> is al een pdf gemaakt.'
+        : 'Begin je aan een andere klant?') + '</span>' +
+      '<button type="button" class="ov-knop ov-knop--klein' + (alGemaakt ? ' ov-knop--hoofd' : '') + '" data-action="nieuwe-offerte">Nieuwe offerte</button>' +
+    '</div>';
+  }
+
+  /* De klantvelden leeg (de voorbeeldwaarde blijft als hint) en een nieuw
+     nummer. De contactpersoon blijft: dat is meestal dezelfde collega. Aan de
+     offerte verandert pas iets bij "Invullen". */
+  function nieuweOfferte() {
+    var eerste = null;
+    document.querySelectorAll('#ovGegevensBody input[type="text"][data-gegeven]').forEach(function (input) {
+      if (/^offerte\./.test(input.dataset.gegeven)) return;
+      input.value = '';
+      if (!eerste) eerste = input;
+    });
+    var balk = document.querySelector('#ovGegevensBody .ov-nieuw');
+    if (balk) balk.remove();
+    genereerNummer(true);
+    if (eerste) eerste.focus();
   }
 
   function bewaarGegevens() {
@@ -1157,7 +1309,9 @@
       zet(input.dataset.gegeven, input.value, staat.gegevens);
     });
     if (contactGewijzigd) contactAuto = false;
-    if (nummer.data) nummer.toegepast = true;
+    /* Enkel als het nummer ook in dit venster stond: in Sjabloongegevens staat
+       het niet, en dan zou een genomen nummer als ingevuld gelden. */
+    if (nummer.data && document.querySelector('#ovGegevensBody [data-gegeven="offerte.nummer"]')) nummer.toegepast = true;
     document.getElementById('ovGegevensDialoog').close();
     bewaar();
     teken();
@@ -1317,16 +1471,15 @@
      ruwe velden ingeklapt onder "Met de hand aanpassen".
 
      Standaard staat de INGELOGDE medewerker op de offerte (contactAuto). Dat
-     is een keuze voor dit scherm, niet voor het sjabloon: zolang niemand zelf
-     een contactpersoon koos, gaat bij het bewaren naar de server het contact
-     van het sjabloon mee (sjabloonContact). Anders zet elke collega die de
-     editor opent zichzelf in het sjabloon -- en daarmee in de pdf van elke
-     koppeling zonder eigen contactbron.
+     is een keuze voor dit scherm, niet voor het sjabloon: de contactpersoon
+     gaat nooit naar de server (zie SJABLOON_GEGEVENS), ook niet als iemand
+     zelf iemand koos. Anders zet elke collega die een offerte opmaakt zijn
+     keuze in het sjabloon -- en daarmee in de pdf van elke koppeling zonder
+     eigen contactbron.
      -------------------------------------------------------------------- */
 
   var contacten = { lijst: null, bezig: false, mij: undefined, gekozenId: null };
   var contactAuto = false;
-  var sjabloonContact = null;
   var contactGewijzigd = false;   // in het dialoog dat nu openstaat
 
   /* In Odoo staat iedereen op @mymmo.com, maar een offerte vertrekt onder een
@@ -1436,7 +1589,7 @@
       })
       .catch(function () {
         var sel = document.getElementById('ovContactKiezer');
-        if (sel) sel.innerHTML = '<option value="">Lijst kon niet geladen worden - pas hieronder met de hand aan</option>';
+        if (sel) sel.innerHTML = '<option value="">Lijst kon niet geladen worden</option>';
       })
       .then(function () { contacten.bezig = false; });
   }
@@ -1501,7 +1654,6 @@
         var demo = ((window.OFFERTE_DATA || {}).gegevens || {}).contact || {};
         if (huidig.naam && huidig.naam !== demo.naam) return;
       }
-      sjabloonContact = huidig ? kopie(huidig) : null;
       staat.gegevens.contact = {
         naam: mij.naam || '',
         email: opMerkdomein(mij.email || ''),
@@ -1513,12 +1665,14 @@
     });
   }
 
-  /* Wat er naar het SJABLOON gaat: de gegevens zoals op het scherm, behalve
-     een contactpersoon die enkel automatisch ingevuld werd. */
+  /* Wat er naar het SJABLOON gaat: enkel de sjabloondelen (SJABLOON_GEGEVENS).
+     Klant, gebouw, offerte en de contactpersoon blijven in deze browser
+     (localStorage, zie herstelConcept); de prijzen liggen vast. */
   function gegevensVoorSjabloon() {
-    if (!contactAuto) return staat.gegevens;
-    var g = kopie(staat.gegevens);
-    if (sjabloonContact) g.contact = sjabloonContact; else delete g.contact;
+    var g = {};
+    SJABLOON_GEGEVENS.forEach(function (sleutel) {
+      if (staat.gegevens && staat.gegevens[sleutel] !== undefined) g[sleutel] = staat.gegevens[sleutel];
+    });
     return g;
   }
 
@@ -1533,6 +1687,8 @@
      -------------------------------------------------------------------- */
 
   var pdfBezig = false;
+  /* Het nummer van de laatste pdf uit dit scherm (zie nieuweOfferteHtml). */
+  var laatstePdfNummer = null;
 
   function maakPdf() {
     if (pdfBezig) return;
@@ -1566,7 +1722,8 @@
         var url = '/forminator-v2/api/generated-documents/' + encodeURIComponent(json.data.id) + '/download';
         if (venster) venster.location.href = url; else window.open(url, '_blank');
         documenten.lijst = null;
-        melding('Pdf gemaakt en bewaard bij Recente pdf\'s.');
+        laatstePdfNummer = String(lees('offerte.nummer', staat.gegevens) || '');
+        melding('Pdf gemaakt en bewaard bij Geschiedenis.');
       })
       .catch(function (err) {
         if (venster) venster.close();
@@ -1872,6 +2029,12 @@
 
   /* Eén centrale klikluisteraar, geen handlers in de opmaak. */
   document.addEventListener('click', function (e) {
+    /* Het menu Instellingen sluit na een keuze en bij een klik ernaast; een
+       <details> doet dat zelf niet. Een klik op de menuknop zelf laat de
+       browser het menu open- en dichtklappen. */
+    document.querySelectorAll('details.ov-menu[open]').forEach(function (menu) {
+      if (!menu.contains(e.target) || (e.target.closest && e.target.closest('.ov-menu-item'))) menu.open = false;
+    });
     var el = e.target.closest && e.target.closest('[data-action]');
     if (!el) return;
     var actie = el.dataset.action;
@@ -1896,6 +2059,13 @@
       toonGegevens();
     } else if (actie === 'gegevens-bewaren') {
       bewaarGegevens();
+    } else if (actie === 'gegevens-pdf') {
+      bewaarGegevens();
+      maakPdf();
+    } else if (actie === 'nieuwe-offerte') {
+      nieuweOfferte();
+    } else if (actie === 'sjabloongegevens') {
+      toonGegevens('sjabloon');
     } else if (actie === 'nummer-genereren') {
       genereerNummer(true);
     } else if (actie === 'instellingen') {
@@ -1933,7 +2103,13 @@
       if (dlg) dlg.close();
     } else if (actie === 'herstellen') {
       if (TEMPLATE_ID) {
-        if (!window.confirm('Wijzigingen weggooien en het sjabloon opnieuw van de server laden?')) return;
+        if (!window.confirm('De ingevulde offertegegevens wissen en opnieuw beginnen vanaf het sjabloon?')) return;
+        /* Het concept van deze browser weg, anders zet herstelConcept() het
+           meteen terug. En het genomen nummer: dat hoort bij de vorige
+           offerte, de volgende krijgt er een eigen. */
+        clearTimeout(bewaarTimer);
+        try { window.localStorage.removeItem(OPSLAGSLEUTEL); } catch (err) { /* niet erg */ }
+        nummer.data = null;
         laadVanServer();
         return;
       }
@@ -1965,6 +2141,16 @@
       bewaar();
       teken();
     }
+  });
+
+  /* Escape sluit het menu Instellingen (een <details> doet dat niet zelf). */
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Escape') return;
+    document.querySelectorAll('details.ov-menu[open]').forEach(function (menu) {
+      menu.open = false;
+      var knop = menu.querySelector('summary');
+      if (knop) knop.focus();
+    });
   });
 
   /* Keuzelijsten in de dialogen -- zelfde aanpak als de klikluisteraar. */

@@ -122,8 +122,9 @@ export function leesbareKeuze(waarde) {
  * Een samengestelde waarde ("{straat} {nummer}, {postcode} {gemeente}") waarin
  * een veld leeg bleef: geen dubbele spaties, geen komma zonder iets ervoor of
  * erna. Zonder dit staat er op de offerte "Kerkstraat , 9000 Gent" of
- * ", 9000 Gent". Blijft er niets over, dan is het leeg -- en houdt het veld de
- * sjabloonwaarde, zoals elk ander leeg veld.
+ * ", 9000 Gent". Blijft er niets over, dan is het leeg -- en staat er op de
+ * offerte niets, zoals bij elk ander gekoppeld veld zonder waarde (zie
+ * buildPdfGegevens).
  *
  * @param {*} waarde @returns {string}
  */
@@ -315,6 +316,9 @@ export async function buildPdfGegevens(env, { target, template, mappings, form, 
   const gegevens = structuredClone(template.data.gegevens);
   const toegestaan = toegestaneGegevenspaden(template.data.velden);
   const waarschuwingen = [];
+  // De paden die een koppeling van deze stap vulde (ook als ze leeg bleven).
+  const gekoppeld = new Set();
+  const nu = new Date();
 
   for (const mapping of (mappings || [])) {
     const pad = String(mapping.odoo_field || '').trim();
@@ -334,7 +338,8 @@ export async function buildPdfGegevens(env, { target, template, mappings, form, 
         continue;
       }
       const teller = await nextSequenceNumber(env, template.id);
-      zetPad(gegevens, pad, formatSequenceNumber(template.sequence_pattern, teller));
+      zetPad(gegevens, pad, formatSequenceNumber(template.sequence_pattern, teller, nu));
+      gekoppeld.add(pad);
       continue;
     }
     if (mapping.source_type === 'offer_validity') {
@@ -342,17 +347,41 @@ export async function buildPdfGegevens(env, { target, template, mappings, form, 
         waarschuwingen.push(`Geen geldigheidstermijn ingesteld op dit sjabloon — sjabloonwaarde behouden voor "${pad}".`);
         continue;
       }
-      zetPad(gegevens, pad, computeGeldigTot(template.geldigheid_dagen));
+      zetPad(gegevens, pad, computeGeldigTot(template.geldigheid_dagen, nu));
+      gekoppeld.add(pad);
       continue;
     }
 
     let waarde = resolveMapping(mapping, form, contextObject);
     if (mapping.source_type === 'template') waarde = ruimSamengesteldOp(waarde);
+    gekoppeld.add(pad);
+    // Een GEKOPPELD veld zonder waarde wordt LEEG; het houdt de sjabloonwaarde
+    // niet. Wat daar staat is een voorbeeld, of erger: wat er in de editor
+    // stond toen iemand er een handmatige offerte mee maakte. Zo kwamen de
+    // voorzieningen van een andere klant op een offerte waarop de bezoeker er
+    // geen had aangeduid (2026-10-05). Een veld ZONDER koppeling houdt wel de
+    // sjabloonwaarde: dat is dan een vaste tekst die bij het sjabloon hoort.
     if (waarde === null || waarde === undefined || waarde === '') {
-      waarschuwingen.push(`Geen waarde voor "${pad}" — sjabloonwaarde behouden.`);
+      waarschuwingen.push(`Geen waarde voor "${pad}" — leeg gelaten.`);
+      zetPad(gegevens, pad, '');
       continue;
     }
     zetPad(gegevens, pad, mapping.source_type === 'form' ? leesbareKeuze(waarde) : String(waarde));
+  }
+
+  // ── Datum ── de dag waarop de offerte gemaakt wordt (Europe/Brussels),
+  // tenzij een koppeling het veld zelf vult. Dit stond nergens: elke
+  // automatische offerte droeg de datum die toevallig in het sjabloon stond,
+  // die van de laatste handmatige offerte -- soms dagen oud. De geldigheid
+  // volgt dezelfde regel, maar enkel als het sjabloon een termijn heeft;
+  // zonder termijn is de datum in het sjabloon een bewuste vaste datum
+  // ("Tarieven geldig tot 31/12/2026").
+  if (toegestaan.has('offerte.datum') && !gekoppeld.has('offerte.datum')) {
+    zetPad(gegevens, 'offerte.datum', formatDatumBrussel(nu));
+  }
+  if (toegestaan.has('offerte.geldig_tot') && !gekoppeld.has('offerte.geldig_tot')
+    && Number.isInteger(template.geldigheid_dagen) && template.geldigheid_dagen > 0) {
+    zetPad(gegevens, 'offerte.geldig_tot', computeGeldigTot(template.geldigheid_dagen, nu));
   }
 
   // ── Bedrijf ── één gekozen profiel vervangt de hele groep, geen per-veld
@@ -621,6 +650,56 @@ export function validatePdfTemplateData(data) {
   }
 }
 
+/**
+ * Welke delen van `gegevens` de editor in het SJABLOON mag wijzigen. Al de
+ * rest verschilt per offerte (klant, gebouw, offerte, contactpersoon, eigen
+ * velden) of ligt vast (de prijzen).
+ *
+ * Waarom dit bestaat: de editor (public/offerte.html?template=<id>) is ook de
+ * plek waar collega's met de hand een offerte opmaken, en hij bewaarde alles
+ * wat op het scherm stond in het sjabloon. De klantgegevens van de laatste
+ * handmatige offerte werden zo de "standaardwaarden" -- en een automatische
+ * offerte waarin een veld leeg bleef, kreeg die van een andere klant
+ * (2026-10-05: de voorzieningen van een handmatige offerte stonden 39 minuten
+ * later op de automatische offerte van iemand die er geen had aangeduid).
+ *
+ * Wat hier niet in staat, kan de editor dus niet meer wijzigen: bij het
+ * bewaren blijft voor die delen staan wat al in het sjabloon zat
+ * (mergeSjabloonGegevens). Dat gebeurt op de SERVER en niet enkel in de
+ * browser: een open tabblad met een oudere versie van de editor schrijft
+ * anders klantgegevens weg tot iemand het herlaadt.
+ *
+ * De PRIJZEN staan er bewust niet in: ze liggen vast en een collega hoeft ze
+ * niet aan te passen. Een korting voor een handmatige offerte werd anders de
+ * prijs van elke volgende automatische offerte. Een prijs wijzigen kan enkel
+ * nog rechtstreeks in de database (fs_v2_pdf_templates.data.gegevens.prijs).
+ *
+ * Staat twee keer: hier en als SJABLOON_GEGEVENS in public/offerte-render.js
+ * (de browser kan geen Worker-code importeren). Wijzig ze samen.
+ */
+export const SJABLOON_GEGEVENS = ['bedrijf', 'beeld'];
+
+/**
+ * De `gegevens` om te bewaren: de sjabloondelen uit wat de editor stuurt, al
+ * de rest uit wat er al in het sjabloon stond. Puur.
+ *
+ * @param {Object} bestaand - gegevens zoals ze nu in het sjabloon staan
+ * @param {Object} nieuw    - gegevens zoals de editor ze stuurt
+ * @returns {Object}
+ */
+export function mergeSjabloonGegevens(bestaand, nieuw) {
+  const heeft = (obj, sleutel) => !!obj && Object.prototype.hasOwnProperty.call(obj, sleutel);
+  const uit = {};
+  for (const [sleutel, waarde] of Object.entries(bestaand || {})) {
+    if (!SJABLOON_GEGEVENS.includes(sleutel)) uit[sleutel] = waarde;
+  }
+  for (const sleutel of SJABLOON_GEGEVENS) {
+    if (heeft(nieuw, sleutel)) uit[sleutel] = nieuw[sleutel];
+    else if (heeft(bestaand, sleutel)) uit[sleutel] = bestaand[sleutel];
+  }
+  return uit;
+}
+
 // ─── Sjabloonbeheer (CRUD, achter de auth-gate in routes.js) ────────────────
 
 function nietGevonden(message) {
@@ -786,7 +865,12 @@ export async function updatePdfTemplate(env, id, { name, data, sequence_pattern,
   if (data !== undefined) validatePdfTemplateData(data);
   const updates = {};
   if (name !== undefined) updates.name = String(name || '').trim() || 'Naamloos sjabloon';
-  if (data !== undefined) updates.data = data;
+  if (data !== undefined) {
+    // Enkel de sjabloondelen van `gegevens` mogen wijzigen: zie SJABLOON_GEGEVENS.
+    const huidig = await getPdfTemplate(env, id);
+    const bestaand = (huidig.data && huidig.data.gegevens) || {};
+    updates.data = { ...data, gegevens: mergeSjabloonGegevens(bestaand, data.gegevens) };
+  }
   if (sequence_pattern !== undefined) updates.sequence_pattern = String(sequence_pattern || '').trim() || null;
   if (geldigheid_dagen !== undefined) {
     const n = Number(geldigheid_dagen);
