@@ -1,0 +1,83 @@
+/**
+ * Mymmo Componenten — DE HUISSTIJL.
+ *
+ * Dit is het ENIGE bestand in deze plugin waarin een kleur, een afronding, een
+ * schaduw, een randdikte of een opvullingsmaat als letterlijke waarde mag
+ * staan. Elk component verwijst hiernaar met `var(--mymmo-…)`.
+ *
+ * Waarom dat afgedwongen wordt en niet gevraagd: een component die net een
+ * andere afronding, een iets donkerdere schaduw of een eigen grijs meebrengt,
+ * ziet er op zich goed uit. Naast de rest van de pagina valt het uit de toon,
+ * en dat zie je pas op de site. De controle (`wp-plugin/huisstijl/controleer.mjs`)
+ * weigert daarom een zip zodra er ergens anders zo'n waarde staat.
+ *
+ * WIJZIGEN: alleen met goedkeuring van Nico (CODEOWNERS). Een nieuwe maat of
+ * kleur is een beslissing over de huisstijl, geen implementatiedetail. Mist er
+ * een waarde voor wat je bouwt, vraag ze aan -- zet ze niet in je component.
+ *
+ * KLEUR KOMT UIT HET PALET VAN HET THEMA. Elke kleur hieronder is een ROL
+ * (pagina, vlak, lijn), gekoppeld aan een slug van het palet. De waarde na de
+ * komma is alleen de terugval voor een thema zonder die slug. De sites draaien
+ * op Blockify met dezelfde `neutral-*`-reeks, dus normaal geldt die terugval
+ * nooit.
+ *
+ * GEEN TYPOGRAFIE. Lettertype, -grootte, -dikte en regelhoogte komen van het
+ * thema; daarvoor bestaat hier bewust niets.
+ *
+ * BREEKPUNTEN staan hier niet: een media query kan geen variabele lezen. De
+ * controle laat er precies vier toe -- zie het regelboek
+ * (`wp-plugin/mymmo-cards/CLAUDE.md`).
+ */
+
+:root {
+  /* ── Kleur: een rol, gekoppeld aan het palet ─────────────────────────── */
+
+  /* De achtergrond van de pagina. */
+  --mymmo-kleur-pagina: var(--wp--preset--color--neutral-0, #ffffff);
+  /* Een vlak dat zich van de pagina onderscheidt: een kaart zonder eigen
+     achtergrond. */
+  --mymmo-kleur-vlak: var(--wp--preset--color--neutral-100, #f3f4f6);
+  /* Een klein, licht vlak bovenop iets anders: een keitje. */
+  --mymmo-kleur-vlak-licht: var(--wp--preset--color--neutral-0, #ffffff);
+  /* De zachte merktint: een kei zonder eigen achtergrond. Op syndicoach.be
+     staat ze als eigen kleur in het palet ("#fce7f3 pink 100"); elders geldt
+     de terugval. */
+  --mymmo-kleur-accent-zacht: var(--wp--preset--color--custom-fce-7-f-3-pink-100, #fce7f3);
+  /* Een dunne lijn rond een licht vlak. */
+  --mymmo-kleur-lijn: rgba(15, 23, 42, 0.12);
+  /* De focusring: wie met het toetsenbord werkt, ziet waar hij staat. */
+  --mymmo-kleur-focus: var(--wp--preset--color--primary-500, #0369a1);
+
+  /* ── Zwaarte: rand en schaduw ────────────────────────────────────────── */
+
+  /* De enige randdikte voor een vlak. */
+  --mymmo-rand: 1.5px;
+  /* De focusring, met zijn afstand tot het element. */
+  --mymmo-focus: 2px solid var(--mymmo-kleur-focus);
+  --mymmo-focus-afstand: 2px;
+  /* Iets dat boven de pagina zweeft: een kaart in de stapel. Er is bewust maar
+     één niveau; een tweede is een vraag aan de huisstijl. */
+  --mymmo-schaduw-1: 0 18px 40px -24px rgba(0, 0, 0, 0.25);
+
+  /* ── Afronding ───────────────────────────────────────────────────────── */
+
+  /* Beeld en video in een vlak. */
+  --mymmo-afronding-m: 14px;
+  /* Een vlak: een kaart. */
+  --mymmo-afronding-l: 28px;
+  /* Een pil of een rondje. */
+  --mymmo-afronding-rond: 9999px;
+
+  /* ── Ruimte: de drie opvullingen ─────────────────────────────────────── */
+
+  /* Krap / normaal / ruim, zoals op de kaartenstapel. Een nieuw component
+     gebruikt dezelfde drie: dan staat zijn inhoud even ver van de rand als die
+     van een kaart ernaast. Op een telefoon (smaller dan 782px) gelden de vaste
+     maten; de mediaquery staat in het component. */
+  --mymmo-ruimte-krap: clamp(16px, 2vw, 24px);
+  --mymmo-ruimte-normaal: clamp(20px, 3vw, 40px);
+  --mymmo-ruimte-ruim: clamp(24px, 4vw, 62px);
+  --mymmo-ruimte-krap-telefoon: 16px;
+  --mymmo-ruimte-normaal-telefoon: 20px;
+  --mymmo-ruimte-ruim-telefoon: 24px;
+}

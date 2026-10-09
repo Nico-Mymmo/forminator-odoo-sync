@@ -148,6 +148,26 @@
     return gevonden ? gevonden.color : '';
   }
 
+  /**
+   * De afronding uit de huisstijl die het dichtst bij een bewaarde waarde ligt.
+   * Zelfde regel als mymmo_cards_afronding() in helpers.php: 16 wordt klein, 35
+   * en 48 worden groot. Geeft de rij uit de lijst ({ value, label, css }) of null.
+   */
+  function afronding(ruw) {
+    if (ruw === '' || ruw === null || ruw === undefined || isNaN(parseFloat(ruw))) {
+      return null;
+    }
+    var getal = parseFloat(ruw);
+    var beste = null;
+    (C.afrondingen || []).forEach(function (rij) {
+      var afstand = Math.abs(getal - parseFloat(rij.value));
+      if (!beste || afstand < beste.afstand) {
+        beste = { afstand: afstand, rij: rij };
+      }
+    });
+    return beste ? beste.rij : null;
+  }
+
   // ───────────────────────────────────────────────────────────────────────────
   // De stapel
   // ───────────────────────────────────────────────────────────────────────────
@@ -157,7 +177,7 @@
     title: 'Kaartenstapel',
     description: 'Kaarten die tijdens het scrollen op elkaar blijven liggen. De inhoud van een kaart maak je met gewone blokken, dus de letter volgt je thema.',
     icon: 'images-alt2',
-    category: 'design',
+    category: 'mymmo',
     keywords: ['kaarten', 'stapel', 'stack', 'scroll'],
     supports: { html: false, align: ['wide', 'full'], anchor: true },
 
@@ -174,7 +194,7 @@
       animatie: { type: 'string', default: 'schaal' },
       kleven: { type: 'boolean', default: true },
       kleeftMobiel: { type: 'boolean', default: true },
-      paginakleur: { type: 'string', default: '#ffffff' }
+      paginakleur: { type: 'string', default: '' }
     },
 
     edit: function (props) {
@@ -192,7 +212,7 @@
         style: {
           '--mk-stap': (a.stap || 0) + 'px',
           '--mk-gap': (a.gap || 0) + 'px',
-          '--mk-hoeken': (a.hoeken || 0) + 'px',
+          '--mk-hoeken': (afronding(a.hoeken) || { css: 'var(--mymmo-afronding-l)' }).css,
           '--mk-max': (a.breedte || 1200) + 'px'
         }
       });
@@ -241,12 +261,12 @@
             max: 160,
             onChange: function (w) { zet({ gap: w }); }
           }),
-          el(RangeControl, {
+          el(SelectControl, {
             label: 'Hoeken',
-            value: a.hoeken,
-            min: 0,
-            max: 60,
-            onChange: function (w) { zet({ hoeken: w }); }
+            value: (afronding(a.hoeken) || { value: '28' }).value,
+            options: keuzes(C.afrondingen, null),
+            onChange: function (w) { zet({ hoeken: parseInt(w, 10) }); },
+            help: 'De maten komen uit de huisstijl, zodat elke kaart op de site dezelfde hoeken heeft. Een kaart mag afwijken.'
           }),
           el(SelectControl, {
             label: 'Hoogte van de kaarten',
@@ -288,14 +308,14 @@
           PanelBody,
           { title: 'Achtergrond van de pagina', initialOpen: false },
           el('p', { style: { margin: '0 0 8px', fontSize: '12px', color: '#646970' } },
-            'De kop blijft staan terwijl de kaarten eronder doorschuiven. Zet hier dezelfde kleur als de pagina, anders lees je de tekst van een kaart dwars door de kop heen.'),
+            'De kop blijft staan terwijl de kaarten eronder doorschuiven. Zet hier dezelfde kleur als de pagina, anders lees je de tekst van een kaart dwars door de kop heen. Leeg = de paginakleur van de huisstijl.'),
           ColorPalette
             ? el(ColorPalette, {
                 colors: palet,
                 value: naarHex(palet, a.paginakleur) || a.paginakleur,
-                disableCustomColors: false,
-                clearable: false,
-                onChange: function (w) { zet({ paginakleur: naarSlug(palet, w || '#ffffff') }); }
+                disableCustomColors: true,
+                clearable: true,
+                onChange: function (w) { zet({ paginakleur: w ? naarSlug(palet, w) : '' }); }
               })
             : null
         )
@@ -318,7 +338,7 @@
     title: 'Kop van de stapel',
     description: 'De titel die blijft staan terwijl de kaarten eronder schuiven. Vul hem met gewone blokken.',
     icon: 'editor-textcolor',
-    category: 'design',
+    category: 'mymmo',
     parent: ['mymmo/cards'],
     supports: { html: false, reusable: false },
 
@@ -347,7 +367,7 @@
     title: 'Kaart',
     description: 'Een kaart in de stapel. Een of twee kolommen; onder 640px komen ze onder elkaar.',
     icon: 'index-card',
-    category: 'design',
+    category: 'mymmo',
     parent: ['mymmo/cards'],
     supports: { html: false, anchor: true, reusable: false },
 
@@ -420,8 +440,9 @@
       if (hex) {
         stijl['--mk-bg'] = hex;
       }
-      if (a.hoeken) {
-        stijl['--mk-hoeken'] = parseInt(a.hoeken, 10) + 'px';
+      var eigenHoeken = afronding(a.hoeken);
+      if (eigenHoeken) {
+        stijl['--mk-hoeken'] = eigenHoeken.css;
       }
       if (a.sier) {
         stijl['--mk-sier-breedte'] = (a.sierBreedte === undefined ? 70 : a.sierBreedte) + '%';
@@ -630,15 +651,8 @@
           }),
           el(SelectControl, {
             label: 'Hoeken',
-            value: a.hoeken || '',
-            options: [
-              { label: '— die van de stapel —', value: '' },
-              { label: 'Recht (0)', value: '0' },
-              { label: '16px', value: '16' },
-              { label: '28px', value: '28' },
-              { label: '35px', value: '35' },
-              { label: '48px', value: '48' }
-            ],
+            value: (afronding(a.hoeken) || { value: '' }).value,
+            options: keuzes(C.afrondingen, '— die van de stapel —'),
             onChange: function (w) { zet({ hoeken: w }); }
           })
         ),
@@ -649,6 +663,7 @@
             ? el(ColorPalette, {
                 colors: palet,
                 value: naarHex(palet, a.achtergrond),
+                disableCustomColors: true,
                 clearable: true,
                 onChange: function (w) { zet({ achtergrond: w ? naarSlug(palet, w) : '' }); }
               })
@@ -687,7 +702,7 @@
     title: 'Kolom van een kaart',
     description: 'Vul met wat je wil: een kop, tekst, een afbeelding, een video, of het blok "Mymmo ingang".',
     icon: 'columns',
-    category: 'design',
+    category: 'mymmo',
     parent: ['mymmo/card'],
     supports: { html: false, reusable: false },
 

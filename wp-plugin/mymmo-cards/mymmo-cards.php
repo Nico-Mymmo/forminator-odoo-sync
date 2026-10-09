@@ -2,11 +2,12 @@
 /**
  * Plugin Name:       Mymmo Componenten
  * Description:       Bouwstenen voor de blok-editor: de kaartenstapel en de markeerstift. Elk component bezit geometrie en gedrag, nooit typografie -- de letter komt altijd uit het thema.
- * Version:           1.8.8
+ * Version:           1.9.1
  * Requires at least: 6.2
  * Requires PHP:      8.0
  * Author:            Mymmo
  * Text Domain:       mymmo-cards
+ * Update URI:        https://github.com/Nico-Mymmo/forminator-odoo-sync
  *
  * ONTWERPUITGANGSPUNT
  * -------------------
@@ -63,6 +64,23 @@
  *   - de KEIENWOLK (`includes/class-keien.php`) -- grote zwevende keien met
  *     eigen inhoud, omringd door keitjes die parallax voorbijschuiven
  *
+ * DE HUISSTIJL (sinds 1.9.0)
+ * --------------------------
+ * `assets/css/mymmo-huisstijl.css` is de ENIGE plek met een letterlijke kleur,
+ * afronding, schaduw, randdikte of opvulling; elk component verwijst ernaar.
+ * `includes/class-huisstijl.php` laadt die stylesheet en zet de eigen
+ * categorie "Mymmo" in de inserter; `includes/class-bewaking.php` begrenst
+ * de blok-editor zelf (geen eigen kleuren, lettertypes, Extra CSS of
+ * themastijlen). De controle in `wp-plugin/huisstijl/controleer.mjs` houdt
+ * de code eraan: zonder groene controle en een review geen zip. Het
+ * regelboek staat in `CLAUDE.md` naast dit bestand.
+ *
+ * AUTOMATISCH BIJWERKEN (sinds 1.9.1)
+ * -----------------------------------
+ * Wat op master komt, brengt GitHub uit als release; elke site haalt die
+ * zelf op (`includes/class-updates.php`). De "Update URI" hierboven zorgt
+ * dat WordPress daarvoor niet bij wordpress.org gaat kijken.
+ *
  * De MAPNAAM blijft `mymmo-cards`. WordPress herkent een plugin aan haar pad:
  * hernoemen zou op de site een TWEEDE plugin opleveren naast de bestaande, en
  * dan staat er tot iemand het merkt twee keer dezelfde code te draaien.
@@ -74,18 +92,24 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('MYMMO_CARDS_VERSION', '1.8.8');
+define('MYMMO_CARDS_VERSION', '1.9.1');
 define('MYMMO_CARDS_FILE', __FILE__);
 define('MYMMO_CARDS_DIR', plugin_dir_path(__FILE__));
 define('MYMMO_CARDS_URL', plugin_dir_url(__FILE__));
 
 require_once MYMMO_CARDS_DIR . 'includes/helpers.php';
+require_once MYMMO_CARDS_DIR . 'includes/class-huisstijl.php';
+require_once MYMMO_CARDS_DIR . 'includes/class-bewaking.php';
+require_once MYMMO_CARDS_DIR . 'includes/class-updates.php';
 require_once MYMMO_CARDS_DIR . 'includes/class-blocks.php';
 require_once MYMMO_CARDS_DIR . 'includes/class-markering.php';
 require_once MYMMO_CARDS_DIR . 'includes/class-knop.php';
 require_once MYMMO_CARDS_DIR . 'includes/class-keien.php';
 
 function mymmo_cards_bootstrap(): void {
+    Mymmo_Cards_Huisstijl::init();
+    Mymmo_Cards_Bewaking::init();
+    Mymmo_Cards_Updates::init();
     Mymmo_Cards_Blocks::init();
     Mymmo_Cards_Markering::init();
     Mymmo_Cards_Knop::init();

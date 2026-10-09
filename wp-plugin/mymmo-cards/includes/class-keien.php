@@ -44,8 +44,8 @@ final class Mymmo_Cards_Keien {
     public const KEI    = 'mymmo/kei';
     public const KEITJE = 'mymmo/keitje';
 
-    /** Waar de tekeningen uit de huisstijl staan. */
-    public const TEKENINGEN_URL = 'https://link.openvme.be/assets/brand/thingies/thingies_';
+    /** Waar de tekeningen uit de huisstijl staan (zie mymmo_cards_thingies()). */
+    public const TEKENINGEN_URL = MYMMO_CARDS_THINGIES_URL;
 
     /** Hoeveel organische vormen er zijn (zie mymmo-keien.css). */
     public const VORMEN = 4;
@@ -73,28 +73,9 @@ final class Mymmo_Cards_Keien {
      * @return array<string,string> slug => label
      */
     public static function tekeningen(): array {
-        return [
-            'lift'              => 'Lift',
-            'spaarvarken'       => 'Spaarvarken',
-            'brieven'           => 'Brieven',
-            'kapotte-lamp'      => 'Kapotte lamp',
-            'calendar1'         => 'Kalender',
-            'calendar2'         => 'Kalender (2)',
-            'vergrootglas'      => 'Vergrootglas',
-            'openstaande-vraag' => 'Openstaande vraag',
-            'telefoon'          => 'Telefoon',
-            'aktentas'          => 'Aktentas',
-            'zonnepaneel'       => 'Zonnepaneel',
-            'laadpaal'          => 'Laadpaal',
-            'bakstenen'         => 'Bakstenen',
-            'deur'              => 'Deur',
-            'fietsenstalling'   => 'Fietsenstalling',
-            'kruis'             => 'Kruis',
-            'sfeer'             => 'Sfeer',
-            'tuin'              => 'Tuin',
-            'verwarming'        => 'Verwarming',
-            'vuilniishok'       => 'Vuilnishok',
-        ];
+        // De lijst zelf staat in helpers.php: het zijn de iconen van de hele
+        // plugin, niet enkel die van de keien.
+        return mymmo_cards_thingies();
     }
 
     /**
@@ -143,7 +124,7 @@ final class Mymmo_Cards_Keien {
             return;
         }
 
-        wp_register_style('mymmo-keien', MYMMO_CARDS_URL . 'assets/css/mymmo-keien.css', [], MYMMO_CARDS_VERSION);
+        wp_register_style('mymmo-keien', MYMMO_CARDS_URL . 'assets/css/mymmo-keien.css', [Mymmo_Cards_Huisstijl::HANDLE], MYMMO_CARDS_VERSION);
         wp_register_style('mymmo-keien-editor', MYMMO_CARDS_URL . 'assets/css/mymmo-keien-editor.css', ['mymmo-keien'], MYMMO_CARDS_VERSION);
 
         // Enkel op de PAGINA (view_script): in de editor beweegt er niets, want
@@ -355,7 +336,9 @@ final class Mymmo_Cards_Keien {
         $rand = mymmo_cards_color((string) ($attrs['keiRand'] ?? ''));
         if ($rand !== '') {
             $stijl[] = '--mk-kei-rand:' . $rand;
-            $stijl[] = '--mk-kei-rand-dikte:' . mymmo_cards_px($attrs['keiRandDikte'] ?? null, 2, 0, 12) . 'px';
+            // De dikte komt uit de huisstijl (sinds 1.9.1). keiRandDikte blijft
+            // geregistreerd zodat oudere wolken geldig blijven, maar telt niet meer.
+            $stijl[] = '--mk-kei-rand-dikte:var(--mymmo-rand)';
         }
 
         $klassen = ['mymmo-keien'];
@@ -429,15 +412,20 @@ final class Mymmo_Cards_Keien {
             $stijl[] = '--mk-kei-bg:' . $bg;
         }
 
-        // Een eigen rand wint van die van de wolk. Een kleur zonder dikte krijgt
-        // 2px: anders kies je een kleur en gebeurt er niets.
+        // Een eigen rand wint van die van de wolk. De DIKTE komt uit de
+        // huisstijl (sinds 1.9.1); randDikte zegt enkel nog: zoals de wolk (-1),
+        // geen rand (0) of wel een rand (> 0). Oudere waarden (3, 6, 12) worden
+        // "wel". Een kleur zonder keuze krijgt een rand: anders kies je een
+        // kleur en gebeurt er niets.
         $rand  = mymmo_cards_color((string) ($attrs['rand'] ?? ''));
         $dikte = mymmo_cards_px($attrs['randDikte'] ?? null, -1, -1, 12);
         if ($rand !== '') {
             $stijl[] = '--mk-kei-rand:' . $rand;
-            $stijl[] = '--mk-kei-rand-dikte:' . ($dikte >= 0 ? $dikte : 2) . 'px';
-        } elseif ($dikte >= 0) {
-            $stijl[] = '--mk-kei-rand-dikte:' . $dikte . 'px';
+        }
+        if ($dikte === 0) {
+            $stijl[] = '--mk-kei-rand-dikte:0px';
+        } elseif ($rand !== '' || $dikte > 0) {
+            $stijl[] = '--mk-kei-rand-dikte:var(--mymmo-rand)';
         }
 
         $snelheid = mymmo_cards_px($attrs['snelheid'] ?? null, 0, -100, 100);

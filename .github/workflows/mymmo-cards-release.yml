@@ -1,0 +1,89 @@
+# Mymmo Componenten uitbrengen: wat op master komt, gaat vanzelf naar de sites.
+#
+# Bij elke push naar master die de plugin raakt:
+#   1. de versie lezen uit mymmo-cards.php, en de vingerafdruk van de code;
+#   2. bestaat release mymmo-cards-vX.Y.Z al?
+#      - met dezelfde vingerafdruk: niets te doen;
+#      - met ANDERE code: fout -- nieuwe code hoort een nieuw versienummer;
+#   3. anders: bouwen met het bouwscript (dat de huisstijlcontrole en de review
+#      eist) en uitbrengen als release, met de zip eraan.
+#
+# De sites (wp-plugin/mymmo-cards/includes/class-updates.php) halen die release
+# binnen het uur zelf op. Ze nemen ENKEL een release die deze workflow maakte
+# (github-actions[bot]) en waarvan de commit op master staat.
+
+name: Mymmo Componenten uitbrengen
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'wp-plugin/mymmo-cards/**'
+      - 'wp-plugin/mymmo-cards.review.json'
+      - 'wp-plugin/huisstijl/**'
+      - 'wp-plugin/build-mymmo-cards.sh'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: mymmo-cards-uitbrengen
+  cancel-in-progress: false
+
+jobs:
+  uitbrengen:
+    name: Uitbrengen
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Versie en vingerafdruk
+        id: versie
+        run: |
+          VERSIE=$(grep -m1 '^ \* Version:' wp-plugin/mymmo-cards/mymmo-cards.php | sed 's/.*Version: *//' | tr -d ' \r')
+          AFDRUK=$(node wp-plugin/huisstijl/controleer.mjs --afdruk)
+          echo "versie=$VERSIE" >> "$GITHUB_OUTPUT"
+          echo "afdruk=$AFDRUK" >> "$GITHUB_OUTPUT"
+          if gh release view "mymmo-cards-v$VERSIE" --json tagName >/dev/null 2>&1; then
+            echo "bestaat=1" >> "$GITHUB_OUTPUT"
+          else
+            echo "bestaat=0" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Staat deze versie al uit?
+        if: steps.versie.outputs.bestaat == '1'
+        run: |
+          V="${{ steps.versie.outputs.versie }}"
+          OUD=$(gh release view "mymmo-cards-v$V" --json body --jq .body | grep -o 'Vingerafdruk: [0-9a-f]*' | awk '{print $2}')
+          if [ "$OUD" != "${{ steps.versie.outputs.afdruk }}" ]; then
+            echo "::error::Versie $V staat al uit, met andere code. Hoog het versienummer op (twee plekken in mymmo-cards.php + een sectie in README.md) en doe de review opnieuw."
+            exit 1
+          fi
+          echo "Versie $V staat al uit met precies deze code; niets te doen."
+
+      - name: Bouwen (controle + review)
+        if: steps.versie.outputs.bestaat == '0'
+        run: bash wp-plugin/build-mymmo-cards.sh "${{ steps.versie.outputs.versie }}"
+
+      - name: Uitbrengen
+        if: steps.versie.outputs.bestaat == '0'
+        run: |
+          V="${{ steps.versie.outputs.versie }}"
+          # De notities: de sectie van deze versie uit de README, tot de volgende.
+          awk -v kop="**$V**" '
+            index($0, kop) == 1 { aan = 1; print; next }
+            aan && (/^\*\*[0-9]+\.[0-9]+\.[0-9]+\*\*/ || /^## /) { exit }
+            aan { print }
+          ' wp-plugin/mymmo-cards/README.md > notities.md
+          printf '\n\nVingerafdruk: %s\n' "${{ steps.versie.outputs.afdruk }}" >> notities.md
+          gh release create "mymmo-cards-v$V" "wp-plugin/mymmo-cards-$V.zip" \
+            --target "$GITHUB_SHA" \
+            --title "Mymmo Componenten $V" \
+            --notes-file notities.md

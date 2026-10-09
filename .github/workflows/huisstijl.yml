@@ -1,0 +1,31 @@
+# De huisstijlcontrole van Mymmo Componenten, bij elke pull request.
+#
+# Dezelfde controle als in het bouwscript (wp-plugin/build-mymmo-cards.sh), met
+# --bouw: ook de review moet bij precies deze code horen. Zo kan er niets in
+# master komen dat geen zip zou opleveren.
+#
+# Bewust zonder paths-filter op pull_request: staat deze controle verplicht in
+# een ruleset, dan blijft een PR zonder wijziging in wp-plugin/ anders eeuwig op
+# "wachten" staan. De controle duurt een paar seconden.
+
+name: Huisstijl
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+    paths:
+      - 'wp-plugin/**'
+      - '.github/workflows/huisstijl.yml'
+
+jobs:
+  controle:
+    name: Huisstijlcontrole
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Controle en review
+        run: node wp-plugin/huisstijl/controleer.mjs --bouw

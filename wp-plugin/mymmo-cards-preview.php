@@ -203,7 +203,10 @@ $stapel = new Mymmo_Cards_Proefblok(
 
 $html = $stapel->render();
 
-$css_kaarten = file_get_contents(MYMMO_CARDS_DIR . 'assets/css/mymmo-cards.css');
+// De huisstijl eerst: de stapel haalt haar kleuren, afrondingen en opvullingen
+// daaruit (sinds 1.9.0). Zonder staat de proef zonder hoeken en zonder opvulling.
+$css_kaarten = file_get_contents(MYMMO_CARDS_DIR . 'assets/css/mymmo-huisstijl.css')
+    . "\n" . file_get_contents(MYMMO_CARDS_DIR . 'assets/css/mymmo-cards.css');
 $js_kaarten  = file_get_contents(MYMMO_CARDS_DIR . 'assets/js/mymmo-cards.js');
 
 ?><!DOCTYPE html>

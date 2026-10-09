@@ -51,16 +51,16 @@
   /* Invoer: dit zet de redacteur. */
   --mk-stap: 16px;
   --mk-gap: 40px;
-  --mk-hoeken: 28px;
+  --mk-hoeken: var(--mymmo-afronding-l);
   --mk-max: 1200px;
   --mk-aantal: 1;
-  --mk-pagina: #ffffff;
+  --mk-pagina: var(--mymmo-kleur-pagina);
 
   /* Gebruik: hieruit rekent de rest. Zie de uitleg hierboven. */
   --mk-stap-nu: var(--mk-stap);
   --mk-gap-nu: var(--mk-gap);
   --mk-marge: clamp(16px, 5vw, 72px);
-  --mk-pad: clamp(20px, 3vw, 40px);
+  --mk-pad: var(--mymmo-ruimte-normaal);
 
   /* De terugval als er geen JavaScript draait. Geen magisch getal dat met de
      hand gelijk moet blijven aan de hoogste kaart — het script meet en
@@ -91,7 +91,8 @@
 /* ── De opvulling: een gesloten lijst, als klasse ────────────────────────── */
 
 /*
- * Drie maten, en de waarden staan ALLEEN hier. De stapel zet de maat voor al
+ * Drie maten, en de waarden staan in de HUISSTIJL (mymmo-huisstijl.css), zodat
+ * een ander component dezelfde drie gebruikt. De stapel zet de maat voor al
  * haar kaarten; een kaart mag afwijken en wint dan, want twee klassen.
  *
  * Dat de opvulling op de stapel staat is het hele punt: in de vorige opzet had
@@ -99,13 +100,13 @@
  * rondom), en dan bestaat er geen "de opvulling van de kaarten" meer om iets
  * mee gelijk te zetten.
  */
-.mymmo-kaarten--pad-krap { --mk-pad: clamp(16px, 2vw, 24px); }
-.mymmo-kaarten--pad-normaal { --mk-pad: clamp(20px, 3vw, 40px); }
-.mymmo-kaarten--pad-ruim { --mk-pad: clamp(24px, 4vw, 62px); }
+.mymmo-kaarten--pad-krap { --mk-pad: var(--mymmo-ruimte-krap); }
+.mymmo-kaarten--pad-normaal { --mk-pad: var(--mymmo-ruimte-normaal); }
+.mymmo-kaarten--pad-ruim { --mk-pad: var(--mymmo-ruimte-ruim); }
 
-.mymmo-kaarten .mymmo-kaart--pad-krap { --mk-pad: clamp(16px, 2vw, 24px); }
-.mymmo-kaarten .mymmo-kaart--pad-normaal { --mk-pad: clamp(20px, 3vw, 40px); }
-.mymmo-kaarten .mymmo-kaart--pad-ruim { --mk-pad: clamp(24px, 4vw, 62px); }
+.mymmo-kaarten .mymmo-kaart--pad-krap { --mk-pad: var(--mymmo-ruimte-krap); }
+.mymmo-kaarten .mymmo-kaart--pad-normaal { --mk-pad: var(--mymmo-ruimte-normaal); }
+.mymmo-kaarten .mymmo-kaart--pad-ruim { --mk-pad: var(--mymmo-ruimte-ruim); }
 
 /* ── De kop boven de stapel ──────────────────────────────────────────────── */
 
@@ -393,7 +394,7 @@ html.mymmo-modal-actief .mymmo-kaarten > .mymmo-kaarten-kop {
   max-width: var(--mk-max);
   width: 100%;
   margin-inline: auto;
-  background: var(--mk-bg, #f3f4f6);
+  background: var(--mk-bg, var(--mymmo-kleur-vlak));
   border-radius: var(--mk-hoeken);
   padding: var(--mk-pad);
   /*
@@ -418,7 +419,7 @@ html.mymmo-modal-actief .mymmo-kaarten > .mymmo-kaarten-kop {
   /* Het script schaalt de kaart terwijl de volgende eroverheen schuift; het
      krimpen hoort vanaf de BOVENRAND te gebeuren, want die blijft zichtbaar. */
   transform-origin: top center;
-  box-shadow: 0 18px 40px -24px rgba(0, 0, 0, 0.25);
+  box-shadow: var(--mymmo-schaduw-1);
   /*
    * EEN FLEXKOLOM, en dat is nodig om te kunnen centreren.
    *
@@ -617,7 +618,7 @@ html.mymmo-modal-actief .mymmo-kaarten > .mymmo-kaarten-kop {
   width: 100%;
   aspect-ratio: 16 / 9;
   border: 0;
-  border-radius: var(--mk-beeldhoeken, 14px);
+  border-radius: var(--mk-beeldhoeken, var(--mymmo-afronding-m));
 }
 
 .mymmo-kaarten .mymmo-kaart figure {
@@ -761,13 +762,13 @@ html.mymmo-modal-actief .mymmo-kaarten > .mymmo-kaarten-kop {
     --mk-kleef: 16px;
   }
 
-  .mymmo-kaarten--pad-krap { --mk-pad: 16px; }
-  .mymmo-kaarten--pad-normaal { --mk-pad: 20px; }
-  .mymmo-kaarten--pad-ruim { --mk-pad: 24px; }
+  .mymmo-kaarten--pad-krap { --mk-pad: var(--mymmo-ruimte-krap-telefoon); }
+  .mymmo-kaarten--pad-normaal { --mk-pad: var(--mymmo-ruimte-normaal-telefoon); }
+  .mymmo-kaarten--pad-ruim { --mk-pad: var(--mymmo-ruimte-ruim-telefoon); }
 
-  .mymmo-kaarten .mymmo-kaart--pad-krap { --mk-pad: 16px; }
-  .mymmo-kaarten .mymmo-kaart--pad-normaal { --mk-pad: 20px; }
-  .mymmo-kaarten .mymmo-kaart--pad-ruim { --mk-pad: 24px; }
+  .mymmo-kaarten .mymmo-kaart--pad-krap { --mk-pad: var(--mymmo-ruimte-krap-telefoon); }
+  .mymmo-kaarten .mymmo-kaart--pad-normaal { --mk-pad: var(--mymmo-ruimte-normaal-telefoon); }
+  .mymmo-kaarten .mymmo-kaart--pad-ruim { --mk-pad: var(--mymmo-ruimte-ruim-telefoon); }
 
   /* Alles onder elkaar; de kop scrolt gewoon mee. Een kleverige kop van twee
      regels plus een kaart van 80% schermhoogte laat niets over om naar te

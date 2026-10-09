@@ -100,7 +100,7 @@ final class Mymmo_Cards_Markering {
         wp_register_style(
             'mymmo-markering',
             MYMMO_CARDS_URL . 'assets/css/mymmo-markering.css',
-            [],
+            [Mymmo_Cards_Huisstijl::HANDLE],
             MYMMO_CARDS_VERSION
         );
 

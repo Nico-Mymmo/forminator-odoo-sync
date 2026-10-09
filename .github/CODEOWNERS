@@ -1,0 +1,21 @@
+# De VANGRAILS van de huisstijl: alleen hier is de goedkeuring van Nico nodig.
+#
+# Componenten bouwen in wp-plugin/mymmo-cards mag iedereen met toegang, en
+# samenvoegen kan zodra de controle groen is (.github/workflows/huisstijl.yml).
+# Maar wie de regels zelf wijzigt -- de huisstijl, de controle, de
+# uitzonderingen, de bewaking in de editor, het bouwscript, het regelboek --
+# wijzigt wat ALLE componenten tegenhoudt. Dat beslist Nico.
+#
+# Werkt pas als op master een ruleset staat met "Require review from Code
+# Owners" (zie het regelboek, wp-plugin/mymmo-cards/CLAUDE.md).
+
+/wp-plugin/huisstijl/                                   @Nico-Mymmo
+/wp-plugin/build-mymmo-cards.sh                         @Nico-Mymmo
+/wp-plugin/mymmo-cards/CLAUDE.md                        @Nico-Mymmo
+/wp-plugin/mymmo-cards/assets/css/mymmo-huisstijl.css   @Nico-Mymmo
+/wp-plugin/mymmo-cards/includes/class-huisstijl.php     @Nico-Mymmo
+/wp-plugin/mymmo-cards/includes/class-bewaking.php      @Nico-Mymmo
+/wp-plugin/mymmo-cards/includes/class-updates.php       @Nico-Mymmo
+/.claude/skills/huisstijl-review/                       @Nico-Mymmo
+/.github/                                               @Nico-Mymmo
+/claude.md                                              @Nico-Mymmo

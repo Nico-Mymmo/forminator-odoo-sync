@@ -145,6 +145,106 @@ function mymmo_cards_verhoudingen(): array {
     ];
 }
 
+/**
+ * Waar de THINGIES staan: de Asset Manager van de OM, map `brand/thingies/`.
+ * Elk bestand heet `thingies_<slug>.svg`.
+ */
+if (!defined('MYMMO_CARDS_THINGIES_URL')) {
+    define('MYMMO_CARDS_THINGIES_URL', 'https://link.openvme.be/assets/brand/thingies/thingies_');
+}
+
+/**
+ * De THINGIES: de tekeningetjes van het merk, en de ENIGE iconen op de site.
+ *
+ * Een component dat een icoon toont, kiest uit deze lijst -- geen Dashicons,
+ * geen icoonlettertype, geen eigen SVG. Zo heeft elk icoon op de site dezelfde
+ * hand, en staat er nooit een icoon dat niet bij het merk hoort.
+ *
+ * De bestanden komen uit de Asset Manager. De huisstijlcontrole haalt elk
+ * bestand in deze lijst op en weigert de zip als er een niet bestaat --
+ * `vuilniishok` met een dubbele i is de echte bestandsnaam, en de "logische"
+ * spelling gaf een 404 die je pas op de site zag. Een nieuw thingy: eerst in de
+ * Asset Manager zetten, dan hier toevoegen.
+ *
+ * @return array<string,string> slug => wat je in de editor leest
+ */
+function mymmo_cards_thingies(): array {
+    return [
+        'lift'              => 'Lift',
+        'spaarvarken'       => 'Spaarvarken',
+        'brieven'           => 'Brieven',
+        'kapotte-lamp'      => 'Kapotte lamp',
+        'calendar1'         => 'Kalender',
+        'calendar2'         => 'Kalender (2)',
+        'vergrootglas'      => 'Vergrootglas',
+        'openstaande-vraag' => 'Openstaande vraag',
+        'telefoon'          => 'Telefoon',
+        'aktentas'          => 'Aktentas',
+        'zonnepaneel'       => 'Zonnepaneel',
+        'laadpaal'          => 'Laadpaal',
+        'bakstenen'         => 'Bakstenen',
+        'deur'              => 'Deur',
+        'fietsenstalling'   => 'Fietsenstalling',
+        'kruis'             => 'Kruis',
+        'sfeer'             => 'Sfeer',
+        'tuin'              => 'Tuin',
+        'verwarming'        => 'Verwarming',
+        'vuilniishok'       => 'Vuilnishok',
+    ];
+}
+
+/** De volledige URL van een thingy, of '' als het niet in de lijst staat. */
+function mymmo_cards_thingie_url(string $slug): string {
+    return isset(mymmo_cards_thingies()[$slug]) ? MYMMO_CARDS_THINGIES_URL . $slug . '.svg' : '';
+}
+
+/**
+ * De AFRONDINGEN, als gesloten lijst: recht, klein, groot.
+ *
+ * Sleutel => [wat je leest, de waarde uit de huisstijl]. De sleutel is een
+ * getal omdat de stapel haar hoeken als getal bewaart (tot 1.9.1 was dat een
+ * schuifbalk van 0 tot 60). De MAAT zelf staat in de huisstijl
+ * (mymmo-huisstijl.css): wordt "groot" ooit 24px, dan verandert dat hier niet.
+ *
+ * @return array<int, array{0:string,1:string}>
+ */
+function mymmo_cards_afrondingen(): array {
+    return [
+        0  => ['Recht', '0'],
+        14 => ['Klein', 'var(--mymmo-afronding-m)'],
+        28 => ['Groot', 'var(--mymmo-afronding-l)'],
+    ];
+}
+
+/**
+ * Een bewaarde afronding -> de waarde uit de huisstijl die er het dichtst bij
+ * ligt. Zo krijgen ook oudere pagina's de maten van de huisstijl: 16 wordt
+ * klein, 35 en 48 worden groot. '' of iets onleesbaars geeft ''.
+ *
+ * @param mixed $ruw
+ */
+function mymmo_cards_afronding($ruw): string {
+    if (is_string($ruw)) {
+        $ruw = trim($ruw);
+    }
+    if ($ruw === '' || $ruw === null || !is_numeric($ruw)) {
+        return '';
+    }
+
+    $waarde = (float) $ruw;
+    $beste = '';
+    $afstand = INF;
+    foreach (mymmo_cards_afrondingen() as $sleutel => $rij) {
+        $verschil = abs($waarde - $sleutel);
+        if ($verschil < $afstand) {
+            $afstand = $verschil;
+            $beste = $rij[1];
+        }
+    }
+
+    return $beste;
+}
+
 /** Een waarde uit een gesloten lijst, of de eerste sleutel als terugval. */
 function mymmo_cards_keuze(string $ruw, array $lijst, string $terugval): string {
     $waarde = strtolower(trim($ruw));

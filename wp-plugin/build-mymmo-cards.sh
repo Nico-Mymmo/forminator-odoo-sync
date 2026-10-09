@@ -11,6 +11,10 @@
 #
 # Volgt verder de procedure uit CLAUDE.md: bouwen in een SCHONE kopie, nooit
 # in-place, geen edit_*.py-restanten in de zip, en oudere zips blijven staan.
+#
+# Sinds 1.9.0 is er ook geen zip zonder groene HUISSTIJLCONTROLE en een REVIEW
+# voor precies deze code (wp-plugin/huisstijl/controleer.mjs --bouw). Het
+# regelboek: wp-plugin/mymmo-cards/CLAUDE.md.
 
 set -euo pipefail
 
@@ -37,11 +41,27 @@ if [[ "$DOCBLOCK" != "$VERSIE" || "$CONSTANTE" != "$VERSIE" ]]; then
   exit 1
 fi
 
+# ── 1b. De huisstijl: controle en review ────────────────────────────────────
+# Niet overslaan en niet "even" uitzetten: dit is de plek waar een designfout
+# wordt tegengehouden voor ze op een site staat. Is een regel fout, dan wordt
+# de REGEL aangepast (met Nico), niet het component eromheen gebouwd.
+if ! command -v node >/dev/null 2>&1; then
+  echo "Node ontbreekt: de huisstijlcontrole kan niet draaien, dus er komt geen zip." >&2
+  exit 1
+fi
+if ! node "$WORTEL/wp-plugin/huisstijl/controleer.mjs" --bouw; then
+  echo "" >&2
+  echo "Geen zip: de huisstijlcontrole of de review is niet in orde (zie hierboven)." >&2
+  exit 1
+fi
+
 # ── 2. Schone kopie, nooit in-place ─────────────────────────────────────────
 rm -rf "$BOUW"
 mkdir -p "$BOUW"
 cp -r "$PLUGIN" "$BOUW/mymmo-cards"
 find "$BOUW/mymmo-cards" -iname "edit_*.py*" -o -iname "*.bak" | xargs -r rm -f
+# Het regelboek is voor wie bouwt, niet voor de site.
+rm -f "$BOUW/mymmo-cards/CLAUDE.md"
 
 # zip/unzip zitten niet in elke omgeving -- Git Bash op Windows levert ze niet
 # mee. Python wel, en zipfile maakt een gewone zip die WordPress aanneemt. De

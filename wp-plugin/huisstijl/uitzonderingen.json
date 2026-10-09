@@ -1,0 +1,24 @@
+{
+  "uitleg": "Wat de huisstijlcontrole bewust laat passeren, met de reden. Deze lijst wordt ALLEEN korter: een uitzondering die minder vindt dan haar 'aantal', is zelf een fout (U01). Een nieuwe uitzondering vraagt de goedkeuring van Nico (CODEOWNERS). 'bevat' is een stuk van de regel waarop de melding valt (het regelnummer telt niet, zodat de uitzondering blijft kloppen als er iets boven bijkomt); 'aantal' is hoeveel meldingen ze hoogstens dekt (standaard 1).",
+  "uitzonderingen": [
+    {
+      "regel": "H21",
+      "bestand": "includes/class-keien.php",
+      "bevat": "<svg class=\"mymmo-kei-vlak\"",
+      "reden": "De vorm van een grote kei is een SVG-pad: border-radius kan geen hoeken van 85 of 95 graden maken. Het is geen icoon maar de tekening van het component zelf, en het gebruikt bewust geen <use> of <defs> (zie de uitleg in class-keien.php)."
+    },
+    {
+      "regel": "H01",
+      "bestand": "includes/class-knop.php",
+      "bevat": "background:#fef3c7;color:#713f12",
+      "reden": "De melding voor een redacteur als een knop naar een venster wijst dat niet (meer) bestaat. Alleen zichtbaar voor wie edit_posts heeft, en bewust inline: ze moet er staan zonder van een stylesheet af te hangen die op die pagina misschien niet geladen is."
+    },
+    {
+      "regel": "H02",
+      "bestand": "includes/class-knop.php",
+      "bevat": "background:#fef3c7;color:#713f12",
+      "aantal": 2,
+      "reden": "Dezelfde redacteursmelding: lettergrootte en regelhoogte staan erin om dezelfde reden als de kleur."
+    }
+  ]
+}

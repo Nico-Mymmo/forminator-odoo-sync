@@ -48,7 +48,7 @@ final class Mymmo_Cards_Blocks {
         wp_register_style(
             'mymmo-cards',
             MYMMO_CARDS_URL . 'assets/css/mymmo-cards.css',
-            [],
+            [Mymmo_Cards_Huisstijl::HANDLE],
             MYMMO_CARDS_VERSION
         );
 
@@ -95,9 +95,15 @@ final class Mymmo_Cards_Blocks {
             $verhoudingen[] = ['value' => $sleutel, 'label' => $rij[0], 'css' => $rij[1]];
         }
 
+        $afrondingen = [];
+        foreach (mymmo_cards_afrondingen() as $sleutel => $rij) {
+            $afrondingen[] = ['value' => (string) $sleutel, 'label' => $rij[0], 'css' => $rij[1]];
+        }
+
         wp_localize_script('mymmo-cards-editor', 'MymmoCards', [
             'opvullingen'  => $opvullingen,
             'verhoudingen' => $verhoudingen,
+            'afrondingen'  => $afrondingen,
         ]);
 
         register_block_type(self::STAPEL, [
@@ -179,8 +185,9 @@ final class Mymmo_Cards_Blocks {
             'kleeftMobiel' => ['type' => 'boolean', 'default' => true],
             // De kleur van de PAGINA achter de stapel. De kop is kleverig en
             // moet de kaarten kunnen afdekken; met een doorzichtige kop schuift
-            // de tekst van een kaart er dwars doorheen.
-            'paginakleur' => ['type' => 'string', 'default' => '#ffffff'],
+            // de tekst van een kaart er dwars doorheen. Leeg = de paginakleur
+            // van de huisstijl (--mymmo-kleur-pagina, in de CSS).
+            'paginakleur' => ['type' => 'string', 'default' => ''],
         ];
     }
 
@@ -370,10 +377,14 @@ final class Mymmo_Cards_Blocks {
 
         $opvulling = mymmo_cards_keuze((string) ($attrs['opvulling'] ?? ''), mymmo_cards_opvullingen(), 'normaal');
 
+        // De hoeken komen uit de huisstijl; een oudere vrije waarde wordt de
+        // dichtstbijzijnde maat daaruit (zie mymmo_cards_afronding()).
+        $hoeken = mymmo_cards_afronding($attrs['hoeken'] ?? 28);
+
         $stijl = [
             '--mk-stap:'   . mymmo_cards_px($attrs['stap'] ?? null, 16, 0, 80) . 'px',
             '--mk-gap:'    . mymmo_cards_px($attrs['gap'] ?? null, 40, 0, 200) . 'px',
-            '--mk-hoeken:' . mymmo_cards_px($attrs['hoeken'] ?? null, 28, 0, 80) . 'px',
+            '--mk-hoeken:' . ($hoeken !== '' ? $hoeken : 'var(--mymmo-afronding-l)'),
             '--mk-max:'    . mymmo_cards_px($attrs['breedte'] ?? null, 1200, 480, 2400) . 'px',
             '--mk-aantal:' . max(1, $kaarten),
         ];
@@ -557,9 +568,10 @@ final class Mymmo_Cards_Blocks {
             $stijl[] = '--mk-bg:' . $bg;
         }
 
-        $hoeken = trim((string) ($attrs['hoeken'] ?? ''));
-        if ($hoeken !== '' && is_numeric($hoeken)) {
-            $stijl[] = '--mk-hoeken:' . mymmo_cards_px($hoeken, 28, 0, 80) . 'px';
+        // Leeg = die van de stapel. Anders de maat uit de huisstijl.
+        $hoeken = mymmo_cards_afronding((string) ($attrs['hoeken'] ?? ''));
+        if ($hoeken !== '') {
+            $stijl[] = '--mk-hoeken:' . $hoeken;
         }
 
         // Wijkt deze kaart af van de stapel, dan als KLASSE -- zie de uitleg bij

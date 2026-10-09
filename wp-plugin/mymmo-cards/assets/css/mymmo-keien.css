@@ -23,15 +23,17 @@
  * daarin, dus x/y van een keitje is een plaats RAKEND AAN DE KEIEN, ongeacht
  * hoe breed het scherm is.
  *
- * Breekpunt 640px, zoals de kaartenstapel.
+ * Breekpunt: smaller dan 640px is een telefoon (max-width: 639.98px), net als
+ * bij de kaartenstapel. Tot 1.9.0 stond hier (max-width: 640px), waardoor op
+ * exact 640px de keien al gestapeld stonden en de kaarten nog naast elkaar.
  */
 
 .mymmo-keien {
-  --mk-kei-bg: #fce7f3;
+  --mk-kei-bg: var(--mymmo-kleur-accent-zacht);
   --mk-kei-rand: transparent;
   --mk-kei-rand-dikte: 0px;
-  --mk-keitje-bg: #ffffff;
-  --mk-keitje-rand: rgba(15, 23, 42, 0.12);
+  --mk-keitje-bg: var(--mymmo-kleur-vlak-licht);
+  --mk-keitje-rand: var(--mymmo-kleur-lijn);
 
   position: relative;
   isolation: isolate;
@@ -170,7 +172,7 @@
   aspect-ratio: 1;
   box-sizing: border-box;
   background-color: var(--mk-keitje-bg);
-  border: 1.5px solid var(--mk-keitje-rand);
+  border: var(--mymmo-rand) solid var(--mk-keitje-rand);
   border-radius: var(--mk-r1);
   --mk-d: var(--mk-draai, 0deg);
   rotate: var(--mk-d);
@@ -262,7 +264,7 @@
    Elke waarde hieronder is een `var(--...-m, <computer of automatisch>)`: wat
    in de editor voor de telefoon is ingevuld wint, de rest volgt de computer. */
 
-@media (max-width: 640px) {
+@media (max-width: 639.98px) {
   .mymmo-keien {
     padding: var(--mk-ruimte-m, 90px) 16px;
   }

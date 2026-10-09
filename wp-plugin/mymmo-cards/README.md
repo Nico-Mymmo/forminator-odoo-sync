@@ -326,6 +326,35 @@ Zet elke streep in elke kleur naast elkaar: op een kop, in lopende tekst en op
 een donkere achtergrond. Het palet in die proef is een voorbeeld — op de site
 komen de kleuren uit `theme.json`.
 
+## De huisstijl
+
+Sinds 1.9.0 heeft de plugin één plek met de waarden van de huisstijl, en
+controles die erover waken -- zodat een nieuw component er niet meer uitspringt
+omdat het net een andere afronding, een eigen grijs of een zwaardere schaduw
+meebrengt.
+
+| Wat | Waar |
+|---|---|
+| De enige letterlijke kleuren, afrondingen, schaduwen, randen en opvullingen | `assets/css/mymmo-huisstijl.css` |
+| De categorie "Mymmo" in de inserter, en het laden van die stylesheet | `includes/class-huisstijl.php` |
+| De grenzen in de blok-editor (voor iedereen, op elke site) | `includes/class-bewaking.php` |
+| De iconen: de thingies uit de Asset Manager | `mymmo_cards_thingies()` in `includes/helpers.php` |
+| De controle op de code | `node wp-plugin/huisstijl/controleer.mjs` |
+| Bewuste uitzonderingen, met de reden | `wp-plugin/huisstijl/uitzonderingen.json` |
+| Het regelboek (wat mag, hoe je bouwt, hoe de regels strenger worden) | `CLAUDE.md` naast dit bestand |
+
+**In de editor** ziet een redacteur alleen nog wat het thema aanbiedt: het
+palet, de lettergroottes en de opvullingen van het thema, geen eigen kleur, geen
+eigen lettertype, geen eigen afronding of rand. "Extra CSS" en de stijlen van het
+thema zijn niet meer te wijzigen, en de Font Library staat uit. Bewaart iemand
+een pagina waarin er toch een eigen kleur, lettertype of `<style>` BIJ gekomen
+is (geplakt, of via de code-editor), dan weigert de editor dat met de reden
+erbij. Wat al op een pagina stond, blijft staan.
+
+Noodrem in `wp-config.php`: `define('MYMMO_HUISSTIJL_OPEN', true);` zet de
+bewaking uit; `define('MYMMO_HUISSTIJL_BEHEERDERS', 'naam@mymmo.com');` stelt
+een paar adressen vrij.
+
 ## Bouwen
 
 ```bash
@@ -336,7 +365,63 @@ Het versienummer staat op **twee** plekken in `mymmo-cards.php` (de docblock en
 `MYMMO_CARDS_VERSION`) en moet daar gelijk staan — de constante bepaalt de
 cache-busting van CSS en JS. Het script controleert dat en weigert anders.
 
+Sinds 1.9.0 maakt het script ook geen zip zolang de huisstijlcontrole niet
+groen is én er geen review is voor precies deze code
+(`wp-plugin/mymmo-cards.review.json`, gezet door `/huisstijl-review` in Claude
+Code). `CLAUDE.md` legt uit hoe.
+
+**Uploaden hoeft niet meer (sinds 1.9.1).** Wat op `master` komt, bouwt GitHub
+en brengt het uit als release `mymmo-cards-vX.Y.Z`
+(`.github/workflows/mymmo-cards-release.yml`). Elke site kijkt elk uur of er een
+nieuwere is en werkt zichzelf bij (`includes/class-updates.php`); wie niet wil
+wachten, klikt in wp-admin op Dashboard → Updates → "Opnieuw controleren". Een
+site neemt enkel een release die de workflow maakte en waarvan de commit op
+`master` staat. Lokaal bouwen blijft kunnen om iets uit te proberen; zet zo'n zip
+niet met de hand op een site, want de volgende update zet hem terug.
+
+Uitzetten per site: `define('MYMMO_CARDS_GEEN_AUTO_UPDATE', true);` in
+`wp-config.php`. De nieuwe versie staat dan nog wel onder Updates.
+
 ## Versies
+
+**1.9.1** — de plugin werkt zichzelf bij. Wat op `master` komt, brengt GitHub
+uit als release, en elke site haalt die binnen het uur op; uploaden is niet meer
+nodig. Dit is de laatste versie die nog met de hand op een site moet. Zie
+"Bouwen".
+
+De hoeken komen uit de huisstijl: **Recht, Klein (14px) of Groot (28px)**, op de
+stapel en op een kaart, in plaats van een schuifbalk van 0 tot 60 en een lijst
+met 16/35/48. Een bestaande stapel of kaart krijgt de maat die er het dichtst bij
+ligt: 16 wordt 14, 35 en 48 worden 28. Dat is de enige zichtbare wijziging, en
+ze is bewust: zo heeft elke kaart op de site dezelfde hoeken.
+
+De rand van de keien heeft geen schuifbalk meer: een kei heeft een rand of niet
+(of volgt de wolk), en de dikte komt uit de huisstijl (1,5px, dezelfde als de
+keitjes). Een bestaande rand van 2px of meer wordt 1,5px.
+
+**1.9.0** — de huisstijl als vangrail. Er is één bestand met de toegelaten
+kleuren, afrondingen, schaduwen, randen en opvullingen
+(`mymmo-huisstijl.css`), en de stapel en de keien verwijzen er nu naar in plaats
+van eigen waarden te dragen -- er verandert niets aan hoe ze eruitzien. Alle
+blokken staan in een eigen categorie **Mymmo** in de inserter (was: Ontwerp).
+De kleurkiezers van de stapel, de kaart en de keien bieden alleen nog het palet
+van het thema aan; een eigen kleur kiezen kan niet meer (een bestaande blijft
+staan). De paginakleur van de stapel is standaard leeg = de paginakleur van de
+huisstijl, wat hetzelfde wit is als vroeger.
+
+De keien slaan nu om op dezelfde breedte als de kaarten (smaller dan 640px).
+Tot nu toe stonden ze op exact 640px al gestapeld terwijl de kaarten er nog
+naast elkaar stonden.
+
+Nieuw voor de hele site: de editor biedt alleen nog aan wat het thema heeft
+(geen eigen kleur, lettergrootte, regelhoogte, afronding of rand; geen
+standaardkleuren van WordPress), "Extra CSS" en de stijlen van het thema liggen
+vast, de Font Library staat uit, en opslaan wordt geweigerd als er een eigen
+kleur, lettertype of `<style>` bijkomt. De patronen van wordpress.org staan uit;
+die van het thema blijven. Zie "De huisstijl" hierboven.
+
+De lijst met thingies staat nu in `mymmo_cards_thingies()` (helpers.php), voor
+elk component; de keien gebruiken ze daar.
 
 **1.8.8** — waar de academy opent is een KEUZELIJST: de inhoudspagina en elke
 cursus apart, gegroepeerd. De lijst komt uit de academy zelf (`/api/catalog`,

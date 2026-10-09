@@ -80,6 +80,7 @@ $wolk = new Mymmo_Keien_Proefblok(Mymmo_Cards_Keien::WOLK, ['align' => 'full'], 
 ?><!doctype html>
 <html lang="nl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Keienwolk</title>
+<link rel="stylesheet" href="./mymmo-cards/assets/css/mymmo-huisstijl.css">
 <link rel="stylesheet" href="./mymmo-cards/assets/css/mymmo-keien.css">
 <style>body{margin:0;font-family:Georgia,serif;color:#1f2430}.vul{height:90vh;display:grid;place-items:center;color:#9ca3af}h2{text-align:center;font-weight:400;font-size:40px;margin:0}</style>
 </head><body>

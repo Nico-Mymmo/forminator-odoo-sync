@@ -1433,9 +1433,33 @@ rondom; thema-`h3` 30px/400 in `neutral-950` tegenover de callout-`h2` op
 | Zonder WordPress bekijken | `php wp-plugin/mymmo-markering-preview.php > proef.html` |
 | **Knop die een venster opent**: attribuut, brug, tabblad | `includes/class-knop.php` |
 | Het paneeltje + de variant in de inserter | `assets/js/mymmo-knop-editor.js` |
+| **Huisstijl**: de enige letterlijke kleur, afronding, schaduw, rand en opvulling | `assets/css/mymmo-huisstijl.css` |
+| Die stylesheet laden + de categorie "Mymmo" in de inserter | `includes/class-huisstijl.php` |
+| De grenzen in de blok-editor, voor iedereen op elke site | `includes/class-bewaking.php` |
+| De controle op de code (bouwscript + GitHub) | `node wp-plugin/huisstijl/controleer.mjs` (+ `uitzonderingen.json`) |
+| Het regelboek voor wie componenten bouwt | `wp-plugin/mymmo-cards/CLAUDE.md` |
+| De review die de stempel zet | `/huisstijl-review` (`.claude/skills/huisstijl-review/`) |
+| De iconen: de thingies uit de Asset Manager | `mymmo_cards_thingies()` in `includes/helpers.php` |
+| Afrondingen (Recht / Klein / Groot) | `mymmo_cards_afrondingen()` + `mymmo_cards_afronding()` in `includes/helpers.php` |
+| Automatisch bijwerken: GitHub brengt uit, de site haalt op | `.github/workflows/mymmo-cards-release.yml` + `includes/class-updates.php` |
 
 Afspraken die bewust zo zijn:
 
+- **DE VANGRAILS BESLISSEN, NIET NICO** (1.9.0). Marketing bouwt componenten en
+  zet ze zelf op de site. Een designfout wordt tegengehouden door de controle (geen
+  zip en geen merge zolang ze rood is), de review (een stempel bij precies deze
+  code) en de bewaking in de editor. Alleen de vangrails zelf staan onder
+  CODEOWNERS. Elke designfout die er toch door glipt, wordt een regel: zie
+  "Aanscherpen" in het regelboek. Pas een controle, de huisstijl of een
+  uitzondering NOOIT aan om een component groen te krijgen.
+- **UITBRENGEN = SAMENVOEGEN IN MASTER** (1.9.1). Niemand uploadt nog een zip:
+  de workflow bouwt (met dezelfde controle en review) en maakt release
+  `mymmo-cards-vX.Y.Z`, en elke site werkt zichzelf binnen het uur bij. Een
+  site neemt ENKEL een release van `github-actions[bot]` waarvan de commit op
+  master staat -- iemand met schrijfrechten kan zelf een release maken, en die
+  mag geen site bereiken. Bewust geen connector die naar de site DUWT: die
+  gaat buiten de controles om. Wordt de repo ooit privé, dan ziet de site
+  geen releases meer (de API geeft 404) en valt dit stil.
 - **GEEN typografie in `mymmo-cards.css`.** Geen `font-family`, `font-size`,
   `font-weight` of tekstkleur. Zet je er ooit één bij, dan is het probleem terug
   waarvoor deze plugin gemaakt is.

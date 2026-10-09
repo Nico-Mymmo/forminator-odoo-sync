@@ -129,6 +129,7 @@
       el(ColorPalette, {
         colors: palet,
         value: naarHex(palet, waarde),
+        disableCustomColors: true,
         onChange: function (hex) { zetKleur(hex ? naarSlug(palet, hex) : ''); }
       })
     );
@@ -466,7 +467,7 @@
     title: 'Keienwolk',
     description: 'Grote zwevende keien met eigen inhoud, omringd door kleine keitjes die voorbijschuiven.',
     icon: 'marker',
-    category: 'design',
+    category: 'mymmo',
     keywords: ['keien', 'kei', 'wolk', 'parallax', 'zweven', 'organisch'],
     supports: { html: false, align: ['wide', 'full'], anchor: true },
 
@@ -508,7 +509,7 @@
           '--mk-kei-breedte-m': (a.keiBreedteMobiel || 300) + 'px',
           '--mk-overlap-m': (a.overlapMobiel || 0) + 'px',
           '--mk-kei-rand': a.keiRand ? kleurCss(a.keiRand) : undefined,
-          '--mk-kei-rand-dikte': a.keiRand ? (a.keiRandDikte || 0) + 'px' : undefined
+          '--mk-kei-rand-dikte': a.keiRand ? 'var(--mymmo-rand)' : undefined
         }
       });
 
@@ -559,14 +560,7 @@
             help: 'Keien die er samen niet in passen, komen op een tweede rij. De keitjes liggen altijd tegen de keien aan.'
           }),
           kleurkiezer('Randkleur van de keien', palet, a.keiRand, function (w) { zet({ keiRand: w }); },
-            'Voor alle keien. Een kei kan een eigen rand krijgen. Leeg = geen rand.'),
-          a.keiRand
-            ? el(RangeControl, {
-                label: 'Dikte van de rand (px)',
-                value: a.keiRandDikte, min: 0, max: 12,
-                onChange: function (w) { zet({ keiRandDikte: w }); }
-              })
-            : null
+            'Voor alle keien. Een kei kan een eigen rand krijgen. Leeg = geen rand. De dikte komt uit de huisstijl.')
         ),
         el(
           PanelBody,
@@ -661,7 +655,7 @@
     title: 'Kei',
     description: 'Een grote kei. Zet er gewone blokken in: een afbeelding, een uitspraak.',
     icon: 'format-quote',
-    category: 'design',
+    category: 'mymmo',
     parent: [WOLK],
     supports: { html: false, reusable: false },
 
@@ -703,9 +697,9 @@
           '--mk-hoogte': (a.hoogte || 0) + 'px',
           '--mk-kei-bg': kleurCss(a.achtergrond),
           '--mk-kei-rand': a.rand ? kleurCss(a.rand) : undefined,
-          '--mk-kei-rand-dikte': a.rand
-            ? (a.randDikte >= 0 ? a.randDikte : 2) + 'px'
-            : (a.randDikte >= 0 ? a.randDikte + 'px' : undefined),
+          '--mk-kei-rand-dikte': a.randDikte === 0
+            ? '0px'
+            : (a.rand || a.randDikte > 0 ? 'var(--mymmo-rand)' : undefined),
           '--mk-schaal-m': typeof a.schaalM === 'number' ? a.schaalM / 100 : undefined,
           '--mk-draai-m': maatOfNiets(a.draaiM, 'deg'),
           '--mk-x-m': maatOfNiets(a.xM, '%'),
@@ -760,11 +754,16 @@
           }),
           kleurkiezer('Randkleur', palet, a.rand, function (w) { zet({ rand: w }); },
             'Leeg = de rand van de wolk.'),
-          el(RangeControl, {
-            label: 'Dikte van de rand (px)',
-            value: a.randDikte, min: -1, max: 12,
-            onChange: function (w) { zet({ randDikte: w }); },
-            help: '-1 = die van de wolk (of 2px als je hier een kleur kiest).'
+          el(SelectControl, {
+            label: 'Rand',
+            value: String(a.randDikte > 0 ? 2 : (a.randDikte === 0 ? 0 : -1)),
+            options: [
+              { label: 'Zoals de wolk', value: '-1' },
+              { label: 'Geen rand', value: '0' },
+              { label: 'Wel een rand', value: '2' }
+            ],
+            onChange: function (w) { zet({ randDikte: parseInt(w, 10) }); },
+            help: 'De dikte komt uit de huisstijl. Kies je hierboven een kleur, dan krijgt deze kei een rand in die kleur.'
           }),
           el(RangeControl, {
             label: 'Parallax van deze kei',
@@ -853,7 +852,7 @@
     title: 'Keitje',
     description: 'Een klein keitje met een tekening, dat parallax voorbijschuift.',
     icon: 'marker',
-    category: 'design',
+    category: 'mymmo',
     parent: [WOLK],
     supports: { html: false, reusable: false },
 
