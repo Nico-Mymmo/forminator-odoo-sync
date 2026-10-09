@@ -1,0 +1,182 @@
+/**
+ * De stappen -- geometrie en gedrag, nooit typografie.
+ *
+ * Twee standen met dezelfde markup:
+ *
+ *   ONDER ELKAAR (standaard): elke stap een vlak, het nummer links ernaast; op
+ *   een telefoon staat het nummer erboven. Dit is ook wat de editor toont en
+ *   wat er staat zonder JavaScript.
+ *
+ *   NAAST ELKAAR (`mymmo-stappen--naast`, gezet door mymmo-stappen.js op een
+ *   computer): smalle panelen in een rij die blijft kleven terwijl je scrolt;
+ *   het open paneel neemt de rest van de breedte. Het script zet die klasse
+ *   enkel als elke stap in het scherm past -- zie class-stappen.php.
+ *
+ * Het nummer krijgt zijn maat en lettertype van het thema (klassen van
+ * WordPress zelf), en enkel een kleur als de redacteur er een koos uit het
+ * palet. Geen transform, contain of container-type op een stap of de rij: een
+ * venster van Mymmo Forms in een stap zou daar anders in gevangen zitten.
+ */
+
+.mymmo-stappen {
+  /* De opvulling van een stap: een van de drie van de huisstijl. */
+  --mk-pad: var(--mymmo-ruimte-normaal);
+  /* Hoe breed een dicht paneel is in de stand naast elkaar. */
+  --mk-dicht: clamp(56px, 6vw, 88px);
+}
+
+.mymmo-stappen.mymmo-stappen--pad-krap { --mk-pad: var(--mymmo-ruimte-krap); }
+.mymmo-stappen.mymmo-stappen--pad-ruim { --mk-pad: var(--mymmo-ruimte-ruim); }
+
+@media (max-width: 781px) {
+  .mymmo-stappen.mymmo-stappen--pad-krap { --mk-pad: var(--mymmo-ruimte-krap-telefoon); }
+  .mymmo-stappen.mymmo-stappen--pad-normaal { --mk-pad: var(--mymmo-ruimte-normaal-telefoon); }
+  .mymmo-stappen.mymmo-stappen--pad-ruim { --mk-pad: var(--mymmo-ruimte-ruim-telefoon); }
+}
+
+/* ── Onder elkaar ─────────────────────────────────────────────────────────── */
+
+.mymmo-stappen .mymmo-stappen-rij {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mymmo-ruimte-krap);
+}
+
+.mymmo-stappen .mymmo-stap {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: var(--mk-pad);
+  align-items: start;
+  margin: 0;
+  padding: var(--mk-pad);
+  border-radius: var(--mymmo-afronding-l);
+  background-color: var(--mk-stap-bg, var(--mk-stappen-bg, var(--mymmo-kleur-vlak)));
+}
+
+/* Zonder eigen kleur is het nummer de tekstkleur, zacht: het is versiering en
+   mag niet harder roepen dan de kop ernaast. */
+.mymmo-stappen .mymmo-stap-nummer {
+  display: block;
+  color: var(--mk-nummer-kleur, currentColor);
+  opacity: 0.4;
+}
+
+.mymmo-stappen.mymmo-stappen--nummer-kleur .mymmo-stap-nummer {
+  opacity: 1;
+}
+
+.mymmo-stap .mymmo-stap-inhoud > :first-child { margin-top: 0; }
+.mymmo-stap .mymmo-stap-inhoud > :last-child { margin-bottom: 0; }
+
+/* Beeld en video in een vlak: de kleine afronding van de huisstijl. */
+.mymmo-stap .wp-block-video video,
+.mymmo-stap .wp-block-image img {
+  border-radius: var(--mymmo-afronding-m);
+}
+
+/* Een telefoon: het nummer BOVEN de stap. Ernaast kost het een kolom die de
+   tekst op een smal scherm niet kan missen. */
+@media (max-width: 639.98px) {
+  .mymmo-stappen .mymmo-stap {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ── Vinkjes: een kern-lijst met de stijl "Vinkjes (in een stap)" ──────────── */
+
+.mymmo-stap .is-style-mymmo-vinkjes {
+  list-style: none;
+  padding-left: 0;
+}
+
+.mymmo-stap .is-style-mymmo-vinkjes > li {
+  position: relative;
+  padding-left: 1.75em;
+}
+
+/* Het vinkje: twee randen van een gedraaid rechthoekje, in de kleur van het
+   nummer -- zo heeft de reeks één accentkleur. */
+.mymmo-stap .is-style-mymmo-vinkjes > li::before {
+  content: "";
+  position: absolute;
+  left: 0.4em;
+  top: 0.25em;
+  width: 0.4em;
+  height: 0.75em;
+  border-right: var(--mymmo-rand) solid var(--mk-nummer-kleur, currentColor);
+  border-bottom: var(--mymmo-rand) solid var(--mk-nummer-kleur, currentColor);
+  transform: rotate(45deg);
+}
+
+/* ── Naast elkaar (enkel met de klasse van het script, enkel op een computer) ─ */
+
+@media (min-width: 782px) {
+  .mymmo-stappen.mymmo-stappen--naast .mymmo-stappen-baan {
+    height: var(--mk-baan);
+  }
+
+  .mymmo-stappen.mymmo-stappen--naast .mymmo-stappen-rij {
+    position: sticky;
+    top: var(--mk-boven);
+    height: var(--mk-paneel);
+    flex-direction: row;
+  }
+
+  .mymmo-stappen.mymmo-stappen--naast .mymmo-stap {
+    display: flex;
+    flex-direction: column;
+    flex: 0 0 var(--mk-dicht);
+    min-width: 0;
+    padding-inline: 0;
+    overflow: hidden;
+    cursor: pointer;
+    transition: flex-grow 0.55s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .mymmo-stappen.mymmo-stappen--naast .mymmo-stap.is-open {
+    flex-grow: 1;
+    cursor: auto;
+  }
+
+  .mymmo-stappen.mymmo-stappen--naast .mymmo-stap:focus-visible {
+    outline: var(--mymmo-focus);
+    outline-offset: var(--mymmo-focus-afstand);
+  }
+
+  .mymmo-stappen.mymmo-stappen--naast .mymmo-stap-nummer {
+    align-self: center;
+  }
+
+  .mymmo-stappen.mymmo-stappen--naast .mymmo-stap.is-open .mymmo-stap-nummer {
+    align-self: flex-start;
+    padding-inline: var(--mk-pad);
+  }
+
+  /* De inhoud heeft ALTIJD de breedte van een open paneel (--mk-open, gemeten
+     door het script). Zo loopt de tekst niet opnieuw in terwijl het paneel
+     openschuift, en kan het script vooraf meten of elke stap past. */
+  .mymmo-stappen.mymmo-stappen--naast .mymmo-stap-inhoud {
+    flex: 0 0 auto;
+    align-self: flex-start;
+    box-sizing: border-box;
+    width: var(--mk-open);
+    padding-inline: var(--mk-pad);
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.2s ease, visibility 0s linear 0.2s;
+  }
+
+  .mymmo-stappen.mymmo-stappen--naast .mymmo-stap.is-open .mymmo-stap-inhoud {
+    opacity: 1;
+    visibility: visible;
+    transition: opacity 0.35s ease 0.3s, visibility 0s;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mymmo-stappen.mymmo-stappen--naast .mymmo-stap,
+  .mymmo-stappen.mymmo-stappen--naast .mymmo-stap-inhoud,
+  .mymmo-stappen.mymmo-stappen--naast .mymmo-stap.is-open .mymmo-stap-inhoud {
+    transition: none;
+  }
+}

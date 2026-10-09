@@ -1,0 +1,13 @@
+/**
+ * De stappen -- enkel wat in de EDITOR anders is.
+ *
+ * In de editor staan de stappen altijd onder elkaar (zie mymmo-stappen-editor.js),
+ * dus hier staat geen geometrie: die komt uit mymmo-stappen.css, zodat wat je
+ * in de editor ziet, is wat er op de pagina komt.
+ */
+
+/* Het nummer zet de plugin; het hoort niet mee geselecteerd te worden als je
+   de tekst van een stap selecteert. */
+.mymmo-stap .mymmo-stap-nummer {
+  user-select: none;
+}

@@ -393,6 +393,29 @@ Uitzetten per site: `define('MYMMO_CARDS_GEEN_AUTO_UPDATE', true);` in
 
 ## Versies
 
+**1.10.0** — de stappen. Een nieuw component voor "de werkwijze in vier
+stappen": blok **Stappen** (`mymmo/stappen`) met daarin een blok **Stap** per
+stap. De inhoud van een stap zijn gewone blokken (kop, alinea, lijst, knoppen,
+kolommen, video); het nummer zet de plugin zelf. Op een computer staan de
+stappen als panelen naast elkaar en schuift de ene na de andere open terwijl je
+scrolt; op een telefoon, in de editor en zonder JavaScript staan ze onder
+elkaar.
+
+Vervangt een handgebouwde versie op syndicoach.be met een eigen `<style>` en
+`<script>` in een HTML-blok. Wat daarvan bewust NIET is meegekomen, en waarom:
+
+- de eigen kleuren, letters en knopstijlen: die komen nu uit het thema en het
+  palet, zoals bij elk component;
+- het breekpunt van 1024px: de stand naast elkaar begint op 782px, het
+  breekpunt van de rest van de plugin;
+- de schuifbalk in een open paneel: het script MEET of elke stap in het scherm
+  past, en anders blijven de stappen onder elkaar staan;
+- de Captain/Assistant-kaarten die breder worden onder de muis: dat is een
+  apart component, geen onderdeel van een stap.
+
+Ook nieuw: de lijststijl **Vinkjes (in een stap)** voor de kern-lijst, met een
+vinkje in de kleur van het nummer.
+
 **1.9.2** — van idee tot op de site, zonder tussenstappen. Wie een component
 bedenkt, heeft geen Node, geen Python en geen PHP op zijn computer; tot nu kon
 hij daardoor de stempel van de review niet zetten, moest hij zelf een pull

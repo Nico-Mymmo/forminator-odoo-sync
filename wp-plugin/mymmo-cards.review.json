@@ -1,8 +1,8 @@
 {
   "plugin": "mymmo-cards",
-  "versie": "1.9.2",
-  "hash": "450d5205420ecdde",
-  "datum": "2026-10-09T13:58:07.000Z",
+  "versie": "1.10.0",
+  "hash": "7c328f02691bf0cd",
+  "datum": "2026-10-09T14:11:24.000Z",
   "door": "Nico-Mymmo",
-  "samenvatting": "1.9.2: geen component gewijzigd. Nieuw in class-updates.php: GET /mymmo-cards/v1/versie en POST /mymmo-cards/v1/kijk. Kijk plant een eenmalige cron (argument 'nu') die dezelfde controles in release() doorloopt; hoogstens een beurt klaar en minstens drie minuten ertussen, een oproep binnen die tijd wordt uitgesteld in plaats van weggegooid. Geen CSS, JS of editorwijziging; lint 0 fouten, de 4 bestaande H15-waarschuwingen ongewijzigd."
+  "samenvatting": "1.10.0, Stappen (mymmo/stappen + mymmo/stap, van David). Lint 0 fouten; H15 op de inspringing van de vinkjeslijst (1.75em, relatief aan de tekst) aanvaard. Nagekeken: inhoud = core-blokken (kop h3 in het sjabloon), een accentkleur (nummer + vinkjes uit het palet), vlak met huisstijlopvulling en afronding-l zonder schaduw of rand, nummer met maat/lettertype uit theme.json (zelfde afweging als de markeerstift), telefoon: nummer boven de stap, naast elkaar pas vanaf 782px en enkel als elke stap past (geen schuifbalk), reduced-motion zonder animatie, dichte panelen met role=button/tabindex/aria-label en focusring uit de huisstijl, panelen Indeling > Uitzicht > Beweging, geen transform/contain op een voorouder van een venster."
 }
