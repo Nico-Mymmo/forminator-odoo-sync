@@ -8,6 +8,10 @@
 // De definities (sessie, kanaal) staan in web-visits.js en in
 // website-tracker/docs/ontwerp-web-visitor-events.md §5; "klikt verder" staat enkel
 // in web-visits.js (bewust strenger dan §5). Hier wordt enkel geteld.
+//
+// Onderaan staat ook het wisselen van de tabbladen (showTab), voor de hele
+// pagina: Verkoop staat vooraan en is het standaardtabblad. De andere scripts
+// kijken zelf of hun paneel zichtbaar werd (MutationObserver op de klasse).
 
 (function () {
   var web = {
@@ -595,12 +599,12 @@
     }
     var parts = [];
     if (klant) parts.push(nf(klant) + ' bezoeken van klanten tellen niet mee (' + nf(login) + ' daarvan kwamen enkel om in te loggen). Kies "Klanten" of "Iedereen" om ze te zien.');
-    // Wie in Webgedrag uitgesloten is (partner, vaste klant): de server haalt die
+    // Wie onder Marketing -> Instellingen uitgesloten is (partner, vaste klant): de server haalt die
     // bezoeken eruit (web-story/lib/exclusions.js). Zeggen hoeveel, nooit stil.
     var uit = web.data.excluded;
     if (uit && uit.sessions) {
       parts.push(nf(uit.sessions) + ' bezoeken van ' + nf(uit.persons) + (uit.persons === 1 ? ' uitgesloten persoon' : ' uitgesloten personen')
-        + ' tellen niet mee. <a class="link" href="/webgedrag?tab=uitgesloten">Bekijk de lijst</a>');
+        + ' tellen niet mee. <button type="button" class="link" data-mk-action="settings" data-value="excluded">Bekijk de lijst</button>');
     }
     if (uit && uit.error) parts.push('De lijst met uitgesloten personen kon niet gelezen worden: iedereen telt mee.');
     if (cur.length && hist) {
@@ -711,17 +715,29 @@
 
   // --- tabs -----------------------------------------------------------------
 
+  // De tabbladen, in de volgorde van de pagina. Verkoop is het standaardtabblad.
+  var TABS = ['verkoop', 'targets', 'instroom', 'marketing', 'web', 'kaart'];
+  var WIDE_TABS = ['verkoop', 'targets', 'instroom', 'marketing'];
+
   function showTab(name) {
     document.querySelectorAll('[data-dash-tab]').forEach(function (t) { t.classList.toggle('tab-active', t.dataset.dashTab === name); });
     document.querySelectorAll('[data-dash-panel]').forEach(function (p) { p.classList.toggle('hidden', p.dataset.dashPanel !== name); });
-    // Verkoop en Targets hebben drie kolommen (zoals Gedrag in Webgedrag): breder dan de rest.
+    // Verkoop, Targets, Aanvragen en Marketing hebben drie kolommen: breder dan de rest.
     var main = document.getElementById('dashMain');
     if (main) {
-      var wide = name === 'verkoop' || name === 'targets';
+      var wide = WIDE_TABS.indexOf(name) >= 0;
       main.classList.toggle('max-w-7xl', !wide);
       main.classList.toggle('max-w-[1800px]', wide);
     }
     try { localStorage.setItem('dashboardsTab', name); } catch (_) { /* geen opslag */ }
+    // In de adresbalk, zodat een link naar een tabblad werkt (ook die uit Odoo:
+    // ?tab=marketing&lead=<id>). Een lead, actieblad of bezoeker hoort enkel bij Marketing.
+    try {
+      var u = new URL(window.location.href);
+      u.searchParams.set('tab', name);
+      if (name !== 'marketing') ['lead', 'sheet', 'visitor', 'instelling'].forEach(function (k) { u.searchParams.delete(k); });
+      history.replaceState(null, '', u.toString());
+    } catch (_) { /* oude browser: dan enkel geen link */ }
     if (name === 'web' && !web.loaded) { web.loaded = true; load(); }
   }
 
@@ -743,8 +759,14 @@
     else if (action === 'clearAll') { web.filter = { ch: null, det: null, land: null, dev: null, visit: null, who: web.filter.who }; renderAll(); }
   });
 
-  var saved = null;
-  try { saved = localStorage.getItem('dashboardsTab'); } catch (_) { saved = null; }
-  // 'kaart' wordt door dashboards-map.js getekend zodra het paneel zichtbaar is.
-  if (['web', 'kaart', 'verkoop', 'targets'].indexOf(saved) >= 0) showTab(saved);
+  // Welk tabblad eerst: wat de adresbalk zegt (een lead, actieblad of bezoeker =
+  // Marketing), anders het laatst gekozen tabblad, anders Verkoop. Altijd showTab:
+  // dat zet ook de breedte. De panelen laden zelf zodra ze zichtbaar worden.
+  var q = new URL(window.location.href).searchParams;
+  var start = q.get('tab');
+  if (q.get('lead') || q.get('sheet') || q.get('visitor')) start = 'marketing';
+  if (TABS.indexOf(start) < 0) {
+    try { start = localStorage.getItem('dashboardsTab'); } catch (_) { start = null; }
+  }
+  showTab(TABS.indexOf(start) >= 0 ? start : 'verkoop');
 })();

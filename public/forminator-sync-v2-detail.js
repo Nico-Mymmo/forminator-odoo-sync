@@ -630,12 +630,12 @@
                 '<span class="font-semibold text-sm">' + (integration.is_active ? 'Actief' : 'Inactief') + '</span>' +
                 '<input id="detailActiveToggle" type="checkbox" class="toggle toggle-success"' + (integration.is_active ? ' checked' : '') + '>' +
               '</label>' +
-              // Wat een inzending is voor Webgedrag (conversieSoort() in src/lib/web-conversions.js).
+              // Wat een inzending is voor het tabblad Marketing in Dashboards (conversieSoort() in src/lib/web-conversions.js).
               (integration.source_type === 'tracker' ? '' :
                 '<label class="flex items-center gap-2 text-xs text-base-content/70" title="Enkel een aanvraag telt als conversie. Automatisch = op de naam van de koppeling.">' +
-                  '<span>Telt in Webgedrag als</span>' +
+                  '<span>Telt in Marketing als</span>' +
                   '<select id="detailWebAction" class="select select-bordered select-xs">' +
-                    // 'offerte' = een aanvraag die in Webgedrag apart zichtbaar is ("Offerte aangevraagd").
+                    // 'offerte' = een aanvraag die in Marketing apart zichtbaar is ("Offerte aangevraagd").
                     [['', 'Automatisch (op de naam)'], ['aanvraag', 'Aanvraag'], ['offerte', 'Offerte (aanvraag)'], ['nieuwsbrief', 'Nieuwsbrief'], ['academy', 'Academy'], ['event', 'Event'], ['geen', 'Geen actie']]
                       .map(function (o) { return '<option value="' + o[0] + '"' + ((integration.web_action || '') === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') +
                   '</select>' +
@@ -702,7 +702,7 @@
           window.FSV2.api('/integrations/' + S().activeId, { method: 'PUT', body: JSON.stringify({ web_action: waarde }) })
             .then(function () {
               if (S().detail && S().detail.integration) S().detail.integration.web_action = waarde;
-              window.FSV2.showAlert('Bewaard. Nieuwe inzendingen tellen in Webgedrag als: ' + e.target.options[e.target.selectedIndex].text + '.', 'success');
+              window.FSV2.showAlert('Bewaard. Nieuwe inzendingen tellen in Marketing als: ' + e.target.options[e.target.selectedIndex].text + '.', 'success');
               try { document.dispatchEvent(new CustomEvent('fsv2:web-action', { detail: { web_action: waarde } })); } catch (_) { /* oude browser */ }
             })
             .catch(function (err) { window.FSV2.showAlert(err.message, 'error'); });

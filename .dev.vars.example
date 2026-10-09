@@ -36,3 +36,11 @@ GEMINI_API_KEY=your_gemini_api_key_here
 # Beide default naar nico@mymmo.com als je ze weglaat.
 MINI_APPS_NOTIFY_IMPERSONATE_EMAIL=nico@mymmo.com
 MINI_APPS_NOTIFY_FROM_EMAIL=hallo-collega@mymmo.com
+
+# Inloggen — versleutelt de 2FA-sleutels (src/lib/auth/crypto.js). Minstens 32 tekens.
+# Zonder deze waarde kan je lokaal niet inloggen (2FA is verplicht, AUTH_MFA_MODE).
+# Gebruik EXACT dezelfde waarde als de Worker-secret in Cloudflare zolang je lokaal
+# tegen dezelfde Supabase draait: met een andere sleutel gaat geen enkele bestaande
+# 2FA-koppeling open, en wie lokaal 2FA opnieuw instelt, overschrijft zijn koppeling
+# in productie met iets wat de productie-Worker niet kan lezen.
+AUTH_SECRET_KEY=your_auth_secret_key_of_minstens_32_tekens

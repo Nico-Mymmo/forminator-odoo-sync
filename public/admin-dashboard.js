@@ -256,6 +256,14 @@ function renderUsersTable() {
           (user.isActive ? 'Actief' : 'Inactief') +
         '</span>' +
       '</td>' +
+      '<td>' +
+        (user.mfaEnabled
+          ? '<span class="badge badge-sm badge-success">Aan</span>'
+          : '<span class="badge badge-sm badge-warning">Niet ingesteld</span>') +
+        (user.mustChangePassword
+          ? ' <span class="badge badge-sm badge-ghost" title="Kiest bij de volgende login een eigen wachtwoord">tijdelijk wachtwoord</span>'
+          : '') +
+      '</td>' +
       '<td class="text-sm text-base-content/60">' + new Date(user.createdAt).toLocaleDateString('nl-NL') + '</td>' +
       '<td class="text-sm text-base-content/60">' +
         (user.lastLoginAt
@@ -277,6 +285,9 @@ function renderUsersTable() {
           '<button class="btn btn-ghost btn-xs join-item" data-action="editUsername" data-id="' + escapeHtml(user.id) + '" data-username="' + escapeHtml(user.username ?? '') + '" title="Gebruikersnaam">' +
             '<i data-lucide="user-round-pen" class="w-3.5 h-3.5"></i>' +
           '</button>' +
+          '<button class="btn btn-ghost btn-xs join-item" data-action="openSecurity" data-id="' + escapeHtml(user.id) + '" title="Beveiliging: 2FA, sessies, aanmeldingen">' +
+            '<i data-lucide="shield-check" class="w-3.5 h-3.5"></i>' +
+          '</button>' +
           '<button class="btn btn-ghost btn-xs join-item" data-action="editPassword" data-id="' + escapeHtml(user.id) + '" data-email="' + escapeHtml(user.email) + '" title="Wachtwoord opnieuw instellen">' +
             '<i data-lucide="key-round" class="w-3.5 h-3.5"></i>' +
           '</button>' +
@@ -296,6 +307,7 @@ function renderUsersTable() {
           '<th>Rol</th>' +
           '<th>Modules</th>' +
           '<th>Status</th>' +
+          '<th>2FA</th>' +
           '<th>Aangemaakt</th>' +
           '<th>Laatste login</th>' +
           '<th>Acties</th>' +
@@ -595,7 +607,7 @@ function editUserPassword(userId, email) {
   modal.innerHTML =
     '<div class="modal-box max-w-sm">' +
       '<h3 class="font-bold text-lg mb-1">Wachtwoord opnieuw instellen</h3>' +
-      '<p class="text-sm text-base-content/60 mb-4">Voor <strong>' + escapeHtml(email) + '</strong>. Bestaande sessies van deze gebruiker worden meteen ongeldig gemaakt.</p>' +
+      '<p class="text-sm text-base-content/60 mb-4">Voor <strong>' + escapeHtml(email) + '</strong>. Bestaande sessies van deze gebruiker worden meteen ongeldig gemaakt. Het wachtwoord is tijdelijk: bij de volgende login (na de 2FA-code) kiest de gebruiker een eigen wachtwoord.</p>' +
       '<div class="flex flex-col gap-2 mb-3">' +
         '<label class="flex items-center gap-2 text-sm cursor-pointer">' +
           '<input type="radio" name="pwMode" value="generate" class="radio radio-sm" checked />' +
@@ -608,7 +620,7 @@ function editUserPassword(userId, email) {
       '</div>' +
       '<label class="form-control w-full mb-1 hidden" id="manualPwWrap">' +
         '<div class="label"><span class="label-text text-xs font-semibold">Nieuw wachtwoord</span></div>' +
-        '<input id="adminNewPasswordInput" type="text" class="input input-bordered input-sm w-full" placeholder="Minimaal 8 tekens" autocomplete="new-password">' +
+        '<input id="adminNewPasswordInput" type="text" class="input input-bordered input-sm w-full" placeholder="Minimaal 12 tekens" autocomplete="new-password">' +
       '</label>' +
       '<div class="modal-action">' +
         '<button class="btn btn-primary btn-sm" data-action="saveUserPassword" data-id="' + escapeHtml(userId) + '">Wachtwoord instellen</button>' +
@@ -779,8 +791,8 @@ document.getElementById('createUserForm').addEventListener('submit', async funct
   const role = formData.get('role');
   const modules = Array.from(document.querySelectorAll('#moduleCheckboxes input:checked')).map(cb => cb.value);
 
-  if (password.length < 8) {
-    showToast('Het wachtwoord moet minstens 8 tekens lang zijn', 'error');
+  if (password.length < 12) {
+    showToast('Het wachtwoord moet minstens 12 tekens lang zijn', 'error');
     return;
   }
 
@@ -889,6 +901,20 @@ document.addEventListener('click', function(e) {
     requestModuleToggle(el.dataset.id, el.dataset.active === '1');
   } else if (action === 'deleteModule') {
     requestModuleDelete(el.dataset.id, el.dataset.name);
+  } else if (action === 'openSecurity') {
+    openSecurityModal(el.dataset.id);
+  } else if (action === 'closeSecurity') {
+    document.getElementById('securityModal').close();
+  } else if (action === 'revokeUserSession') {
+    requestRevokeUserSession(el.dataset.sid);
+  } else if (action === 'revokeAllUserSessions') {
+    requestRevokeAllUserSessions();
+  } else if (action === 'resetUserMfa') {
+    requestResetUserMfa();
+  } else if (action === 'unlockUser') {
+    requestUnlockUser(el.dataset.id);
+  } else if (action === 'refreshAuthEvents') {
+    loadAuthEvents();
   } else if (action === 'saveGoogleEmailOverride') {
     saveGoogleEmailOverride();
   }
@@ -899,6 +925,8 @@ document.addEventListener('change', function(e) {
   if (!el) return;
   if (el.dataset.action === 'changeRole') {
     requestRoleChange(el, el.dataset.id);
+  } else if (el.dataset.action === 'authEventsFilter') {
+    loadAuthEvents();
   }
 });
 
@@ -943,6 +971,215 @@ function requestModuleDelete(moduleId, moduleName) {
     }
   });
 }
+
+// ====== Loginbeheer: 2FA, sessies, aanmeldingen (admin/security-routes.js) ======
+
+let securityUserId = null;
+let authEventsLoaded = false;
+
+const TONE_BADGE = { success: 'badge-success', error: 'badge-error', warning: 'badge-warning', neutral: 'badge-ghost' };
+
+function fmtDateTime(iso) {
+  return iso ? new Date(iso).toLocaleString('nl-BE', { dateStyle: 'short', timeStyle: 'short' }) : '\u2014';
+}
+
+function authEventRowHtml(e, showAccount) {
+  const wie = showAccount
+    ? '<td class="text-sm">' +
+        (e.user_id
+          ? '<button class="link link-hover" data-action="openSecurity" data-id="' + escapeHtml(e.user_id) + '">' + escapeHtml(e.email || 'onbekend') + '</button>'
+          : escapeHtml(e.email || '\u2014')) +
+      '</td>'
+    : '';
+  const extra = [];
+  if (e.detail && e.detail.by) extra.push('door ' + e.detail.by);
+  if (e.detail && e.detail.unknown_account) extra.push('geen account met dit adres');
+  if (e.detail && e.detail.reauth) extra.push('bij het bevestigen van een wijziging');
+  if (e.detail && typeof e.detail.count === 'number') extra.push(e.detail.count + ' sessie(s)');
+  if (e.detail && typeof e.detail.remaining === 'number') extra.push('nog ' + e.detail.remaining + ' herstelcodes');
+  return '<tr>' +
+    '<td class="whitespace-nowrap text-xs text-base-content/60">' + escapeHtml(fmtDateTime(e.created_at)) + '</td>' +
+    wie +
+    '<td><span class="badge badge-sm ' + (TONE_BADGE[e.tone] || 'badge-ghost') + '">' + escapeHtml(e.label) + '</span>' +
+      (extra.length ? '<div class="text-xs text-base-content/50 mt-0.5">' + escapeHtml(extra.join(' \u00b7 ')) + '</div>' : '') +
+    '</td>' +
+    '<td class="text-xs text-base-content/60">' + escapeHtml(e.device || '') +
+      '<div>' + escapeHtml([e.location, e.ip].filter(Boolean).join(' \u00b7 ')) + '</div></td>' +
+  '</tr>';
+}
+
+async function openSecurityModal(userId) {
+  securityUserId = userId;
+  const user = allUsers.find(u => u.id === userId);
+  document.getElementById('securityModalSub').textContent = user ? user.email : '';
+  document.getElementById('securityModalBody').innerHTML =
+    '<div class="flex justify-center py-10"><span class="loading loading-spinner loading-md text-primary"></span></div>';
+  const modal = document.getElementById('securityModal');
+  if (!modal.open) modal.showModal();
+  try {
+    const res = await apiFetch('/admin/api/users/' + encodeURIComponent(userId) + '/security');
+    const json = await res.json();
+    if (!res.ok || !json.success) throw new Error(json.error || 'Serverfout');
+    if (securityUserId !== userId) return;
+    renderSecurityModal(json.data);
+  } catch (err) {
+    document.getElementById('securityModalBody').innerHTML =
+      '<div class="alert alert-error text-sm"><span>Ophalen mislukt: ' + escapeHtml(err.message) + '</span></div>';
+  }
+}
+
+function renderSecurityModal(d) {
+  const u = d.user;
+  document.getElementById('securityModalSub').textContent = u.email + (u.full_name ? ' \u2014 ' + u.full_name : '');
+
+  const vak = (titel, inhoud) =>
+    '<div class="border border-base-content/10 rounded-lg p-3">' +
+      '<div class="text-xs text-base-content/50 mb-1">' + titel + '</div>' + inhoud +
+    '</div>';
+
+  const mfa = u.mfa_enabled
+    ? '<span class="badge badge-success badge-sm">Aan</span><div class="text-xs text-base-content/60 mt-1">sinds ' +
+        escapeHtml(fmtDateTime(u.mfa_enabled_at)) + ' \u00b7 ' + u.recovery_remaining + ' herstelcodes over</div>'
+    : '<span class="badge badge-warning badge-sm">Niet ingesteld</span><div class="text-xs text-base-content/60 mt-1">' +
+        (d.mfa_required ? 'Wordt ingesteld bij de volgende login.' : '2FA staat op optioneel (AUTH_MFA_MODE).') + '</div>';
+
+  const wachtwoord = u.must_change_password
+    ? '<span class="badge badge-ghost badge-sm">Tijdelijk</span><div class="text-xs text-base-content/60 mt-1">Kiest een eigen wachtwoord bij de volgende login.</div>'
+    : '<span class="badge badge-ghost badge-sm">Zelf gekozen</span><div class="text-xs text-base-content/60 mt-1">' +
+        (u.password_changed_at ? 'gewijzigd op ' + escapeHtml(fmtDateTime(u.password_changed_at)) : 'van voor 9 oktober 2026') + '</div>';
+
+  const toegang = d.lock.locked
+    ? '<span class="badge badge-error badge-sm">Tijdelijk geblokkeerd</span><div class="text-xs text-base-content/60 mt-1">' +
+        d.lock.failures + ' mislukte pogingen \u00b7 tot ' + escapeHtml(fmtDateTime(d.lock.until)) + '</div>'
+    : (u.is_active
+      ? '<span class="badge badge-success badge-sm">Actief</span><div class="text-xs text-base-content/60 mt-1">laatste login ' + escapeHtml(fmtDateTime(u.last_login_at)) + '</div>'
+      : '<span class="badge badge-ghost badge-sm">Gedeactiveerd</span>');
+
+  const acties = [];
+  if (d.lock.locked) acties.push('<button class="btn btn-sm btn-primary" data-action="unlockUser" data-id="' + escapeHtml(u.id) + '">Ontgrendelen</button>');
+  if (u.mfa_enabled) acties.push('<button class="btn btn-sm btn-outline btn-warning" data-action="resetUserMfa">2FA resetten</button>');
+  if (d.sessions.length) acties.push('<button class="btn btn-sm btn-outline btn-error" data-action="revokeAllUserSessions">Alle sessies be\u00ebindigen</button>');
+
+  const sessieRijen = d.sessions.map(s =>
+    '<tr>' +
+      '<td><div class="text-sm font-medium">' + escapeHtml(s.device) + (s.current ? ' <span class="badge badge-primary badge-xs">jouw sessie</span>' : '') + '</div>' +
+        '<div class="text-xs text-base-content/50">' + escapeHtml([s.location, s.ip].filter(Boolean).join(' \u00b7 ') || 'locatie onbekend') + '</div></td>' +
+      '<td class="text-xs text-base-content/60 whitespace-nowrap">' + escapeHtml(fmtDateTime(s.created_at)) + '<div>' +
+        (s.mfa_method === 'recovery' ? '<span class="badge badge-warning badge-xs">herstelcode</span>'
+          : s.mfa_method === 'totp' ? '<span class="badge badge-ghost badge-xs">2FA</span>'
+          : '<span class="badge badge-error badge-xs">zonder 2FA</span>') + '</div></td>' +
+      '<td class="text-xs text-base-content/60 whitespace-nowrap">' + escapeHtml(fmtDateTime(s.last_activity_at)) + '</td>' +
+      '<td class="text-right">' + (s.current ? '' :
+        '<button class="btn btn-ghost btn-xs text-error" data-action="revokeUserSession" data-sid="' + escapeHtml(s.id) + '">Be\u00ebindigen</button>') + '</td>' +
+    '</tr>'
+  ).join('');
+
+  document.getElementById('securityModalBody').innerHTML =
+    '<div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">' + vak('Tweestapsverificatie', mfa) + vak('Wachtwoord', wachtwoord) + vak('Toegang', toegang) + '</div>' +
+    (acties.length ? '<div class="flex flex-wrap gap-2 mb-5">' + acties.join('') + '</div>' : '') +
+    '<h4 class="text-sm font-semibold mb-2">Sessies (' + d.sessions.length + ')</h4>' +
+    (d.sessions.length
+      ? '<div class="overflow-x-auto mb-5"><table class="table table-sm"><thead><tr><th>Apparaat</th><th>Ingelogd</th><th>Laatst actief</th><th></th></tr></thead><tbody>' + sessieRijen + '</tbody></table></div>'
+      : '<p class="text-sm text-base-content/50 mb-5">Niet ingelogd.</p>') +
+    '<h4 class="text-sm font-semibold mb-2">Recente aanmeldingen</h4>' +
+    (d.events.length
+      ? '<div class="overflow-x-auto max-h-72 overflow-y-auto"><table class="table table-sm"><tbody>' + d.events.map(e => authEventRowHtml(e, false)).join('') + '</tbody></table></div>'
+      : '<p class="text-sm text-base-content/50">Nog niets gelogd.</p>');
+}
+
+async function securityPost(url, method, okText) {
+  try {
+    const res = await apiFetch(url, { method: method });
+    const json = await res.json();
+    if (!res.ok || !json.success) throw new Error(json.error || 'Serverfout');
+    showToast(okText(json), 'success');
+    if (securityUserId) openSecurityModal(securityUserId);
+    loadUsers();
+    if (authEventsLoaded) loadAuthEvents();
+  } catch (err) {
+    showToast('Mislukt: ' + err.message, 'error');
+  }
+}
+
+function requestRevokeUserSession(sid) {
+  if (!securityUserId || !sid) return;
+  securityPost('/admin/api/users/' + encodeURIComponent(securityUserId) + '/sessions/' + encodeURIComponent(sid), 'DELETE',
+    () => 'Sessie be\u00ebindigd');
+}
+
+function requestRevokeAllUserSessions() {
+  const user = allUsers.find(u => u.id === securityUserId);
+  if (!user) return;
+  openConfirm({
+    title: 'Alle sessies be\u00ebindigen',
+    body: user.email + ' wordt op elk apparaat uitgelogd en moet opnieuw inloggen (met 2FA).',
+    okLabel: 'Be\u00ebindigen',
+    danger: true,
+    onConfirm: () => securityPost('/admin/api/users/' + encodeURIComponent(user.id) + '/sessions', 'DELETE',
+      json => json.count + ' sessie(s) be\u00ebindigd')
+  });
+}
+
+function requestResetUserMfa() {
+  const user = allUsers.find(u => u.id === securityUserId);
+  if (!user) return;
+  openConfirm({
+    title: '2FA resetten',
+    body: 'De authenticator-koppeling en de herstelcodes van ' + user.email + ' worden gewist en alle sessies be\u00ebindigd. ' +
+      'Bij de volgende login stelt deze gebruiker 2FA opnieuw in. Doe dit ENKEL als je zeker weet dat de persoon het zelf vraagt ' +
+      '(bv. telefoon kwijt en geen herstelcodes) \u2014 wie met een gestolen wachtwoord binnen wil, vraagt precies dit.',
+    okLabel: '2FA resetten',
+    danger: true,
+    onConfirm: () => securityPost('/admin/api/users/' + encodeURIComponent(user.id) + '/mfa-reset', 'POST',
+      () => '2FA van ' + user.email + ' gereset')
+  });
+}
+
+function requestUnlockUser(userId) {
+  const id = userId || securityUserId;
+  if (!id) return;
+  securityPost('/admin/api/users/' + encodeURIComponent(id) + '/unlock', 'POST', () => 'Account ontgrendeld');
+}
+
+async function loadAuthEvents() {
+  authEventsLoaded = true;
+  const filter = document.getElementById('authEventsFilter').value || 'all';
+  const tabel = document.getElementById('authEventsTable');
+  try {
+    const res = await apiFetch('/admin/api/auth-events?filter=' + encodeURIComponent(filter));
+    const json = await res.json();
+    if (!res.ok || !json.success) throw new Error(json.error || 'Serverfout');
+    const d = json.data;
+
+    document.getElementById('lockedAccounts').innerHTML = d.locked.length
+      ? '<div class="alert alert-warning text-sm flex-col items-start gap-2">' +
+          '<span class="font-semibold">Nu tijdelijk geblokkeerd</span>' +
+          d.locked.map(l =>
+            '<div class="flex flex-wrap items-center gap-2">' +
+              '<span>' + escapeHtml(l.email) + ' \u2014 ' + l.failures + ' mislukte pogingen, tot ' + escapeHtml(fmtDateTime(l.until)) + '</span>' +
+              (l.user_id ? '<button class="btn btn-xs" data-action="unlockUser" data-id="' + escapeHtml(l.user_id) + '">Ontgrendelen</button>'
+                : '<span class="text-xs opacity-70">(geen account met dit adres)</span>') +
+            '</div>'
+          ).join('') +
+        '</div>'
+      : '';
+
+    tabel.innerHTML = d.events.length
+      ? '<table class="table table-sm"><thead><tr><th>Tijdstip</th><th>Account</th><th>Gebeurtenis</th><th>Apparaat en plaats</th></tr></thead><tbody>' +
+          d.events.map(e => authEventRowHtml(e, true)).join('') + '</tbody></table>'
+      : '<p class="text-sm text-base-content/50">Niets gevonden.</p>';
+  } catch (err) {
+    tabel.innerHTML = '<div class="alert alert-error text-sm"><span>Ophalen mislukt: ' + escapeHtml(err.message) + '</span></div>';
+  }
+}
+
+document.getElementById('tabAuthEvents').addEventListener('change', function(e) {
+  if (e.target.checked) loadAuthEvents();
+});
+
+document.getElementById('securityModal').addEventListener('close', function() {
+  securityUserId = null;
+});
 
 // ====== Init ======
 

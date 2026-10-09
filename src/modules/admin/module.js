@@ -21,6 +21,14 @@ import {
   handleGetGoogleEmailSetting,
   handleSetGoogleEmailSetting
 } from './routes.js';
+import {
+  handleGetAuthEvents,
+  handleGetUserSecurity,
+  handleResetUserMfa,
+  handleRevokeAllUserSessions,
+  handleRevokeUserSession,
+  handleUnlockUser
+} from './security-routes.js';
 
 export default {
   // Module metadata
@@ -65,6 +73,14 @@ export default {
     'PUT /api/users/:id/username': handleUpdateUserUsername,
     'PUT /api/users/:id/toggle': handleToggleUserStatus,
     'PUT /api/users/:id/password': handleResetUserPassword,
+
+    // Loginbeheer: 2FA, sessies, aanmeldingen, blokkering (security-routes.js)
+    'GET /api/users/:id/security': handleGetUserSecurity,
+    'DELETE /api/users/:id/sessions/:sid': handleRevokeUserSession,
+    'DELETE /api/users/:id/sessions': handleRevokeAllUserSessions,
+    'POST /api/users/:id/mfa-reset': handleResetUserMfa,
+    'POST /api/users/:id/unlock': handleUnlockUser,
+    'GET /api/auth-events': handleGetAuthEvents,
     
     // Modules API
     'GET /api/modules': handleGetModules,

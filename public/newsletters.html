@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nieuwsbrieven - Operations Manager</title>
+  <script>
+    (function () {
+      var t = localStorage.getItem('selectedTheme') || 'light';
+      document.documentElement.setAttribute('data-theme', t);
+    })();
+  </script>
+  <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet" type="text/css" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script src="/shared-navbar.js"></script>
+  <style>
+    .nb-teller { font-variant-numeric: tabular-nums; }
+    .nb-balk { display: flex; gap: 3px; }
+    .nb-balk > span { flex: 1; height: 8px; border-radius: 3px; }
+    .nb-voorbeeld { width: 100%; border: 0; border-radius: 12px; min-height: 600px; background: #fff; }
+    .nb-kaart-actief { outline: 2px solid oklch(var(--p)); outline-offset: 1px; }
+    .nb-tekening { width: 56px; height: 56px; object-fit: contain; }
+    .nb-toast { position: fixed; right: 1rem; bottom: 1rem; z-index: 1000; display: flex; flex-direction: column; gap: .5rem; }
+  </style>
+</head>
+<body class="bg-base-200 min-h-screen">
+
+  <div id="navbar"></div>
+
+  <main class="max-w-7xl mx-auto px-4 py-6" style="padding-top: calc(48px + 1.5rem);">
+    <div id="nbBanner"></div>
+    <div id="app">
+      <div class="flex justify-center py-20"><span class="loading loading-spinner loading-lg"></span></div>
+    </div>
+  </main>
+
+  <!-- Idee in de voorraad -->
+  <dialog id="dlgIdee" class="modal">
+    <div class="modal-box max-w-lg">
+      <h3 class="font-bold text-lg mb-1">Idee voor de nieuwsbrief</h3>
+      <p class="text-sm opacity-70 mb-4">Iets wat je hoorde, zag of leerde. Het komt in de voorraad, en de hoofdredactie neemt het op in een editie.</p>
+      <div class="space-y-3">
+        <label class="form-control">
+          <span class="label-text mb-1">Titel</span>
+          <input id="ideeTitel" type="text" class="input input-bordered" maxlength="120" placeholder="Bv. Wie betaalt een lekkend dak?">
+        </label>
+        <label class="form-control">
+          <span class="label-text mb-1">Wat wil je kwijt? Steekwoorden mogen.</span>
+          <textarea id="ideeNotities" class="textarea textarea-bordered" rows="4"></textarea>
+        </label>
+        <div>
+          <span class="label-text">Voor welke nieuwsbrief?</span>
+          <div id="ideeReeksen" class="flex flex-wrap gap-3 mt-2"></div>
+        </div>
+      </div>
+      <div class="modal-action">
+        <button class="btn btn-ghost" data-action="sluit-dialoog" data-dialoog="dlgIdee">Annuleren</button>
+        <button class="btn btn-primary" data-action="bewaar-idee">In de voorraad</button>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>sluiten</button></form>
+  </dialog>
+
+  <!-- Nieuwe editie -->
+  <dialog id="dlgEditie" class="modal">
+    <div class="modal-box max-w-md">
+      <h3 class="font-bold text-lg mb-1">Nieuwe editie</h3>
+      <p class="text-sm opacity-70 mb-4">De inleverdatum valt vanzelf een paar werkdagen ervoor. Elke rubriek krijgt meteen een opdracht bij haar eigenaar.</p>
+      <label class="form-control">
+        <span class="label-text mb-1">Verzenddag</span>
+        <input id="editieDatum" type="date" class="input input-bordered">
+      </label>
+      <div class="modal-action">
+        <button class="btn btn-ghost" data-action="sluit-dialoog" data-dialoog="dlgEditie">Annuleren</button>
+        <button class="btn btn-primary" data-action="maak-editie">Aanmaken</button>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>sluiten</button></form>
+  </dialog>
+
+  <!-- Stukje toevoegen -->
+  <dialog id="dlgStukje" class="modal">
+    <div class="modal-box max-w-lg">
+      <h3 class="font-bold text-lg mb-4">Stukje toevoegen</h3>
+      <div class="space-y-3">
+        <label class="form-control">
+          <span class="label-text mb-1">Soort</span>
+          <select id="stukjeSoort" class="select select-bordered"></select>
+        </label>
+        <label class="form-control">
+          <span class="label-text mb-1">Naam van de rubriek (staat boven het stukje)</span>
+          <input id="stukjeTitel" type="text" class="input input-bordered" maxlength="120">
+        </label>
+        <label class="form-control">
+          <span class="label-text mb-1">Wie schrijft het?</span>
+          <select id="stukjeEigenaar" class="select select-bordered"></select>
+        </label>
+      </div>
+      <div class="modal-action">
+        <button class="btn btn-ghost" data-action="sluit-dialoog" data-dialoog="dlgStukje">Annuleren</button>
+        <button class="btn btn-primary" data-action="voeg-stukje-toe">Toevoegen</button>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>sluiten</button></form>
+  </dialog>
+
+  <!-- Echt versturen (enkel in live-stand) -->
+  <dialog id="dlgInplannen" class="modal">
+    <div class="modal-box max-w-md">
+      <h3 class="font-bold text-lg mb-2">Editie inplannen</h3>
+      <p id="inplannenTekst" class="text-sm mb-4"></p>
+      <label class="form-control">
+        <span class="label-text mb-1">Typ VERSTUREN om te bevestigen</span>
+        <input id="inplannenBevestig" type="text" class="input input-bordered" autocomplete="off">
+      </label>
+      <div class="modal-action">
+        <button class="btn btn-ghost" data-action="sluit-dialoog" data-dialoog="dlgInplannen">Annuleren</button>
+        <button class="btn btn-error" data-action="bevestig-inplannen">Inplannen</button>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>sluiten</button></form>
+  </dialog>
+
+  <div id="nbToast" class="nb-toast"></div>
+
+  <script src="/newsletters-core.js"></script>
+  <script src="/newsletters-overview.js"></script>
+  <script src="/newsletters-edition.js"></script>
+  <script src="/newsletters-contribution.js"></script>
+  <script src="/newsletters-series.js"></script>
+  <script src="/newsletters-bootstrap.js"></script>
+</body>
+</html>

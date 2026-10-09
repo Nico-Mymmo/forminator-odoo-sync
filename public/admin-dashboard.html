@@ -75,8 +75,8 @@
 
                 <label class="form-control w-full">
                   <div class="label"><span class="label-text">Wachtwoord <span class="text-error">*</span></span></div>
-                  <input type="password" name="password" placeholder="Minimaal 8 tekens" class="input input-bordered input-sm w-full" autocomplete="new-password" required />
-                  <div class="label py-1"><span class="label-text-alt text-xs text-base-content/50">Minimaal 8 tekens</span></div>
+                  <input type="password" name="password" placeholder="Minimaal 12 tekens" class="input input-bordered input-sm w-full" autocomplete="new-password" required />
+                  <div class="label py-1"><span class="label-text-alt text-xs text-base-content/50">Tijdelijk: bij de eerste login kiest de gebruiker een eigen wachtwoord en stelt 2FA in.</span></div>
                 </label>
               </div>
 
@@ -112,6 +112,30 @@
             <h2 class="text-base font-semibold mb-4">Beschikbare modules</h2>
             <div id="modulesTable" class="overflow-x-auto">
               <div class="flex justify-center py-20">
+                <span class="loading loading-spinner loading-md text-primary"></span>
+              </div>
+            </div>
+          </div>
+
+          <!-- ============ TAB: AANMELDINGEN (loginbeheer, zie admin/security-routes.js) ============ -->
+          <input type="radio" name="admin_tabs" role="tab" class="tab" aria-label="Aanmeldingen" id="tabAuthEvents" />
+          <div role="tabpanel" class="tab-content bg-base-100 border-base-content/10 rounded-box p-6">
+            <div class="flex flex-wrap items-start justify-between gap-3 mb-4">
+              <div>
+                <h2 class="text-base font-semibold">Aanmeldingen</h2>
+                <p class="text-sm text-base-content/60 mt-1 max-w-2xl">Elke poging om in te loggen, en elke wijziging aan 2FA, wachtwoorden en sessies. Na 5 mislukte pogingen in 15 minuten wordt een account tijdelijk geweigerd.</p>
+              </div>
+              <div class="flex items-center gap-2">
+                <select id="authEventsFilter" class="select select-bordered select-sm" data-action="authEventsFilter">
+                  <option value="all">Alles</option>
+                  <option value="failed">Enkel mislukt en geweigerd</option>
+                </select>
+                <button type="button" class="btn btn-ghost btn-sm" data-action="refreshAuthEvents">Vernieuwen</button>
+              </div>
+            </div>
+            <div id="lockedAccounts" class="mb-4"></div>
+            <div id="authEventsTable" class="overflow-x-auto">
+              <div class="flex justify-center py-10">
                 <span class="loading loading-spinner loading-md text-primary"></span>
               </div>
             </div>
@@ -178,6 +202,19 @@
         <div class="modal-action">
           <button class="btn btn-primary btn-sm" id="saveModuleUsersBtn" data-action="saveModuleUsers">Opslaan</button>
           <button class="btn btn-ghost btn-sm" data-action="closeModuleUsersModal">Annuleren</button>
+        </div>
+      </div>
+      <form method="dialog" class="modal-backdrop"><button>sluiten</button></form>
+    </dialog>
+
+    <!-- ====== Loginbeheer per gebruiker ====== -->
+    <dialog id="securityModal" class="modal">
+      <div class="modal-box max-w-3xl">
+        <h3 class="font-bold text-lg mb-1">Beveiliging</h3>
+        <p class="text-sm text-base-content/60 mb-4" id="securityModalSub"></p>
+        <div id="securityModalBody"></div>
+        <div class="modal-action">
+          <button class="btn btn-ghost btn-sm" data-action="closeSecurity">Sluiten</button>
         </div>
       </div>
       <form method="dialog" class="modal-backdrop"><button>sluiten</button></form>
