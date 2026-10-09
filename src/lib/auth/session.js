@@ -6,6 +6,18 @@
 
 import { getSupabaseClient } from '../database.js';
 import { getOrderedFavorites } from '../../modules/mini-apps/lib/favorites.js';
+import { randomToken, sha256Hex } from './crypto.js';
+import { mfaRequired } from './mfa.js';
+import { describeUserAgent } from './user-agent.js';
+
+/*
+ * Sessietokens staan NIET in de database, enkel hun SHA-256 (`token_hash`).
+ * Tot 2026-10-09 stond het token zelf in `sessions.token`: wie die tabel kon
+ * lezen (een back-up, een te ruime sleutel), kon zich als eender wie aanmelden,
+ * ook langs 2FA heen. De oude rijen hebben geen token_hash, worden dus nergens
+ * meer gevonden en worden door cleanupExpiredSessions() opgeruimd. Gevolg bij
+ * de uitrol: iedereen meldt zich EEN keer opnieuw aan (en stelt 2FA in).
+ */
 
 /**
  * Hoe lang een sessie geldig is: 30 dagen, GLIJDEND.
@@ -30,27 +42,31 @@ const VERLENG_ALS_MINDER_DAN_MS = (SESSION_DAYS - 1) * 24 * 60 * 60 * 1000;
  * 
  * @param {Object} env - Environment variables
  * @param {string} userId - User ID
- * @param {Object} metadata - Optional session metadata (user_agent, ip_address)
+ * @param {Object} metadata - user_agent, ip_address, country, city, en
+ *   mfa_method ('totp' | 'recovery' | null): hoe de tweede stap gezet werd.
  * @returns {Promise<Object>} Session token and data
  */
 export async function createSession(env, userId, metadata = {}) {
   const supabase = getSupabaseClient(env);
-  
-  // Generate secure token
-  const token = crypto.randomUUID();
-  
+
+  // 256 bits toeval; in de database komt enkel de hash.
+  const token = randomToken(32);
+
   const expiresAt = new Date(Date.now() + SESSION_MS);
-  
+
   const { data, error } = await supabase
     .from('sessions')
     .insert({
       user_id: userId,
-      token,
+      token_hash: await sha256Hex(token),
       expires_at: expiresAt.toISOString(),
       user_agent: metadata.user_agent || null,
-      ip_address: metadata.ip_address || null
+      ip_address: metadata.ip_address || null,
+      country: metadata.country || null,
+      city: metadata.city || null,
+      mfa_method: metadata.mfa_method || null
     })
-    .select()
+    .select('id, user_id, expires_at, created_at, mfa_method')
     .single();
   
   if (error) {
@@ -92,9 +108,9 @@ export async function validateSession(env, token) {
         last_login_at
       )
     `)
-    .eq('token', token)
+    .eq('token_hash', await sha256Hex(token))
     .gt('expires_at', new Date().toISOString())
-    .single();
+    .maybeSingle();
   
   if (error || !session) {
     return null;
@@ -102,6 +118,12 @@ export async function validateSession(env, token) {
   
   // Check if user is active
   if (!session.user.is_active) {
+    return null;
+  }
+
+  // 2FA verplicht (AUTH_MFA_MODE): een sessie die zonder tweede stap ontstond
+  // -- toen het nog optioneel stond -- telt dan niet meer.
+  if (mfaRequired(env) && !session.mfa_method) {
     return null;
   }
 
@@ -114,7 +136,7 @@ export async function validateSession(env, token) {
         expires_at: new Date(Date.now() + SESSION_MS).toISOString(),
         last_activity_at: new Date().toISOString()
       })
-      .eq('token', token);
+      .eq('id', session.id);
     if (verlengFout) console.error('Session verlengen mislukt:', verlengFout.message);
   }
   
@@ -169,7 +191,8 @@ export async function validateSession(env, token) {
     .update({ last_activity_at: new Date().toISOString() })
     .eq('id', session.id)
     .then(() => {});
-  
+
+  session.user.sessionId = session.id;
   return session.user;
 }
 
@@ -178,17 +201,18 @@ export async function validateSession(env, token) {
  * 
  * @param {Object} env - Environment variables
  * @param {string} token - Session token
- * @returns {Promise<boolean>} Success
+ * @returns {Promise<{ ok: boolean, userId: string|null }>}
  */
 export async function invalidateSession(env, token) {
   const supabase = getSupabaseClient(env);
-  
-  const { error } = await supabase
+
+  const { data, error } = await supabase
     .from('sessions')
     .delete()
-    .eq('token', token);
-  
-  return !error;
+    .eq('token_hash', await sha256Hex(token))
+    .select('user_id');
+
+  return { ok: !error, userId: data?.[0]?.user_id || null };
 }
 
 /**
@@ -227,9 +251,9 @@ export async function refreshSession(env, token) {
       expires_at: newExpiresAt.toISOString(),
       last_activity_at: new Date().toISOString()
     })
-    .eq('token', token)
+    .eq('token_hash', await sha256Hex(token))
     .gt('expires_at', new Date().toISOString())
-    .select()
+    .select('id, expires_at')
     .single();
   
   if (error) return null;
@@ -248,12 +272,93 @@ export async function refreshSession(env, token) {
  */
 export async function cleanupExpiredSessions(env) {
   const supabase = getSupabaseClient(env);
-  
+
   const { data, error } = await supabase
     .from('sessions')
     .delete()
     .lt('expires_at', new Date().toISOString())
-    .select();
-  
-  return data?.length || 0;
+    .select('id');
+  if (error) console.error('[auth] verlopen sessies opruimen mislukt:', error.message);
+
+  // Sessies van voor de gehashte tokens: worden nergens meer gevonden.
+  const { data: oud, error: oudFout } = await supabase
+    .from('sessions')
+    .delete()
+    .is('token_hash', null)
+    .select('id');
+  if (oudFout) console.error('[auth] oude sessies opruimen mislukt:', oudFout.message);
+
+  return (data?.length || 0) + (oud?.length || 0);
+}
+
+const SESSIE_KOLOMMEN = 'id, user_id, user_agent, ip_address, country, city, mfa_method, created_at, last_activity_at, expires_at';
+
+/**
+ * De lopende sessies van een gebruiker, jongste activiteit eerst.
+ *
+ * @param {Object} env @param {string} userId
+ * @returns {Promise<Object[]>}
+ */
+export async function listUserSessions(env, userId) {
+  const { data, error } = await getSupabaseClient(env)
+    .from('sessions')
+    .select(SESSIE_KOLOMMEN)
+    .eq('user_id', userId)
+    .not('token_hash', 'is', null)
+    .gt('expires_at', new Date().toISOString())
+    .order('last_activity_at', { ascending: false })
+    .limit(100);
+  if (error) throw new Error(`Sessies ophalen mislukt: ${error.message}`);
+  return data || [];
+}
+
+/**
+ * Een sessie beëindigen, enkel als ze van deze gebruiker is.
+ *
+ * @param {Object} env @param {string} userId @param {string} sessionId
+ * @returns {Promise<boolean>} of er een sessie weg is
+ */
+export async function revokeSessionById(env, userId, sessionId) {
+  const { data, error } = await getSupabaseClient(env)
+    .from('sessions')
+    .delete()
+    .eq('id', sessionId)
+    .eq('user_id', userId)
+    .select('id');
+  if (error) throw new Error(`Sessie beëindigen mislukt: ${error.message}`);
+  return (data || []).length === 1;
+}
+
+/**
+ * Alle sessies van een gebruiker beëindigen, behalve (optioneel) een.
+ *
+ * @param {Object} env @param {string} userId @param {string|null} [keepSessionId]
+ * @returns {Promise<number>} hoeveel er beëindigd zijn
+ */
+export async function revokeOtherSessions(env, userId, keepSessionId = null) {
+  let q = getSupabaseClient(env).from('sessions').delete().eq('user_id', userId);
+  if (keepSessionId) q = q.neq('id', keepSessionId);
+  const { data, error } = await q.select('id');
+  if (error) throw new Error(`Sessies beëindigen mislukt: ${error.message}`);
+  return (data || []).length;
+}
+
+/**
+ * De vorm waarin een sessie naar een scherm gaat. Nooit het token of de hash.
+ *
+ * @param {Object} row @param {string|null} [currentSessionId]
+ * @returns {Object}
+ */
+export function toSessionDto(row, currentSessionId = null) {
+  return {
+    id: row.id,
+    device: describeUserAgent(row.user_agent),
+    ip: row.ip_address || null,
+    location: [row.city, row.country].filter(Boolean).join(', ') || null,
+    mfa_method: row.mfa_method || null,
+    created_at: row.created_at,
+    last_activity_at: row.last_activity_at,
+    expires_at: row.expires_at,
+    current: !!currentSessionId && row.id === currentSessionId
+  };
 }

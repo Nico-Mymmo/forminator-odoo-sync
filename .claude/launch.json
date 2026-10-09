@@ -6,6 +6,12 @@
       "url": "http://localhost:8787"
     },
     {
+      "name": "aanvragen-proef",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "proef:aanvragen"],
+      "port": 8790
+    },
+    {
       "name": "stap-preview",
       "runtimeExecutable": "python",
       "runtimeArgs": [

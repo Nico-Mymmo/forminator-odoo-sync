@@ -94,6 +94,113 @@ const supabase = getSupabaseClient(env); // per-isolate singleton, persistSessio
 
 Elke succesvolle module-route-aanroep wordt geregistreerd in de tabel `endpoint_log` (`endpoint`, `last_called_at`, `call_count`) via `src/lib/endpoint-tracker.js` → SQL-functie `upsert_endpoint_log(p_endpoint)`. De module-router doet dit automatisch (fire-and-forget, route-patroon zoals `GET /admin/api/users/:id` — nooit raw paths met IDs). Publieke en auth-routes worden niet getrackt. Nieuwe modules hoeven hier niets voor te doen.
 
+## Inloggen — 2FA en loginbeheer (2026-10)
+
+**Regel: elke aanmelding vraagt een wachtwoord EN een code van een
+authenticator-app (TOTP). Er bestaat geen sessie zonder die tweede stap
+(`sessions.mfa_method`), tenzij `AUTH_MFA_MODE` exact `optional` is.**
+
+Waarom dit er kwam (2026-10-09, "vanaf vandaag secure"): wachtwoorden stonden als
+ONgezoute SHA-256 in `users.password_hash` (met een `$2a$`-voorvoegsel dat op bcrypt
+leek), sessietokens stonden leesbaar in `sessions.token`, er was geen limiet op
+inlogpogingen, en de loginpagina zette het sessietoken ook nog in `localStorage`,
+waardoor `HttpOnly` op de cookie niets meer beschermde.
+
+| Wat | Waar |
+|---|---|
+| Inlogstappen: wachtwoord -> 2FA (of instellen) -> eigen wachtwoord -> sessie | `src/api/auth-login.js` (`/api/auth/login`, `/login/mfa`, `/login/password`) |
+| Loginpagina | `public/login.html` + `public/login.js` (geserveerd door `home/module.js`) |
+| Wachtwoorden: PBKDF2, beleid | `src/lib/auth/password.js` |
+| TOTP (RFC 6238) | `src/lib/auth/totp.js` |
+| 2FA per gebruiker, herstelcodes, `mfaRequired()` | `src/lib/auth/mfa.js` |
+| Tokens, hashes, AES-GCM voor het 2FA-geheim | `src/lib/auth/crypto.js` |
+| Aanmelding die nog niet af is | `src/lib/auth/challenges.js`, tabel `auth_challenges` |
+| Logboek + tijdelijke blokkering | `src/lib/auth/events.js`, tabel `auth_events` |
+| Sessies (gehasht), oplijsten, beëindigen | `src/lib/auth/session.js` |
+| Opruimen (eens per uur) | `src/lib/auth/cleanup.js`, `*/15`-tak in `index.js` |
+| Zelfbeheer: Profiel -> Beveiliging | `public/account-security.html` + `.js`, `src/modules/profile/security-routes.js` |
+| Beheer: knop Beveiliging per gebruiker + tabblad Aanmeldingen | `public/admin-dashboard.*`, `src/modules/admin/security-routes.js` |
+| Migratie | `supabase/migrations/20261009170000_auth_mfa_login_management.sql` |
+
+**Secret:** `AUTH_SECRET_KEY` (minstens 32 tekens). Daarmee wordt het TOTP-geheim
+versleuteld (`users.mfa_secret_enc`, AES-GCM, gebonden aan `users.id`). Zonder die
+secret kan NIEMAND 2FA instellen of gebruiken, en dus niet inloggen: zet hem VOOR de
+deploy. Kwijt of gewijzigd = elke koppeling onbruikbaar; dan reset een beheerder
+2FA per gebruiker (of, als alle beheerders buiten staan: `mfa_secret_enc` en
+`mfa_enabled_at` op NULL in Supabase). Bewust geen afleiding van de
+Supabase-sleutel: wie de database leest, mag de 2FA-geheimen niet kunnen lezen.
+
+Afspraken die bewust zo zijn:
+
+- **`AUTH_MFA_MODE` faalt naar VERPLICHT.** Alles behalve exact `optional` (ook
+  leeg of een tikfout) betekent verplicht. `optional` is een nooduitgang, niet de
+  standaard; zet je hem terug op `required`, dan vallen de sessies zonder 2FA
+  meteen weg (`validateSession`).
+- **Het sessietoken staat nergens in de database**, enkel `sessions.token_hash`
+  (SHA-256). Oude rijen zonder hash worden niet meer gevonden en door de cron
+  opgeruimd: bij de uitrol logt iedereen EEN keer opnieuw in. Het token gaat ook
+  NOOIT meer in een JSON-body mee, enkel als `HttpOnly`-cookie. Zet het nooit terug
+  in `localStorage`.
+- **Gebruikerswachtwoorden: `hashUserPassword()` / `verifyUserPassword()`**
+  (PBKDF2-SHA256, 100.000 iteraties = het plafond van Web Crypto in een Worker,
+  eigen zout). Een oude `$2a$`-hash werkt nog EEN keer en wordt bij die login
+  herschreven. `hashPassword()` / `verifyPassword()` bestaan nog enkel voor de
+  Claude-integratie (willekeurige tokens die OPGEZOCHT worden op hun hash); gebruik
+  ze nooit voor iets wat een mens bedacht. Een onbekend e-mailadres rekent toch een
+  volledige PBKDF2, anders verraadt de antwoordtijd welke accounts bestaan.
+- **Nieuw wachtwoord: minstens 12 tekens, geen samenstellingseisen**
+  (`checkNewPassword()`). "Een hoofdletter en een cijfer" maakt wachtwoorden
+  voorspelbaarder, niet sterker.
+- **Een wachtwoord dat een BEHEERDER zet, is tijdelijk** (`must_change_password`):
+  bij de volgende login kiest de gebruiker een eigen wachtwoord, na zijn 2FA-code.
+  Zo kent een beheerder nooit het wachtwoord waarmee iemand werkt.
+- **Tussen wachtwoord en sessie bestaat enkel een challenge** (10 minuten, 5 foute
+  codes, token enkel als hash in de database, in de browser enkel in het geheugen).
+  Er komt GEEN "half ingelogde" sessie met beperkte rechten: dat is een tweede
+  soort sessie die elke route zou moeten kennen.
+- **Een TOTP-code werkt een keer** (`users.mfa_last_step`, voorwaardelijk
+  bijgewerkt, zodat twee gelijktijdige verzoeken met dezelfde code niet allebei
+  slagen). ±1 stap (30 s) speling voor een scheve telefoonklok. SHA1/6 cijfers/30 s
+  omdat meerdere apps andere parameters stil negeren.
+- **Herstelcodes: 10 stuks, elk een keer bruikbaar, enkel als hash bewaard**, en
+  EEN keer getoond (na het instellen, of na "Nieuwe herstelcodes"). Een herstelcode
+  is te herkennen aan zijn vorm (`xxxxx-xxxxx`, nooit enkel cijfers), dus er is EEN
+  invoerveld voor beide.
+- **Blokkering = het logboek.** 5 mislukte pogingen (fout wachtwoord of foute code)
+  per account in 15 minuten, of 30 per IP, en dan wordt ook het JUISTE wachtwoord
+  geweigerd tot het venster voorbij is. Er is geen aparte teller: een `login` of
+  `unlocked` in `auth_events` laat het tellen opnieuw beginnen, en "Ontgrendelen"
+  in Beheer schrijft precies zo'n regel. De blokkering wordt nagekeken VOOR het
+  wachtwoord, anders blijft een geblokkeerd account een orakel.
+- **Het wachtwoord opnieuw vragen telt ook mee** (Profiel -> wachtwoord wijzigen,
+  2FA vervangen, nieuwe herstelcodes). Anders is dat een tweede deur om te raden. Een
+  fout wachtwoord geeft daar 403, geen 401: de schermen sturen bij 401 naar de
+  loginpagina.
+- **Wat de toegang verandert, beëindigt de ANDERE sessies**: eigen wachtwoord
+  wijzigen, authenticator vervangen, 2FA-reset door een beheerder, deactiveren. De
+  sessie waarmee je het doet, blijft (ook bij een beheerder die het op zichzelf
+  doet).
+- **Labels van gebeurtenissen staan EEN keer, op de server** (`EVENT_LABELS` in
+  `events.js`, met een `tone`). De schermen vertalen niets zelf.
+- **`/admin/api/users/:id/role` en `/toggle` geven niet meer de hele rij terug**
+  (daar zaten `password_hash` en `mfa_secret_enc` in). Gebruik nooit `.select()`
+  zonder kolommen op `users` in een antwoord naar de browser.
+- **De loginpagina en Profiel -> Beveiliging laden VASTGEPINDE scripts**
+  (`cdn.tailwindcss.com/3.4.16`, de QR-bibliotheek met een `integrity`-hash) en geen
+  `lucide@latest`: daar worden wachtwoorden en 2FA-sleutels getypt. Ze krijgen
+  `X-Frame-Options: DENY` en `Cache-Control: no-store`.
+- **Het geheim staat in de challenge, niet in de browser**: bij het instellen krijgt
+  de pagina het (voor de QR-code), maar bewaard wordt het pas als er een juiste code
+  bij komt. De oude koppeling werkt tot de nieuwe bevestigd is.
+- **Nog niet gebouwd, bewust:** passkeys (WebAuthn), een mail bij een aanmelding
+  vanaf een nieuw apparaat, "dit apparaat 30 dagen vertrouwen" (de sessie glijdt al
+  30 dagen mee), een absolute maximale sessieduur, en het hashen van de
+  `invites`-tokens (die flow heeft vandaag geen route).
+
+**Uitrolvolgorde:** migratie (achterwaarts compatibel, mag eerst) -> secret
+`AUTH_SECRET_KEY` -> deploy. Daarna logt iedereen een keer opnieuw in en stelt 2FA
+in; wie een tijdelijk wachtwoord had, kiest meteen een eigen.
+
 ## Nieuwe module — template
 
 ```
@@ -179,7 +286,7 @@ document.addEventListener('click', e => {
 
 **REGEL 7 — Randen en scheidingslijnen: `border-base-content/10`, nooit `border-base-200`/`-300`.** In een donker daisyUI-thema zijn base-200 en base-300 DONKERDER dan de kaart (base-100), dus een rand in die kleur leest als een zwart lijntje rond een donkere kaart. In een licht thema zie je dat niet, en daarom sloop het er telkens weer in. De tekstkleur met een lage dekking valt in beide thema's de goede kant op.
 
-- Wat het CDN-bestand van daisyUI kent (er is geen Tailwind-config, dus enkel dat werkt): `border-base-content/10`, `/15`, `/20`, `/30`, ... (ook met `hover:`/`focus:`), en `bg-base-content/5`, `/10`, `/20` voor een lijntje van 1px (`w-px h-4`) of het lege deel van een balk. GEEN `divide-base-content/N`: daarvoor een eigen klasse in de `<style>` van de pagina (`.om-lijnen` in `webgedrag.html` en `xpath-converter.html`).
+- Wat het CDN-bestand van daisyUI kent (er is geen Tailwind-config, dus enkel dat werkt): `border-base-content/10`, `/15`, `/20`, `/30`, ... (ook met `hover:`/`focus:`), en `bg-base-content/5`, `/10`, `/20` voor een lijntje van 1px (`w-px h-4`) of het lege deel van een balk. GEEN `divide-base-content/N`: daarvoor een eigen klasse in de `<style>` van de pagina (`.om-lijnen` in `dashboards.html` en `xpath-converter.html`).
 - Koppelingen (`forminator-sync-v2.html`) en Eventbeheer (`events-v2.html`) overschrijven `.border-base-200` al per pagina met `oklch(var(--bc) / 0.2) !important`. In de scripts van die twee pagina's is `border-base-300` daarom `border-base-content/20` geworden, zodat het gelijk loopt; overal elders is het `/10`.
 - Een VLAK (`bg-base-200` als ingezonken paneel, de bak achter knoppengroepen) is geen rand en mag blijven.
 - Rechtgezet op 2026-10-02 in alle bestanden in `public/` en in `navbar.js`, behalve `forminator-sync-v2-wizard.js` (legacy) en de server-gerenderde `ui.js`-modules in `src/`.
@@ -202,8 +309,9 @@ document.addEventListener('click', e => {
 | claude-integration | `/api/claude` | — | onderdeel van `/insights` | ⚠️ Legacy |
 | mini-apps | `/mini-apps` | `mini_apps` | `public/mini-apps.html` + dedicated JS | ✅ Correct (zie hieronder) |
 | booking-links | `/afspraaklinks` | `booking_links` | `public/booking-links.html` + `.js` | ✅ Correct (zie "Afspraaklinks") |
-| web-story | `/webgedrag` | `web_story` | `public/webgedrag.html` + `.js` | ✅ Correct (zie "Webgedrag") |
+| dashboards | `/dashboards` | `dashboards` | `public/dashboards.html` + `dashboards-*.js` + `dashboard-aanvragen/` | ✅ Correct (tabbladen Verkoop, Targets, Aanvragen, Marketing, Website-bezoeken, Kaart; Webgedrag is sinds 2026-10-09 het tabblad Marketing; Aanvragen is het terrein van David, zie "Dashboards — tabblad Aanvragen") |
 | av-slides | `/av-slides` | `av_slides` | `public/av-slides.html` + `.js` | ✅ Correct (zie "AV-slides") |
+| newsletters | `/nieuwsbrieven` | `newsletters` | `public/newsletters.html` + `newsletters-*.js` | ✅ Correct (zie "Nieuwsbrieven") |
 
 **Legacy modules NIET aanraken tenzij expliciet gevraagd.** Bij aanpassingen aan legacy `ui.js`: string-concatenatie (+), geen geneste template literals, geen variabelen in inline event handlers. `src/lib/components/navbar.js` is de legacy server-rendered navbar voor deze ui.js-bestanden.
 
@@ -4231,7 +4339,7 @@ tweede schrijver maakt de belofte "elk event staat er zoals het binnenkwam" stuk
 - **Niets afgeleids staat in D1.** Sessie, duur en kanaal worden in
   `web-visits.js` berekend met dezelfde regels als de tracker (§5 van het
   ontwerp). Wijzig je daar een drempel, wijzig hem aan beide kanten. "Klikt
-  verder" is de uitzondering: bewust strenger dan §5.7, zie Webgedrag hieronder.
+  verder" is de uitzondering: bewust strenger dan §5.7, zie Marketing (voorheen Webgedrag) hieronder.
 - **De server stuurt compacte SESSIES, de browser telt.** Zo kost een klik op een
   kanaal of landingspagina geen nieuwe query. De vorige, even lange periode komt
   mee voor de vergelijking. Het antwoord wordt 10 minuten in `caches.default`
@@ -4243,13 +4351,35 @@ tweede schrijver maakt de belofte "elk event staat er zoals het binnenkwam" stuk
 
 ---
 
-## Webgedrag — het verhaal op lead en actieblad (2026-10)
+## Marketing (voorheen Webgedrag) — het verhaal op lead en actieblad (2026-10)
 
 **Regel: Odoo krijgt geen bezoekers en geen touchpoints meer, enkel het VERHAAL
 als HTML op de lead en het actieblad. D1 bezit de gegevens (tracker = enige
 schrijver), de OM is de enige die met Odoo praat.** Volledige onderbouwing:
 `website-tracker/docs/ontwerp-odoo-zonder-bezoekers.md`. `x_web_visitor` en
 `x_ad_touchpoint` worden opgeruimd zodra dit loopt.
+
+**Sinds 2026-10-09 is Webgedrag GEEN aparte module meer: het is het tabblad
+Marketing in Dashboards** (het marketingdashboard; Verkoop staat vooraan). Het
+overzicht en het traject staan in `public/dashboards.html`
+(`data-dash-panel="marketing"`), `public/dashboards-marketing.js` en
+`public/dashboards-marketing-behaviour.js`; de routes in
+`src/modules/dashboards/lib/marketing-routes.js` (`/dashboards/api/marketing/*`).
+De motor (matching, push, gedrag, uitsluitingen) bleef in `src/modules/web-story/lib/`.
+Migratie: `20261009120000_web_story_into_dashboards.sql` (wie Webgedrag had, kreeg
+Dashboards; de rij `web_story` is weg).
+- **Uitgesloten en Twijfelgevallen zijn INSTELLINGEN van het tabblad Marketing**
+  (menu Instellingen rechtsboven, elk in een venster), geen tabbladen. Zet ze
+  nooit terug als tabblad.
+- **`/webgedrag` stuurt door** naar `/dashboards?tab=marketing` (met `lead`,
+  `sheet` of `visitor` erbij; `?tab=uitgesloten` wordt `&instelling=uitgesloten`),
+  in `src/router/public-routes.js`. Die links staan in Odoo (de chatter-notitie en
+  het verhaal op elke lead dat sindsdien niet veranderde): haal die doorverwijzing
+  nooit weg. Nieuwe pushes linken meteen naar `/dashboards?tab=marketing&lead=<id>`.
+- `?tab=<naam>` werkt voor elk tabblad van Dashboards (`showTab()` in
+  `dashboards-web.js` zet het in de adresbalk).
+- Waar hieronder "Webgedrag" of "het tabblad Gedrag" staat, is het overzicht van
+  Marketing bedoeld.
 
 | Wat | Waar |
 |---|---|
@@ -4258,14 +4388,14 @@ schrijver), de OM is de enige die met Odoo praat.** Volledige onderbouwing:
 | Eerste / laatste niet-directe aanraking / pad | `src/modules/web-story/lib/journey.js` |
 | Sessies + kanaal per sessie (dezelfde als het dashboard) | `readVisitorSessions()` + `channelOf()` in `src/modules/dashboards/lib/web-visits.js` |
 | Uurlijkse push naar Odoo | `src/modules/web-story/lib/push.js`, `*/15`-tak in `index.js` (enkel het eerste kwartier, of zolang er werk ligt) |
-| Tabblad Gedrag: trends en flows over ALLE bezoeken (ook anoniem), segment in de browser | `src/modules/web-story/lib/behaviour.js` (compacte sessies via `readSessionRows()` van web-visits.js) + `public/webgedrag-behaviour.js` |
-| Scherm per lead / actieblad / bezoeker, bevestigen, twijfelgevallen | `src/modules/web-story/routes.js` + `lib/story-data.js`, `public/webgedrag.html` + `.js` (`/webgedrag?lead=<id>`) |
-| Uitgesloten uit de cijfers (lijst, filter, tabblad) | `src/modules/web-story/lib/exclusions.js`, tabel `web_story_exclusions` (migratie `20261003110000`), `/webgedrag?tab=uitgesloten` |
+| Overzicht (tabblad Marketing): trends en flows over ALLE bezoeken (ook anoniem), segment in de browser | `src/modules/web-story/lib/behaviour.js` (compacte sessies via `readSessionRows()` van web-visits.js) + `public/dashboards-marketing-behaviour.js` |
+| Traject per lead / actieblad / bezoeker, bevestigen, twijfelgevallen | `src/modules/dashboards/lib/marketing-routes.js` + `web-story/lib/story-data.js`, `public/dashboards-marketing.js` (`/dashboards?tab=marketing&lead=<id>`) |
+| Uitgesloten uit de cijfers (lijst, filter, instelling) | `src/modules/web-story/lib/exclusions.js`, tabel `web_story_exclusions` (migratie `20261003110000`), `/dashboards?tab=marketing&instelling=uitgesloten` |
 | Heropende advertentielink = geen nieuwe klik | `readReopenedClicks()` + `channelOf()` in `src/modules/dashboards/lib/web-visits.js` |
 | Offerte (web_action 'offerte'), bij het LEZEN herkend | `offerteFormulieren()` in `src/lib/web-conversions.js` + `offerteSql()` in web-visits.js |
 | Inhaalronde: ontbrekende conversies alsnog melden | `src/modules/web-story/lib/conversion-catchup.js` (elk uur, in `runWebStoryCron`) |
 | Popup-trechter (geopend, gestart, stappen, verstuurd) | plugin mymmo-forms >= 1.22 (`mymmo:track`) -> tracker-snippet (`form_ui`) -> `fu` in web-visits.js -> `funnelVan()` in behaviour.js -> `renderForms()` |
-| Moduleregistratie | `supabase/migrations/20261001120000_web_story_module.sql` |
+| Moduleregistratie | geen eigen module meer: valt onder `dashboards` (`20261009120000_web_story_into_dashboards.sql`; de oude registratie was `20261001120000_web_story_module.sql`) |
 | Dashboard: wat leidde tot de conversie (eerste / laatste / assist / positie, paden) | `src/modules/dashboards/lib/web-attribution.js` (server, per persoon over de hele historiek), kaart in `dashboards.html` + `loadAttribution()` in `dashboards-web.js` |
 | Koppelingen bewaren, tijdlijn renderen | tracker: `POST /internal/links`, `POST /internal/timeline` (`lib/story.js`), via de binding `TRACKER` |
 
@@ -4361,7 +4491,7 @@ Afspraken die bewust zo zijn:
   ouder, hoe minder korte bezoeken en losse klikken), dus een sprong op die grens
   kan door de opslag komen. Daarom staat die periode in de trend en in het venster
   van een kerncijfer gearceerd (`hatchPlugin()` + `histBuckets()` in
-  webgedrag-behaviour.js) met een zin eronder; de cijfers en de vergelijking met
+  dashboards-marketing-behaviour.js) met een zin eronder; de cijfers en de vergelijking met
   de vorige periode blijven staan. Een eerste versie (2026-10-02) haalde de oude
   historiek uit de kerncijfers en liet de trend vóór 29 september leeg: een jaar
   gegevens leek verdwenen. Meteen teruggedraaid -- zet dat nooit terug, en
@@ -4422,7 +4552,7 @@ Afspraken die bewust zo zijn:
   seconden]). Een actie die de OM meldt heeft het tijdstip van de SERVER, een
   pagina dat van de BROWSER: een scheve klok kan een actie een pagina verschuiven.
   De soortcodes 1-6 staan twee keer (`ACT_KINDS` in behaviour.js, `ACT` in
-  webgedrag-behaviour.js); wijzig ze samen.
+  dashboards-marketing-behaviour.js); wijzig ze samen.
   Twee standen: **vooruit** (aantal stappen instelbaar, 2-12; wie verder gaat dan
   de laatste kolom staat erbij) en **naar het doel toe** (enkel bezoeken met het
   gekozen doel, uitgelijnd op de EERSTE keer dat het gebeurde, met pagina's, tijd
@@ -4503,7 +4633,7 @@ Afspraken die bewust zo zijn:
   versie zette "7 van de 7 bezoeken op dit pad" bovenaan, onder de zin "31 bezoeken
   door 18 prospecten": dat las als een tegenspraak.
 - **De lijst onderaan Gedrag is om MENSEN te vinden, niet om te tellen**
-  (`renderSessions()` in webgedrag-behaviour.js, 2026-10-02). Per bezoek: wie
+  (`renderSessions()` in dashboards-marketing-behaviour.js, 2026-10-02). Per bezoek: wie
   (anoniem / gekend / lead / klant + adres), het hoeveelste bezoek van die browser
   (`_vx`: alleen een nummer als we zijn allereerste bezoek zien, anders
   "terugkerend"), de route MET de acties erin, en etiketten voor wat er gebeurde.
@@ -4554,7 +4684,7 @@ Afspraken die bewust zo zijn:
   ALTIJD onder de cijfers (`excluded` in het antwoord): stil weglaten leest als een
   kleiner segment.
 - **Een OFFERTE is een aanvraag die apart zichtbaar is** (2026-10-02). Op de koppeling:
-  "Telt in Webgedrag als: Offerte (aanvraag)" (`web_action = 'offerte'`, migratie
+  "Telt in Marketing als: Offerte (aanvraag)" (`web_action = 'offerte'`, migratie
   `20261004090000`). Ze telt mee in Aanvraag en heeft daarnaast een eigen actie (7),
   vlag, filter, doel en kerncijfer. Welke inzending een offerte is, wordt bij het
   LEZEN bepaald: soort 'offerte', of de slug of naam van een koppeling met die
@@ -4597,7 +4727,8 @@ Afspraken die bewust zo zijn:
   formulier geopend -> gestart -> stappen -> verstuurd over het SEGMENT, met de stap
   waar de meesten afhaakten en het aandeel dat geschat is.
 - **Eén chatter-notitie per record**, bij de eerste schrijfactie, met de link
-  naar `/webgedrag` (`webstory:noted:*` in KV). Nooit bij elke update.
+  naar `/dashboards?tab=marketing&lead=<id>` (oudere notities: `/webgedrag`, dat
+  doorstuurt) (`webstory:noted:*` in KV). Nooit bij elke update.
 - **Inline stijl: altijd `background-color`, nooit `background`** -- Odoo's
   sanitizer knipt de shorthand stil weg (zie het vrije chatter-bericht).
 
@@ -4641,6 +4772,20 @@ Afspraken die bewust zo zijn:
   contract; zonder deze regel stond dat als verloren + nieuw. Deze regel vervangt
   ook de hardgecodeerde uitzonderingen in odoo-proxy (Brutopia 51/218) en de filter
   "reden 14" van Looker.
+- **Naar expert = het LAATSTE abonnement van een klant stopte, maar nu staat
+  "facturatie via expert" aan, met een expert, en `x_studio_company_status` is
+  `Active`** (`endVia` in derive.js). Een VME in beheer die van facturatie door
+  OpenVME overgaat naar facturatie door haar expert: haar eigen abonnement stopt
+  (meestal met reden 7), haar kavels zitten voortaan in het abonnement van de
+  expert. Geen verloren klant: in "Wat veranderde" een eigen soort "Naar expert"
+  (ARR van haar eigen abonnement eraf, in aantallen -1), en niet in Verloren of
+  in de verlengingsgraad. Gemeten 2026-10-08: Beterveld, Mheerstraat en Zavelpand
+  II (Immo Pauly) en Excelsior (Marco Vanerom) stonden als verloren.
+  Odoo bewaart niet WANNEER het vinkje aanging: dit volgt de stand van vandaag.
+  Gaat de status later op iets anders (Blocked, ...), dan is het weer verloren.
+  Wat de EXPERT daardoor meer betaalt, staat bij zijn eigen abonnement (nieuw,
+  upsell, duurder verlengd); heeft hij geen lopend abonnement, dan zegt het
+  waarom-vak dat erbij.
 - **De klant is `commercial_partner_id`.** Een order op een contactpersoon ("VME
   Gilmar, Maikel Beckers") hoort bij de VME, ook voor het klanttype. De proxy viel
   daar terug op type 9 en Looker telde ze als "ES".
@@ -4652,7 +4797,15 @@ Afspraken die bewust zo zijn:
   dateert de start van elk ouder abonnement op die dag. De orders hebben hun echte
   startdatum.
 - **De ARR-brug klopt per constructie met het ARR-verloop**: dezelfde periodes,
-  dezelfde `mrrAt()`. Nieuw + uitbreiding + wissel − verlaging − verloren = verschil.
+  dezelfde `mrrAt()`. Nieuw + upsell + duurder verlengd + wissel − goedkoper verlengd −
+  verloren = verschil.
+- **Upsell en "duurder verlengd" zijn TWEE soorten** (2026-10-06; eerst samen
+  "Uitbreiding"). Een upsell = een order met status `7_upsell` die tijdens een lopende
+  periode iets toevoegt (een negatieve, zelden, telt daar negatief). Duurder of goedkoper
+  verlengd = de nieuwe periode kost meer of minder dan de vorige: dat kan meer kavels
+  zijn, maar ook een korting die afliep (september 2026: van de 6 duurdere verlengingen
+  waren er 2 meer kavels en 2 een afgelopen korting). Een verlenging aan dezelfde prijs
+  staat NIET in Wat veranderde.
 - **"Na te kijken" verzint geen regels.** Reden 7 zonder opvolger, een verlengings-
   offerte die maanden openstaat, een lopend contract waarvan de periode voorbij is,
   gewonnen kansen zonder product: ze tellen mee zoals beschreven en staan in de lijst,
@@ -4681,13 +4834,56 @@ Afspraken die bewust zo zijn:
 - **`subscription_snapshots` is het enige in D1 dat niet te herbouwen is**: één rij
   per dag per keten, want Odoo overschrijft `subscription_state`.
 - **Elk getal, elke grafiek en elke tabelrij is klikbaar, en elk venster zegt WAAROM.**
-  `K.drill(..., { why: [...] })` zet bovenaan "Waarom staan ze erin": de regels die de
-  lijst bepalen plus de selectie (segment, filters, wat altijd buiten valt). Elke lijst
-  heeft daarnaast per rij de gegevens die het STAVEN (kolom "Waarom": de periode met
-  haar order, de opvolger of het ontbreken ervan, de lead en het signaal). Die teksten
-  BESCHRIJVEN derive.js en lead-rules.js (`WHY` in dashboards-sales.js, `TWHY` in
+  `K.drill(..., { why: [...] })`: de regels die de lijst bepalen plus de selectie
+  (segment, filters, wat nooit meetelt). Elke lijst heeft daarnaast per rij wat het
+  STAAFT (een kolom "Waarom" of "Waarom dit ...": de order en haar looptijd, de
+  opvolger of het ontbreken ervan, de lead en het signaal). Die teksten BESCHRIJVEN
+  derive.js en lead-rules.js (`WHY` in dashboards-sales.js, `TWHY` in
   dashboards-targets.js); wijzig je een regel, wijzig de tekst mee. Een grafiek zonder
   klik, of een venster zonder "waarom", hoort er niet bij.
+- **Het waarom staat achter een VRAAGTEKEN, in ZINNEN** (2026-10-06). Een kolom
+  "Waarom..." komt niet in de tabel (`WHY_COL` in dashboards-kit.js): die tekst drukte
+  elke rij uiteen. Ze staat achteraan de rij achter een vraagteken dat bij aanwijzen een
+  vak opent (`#omTip`, in de dialog want die ligt in de top layer); de regels van de
+  lijst staan achter een vraagteken naast de titel. Schrijf ze als zinnen die zonder
+  uitleg te lezen zijn (`zinnen()` = een `<p>` per zin): "Telt als wissel, niet als
+  nieuw: deze klant had ... nog abonnement S00123 (van 1 jan 2025 tot 5 mei 2025)",
+  niet "Wissel: S00123 1 jan → 5 mei". De merk- en productsignalen in derive.js en
+  lead-rules.js zijn daarom ook zinnen ("Syndicoach, want ...").
+  Per rij staat er EEN knop naar Odoo, naast het vraagteken: de link met
+  `data-om-main` (`K.odooLink(..., true)`), anders de eerste link van de rij. De links
+  in de cellen worden gewone tekst; zet het hoofdrecord dus vooraan of markeer het.
+- **Het venster heeft EEN schuifbalk** (die van `.modal-box`), en DRIE lagen die
+  plakken: de kop met titel en sluitkruisje (`#omDrillKop`), de filterbalk eronder
+  (`#omDrillStick`, top `--om-drill-balk`) en de kolomkoppen EN de totaalrij (allebei in
+  de `<thead>`, top `--om-drill-stick`). De hoogtes meet `stickHoogte()` met een
+  ResizeObserver. Alleen de grafiek schuift weg. Nooit een eigen `overflow` op de tabel:
+  dan stond er een halve grafiek met een lijst waarin je apart moest schuiven.
+  Twee valkuilen die echt misgingen: (1) een scrollcontainer laat sticky plakken ONDER
+  zijn opvulling, dus in de bovenste 1,5rem schenen de rijen door -- de kop staat daarom
+  op `-top-6` met `-mt-6 pt-6`; (2) in het "collapse"-model van een tabel plakken de
+  randen niet mee en bleef er een kier tussen kopregel en totaalrij -- de tabel staat
+  daarom op `border-collapse: separate` met lijnen per cel en een dekkende achtergrond
+  op elke kopcel (`.om-drill-tabel` in dashboards.html).
+  Komt een venster uit een gekleurd vlak (een groep van het verloop, een soort in Wat
+  veranderde), dan krijgt de grafiek in het venster DIE kleur (`chart.color`).
+  De sluitknop heeft `autofocus`, en het vak achter een vraagteken opent bij focus enkel
+  met het toetsenbord (`:focus-visible`): `showModal()` zette de focus op het eerste
+  vraagteken, en dan ging dat vak bij elke klik vanzelf open.
+- **In elke lijst staan het KLANTTYPE en de EXPERT vlak achter de klant**
+  (`klantCel()` in dashboards-sales.js en dashboards-targets.js, met `K.ctBadge()` en
+  `K.expertCel()`). Het klanttype is een gekleurde badge (VME in advies / VME in beheer
+  / professionele syndicus), zodat ze in een lange lijst uit elkaar te houden zijn. Een
+  lead zonder klant in Odoo heeft een streepje. In een smalle kaart (te verlengen) staan
+  ze onder de naam (`klantNaamCel()`). Een nieuwe lijst krijgt ze ook.
+- **Wat veranderde: grafiek links, tabel rechts, in ARR of in aantallen**
+  (`st.bridgeMeasure`). Een klik op een STUK van een staaf opent die soort in die maand,
+  een klik naast de staaf alles van die maand: `K.bandAt()` kent ook gestapelde staven
+  (`barAt()`, met 6 px speling voor een dun stuk). Het aangewezen stuk licht op, zoals
+  in het verloop. In aantallen telt een wissel EEN keer, bij het nieuwe abonnement
+  (`telt()`): het einde van het oude is dezelfde wissel.
+- **Te verlengen: standaard de komende 30 dagen, de eerste 10 in de kaart**, de rest
+  achter "Meer zien" (`renewup`, met klanttype, expert, offerte en de vervaldag).
 - **Merk van een KLANT = het merk van EEN lead**: de kans van het eerste contract,
   anders de oudste gewonnen lead, anders de oudste lead (`lh` op de klant). OpenVME
   heeft GEEN eigen signaal: het is wat overblijft zonder Syndicoach-signaal. Onbekend =
@@ -4710,7 +4906,12 @@ Afspraken die bewust zo zijn:
     gebouwen. Bewust geen terugval op het pakket van de lead of een contactpersoon.
   - **Begeleiding**: de adviserend expert (`x_studio_parent_expert`) is Syndicoach,
     een andere expert, of niemand. Syndicoach = de partner met exact die naam
-    (`meta.syndicoachId`), niet een vast id in de code.
+    (`meta.syndicoachId`), niet een vast id in de code. Een PROFESSIONELE SYNDICUS
+    staat apart ("Professionele syndici"): hij heeft geen adviserend expert, hij IS
+    de expert van zijn gebouwen. Stond hij onder "Geen expert", dan leek die groep
+    een grote omzetpost terwijl ze een fout hoort te zijn: een VME zonder expert.
+    Die staan bij "Na te kijken" (`vme_no_expert`). Op 2026-10-08 waren alle
+    lopende abonnementen zonder expert van professionele syndici.
   - **Licenties**: "Niet gefactureerde klant" (interne gratis licenties) telt
     standaard NIET mee (`free: '0'`). Stond op 2026-10-06 bij niemand aan.
   "Merk" heet nu **Merk (herkomst lead)**: het zegt via welk merk iemand
@@ -4737,23 +4938,35 @@ Afspraken die bewust zo zijn:
   is een SUGGESTIE op de naam: ze tellen mee tot iemand ze in Odoo archiveert of op
   "Niet gefactureerde klant" zet. Zet ze dus niet in `sales_exclusions` -- dan
   verdwijnen ze uit beeld en ruimt niemand ze op.
-- **Het verloop: maat x opsplitsing, en de legende kiest.** Maten: ARR, Abonnementen,
-  Kavels (`MEASURES` in dashboards-sales.js; "Klanten" is weg: een klant heeft geen
-  abonnementen in twee groepen, dus het zei hetzelfde als Abonnementen). Opsplitsingen:
-  Klanttype, Pakket, Begeleiding, Licentie, Kanaal (lead). Bewust GEEN Plan (iedereen
-  heeft een jaarplan) en GEEN Totaal. Begeleiding toont elke expert met minstens
-  `BEG_MIN` (5) lopende abonnementen apart, de rest onder "Andere experts".
-  Een klik in de legende toont ENKEL dat item, verdere klikken zetten er bij of af,
-  het laatste wegklikken zet alles terug (`K.soloLegend` in dashboards-kit.js, ook op
-  Wat veranderde en Omzet). De keuze blijft staan bij een hertekening (per canvas,
-  op label). Een vergelijkingslijn (`omRef`) doet daar niet aan mee.
+- **Het verloop is TWEE grafieken naast elkaar met EEN opsplitsing en EEN legende.**
+  Links altijd ARR, rechts Abonnementen of Kavels (knop boven die grafiek, `st.measure`;
+  `MEASURES` in dashboards-sales.js; "Klanten" is weg: een klant heeft geen abonnementen
+  in twee groepen, dus het zei hetzelfde als Abonnementen). De opsplitsing (Klanttype,
+  Pakket, Begeleiding, Licentie, Kanaal (lead)) staat boven de kaart en geldt voor
+  beide; bewust GEEN Plan (iedereen heeft een jaarplan) en GEEN Totaal. Begeleiding
+  toont elke expert met minstens `BEG_MIN` (5) lopende abonnementen apart, de rest onder
+  "Andere experts". Een klik op een vlak opent het venster in de maat van DIE grafiek
+  (`arrsplit:<maand>:<groep>:<maat>`).
+  Het aangewezen vlak licht op en de andere vallen terug (`area()` leest
+  `chart.$omBand`). `bandHoverPlugin` tekent zelf opnieuw zodra dat vlak verandert:
+  Chart.js doet dat enkel bij een andere maand, dus op en neer schuiven in dezelfde
+  maand liet het oplichten en de tooltip stilstaan. De tooltip staat NAAST de maand,
+  bovenaan (positie `omZij` in dashboards-kit.js), met een pijltje bij het aangewezen
+  vlak: gecentreerd op het punt lag hij precies over wat je aanwees.
+  De legende staat EEN keer onder de twee (`tekenLegende()`/`legendeKlik()`,
+  `st.arrHidden`): een klik toont ENKEL dat item in beide, verdere klikken zetten er
+  bij of af, het laatste wegklikken zet alles terug. Elders doet `K.soloLegend` in
+  dashboards-kit.js hetzelfde per grafiek (Wat veranderde, Omzet); die keuze blijft
+  staan bij een hertekening (per canvas, op label). Een vergelijkingslijn (`omRef`)
+  doet daar niet aan mee.
 - **Licenties gegroepeerd** (`LICENSE_FAMILY` in derive.js): Basic, Smart, Coached
   (vandaag verkocht), Unlimited (uitgefaseerd, apart), OpenVME Professional (VME in
   beheer), Professional (professionele syndicus), en "Legacy en overig" (early
   adopter, Solo/Team, All in, zonder licentie).
 - **Kanaal (lead) = de indeling van het tabblad Aanvragen**: `resolveChannel()` en
-  `BRAND_LABELS` uit `lib/leads-instroom.js`, in Verkoop en in Targets. Geen tweede
-  indeling ernaast: wijzig je ze, dan geldt het op alle drie de plekken.
+  `BRAND_LABELS` uit `lib/lead-kanalen.js` (tot 2026-10-09 `lib/leads-instroom.js`),
+  in Verkoop en in Targets. Geen tweede indeling ernaast: wijzig je ze, dan geldt het
+  op alle drie de plekken. De kleuren staan in `K.KANAAL_KLEUREN` (dashboards-kit.js).
 - **Prijs per kavel = licentie-MRR / kavels.** `lf` per periode (derive.js
   `licenseOf()`) is het deel van de MRR dat de licentie is: alles behalve bank- en
   Peppol-koppelingen (een korting hoort bij de licentie). Een licentie met een vaste
@@ -4764,22 +4977,89 @@ Afspraken die bewust zo zijn:
   de partnersync. Komt er weer een partnerkolom bij: verhoog `PARTNER_SCHEMA` in
   sync.js, dan haalt de volgende ronde alle partners opnieuw op in plaats van enkel
   wat in Odoo veranderde.
+- **Periodes in Verkoop: 30 d, 90 d, YTD, LTM, 24 m** (2026-10-06; "Boekjaar" was
+  dubbelzinnig: welk jaar, en tot vandaag of het hele jaar?). YTD = sinds 1 januari,
+  vergeleken met DEZELFDE dagen vorig jaar; LTM en de andere = de laatste zoveel
+  dagen/maanden, vergeleken met de even lange periode ervoor (`win()`). Een bewaarde
+  keuze `fy`/`12m` wordt `ytd`/`ltm`. Targets houdt zijn boekjaar: daar horen de
+  targets bij.
+- **Elk kerncijfer zegt waarmee het vergelijkt, voluit met datums.** Een STAND (ARR,
+  actieve abonnementen, kavels) tegenover de stand op de dag voor de periode
+  ("t.o.v. 31 dec 2025"); een STROOM (nieuw, verlengd, verloren, omzet) tegenover de
+  vorige periode ("t.o.v. 1 jan – 6 okt 2025") en met de periode in de titel
+  ("Nieuw · YTD"). `K.delta(cur, prev, upIsGood, kind, vs)`: geef `vs` altijd mee;
+  "vs vorige" alleen zei niet of het een maand, een kwartaal of een jaar was.
 - **EEN maandreeks per periode: `chartMonths()` in dashboards-sales.js.** Elke
-  grafiek, elk mini-verloop en het venster van een tegel gebruiken ze. Boekjaar =
-  het volledige boekjaar (komende maanden leeg, targets zichtbaar); 12/24 m = die
-  maanden; 30/90 d = zes maanden context met de periode als band. Eerst had de
-  ARR-grafiek een eigen venster en de rest "minstens zes maanden": bij Boekjaar
-  begon de ene in okt '25 en de andere in mei '26. Targets doet hetzelfde met het
-  gekozen boekjaar (`fyMonths()`).
+  grafiek, elk mini-verloop en het venster van een tegel gebruiken ze. YTD = januari
+  t.e.m. deze maand, minstens zes maanden (vroeg in het jaar met de maanden ervoor als
+  context en YTD als band); LTM/24 m = die maanden; 30/90 d = zes maanden context met
+  de periode als band. Eerst had de ARR-grafiek een eigen venster en de rest
+  "minstens zes maanden": de ene begon in okt '25 en de andere in mei '26. Targets doet
+  hetzelfde met het gekozen boekjaar (`fyMonths()`).
 - **Een tegel opent eerst het verloop in het groot, dan de records**
   (`openKpi()` in beide bestanden, `K.drill(..., {chart})` in dashboards-kit.js).
   Het mini-verloop en de grote grafiek zijn EXACT dezelfde reeks (`st.sp`); een klik
-  op een maand beperkt de lijst. De lijst in het venster heeft zoeken, kolomfilters
-  (voor kolommen met weinig waarden), sorteerbare koppen en een totaalrij; tabellen
-  op de pagina met `data-om-sortable` sorteren met dezelfde `parseSort()`.
+  op een maand beperkt de lijst. De lijst in het venster heeft zoeken (ook in de
+  uitleg achter het vraagteken), kolomfilters (voor kolommen met weinig waarden),
+  sorteerbare koppen en een totaalrij bovenaan; tabellen op de pagina met
+  `data-om-sortable` sorteren met dezelfde `parseSort()`.
 - **Nog niet over, bewust:** de zes andere pagina's van het Looker-rapport (leads,
   actiebladen, gebouwen) en het uitzetten van de Apps Script-triggers. Eerst een tijd
   naast Looker laten lopen.
+
+## Dashboards — tabblad Aanvragen: het terrein van David (2026-10)
+
+**Regel: het tabblad Aanvragen bouwt David zelf uit en voegt hij zelf samen. Het
+geraamte, de bouwstenen en wat het tabblad mag lezen zijn van Nico. Werk je aan dit
+tabblad, lees dan EERST het regelboek: `src/modules/dashboards/lib/aanvragen/CLAUDE.md`.**
+
+| Wat | Waar | Van wie |
+|---|---|---|
+| Wat er in de drie kolommen staat (browser) | `public/dashboard-aanvragen/aanvragen.js` | David (vrij) |
+| Wat de server leest en berekent | `src/modules/dashboards/lib/aanvragen/` (`index.js` -> `getAanvragen(env, params)`, `instroom.js`) | David (vrij) |
+| Het regelboek | `src/modules/dashboards/lib/aanvragen/CLAUDE.md` | Nico |
+| Het geraamte (drie kolommen) en de bouwstenen | `K.geraamte`, `K.kaart`, `K.zin`, `K.filters`, `K.kpis`, `K.status`, `K.melding`, `K.KANAAL_KLEUREN` in `public/dashboards-kit.js` | Nico |
+| Wat het tabblad mag lezen (read-only Odoo, targets) | `src/modules/dashboards/lib/aanvragen-bronnen.js` | Nico |
+| Merk en kanaal van een lead (ook Verkoop en Targets) | `src/modules/dashboards/lib/lead-kanalen.js` | Nico |
+| De route | `GET /dashboards/api/aanvragen` in `src/modules/dashboards/routes.js` | Nico |
+| De controle | `npm run controle:aanvragen` (`scripts/vangrails/aanvragen.mjs`), op GitHub `.github/workflows/dashboards.yml` ("Dashboardcontrole", verplicht in de ruleset) | Nico |
+| De proef: het tabblad lokaal bekijken, zonder de secrets van de Worker | `npm run proef:aanvragen` (`scripts/dashboards/aanvragen-proef.mjs`), http://localhost:8790 | Nico |
+| Wie wat beslist | `.github/CODEOWNERS` | Nico |
+
+Afspraken die bewust zo zijn:
+
+- **EEN geraamte voor Verkoop, Targets en Aanvragen** (`K.geraamte` in de kit):
+  filters links, kaarten in het midden, kerncijfers rechts. Marketing heeft hetzelfde
+  geraamte in de HTML, met dezelfde klassen. Wijzig je de kolommen, dan in de kit, en
+  dan gelden ze voor alle drie.
+- **Het terrein is vrij, de vangrails liggen erbuiten.** In de twee mappen voegt David
+  zelf samen zodra de Dashboardcontrole groen is; alles wat bepaalt HOE het tabblad
+  eruitziet en WAT het mag lezen, staat erbuiten en wacht dus op Nico. Daarom staat
+  ook het venster "Targets instellen" in `aanvragen.js` en niet meer in
+  `dashboards.html`.
+- **De servercode leest enkel.** Ze mag enkel `../aanvragen-bronnen.js` (read_group,
+  search_read met een veldenlijst, search_count, op een gesloten lijst modellen, plus de
+  targets) en `../lead-kanalen.js` importeren; geen `executeKw`, `fetch`, Supabase of
+  `env.IETS`. Een model of bron erbij = in `aanvragen-bronnen.js`, via Nico.
+- **De route geeft alle queryparameters door** aan `getAanvragen()`. Een nieuwe filter
+  of een nieuw stuk van het antwoord vraagt dus geen wijziging aan `routes.js`.
+- **Geen `CLAUDE.md` in `public/dashboard-aanvragen/`**: alles in `public/` is publiek
+  te downloaden. Het regelboek staat daarom bij de servercode.
+- **Een tweede scriptbestand laadt niet vanzelf**: het moet als `<script>` in
+  `dashboards.html` (na de kit), en dat bestand is van Nico. De controle meldt het.
+- **David bekijkt zijn werk LOKAAL, met zijn eigen Odoo-sleutel** (de proef), niet in
+  de cloud. Een preview in de cloud (Workers Builds, `wrangler versions upload`) zou
+  zijn ongereviewde branch laten draaien met de secrets van de productie (Odoo als
+  Administrator, de service-role van Supabase) -- precies wat de vangrails moeten
+  tegenhouden. Een API-token van Cloudflare in GitHub zou hem bovendien rechtstreeks
+  laten deployen. De proef draait zijn eigen code met zijn eigen Odoo-rechten en
+  zonder Supabase (dus zonder targets: `getTargetsForMonths()` in
+  `aanvragen-bronnen.js` geeft dan een lege lijst).
+- **Samenvoegen zet niets live.** De Worker gaat live met `npm run deploy` vanuit de
+  werkboom van Nico: eerst `git pull`, anders overschrijft een deploy het werk van
+  David.
+
+---
 
 ## AV-slides — Wist-je-weetje en het prikbord (2026-10)
 
@@ -4893,6 +5173,107 @@ Afspraken die bewust zo zijn:
 - **Nog niet gebouwd, bewust:** reviews automatisch ophalen, LinkedIn-posts, een
   weetje over nieuwe klanten/ARR (uit `SALES_DB`), sprekersnotities, en de
   andere Google-modules laten overstappen op `src/lib/google-auth.js`.
+
+---
+
+## Nieuwsbrieven — de redactietafel (2026-10)
+
+**Regel: een nieuwsbrief wordt in de OM SAMEN gemaakt (elke rubriek een eigenaar,
+een inleverdatum met een teller, marketing als hoofdredactie) en door ODOO
+verstuurd: `mailing.mailing` op `mailing.list`, via ir.mail_server 4 (Postmark
+broadcast). Zolang `NEWSLETTER_SEND_MODE` niet exact `live` is, kan er enkel een
+TEST vertrekken, en enkel naar `NEWSLETTER_TEST_EMAILS`.** Ontwerp en
+meetgegevens: `docs/ontwerp-om-nieuwsbrieven.md`. Klikbaar ontwerp:
+https://claude.ai/artifact/4KzZk1KM5JWNg32Pa1WRgW
+
+| Wat | Waar |
+|---|---|
+| Tabellen (reeksen, edities, stukjes, opmerkingen, activiteit, antwoorden) + de drie reeksen | `supabase/migrations/20261009150000_newsletters.sql` |
+| Opslag | `src/modules/newsletters/lib/store.js` |
+| Mail-HTML (puur, één renderer voor voorbeeld, test en echt) | `lib/render.js` |
+| Edities: datums (Europe/Brussels), automatisch aanmaken, alles verzamelen | `lib/editions.js` |
+| Bronnen: events (`listEvents`), nieuws (`listSnippets`), links (`fetchArticle`), collega's, tekeningen | `lib/sources.js` |
+| Vragen in de mail: token, antwoorden, doorzetten naar een koppeling | `lib/answers.js` |
+| Naar Odoo: testlijst, test, echte mailing, cijfers | `lib/odoo-mailing.js` |
+| AI-hulp (`askAI`, source `newsletters`) | `lib/ai.js` |
+| Cron (15-min-tak): edities, herinneringen, antwoorden | `lib/cron.js` |
+| Publieke bedankpagina na een klik | `public-api.js` + blok `/t/_v/` in `src/router/public-routes.js`, pagina `public/nieuwsbrief-antwoord.html` |
+| Scherm | `public/newsletters.html` + `newsletters-{core,overview,edition,contribution,series,bootstrap}.js` |
+
+Afspraken die bewust zo zijn:
+
+- **Twee veiligheden bij het versturen.** (1) `NEWSLETTER_SEND_MODE` (wrangler.jsonc):
+  alles behalve `live` is teststand, en dan bestaat enkel de testroute. (2) Een
+  test gaat naar een EIGEN Odoo-lijst "OM nieuwsbrief - testadressen" die de OM
+  bij elke test gelijkzet met `NEWSLETTER_TEST_EMAILS`; staat er toch iemand
+  anders op, dan vertrekt er niets. Bewust NIET lijst 2 "Test Inhouse" (te veel
+  mensen). Een test gaat via exact dezelfde weg als de echte mailing, zodat hij
+  ook bewijst dat Odoo de HTML laat staan.
+- **Elke test is een nieuwe `mailing.mailing`** ("[OM-test] ..."): een verstuurde
+  mailing kan in Odoo niet opnieuw. Bewerk die mailings NOOIT in de editor van
+  Odoo -- die herschrijft `body_arch`.
+- **Een echte verzending** vraagt `live`, de hoofdredactie, een onderwerp, ELK
+  stukje met inhoud goedgekeurd, en "VERSTUREN" getypt. Ze wordt ingepland op
+  het verzendmoment (`schedule_date` + `action_put_in_queue`).
+- **De opmaak komt uit de huisstijl van de sites** (Gelica 400 voor titels met
+  Georgia als terugval, Rethink Sans, #0369a1, mint #99f6e4), NIET uit de
+  Dynapps-module `openvme_mail_snippets`. Tabellen met `width`, nooit de
+  shorthand `background`. Gmail en Outlook tonen geen SVG: een tekening gaat
+  als PNG-kopie mee (zelfde opslag als AV-slides, `av-slides/thingies/`; het
+  scherm maakt de kopie zodra iemand een tekening kiest).
+- **Eén renderer, drie modi**: `preview` (alles, lege rubrieken als stippellijn,
+  `data-nb-id` om aan te klikken), `test` (alles met inhoud, ook wat nog niet
+  ingeleverd is -- zo lees je de hele editie in je mailbox na), `live` (enkel
+  goedgekeurd). Automatische rubrieken (agenda, inhoudstafel, afsluiting) gaan
+  altijd mee zodra ze inhoud hebben; een agenda zonder events valt weg.
+- **De uitschrijflink staat altijd in de voettekst** (`/unsubscribe_from_list`,
+  door Odoo per ontvanger herschreven) en is geen blok dat je kan weghalen. Het
+  jaartal en de bedrijfsgegevens (res.company) zijn automatisch.
+- **Edities maken zichzelf aan** volgens het ritme van de reeks (`send_day`,
+  `send_hour`, `deadline_workdays` werkdagen ervoor om 17:00, `create_days_ahead`
+  dagen vooraf). Een unieke index op (reeks, verzendmoment) maakt dat idempotent.
+  Een verzenddag in het weekend schuift naar maandag. Elke rubriek wordt een
+  opdracht bij haar eigenaar; "Uit het nieuws" wordt voorgevuld met wat sinds de
+  vorige editie in Nieuws & updates verscheen.
+- **Herinneringen gaan ENKEL naar het chatkanaal van de reeks** (3 en 1 dag voor
+  de deadline, en bij elk ingeleverd stukje), en enkel als er een kanaal
+  ingesteld is. Standaard staat er geen: een deploy mag niemand beginnen te porren.
+- **Een vraag in de mail is een link per optie** naar
+  `https://link.<merk>/t/_v/<stukje>/<optie>`. De GET bewaart NIETS:
+  beveiligingsscanners (Safe Links, Mimecast) openen elke link in een mail, dus
+  pas het script op de bedankpagina post het antwoord. Zet dat nooit terug naar
+  "bewaren bij de GET".
+- **Wie antwoordde, komt uit een token**: HMAC(`NEWSLETTER_TOKEN_SECRET`, of
+  anders de service-role-key; contact-id). Odoo zet het per ontvanger in de link
+  via QWeb, uit het Studio-veld `x_studio_om_token` op `mailing.contact`, dat de
+  OM vult (bij een test meteen, bij een echte verzending vooraf in stukken).
+  Bewust `t-att="{'href': ...}"` en NIET `t-attf-href`: Odoo's linkverkorter
+  zoekt `href=` en zou dat ook binnen `t-attf-href=` vinden, waarna iedereen
+  dezelfde link krijgt. Zonder geldig token (doorgestuurde mail, veld bestaat
+  niet) telt een antwoord als ANONIEM: in de cijfers, niet in Odoo.
+- **Het laatste antwoord telt**, en een antwoord RIJPT 10 minuten voor het naar
+  de koppeling gaat (`ANSWER_SETTLE_MS`): wie van mening verandert of een
+  toelichting toevoegt, levert één inzending op. De WAARDE van een optie ligt
+  vast zodra ze bestaat; enkel het opschrift mag wijzigen.
+- **Antwoorden lopen via een koppeling, niet via een tweede pad naar Odoo.** Per
+  reeks maakt de OM bij het eerste antwoord een `generic_webhook`-koppeling
+  "Nieuwsbrief-antwoorden <reeks>" aan, UITGESCHAKELD en met `web_action =
+  'geen'` (telt niet als aanvraag in Marketing). Uitgeschakeld = bewaard maar
+  Odoo overgeslagen; wie er stappen aan hangt en ze aanzet, beslist wat er in
+  Odoo gebeurt. Payload `{form_id, form_data: {vraag, antwoord, antwoord_label,
+  toelichting, email, naam, mailing_contact_id, reeks, editie, rubriek, ...}}`
+  naar `handleGenericWebhook()`.
+- **Werkdata in Supabase, eindproduct in Odoo.** Edities, stukjes en opmerkingen
+  zijn werkproces van de OM en geen CRM-gegeven; Odoo krijgt de mailing en (via
+  de koppeling) de antwoorden.
+- **Rechten**: iedereen met de module schrijft aan zijn eigen stukjes en zet
+  ideeën in de voorraad; hoofdredactie (rubrieken, goedkeuren, testen,
+  inplannen) = admin, rol `marketing_signature`, of `editor_user_ids` van de reeks.
+  Een schrijver die een goedgekeurd stukje wijzigt, zet het terug op "ingeleverd".
+- **Nog niet gebouwd, bewust:** kliks per stukje terug naar de schrijver
+  (utm_content per bijdrage), een webversie ("bekijk in je browser"), varianten
+  per doelgroep binnen één editie, en de nurture flows (die volgen op dezelfde
+  renderer). Open vragen over de doelgroepen: `docs/ontwerp-om-nieuwsbrieven.md` §12.
 
 ---
 

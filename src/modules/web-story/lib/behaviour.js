@@ -40,7 +40,7 @@ export const FLAGS = {
   offerte: 131072,      // een offerteaanvraag (oq): ook een aanvraag, dus ook `form`
 };
 // De soorten actie in `acts`. Dezelfde codes staan als ACT in
-// public/webgedrag-behaviour.js; wijzig ze samen. `register` is geen type in D1
+// public/dashboards-marketing-behaviour.js; wijzig ze samen. `register` is geen type in D1
 // maar een klik met exit_type 'register' (zie `cv` in web-visits.js).
 // `offerte` (7): een form_submission van een offertekoppeling (zie `cv` in web-visits.js).
 // 8-10 komen NIET uit `cv` maar uit de popup-trechter hieronder (funnelVan): een

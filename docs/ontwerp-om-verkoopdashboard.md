@@ -355,6 +355,7 @@ CREATE TABLE sync_state (model TEXT PRIMARY KEY, last_write_date TEXT,
 | Wachten op betaling | lopend abonnement met een openstaande `2_renewal`-offerte; telt mee als actief tegen de lopende prijs |
 | Verloren | `6_churn` met een reden die echt stoppen is (lijst in V3) |
 | Wissel | stopzetting met reden 7/13/14/16 gevolgd door een nieuw contract bij dezelfde klant binnen N dagen → uitbreiding of verlaging, geen verloren + nieuw |
+| Naar expert | het laatste abonnement van de klant stopte, maar nu staat "facturatie via expert" aan, met een expert, en de bedrijfsstatus is `Active` → eigen soort in de brug, geen verloren (zie §7, herzien op 2026-10-08) |
 | ARPA | ARR / actieve abonnementen |
 | Professionele kavels | lijnen van product "Professional" per eenheid (Appartementen, Commerciële units, Huizen); bankkoppeling = product 44, Peppol = 38 |
 | Transactioneel | lijnen met een niet-recurring product; datumbasis zie V5 |
@@ -388,6 +389,12 @@ erachter, met een link naar de order in Odoo — zo is elk cijfer narekenbaar zo
   betaald).
 - **Reden 7 zonder opvolger: geen regel verzinnen.** Het staat bij "Na te kijken",
   met "facturatie via expert" erbij als die vlag op de partner staat.
+  **Herzien op 2026-10-08:** staat op die klant nu "facturatie via expert" aan, met
+  een expert, en is haar status nog `Active`, dan is ze niet verloren maar "naar
+  expert" (een eigen soort in "Wat veranderde"). Aanleiding: Beterveld, Mheerstraat
+  en Zavelpand II (Immo Pauly, 1 oktober) en Excelsior (Marco Vanerom, 24 september)
+  stonden als verloren terwijl ze gewoon via hun expert verder gefactureerd worden.
+  Zonder die vlag blijft reden 7 zonder opvolger bij "Na te kijken".
 - **Solvio eruit**, overal (Supabase `sales_exclusions`, partner 325).
 - **De tabel "Professional / vanaf"** (sheet "Datacheck 26-04-09") komt mee als
   bewerkbare lijst "Gepland, nog niet in Odoo" (`sales_planned_professionals`).

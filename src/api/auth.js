@@ -4,16 +4,13 @@
  * Public auth endpoints for login, logout, and user info
  */
 
-import { getSupabaseClient } from '../lib/database.js';
-import { createSession, invalidateSession, SESSION_DAYS } from '../lib/auth/session.js';
-import { verifyPassword } from '../lib/auth/password.js';
+import { invalidateSession, SESSION_DAYS } from '../lib/auth/session.js';
+import { logAuthEvent, requestMeta } from '../lib/auth/events.js';
 import { navbar } from '../lib/components/navbar.js';
 
-/**
- * POST /api/auth/login
- * 
- * Login with email and password
- */
+// Het inloggen zelf (wachtwoord, 2FA, wachtwoord kiezen) staat in
+// ./auth-login.js.
+
 /**
  * De sessiecookie.
  *
@@ -31,128 +28,6 @@ import { navbar } from '../lib/components/navbar.js';
  */
 export function sessionCookie(token) {
   return `session=${token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${SESSION_DAYS * 24 * 60 * 60}`;
-}
-
-export async function handleLogin({ request, env }) {
-  try {
-    const { email, password } = await request.json();
-    
-    if (!email || !password) {
-      return new Response(JSON.stringify({
-        success: false,
-        error: 'Email and password required'
-      }), {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' }
-      });
-    }
-    
-    const supabase = getSupabaseClient(env);
-    
-    // Get user by email
-    const { data: user, error } = await supabase
-      .from('users')
-      .select('*')
-      .eq('email', email.toLowerCase())
-      .single();
-    
-    if (error || !user) {
-      return new Response(JSON.stringify({
-        success: false,
-        error: 'Invalid credentials'
-      }), {
-        status: 401,
-        headers: { 'Content-Type': 'application/json' }
-      });
-    }
-    
-    // Verify password
-    const isValid = await verifyPassword(password, user.password_hash);
-    
-    if (!isValid) {
-      return new Response(JSON.stringify({
-        success: false,
-        error: 'Invalid credentials'
-      }), {
-        status: 401,
-        headers: { 'Content-Type': 'application/json' }
-      });
-    }
-    
-    // Check if account is active
-    if (!user.is_active) {
-      return new Response(JSON.stringify({
-        success: false,
-        error: 'Account not activated'
-      }), {
-        status: 403,
-        headers: { 'Content-Type': 'application/json' }
-      });
-    }
-    
-    // Create session
-    const { token, expires_at } = await createSession(env, user.id, {
-      user_agent: request.headers.get('User-Agent'),
-      ip_address: request.headers.get('CF-Connecting-IP')
-    });
-    
-    // Update last login
-    await supabase
-      .from('users')
-      .update({ last_login_at: new Date().toISOString() })
-      .eq('id', user.id);
-    
-    // Get user modules
-    const { data: userModules } = await supabase
-      .from('user_modules')
-      .select(`
-        module:modules!inner (
-          id,
-          code,
-          name,
-          description,
-          route,
-          icon,
-          display_order
-        )
-      `)
-      .eq('user_id', user.id)
-      .eq('is_enabled', true)
-      .eq('module.is_active', true)
-      .order('module(display_order)');
-    
-    // Return session and user data
-    return new Response(JSON.stringify({
-      success: true,
-      token,
-      expires_at,
-      user: {
-        id: user.id,
-        email: user.email,
-        username: user.username,
-        full_name: user.full_name,
-        avatar_url: user.avatar_url,
-        role: user.role,
-        modules: (userModules || []).map(um => um.module)
-      }
-    }), {
-      status: 200,
-      headers: { 
-        'Content-Type': 'application/json',
-        'Set-Cookie': sessionCookie(token)
-      }
-    });
-    
-  } catch (error) {
-    console.error('Login error:', error);
-    return new Response(JSON.stringify({
-      success: false,
-      error: 'Internal server error'
-    }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' }
-    });
-  }
 }
 
 /**
@@ -181,7 +56,8 @@ export async function handleLogout({ request, env }) {
     }
     
     if (token) {
-      await invalidateSession(env, token);
+      const { userId } = await invalidateSession(env, token);
+      if (userId) await logAuthEvent(env, { event: 'logout', userId, meta: requestMeta(request) });
     }
     
     return new Response(JSON.stringify({

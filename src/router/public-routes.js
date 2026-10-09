@@ -2,8 +2,11 @@
  * Public routes — geen sessie vereist.
  *
  * - /favicon.ico
+ * - /webgedrag -> /dashboards?tab=marketing (enkel doorsturen; de module Webgedrag
+ *   is sinds 2026-10-09 het tabblad Marketing in Dashboards)
  * - /assets/* (R2 publieke bestanden)
- * - /api/auth/login | logout | me
+ * - /api/auth/login | logout | me, en de vervolgstappen van het inloggen
+ *   /api/auth/login/mfa | /api/auth/login/password (zie src/api/auth-login.js)
  * - Forminator Sync V2 webhooks (token-auth)
  * - Publieke formulier-API (sitesleutel): /forminator-v2/public/v1/forms/*
  *   -- schema ophalen + inzending posten voor formulieren die in de OM zelf
@@ -33,7 +36,8 @@
  * @module router/public-routes
  */
 
-import { handleLogin, handleLogout, handleMe } from '../api/auth.js';
+import { handleLogout, handleMe } from '../api/auth.js';
+import { handleLogin, handleLoginMfa, handleLoginPassword } from '../api/auth-login.js';
 import { validateSession } from '../lib/auth/session.js';
 import { getModuleByCode, resolveModuleRoute } from '../modules/registry.js';
 import { handleEventsPublicApi, isEventsPublicApiPath } from '../modules/event-operations-v2/public-api.js';
@@ -64,6 +68,7 @@ import {
   handleCalendlyWebhook,
   isCalendlyWebhookPath
 } from '../modules/forminator-sync-v2/calendly/webhook.js';
+import { handleNewsletterPublic } from '../modules/newsletters/public-api.js';
 
 function json(body, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -243,6 +248,22 @@ export async function handlePublicRoutes(request, env, ctx) {
     return new Response(null, { status: 204 });
   }
 
+  // Webgedrag is sinds 2026-10-09 het tabblad Marketing in Dashboards. In Odoo
+  // staan nog links naar /webgedrag?lead=<id> (de notitie in de chatter en het
+  // verhaal op elke lead dat sindsdien niet veranderde), en die moeten blijven
+  // werken. Hier wordt ENKEL doorgestuurd: de toegangscontrole gebeurt op
+  // /dashboards zelf. ?tab=uitgesloten (het oude tabblad) opent de instelling.
+  if ((pathname === '/webgedrag' || pathname === '/webgedrag/') && request.method === 'GET') {
+    const dest = new URL('/dashboards', url.origin);
+    dest.searchParams.set('tab', 'marketing');
+    for (const k of ['lead', 'sheet', 'visitor']) {
+      const v = url.searchParams.get(k);
+      if (v) dest.searchParams.set(k, v);
+    }
+    if (url.searchParams.get('tab') === 'uitgesloten') dest.searchParams.set('instelling', 'uitgesloten');
+    return Response.redirect(dest.toString(), 302);
+  }
+
   // Website-tracker, FIRST-PARTY via link.openvme.be / link.syndicoach.be.
   //
   // Waarom: het eigen adres van de tracker (website-tracker.openvme-odoo.
@@ -278,6 +299,16 @@ export async function handlePublicRoutes(request, env, ctx) {
     return env.TRACKER.fetch(new Request('https://website-tracker.internal' + target + url.search, {
       method: request.method, headers, body,
     }));
+  }
+
+  // Nieuwsbrieven -- een vraag in de mail (stelling, korte vraag, peiling).
+  // Elke optie is een link naar /t/_v/<stukje>/<optie>; de pagina post het
+  // antwoord zelf (een GET bewaart niets: scanners openen elke link). Zelfde
+  // afweging als /t/_o/ hierboven: onder /t/ omdat link.* dat doorlaat, en
+  // "_v" kan geen slug van een trackbare link zijn.
+  if (pathname.startsWith('/t/_v/')) {
+    const nieuwsbrief = await handleNewsletterPublic(request, env);
+    if (nieuwsbrief) return nieuwsbrief;
   }
 
   // FSV2 tracker-redirect — trackbare korte links/QR-codes.
@@ -484,6 +515,14 @@ export async function handlePublicRoutes(request, env, ctx) {
   // Auth endpoints
   if (pathname === '/api/auth/login' && request.method === 'POST') {
     return await handleLogin({ request, env, ctx });
+  }
+
+  if (pathname === '/api/auth/login/mfa' && request.method === 'POST') {
+    return await handleLoginMfa({ request, env, ctx });
+  }
+
+  if (pathname === '/api/auth/login/password' && request.method === 'POST') {
+    return await handleLoginPassword({ request, env, ctx });
   }
 
   if (pathname === '/api/auth/logout' && request.method === 'POST') {

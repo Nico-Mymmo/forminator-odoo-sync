@@ -5,7 +5,8 @@
 
 import { getSupabaseClient } from '../../lib/database.js';
 import { MODULES } from '../registry.js';
-import { hashPassword, generateRandomPassword } from '../../lib/auth/password.js';
+import { hashUserPassword, generateRandomPassword, checkNewPassword } from '../../lib/auth/password.js';
+import { logAuthEvent, requestMeta } from '../../lib/auth/events.js';
 import { invalidateAllUserSessions } from '../../lib/auth/session.js';
 import { getMiniAppsUserSettings, setGoogleEmailOverride } from '../mini-apps/lib/user-settings.js';
 import { DRIVE_INTEGRATION_ENABLED } from '../mini-apps/lib/google-drive-client.js';
@@ -30,7 +31,7 @@ export async function handleGetUsers(context) {
     // Get all users
     const { data: users, error } = await supabase
       .from('users')
-      .select('id, email, username, role, is_active, created_at, odoo_uid, last_login_at')
+      .select('id, email, username, role, is_active, created_at, odoo_uid, last_login_at, mfa_enabled_at, must_change_password')
       .order('created_at', { ascending: false });
     
     if (error) {
@@ -76,6 +77,8 @@ export async function handleGetUsers(context) {
       createdAt: u.created_at,
       odooUid: u.odoo_uid ?? null,
       lastLoginAt: u.last_login_at ?? null,
+      mfaEnabled: !!u.mfa_enabled_at,
+      mustChangePassword: !!u.must_change_password,
       modules: userModuleMap[u.id] || []
     }));
     
@@ -128,32 +131,46 @@ export async function handleCreateUser(context) {
     
     const supabase = getSupabaseClient(env);
     
-    // Hash password
-    const encoder = new TextEncoder();
-    const data = encoder.encode(password);
-    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-    const passwordHash = `$2a$${hashHex.slice(0,2)}$${hashHex.slice(2)}`;
-    
+    // Een TIJDELIJK wachtwoord: bij de eerste aanmelding kiest de gebruiker
+    // een eigen (must_change_password) en stelt hij 2FA in. Zo kent de
+    // beheerder het wachtwoord waarmee iemand werkt nooit.
+    const emailNorm = String(email).trim().toLowerCase();
+    const pwFout = checkNewPassword(password);
+    if (pwFout) {
+      return new Response(JSON.stringify({ error: pwFout }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+    const passwordHash = await hashUserPassword(password);
+
     // Create user
     const { data: newUser, error: userError } = await supabase
       .from('users')
       .insert({
-        email,
+        email: emailNorm,
         password_hash: passwordHash,
         role,
-        is_active: true
+        is_active: true,
+        must_change_password: true
       })
-      .select()
+      .select('id, email, role')
       .single();
-    
+
     if (userError) {
       return new Response(JSON.stringify({ error: userError.message }), {
         status: 500,
         headers: { 'Content-Type': 'application/json' }
       });
     }
+
+    await logAuthEvent(env, {
+      event: 'account_created',
+      userId: newUser.id,
+      email: newUser.email,
+      meta: requestMeta(context.request),
+      detail: { by: user.email, role }
+    });
     
     // Assign modules if provided
     if (modules && modules.length > 0) {
@@ -230,7 +247,7 @@ export async function handleUpdateUserRole(context) {
       .from('users')
       .update({ role })
       .eq('id', userId)
-      .select()
+      .select('id, email, role, is_active')
       .single();
 
     if (error) {
@@ -330,9 +347,9 @@ export async function handleResetUserPassword(context) {
   if (!newPassword) {
     newPassword = generateRandomPassword(16);
     generated = true;
-  } else if (newPassword.length < 8) {
+  } else if (checkNewPassword(newPassword)) {
     return new Response(JSON.stringify({
-      error: 'Wachtwoord moet minstens 8 tekens lang zijn'
+      error: checkNewPassword(newPassword)
     }), {
       status: 400,
       headers: { 'Content-Type': 'application/json' }
@@ -354,11 +371,13 @@ export async function handleResetUserPassword(context) {
     });
   }
 
-  const passwordHash = await hashPassword(newPassword);
+  const passwordHash = await hashUserPassword(newPassword);
 
+  // Tijdelijk: bij de volgende aanmelding kiest de gebruiker een eigen
+  // wachtwoord (na zijn 2FA-code).
   const { error: updateError } = await supabase
     .from('users')
-    .update({ password_hash: passwordHash, updated_at: new Date().toISOString() })
+    .update({ password_hash: passwordHash, must_change_password: true, updated_at: new Date().toISOString() })
     .eq('id', userId);
 
   if (updateError) {
@@ -373,6 +392,13 @@ export async function handleResetUserPassword(context) {
   await invalidateAllUserSessions(env, userId);
 
   console.log(`[admin] password reset for user ${userId} (generated=${generated}) by admin ${user.id}`);
+  await logAuthEvent(env, {
+    event: 'password_reset',
+    userId,
+    email: targetUser.email,
+    meta: requestMeta(request),
+    detail: { by: user.email, generated }
+  });
 
   return new Response(JSON.stringify({
     success: true,
@@ -491,8 +517,22 @@ export async function handleToggleUserStatus(context) {
     .from('users')
     .update({ is_active: !currentUser.is_active })
     .eq('id', userId)
-    .select()
+    .select('id, email, role, is_active')
     .single();
+
+  if (!error && data) {
+    // Gedeactiveerd: de sessies meteen weg. validateSession weigert ze al op
+    // is_active, maar zo blijven er ook geen "actieve" sessies in de lijst
+    // staan, en een heractivering zet ze niet stil terug.
+    if (!data.is_active) await invalidateAllUserSessions(env, userId);
+    await logAuthEvent(env, {
+      event: data.is_active ? 'account_activated' : 'account_deactivated',
+      userId,
+      email: data.email,
+      meta: requestMeta(context.request),
+      detail: { by: user.email }
+    });
+  }
   
   if (error) {
     return new Response(JSON.stringify({ error: error.message }), {

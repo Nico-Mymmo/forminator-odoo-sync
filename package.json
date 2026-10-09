@@ -7,6 +7,8 @@
 		"deploy": "wrangler deploy",
 		"dev": "wrangler dev",
 		"logs": "wrangler tail",
+		"proef:aanvragen": "node --watch scripts/dashboards/aanvragen-proef.mjs",
+		"controle:aanvragen": "node scripts/vangrails/aanvragen.mjs",
 		"test": "vitest",
 		"db:push": "supabase db push",
 		"db:reset": "supabase db reset",
