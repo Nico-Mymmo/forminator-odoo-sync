@@ -5,8 +5,12 @@
  *   node wp-plugin/huisstijl/controleer.mjs                  controleren
  *   node wp-plugin/huisstijl/controleer.mjs --stempel "..."   na de review: stempel zetten
  *   node wp-plugin/huisstijl/controleer.mjs --bouw            controle + review verplicht
- *   node wp-plugin/huisstijl/controleer.mjs --afdruk          enkel de vingerafdruk van de code
+ *   node wp-plugin/huisstijl/controleer.mjs --afdruk [ref]    enkel de vingerafdruk van de code
+ *                                                             (van de werkboom, of van een tag/commit)
  *   --offline                                                 thingies niet online nakijken
+ *
+ * Wie geen Node heeft, zet de stempel met `bash wp-plugin/huisstijl/stempel.sh
+ * "..."` (enkel git nodig); de controle zelf draait dan op GitHub na het pushen.
  *
  * WAAROM DIT BESTAAT: een component kan op zich goed ogen en toch uit de toon
  * vallen naast de rest van de pagina -- een eigen grijs, een andere afronding,
@@ -29,17 +33,24 @@
  * code. `--bouw` weigert zolang die vingerafdruk niet klopt -- wie na de review
  * nog iets wijzigt, moet er opnieuw door.
  *
+ * DE VINGERAFDRUK komt uit GIT, niet uit de bestanden op schijf: de blob-id's
+ * van de codebestanden zoals git ze zou bewaren. Zo is ze op Windows, op een
+ * Mac en op GitHub dezelfde (regeleindes worden door .gitattributes gelijk
+ * getrokken), en kan stempel.sh ze met enkel git uitrekenen. Wie geen
+ * ontwikkelaar is, heeft geen Node; tot 2026-10-09 kon zo iemand daardoor geen
+ * stempel zetten, en dus niets op de site krijgen.
+ *
  * Dit bestand staat onder CODEOWNERS: wijzigen enkel met goedkeuring van Nico.
  * Pas het nooit aan om een fout groen te krijgen -- pas het component aan.
  *
  * Geen afhankelijkheden: enkel Node (18+).
  */
 
-import { readFileSync, readdirSync, statSync, writeFileSync, existsSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync, writeFileSync, existsSync, rmSync } from 'node:fs';
 import { join, relative, dirname } from 'node:path';
-import { createHash } from 'node:crypto';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { execSync } from 'node:child_process';
+import { execSync, execFileSync } from 'node:child_process';
 
 const HIER = dirname(fileURLToPath(import.meta.url));
 const WORTEL = join(HIER, '..', '..');
@@ -206,7 +217,7 @@ const REGELS = {
   },
   R01: {
     naam: 'review', niveau: 'fout',
-    oplossing: 'Draai in Claude Code /huisstijl-review. Na een goede review zet die de stempel; wie daarna nog iets wijzigt, moet er opnieuw door.',
+    oplossing: 'Doe de review (/huisstijl-review in Claude Code) en zet daarna de stempel: bash wp-plugin/huisstijl/stempel.sh "wat er nagekeken is". Wie daarna nog iets wijzigt, moet er opnieuw door.',
   },
 };
 
@@ -834,17 +845,79 @@ function controleerVersie(melden) {
 // Vingerafdruk en stempel
 // ─────────────────────────────────────────────────────────────────────────────
 
-function vingerafdruk() {
-  const hash = createHash('sha256');
-  const bestanden = lijstBestanden(PLUGIN)
-    .map(rel)
-    .filter((p) => /\.(php|js|css|svg|json|html)$/.test(p))
-    .sort();
-  for (const p of bestanden) {
-    hash.update(p + '\n');
-    hash.update(lees(join(PLUGIN, p)) + '\n');
+/**
+ * De vingerafdruk: per codebestand "<blob-id>\t<pad>", gesorteerd op pad, en
+ * daarvan de git-hash (eerste 16 tekens). README en CLAUDE.md tellen niet mee.
+ *
+ * STAAT OOK IN stempel.sh, in bash. Wijzig ze SAMEN: lopen ze uiteen, dan past
+ * geen enkele stempel nog en is elke push rood.
+ *
+ * Zonder `ref`: de WERKBOOM, via een tijdelijke index (vanuit HEAD, met alles
+ * erbij wat nog niet gecommit is). Dat is precies wat er na het committen in
+ * git staat. Met `ref` (een tag of commit): wat daar in git staat -- zo kijkt de
+ * release na of een versie al met dezelfde code uitstaat.
+ */
+const AFDRUK_MAP = 'wp-plugin/mymmo-cards';
+const AFDRUK_CODE = /\.(php|js|css|svg|json|html)$/;
+
+function git(args, env) {
+  return execFileSync('git', args, {
+    cwd: WORTEL,
+    env: env || process.env,
+    stdio: ['ignore', 'pipe', 'ignore'],
+    maxBuffer: 64 * 1024 * 1024,
+  }).toString();
+}
+
+function afdrukVan(rijen) {
+  const lijst = rijen
+    .filter(([, pad]) => AFDRUK_CODE.test(pad))
+    .sort((a, b) => (a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0))
+    .map(([blob, pad]) => blob + '\t' + pad + '\n')
+    .join('');
+  return execFileSync('git', ['hash-object', '--stdin'], { cwd: WORTEL, input: lijst })
+    .toString().trim().slice(0, 16);
+}
+
+function vingerafdruk(ref) {
+  if (ref) {
+    // "<mode> blob <id>\t<pad>"
+    return afdrukVan(git(['ls-tree', '-r', ref, '--', AFDRUK_MAP]).split('\n').filter(Boolean)
+      .map((r) => { const [kop, pad] = r.split('\t'); return [kop.split(' ')[2], pad]; }));
   }
-  return hash.digest('hex').slice(0, 16);
+  const index = join(tmpdir(), 'mymmo-afdruk-' + process.pid + '.index');
+  const env = { ...process.env, GIT_INDEX_FILE: index };
+  try {
+    git(['read-tree', 'HEAD'], env);
+    git(['add', '-A', '--', AFDRUK_MAP], env);
+    // "<mode> <id> <stage>\t<pad>"
+    return afdrukVan(git(['ls-files', '-s', '--', AFDRUK_MAP], env).split('\n').filter(Boolean)
+      .map((r) => { const [kop, pad] = r.split('\t'); return [kop.split(' ')[1], pad]; }));
+  } finally {
+    rmSync(index, { force: true });
+  }
+}
+
+// Op GitHub komt elke melding OOK als annotatie. Die zijn zonder aanmelding te
+// lezen (GET /repos/.../check-runs/<id>/annotations): zo ziet wie geen Node
+// heeft toch wat er tegengehouden werd. Zie het regelboek, "Van idee tot op de
+// site".
+function ghTekst(t) {
+  return String(t).replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
+}
+
+function ghEigenschap(t) {
+  return ghTekst(t).replace(/:/g, '%3A').replace(/,/g, '%2C');
+}
+
+function annoteer(m) {
+  const def = REGELS[m.regel];
+  const bestand = m.pad.startsWith('wp-plugin/') ? m.pad : 'wp-plugin/mymmo-cards/' + m.pad;
+  const eig = ['file=' + ghEigenschap(bestand)];
+  if (m.nr > 0) eig.push('line=' + m.nr);
+  eig.push('title=' + ghEigenschap(m.regel + ' ' + def.naam));
+  console.log('::' + (def.niveau === 'fout' ? 'error' : 'warning') + ' ' + eig.join(',') + '::'
+    + ghTekst(m.detail + ' -> ' + def.oplossing));
 }
 
 function gitNaam() {
@@ -863,8 +936,10 @@ async function main() {
   const args = process.argv.slice(2);
 
   // Enkel de vingerafdruk, voor de release-workflow: staat deze code al uit?
-  if (args.includes('--afdruk')) {
-    process.stdout.write(vingerafdruk() + '\n');
+  const afdrukIdx = args.indexOf('--afdruk');
+  if (afdrukIdx !== -1) {
+    const ref = args[afdrukIdx + 1] && !args[afdrukIdx + 1].startsWith('--') ? args[afdrukIdx + 1] : null;
+    process.stdout.write(vingerafdruk(ref) + '\n');
     return;
   }
   const bouw = args.includes('--bouw');
@@ -968,6 +1043,11 @@ async function main() {
     console.log('       -> ' + def.oplossing + '\n');
   }
   for (const t of losseWaarschuwingen) console.log('LET OP ' + t + '\n');
+
+  if (process.env.GITHUB_ACTIONS === 'true') {
+    for (const m of [...fouten, ...waarschuwingen]) annoteer(m);
+    for (const t of losseWaarschuwingen) console.log('::warning title=Huisstijl::' + ghTekst(t));
+  }
 
   console.log(fouten.length + ' fout(en), ' + waarschuwingen.length + ' waarschuwing(en). Vingerafdruk ' + afdruk + '.');
 

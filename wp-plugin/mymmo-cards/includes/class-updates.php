@@ -12,10 +12,18 @@
  *   3. Elke site kijkt elk uur of er een nieuwere release is, en werkt zichzelf
  *      bij. In wp-admin staat ze ook gewoon onder Updates, voor wie niet wil
  *      wachten.
+ *   4. Sinds 1.9.2 roept de workflow na een release ook `POST
+ *      /wp-json/mymmo-cards/v1/kijk` aan: dan kijkt de site METEEN, en staat een
+ *      component er binnen enkele minuten in plaats van binnen het uur. Wie een
+ *      component bedenkt en het op een testpagina wil zien, wacht anders een uur
+ *      per aanpassing.
  *
  * WAAROM DE SITE HAALT EN NIEMAND DUWT: een duw (een connector, een upload
  * vanuit een Claude-sessie) gaat buiten de controles om, en hangt af van wie er
  * op dat moment werkt. Zo kan alleen wat op master staat op een site komen.
+ * De oproep van stap 4 is GEEN duw: ze draagt geen code en geen versie, ze zegt
+ * enkel "kijk eens". Wat de site daarna binnenhaalt, gaat door dezelfde
+ * controles in release() als het uurlijkse kijken.
  *
  * WAT EEN RELEASE MOET ZIJN OM MEE TE TELLEN -- iemand met schrijfrechten op de
  * repo kan zelf een release maken, en die mag niet op de sites belanden:
@@ -51,6 +59,7 @@ final class Mymmo_Cards_Updates {
     private const CACHE      = 'mymmo_cards_release';
     private const CRON       = 'mymmo_cards_bijwerken';
     private const SLOT       = 'mymmo_cards_bijwerken_slot';
+    private const KIJK       = 'mymmo_cards_kijk';
 
     public static function init(): void {
         // De host in "Update URI" (de kop van mymmo-cards.php) is github.com;
@@ -62,6 +71,7 @@ final class Mymmo_Cards_Updates {
         add_filter('auto_update_plugin', [self::class, 'automatisch'], 10, 2);
         add_action(self::CRON, [self::class, 'bijwerken']);
         add_action('init', [self::class, 'plan']);
+        add_action('rest_api_init', [self::class, 'routes']);
         register_deactivation_hook(MYMMO_CARDS_FILE, [self::class, 'stop']);
     }
 
@@ -246,6 +256,84 @@ final class Mymmo_Cards_Updates {
         }
 
         return $update;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Meteen kijken, en zeggen welke versie hier draait
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Twee publieke routes:
+     *
+     *   GET  /wp-json/mymmo-cards/v1/versie   welke versie draait hier. Zo kan
+     *        Claude nakijken of een component op de site staat, zonder in te
+     *        loggen. Het nummer staat al in elke ?ver= van de stylesheets.
+     *   POST /wp-json/mymmo-cards/v1/kijk     kijk NU op GitHub. De workflow
+     *        roept dit aan na een nieuwe release.
+     *
+     * Zonder sleutel, en dat mag: de oproep draagt niets, en wat de site daarna
+     * binnenhaalt moet door release() (enkel de workflow, enkel op master).
+     * Wel hoogstens eens per drie minuten: elke keer kijken kost twee
+     * GitHub-aanvragen, en zonder token krijgt een server er 60 per uur. Wie
+     * de route bestookt, zou anders het bijwerken zelf lamleggen.
+     *
+     * Een oproep binnen die drie minuten wordt UITGESTELD, niet weggegooid: wie
+     * twee aanpassingen kort na elkaar op de site zet, wacht anders een uur op
+     * de tweede. Er staat hoogstens een kijkbeurt klaar, dus bestoken levert
+     * niet meer beurten op.
+     */
+    public static function routes(): void {
+        register_rest_route('mymmo-cards/v1', '/versie', [
+            'methods'             => 'GET',
+            'permission_callback' => '__return_true',
+            'callback'            => static function (): WP_REST_Response {
+                return new WP_REST_Response(['versie' => MYMMO_CARDS_VERSION], 200);
+            },
+        ]);
+
+        register_rest_route('mymmo-cards/v1', '/kijk', [
+            'methods'             => 'POST',
+            'permission_callback' => '__return_true',
+            'callback'            => [self::class, 'kijk'],
+        ]);
+    }
+
+    public static function kijk(): WP_REST_Response {
+        if (self::uit()) {
+            return new WP_REST_Response([
+                'gepland' => false,
+                'reden'   => 'automatisch bijwerken staat uit op deze site',
+                'versie'  => MYMMO_CARDS_VERSION,
+            ], 200);
+        }
+
+        // Een EIGEN argument ('nu'), zodat WordPress dit niet weigert als
+        // dubbel van het uurlijkse kijken dat binnen tien minuten valt.
+        $klaar = wp_next_scheduled(self::CRON, ['nu']);
+        if ($klaar !== false) {
+            return new WP_REST_Response([
+                'gepland' => true,
+                'om'      => gmdate('c', (int) $klaar),
+                'versie'  => MYMMO_CARDS_VERSION,
+            ], 202);
+        }
+
+        // KIJK = het vroegste moment voor de volgende beurt.
+        $wanneer = max(time(), (int) get_transient(self::KIJK));
+        wp_schedule_single_event($wanneer, self::CRON, ['nu']);
+        set_transient(self::KIJK, $wanneer + 3 * MINUTE_IN_SECONDS, 15 * MINUTE_IN_SECONDS);
+
+        // Het cachebestand weg, zodat ook Updates in wp-admin meteen klopt.
+        delete_site_transient(self::CACHE);
+        if ($wanneer <= time()) {
+            spawn_cron();
+        }
+
+        return new WP_REST_Response([
+            'gepland' => true,
+            'om'      => gmdate('c', $wanneer),
+            'versie'  => MYMMO_CARDS_VERSION,
+        ], 202);
     }
 
     // ─────────────────────────────────────────────────────────────────────────

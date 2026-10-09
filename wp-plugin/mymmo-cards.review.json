@@ -1,8 +1,8 @@
 {
   "plugin": "mymmo-cards",
-  "versie": "1.9.1",
-  "hash": "1c4a3c1b4f850011",
-  "datum": "2026-10-09T12:54:06.363Z",
+  "versie": "1.9.2",
+  "hash": "450d5205420ecdde",
+  "datum": "2026-10-09T13:58:07.000Z",
   "door": "Nico-Mymmo",
-  "samenvatting": "1.9.1: geen nieuw component. Hoeken van stapel en kaart zijn een keuze Recht/Klein/Groot uit de huisstijl (oudere waarden naar de dichtstbijzijnde), de rand van de keien is geen/wel met de dikte uit de huisstijl. Automatisch bijwerken via GitHub-releases (class-updates.php): enkel releases van de workflow, op master. Panelen, labels en standaardwaarden ongewijzigd behalve deze twee keuzes."
+  "samenvatting": "1.9.2: geen component gewijzigd. Nieuw in class-updates.php: GET /mymmo-cards/v1/versie en POST /mymmo-cards/v1/kijk. Kijk plant een eenmalige cron (argument 'nu') die dezelfde controles in release() doorloopt; hoogstens een beurt klaar en minstens drie minuten ertussen, een oproep binnen die tijd wordt uitgesteld in plaats van weggegooid. Geen CSS, JS of editorwijziging; lint 0 fouten, de 4 bestaande H15-waarschuwingen ongewijzigd."
 }

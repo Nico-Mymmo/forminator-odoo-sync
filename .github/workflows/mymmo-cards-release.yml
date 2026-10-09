@@ -1,16 +1,21 @@
 # Mymmo Componenten uitbrengen: wat op master komt, gaat vanzelf naar de sites.
 #
-# Bij elke push naar master die de plugin raakt:
+# Bij elke push naar master die de plugin raakt, en wanneer de job "Naar de
+# site" (huisstijl.yml) een component-branch samenvoegde -- die start deze
+# workflow zelf, want een samenvoeging met de GITHUB_TOKEN doet dat niet:
 #   1. de versie lezen uit mymmo-cards.php, en de vingerafdruk van de code;
 #   2. bestaat release mymmo-cards-vX.Y.Z al?
-#      - met dezelfde vingerafdruk: niets te doen;
+#      - met dezelfde vingerafdruk (die van de tag, uit git): niets te doen;
 #      - met ANDERE code: fout -- nieuwe code hoort een nieuw versienummer;
 #   3. anders: bouwen met het bouwscript (dat de huisstijlcontrole en de review
-#      eist) en uitbrengen als release, met de zip eraan.
+#      eist) en uitbrengen als release, met de zip eraan;
+#   4. de sites een seintje geven (POST /wp-json/mymmo-cards/v1/kijk), zodat ze
+#      meteen kijken in plaats van binnen het uur.
 #
 # De sites (wp-plugin/mymmo-cards/includes/class-updates.php) halen die release
-# binnen het uur zelf op. Ze nemen ENKEL een release die deze workflow maakte
-# (github-actions[bot]) en waarvan de commit op master staat.
+# zelf op. Ze nemen ENKEL een release die deze workflow maakte
+# (github-actions[bot]) en waarvan de commit op master staat. Het seintje draagt
+# geen code; het zegt enkel "kijk eens".
 
 name: Mymmo Componenten uitbrengen
 
@@ -38,8 +43,13 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
+      # Waar Mymmo Componenten op draait. Een site zonder de plugin (of met een
+      # versie van voor 1.9.2) antwoordt 404 en kijkt gewoon binnen het uur.
+      SITES: https://syndicoach.be https://openvme.be
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # de tags, om een bestaande versie te vergelijken
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -61,7 +71,9 @@ jobs:
         if: steps.versie.outputs.bestaat == '1'
         run: |
           V="${{ steps.versie.outputs.versie }}"
-          OUD=$(gh release view "mymmo-cards-v$V" --json body --jq .body | grep -o 'Vingerafdruk: [0-9a-f]*' | awk '{print $2}')
+          # Uit git, niet uit de notities: zo telt dezelfde regel voor oude en
+          # nieuwe releases (de vingerafdruk wordt sinds 1.9.2 anders berekend).
+          OUD=$(node wp-plugin/huisstijl/controleer.mjs --afdruk "mymmo-cards-v$V")
           if [ "$OUD" != "${{ steps.versie.outputs.afdruk }}" ]; then
             echo "::error::Versie $V staat al uit, met andere code. Hoog het versienummer op (twee plekken in mymmo-cards.php + een sectie in README.md) en doe de review opnieuw."
             exit 1
@@ -87,3 +99,12 @@ jobs:
             --target "$GITHUB_SHA" \
             --title "Mymmo Componenten $V" \
             --notes-file notities.md
+
+      - name: Sites laten kijken
+        if: steps.versie.outputs.bestaat == '0'
+        continue-on-error: true
+        run: |
+          for SITE in $SITES; do
+            CODE=$(curl -s -o antwoord.txt -w '%{http_code}' -X POST --max-time 20 "$SITE/wp-json/mymmo-cards/v1/kijk" || echo 000)
+            echo "$SITE: HTTP $CODE $(head -c 300 antwoord.txt 2>/dev/null || true)"
+          done

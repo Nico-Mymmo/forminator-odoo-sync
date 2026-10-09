@@ -1,6 +1,6 @@
 ---
 name: huisstijl-review
-description: Review van een component in Mymmo Componenten (wp-plugin/mymmo-cards) tegen de huisstijl -- hiërarchie, zwaarte, consistentie, mobiel en desktop, de werkwijze in Gutenberg -- en daarna de stempel die het bouwscript eist. Gebruik dit vóór je een zip van mymmo-cards bouwt, of wanneer iemand vraagt of een component "strak" zit.
+description: Review van een component in Mymmo Componenten (wp-plugin/mymmo-cards) tegen de huisstijl -- hiërarchie, zwaarte, consistentie, mobiel en desktop, de werkwijze in Gutenberg -- en daarna de stempel die de controle eist. Gebruik dit telkens vóór je een component naar de site stuurt (pushen naar component/<naam>), of wanneer iemand vraagt of een component "strak" zit.
 ---
 
 # Huisstijlreview van Mymmo Componenten
@@ -16,9 +16,14 @@ je context hebt. De lijst "De review" daarin is de maatstaf.
 
 ## Stappen
 
-1. **De lint eerst.** Draai `node wp-plugin/huisstijl/controleer.mjs`. Zijn er
-   fouten, stop dan: los ze op (in het component, nooit in de controle of de
-   uitzonderingen) of meld ze, en begin de review pas als de lint groen is.
+1. **De lint eerst, als het kan.** Staat Node op deze computer, draai dan
+   `node wp-plugin/huisstijl/controleer.mjs`. Zijn er fouten, los ze op (in het
+   component, nooit in de controle of de uitzonderingen) en begin de review pas als
+   de lint groen is. Geen Node (wie een component bedenkt, heeft het meestal niet):
+   sla deze stap over en vraag niet om Node. De lint draait op GitHub na het
+   pushen; wat ze daar tegenhoudt, los je op zoals het regelboek zegt ("Van idee
+   tot op de site", stap 8). Lees de regels in "De controle" van het regelboek dan
+   wel zelf na terwijl je de code leest.
 
 2. **Wat is er veranderd.** `git diff master...HEAD -- wp-plugin/mymmo-cards` plus
    wat nog niet gecommit is (`git status`, `git diff`). Lees elk gewijzigd bestand
@@ -46,15 +51,23 @@ je context hebt. De lijst "De review" daarin is de maatstaf.
      wat er nagekeken is en wat de belangrijkste keuzes waren:
 
      ```bash
-     node wp-plugin/huisstijl/controleer.mjs --stempel "<samenvatting>"
+     bash wp-plugin/huisstijl/stempel.sh "<samenvatting>"
      ```
 
-     De stempel (`wp-plugin/mymmo-cards.review.json`) hoort bij precies deze code.
-     Wie daarna nog iets wijzigt in de plugin, moet opnieuw door de review.
+     Enkel git nodig. De stempel (`wp-plugin/mymmo-cards.review.json`) hoort bij
+     precies deze code, ook wat nog niet gecommit is: zet hem dus als laatste, na
+     het versienummer, en commit hem samen met de code. Wie daarna nog iets
+     wijzigt in de plugin, moet opnieuw door de review.
 
 6. **Meld wat je NIET kon nagaan**: hoe het er op de echte site uitziet (met het
    thema), op een echt toestel, met echte inhoud. Dat blijft voor de mens die het
-   uitrolt -- zeg dat erbij.
+   uitrolt.
+
+   Praat je met iemand die geen ontwikkelaar is (zie "Met wie je praat" in het
+   regelboek), meld de review dan NIET als lijst en vraag niets. Los de
+   bevindingen zelf op, zet het op de site, en zeg hoogstens in een zin wat je
+   aanpaste als hij het ziet. Dat hij op zijn testpagina moet kijken, op zijn
+   telefoon en op zijn computer, zeg je wel.
 
 ## Wat je nooit doet
 

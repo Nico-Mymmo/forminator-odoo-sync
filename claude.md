@@ -1438,7 +1438,8 @@ rondom; thema-`h3` 30px/400 in `neutral-950` tegenover de callout-`h2` op
 | De grenzen in de blok-editor, voor iedereen op elke site | `includes/class-bewaking.php` |
 | De controle op de code (bouwscript + GitHub) | `node wp-plugin/huisstijl/controleer.mjs` (+ `uitzonderingen.json`) |
 | Het regelboek voor wie componenten bouwt | `wp-plugin/mymmo-cards/CLAUDE.md` |
-| De review die de stempel zet | `/huisstijl-review` (`.claude/skills/huisstijl-review/`) |
+| De review die de stempel zet | `/huisstijl-review` (`.claude/skills/huisstijl-review/`), stempel met `bash wp-plugin/huisstijl/stempel.sh` (enkel git) |
+| Push naar `component/<naam>` = op de site | job "Naar de site" in `.github/workflows/huisstijl.yml` |
 | De iconen: de thingies uit de Asset Manager | `mymmo_cards_thingies()` in `includes/helpers.php` |
 | Afrondingen (Recht / Klein / Groot) | `mymmo_cards_afrondingen()` + `mymmo_cards_afronding()` in `includes/helpers.php` |
 | Automatisch bijwerken: GitHub brengt uit, de site haalt op | `.github/workflows/mymmo-cards-release.yml` + `includes/class-updates.php` |
@@ -1460,6 +1461,31 @@ Afspraken die bewust zo zijn:
   mag geen site bereiken. Bewust geen connector die naar de site DUWT: die
   gaat buiten de controles om. Wordt de repo ooit privé, dan ziet de site
   geen releases meer (de API geeft 404) en valt dit stil.
+- **PUSHEN NAAR `component/<naam>` = OP DE SITE** (1.9.2). Wie een component
+  bedenkt (David) is geen ontwikkelaar en heeft geen Node, Python of PHP; hij
+  zegt wat hij wil en kijkt op een testpagina (een conceptpagina op de echte
+  site). Claude doet de rest zonder tussenvragen en zonder vaktaal -- zie "Met
+  wie je praat" in het regelboek. Wat dat mogelijk maakt:
+  - de stempel kan met enkel git (`stempel.sh`); de vingerafdruk komt sindsdien
+    uit git (blob-id's van de codebestanden) en staat op TWEE plekken, in
+    `stempel.sh` en `vingerafdruk()` in controleer.mjs -- wijzig ze samen;
+  - de controle draait op GitHub bij elke push (plus `php -l` en
+    `node --check`: een PHP-syntaxfout legt de hele site plat, en lokaal kan
+    niemand dat meer nakijken), met annotaties die zonder aanmelding via de API
+    te lezen zijn;
+  - de job "Naar de site" maakt de pull request, voegt samen en start de
+    release. GitHub beslist wat mag (ruleset + CODEOWNERS): raakt de branch iets
+    buiten het terrein, dan blijft de pull request open voor Nico. Vereist de
+    repo-instelling "Allow GitHub Actions to create and approve pull requests".
+    Een samenvoeging met de GITHUB_TOKEN start zelf geen workflows; daarom start
+    de job de release met `gh workflow run`, en daarom moet ELKE verplichte
+    controle uit de ruleset ook bij een push naar `component/**` draaien;
+  - na de release roept de workflow `POST /wp-json/mymmo-cards/v1/kijk` aan op
+    elke site, en die kijkt meteen (hoogstens eens per drie minuten). Geen duw:
+    de oproep draagt geen code. `GET .../v1/versie` zegt welke versie er draait.
+  Bewust GEEN testsite: een component neemt letter en kleur van het thema, dus
+  enkel op de echte site zie je wat er komt te staan. Wijzigt iets een component
+  dat al op pagina's staat, dan vraagt Claude het eerst, in een zin.
 - **GEEN typografie in `mymmo-cards.css`.** Geen `font-family`, `font-size`,
   `font-weight` of tekstkleur. Zet je er ooit één bij, dan is het probleem terug
   waarvoor deze plugin gemaakt is.
