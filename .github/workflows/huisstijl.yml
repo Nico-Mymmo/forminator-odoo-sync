@@ -1,22 +1,45 @@
-# De huisstijlcontrole van Mymmo Componenten, bij elke pull request.
+# Mymmo Componenten: de huisstijlcontrole, en het component op de site zetten.
 #
-# Dezelfde controle als in het bouwscript (wp-plugin/build-mymmo-cards.sh), met
-# --bouw: ook de review moet bij precies deze code horen. Zo kan er niets in
-# master komen dat geen zip zou opleveren.
+# HUISSTIJLCONTROLE -- bij elke pull request en elke push naar master of naar
+# een branch component/<naam>. Dezelfde controle als in het bouwscript, met
+# --bouw: ook de review moet bij precies deze code horen. Plus een
+# syntaxcontrole van de PHP en de JS: wie een component bedenkt, heeft lokaal
+# geen PHP of Node, en een PHP-syntaxfout legt de HELE site plat.
+# De naam "Huisstijlcontrole" is de verplichte controle in de ruleset van
+# master: niet hernoemen.
 #
-# Bewust zonder paths-filter op pull_request: staat deze controle verplicht in
-# een ruleset, dan blijft een PR zonder wijziging in wp-plugin/ anders eeuwig op
-# "wachten" staan. De controle duurt een paar seconden.
+# NAAR DE SITE -- enkel bij een push naar component/<naam>, als de controle
+# groen is: de pull request maken, samenvoegen en de release starten. Wie een
+# component maakt, hoeft dus enkel te pushen; enkele minuten later staat het op
+# de sites (mymmo-cards-release.yml geeft ze een seintje).
+#
+# Wat er MAG, beslist GitHub zelf (ruleset + CODEOWNERS): raakt de branch iets
+# buiten de componenten of een vangrail, dan weigert het samenvoegen en blijft
+# de pull request open voor Nico. Deze job zegt dat dan in een annotatie, die
+# zonder aanmelding te lezen is (zie het regelboek, "Van idee tot op de site").
+#
+# Waarom de release apart gestart wordt: een samenvoeging met de GITHUB_TOKEN
+# start zelf geen nieuwe workflows (regel van GitHub); workflow_dispatch wel.
+#
+# VEREIST in de instellingen van de repo: Settings -> Actions -> General ->
+# "Allow GitHub Actions to create and approve pull requests". Zonder dat faalt
+# "Naar de site" bij het maken van de pull request.
+#
+# ELKE VERPLICHTE CONTROLE IN DE RULESET moet ook draaien bij een push naar
+# component/**. Een pull request die deze job maakt, start zelf geen workflows
+# (GITHUB_TOKEN), dus een verplichte controle die enkel op pull_request draait,
+# komt er nooit -- en dan weigert GitHub het samenvoegen.
+#
+# Bewust zonder paths-filter: staat de controle verplicht in een ruleset, dan
+# blijft een PR zonder wijziging in wp-plugin/ anders eeuwig op "wachten" staan.
+# De controle duurt een paar seconden.
 
 name: Huisstijl
 
 on:
   pull_request:
   push:
-    branches: [master]
-    paths:
-      - 'wp-plugin/**'
-      - '.github/workflows/huisstijl.yml'
+    branches: [master, 'component/**']
 
 jobs:
   controle:
@@ -27,5 +50,103 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+
+      - name: Syntax van PHP en JS
+        run: |
+          command -v php >/dev/null || { echo "::error title=Geen PHP::Op de runner staat geen PHP; de syntaxcontrole kan niet draaien."; exit 1; }
+          fout=0
+          while IFS= read -r -d '' f; do
+            if ! uit=$(php -l "$f" 2>&1); then
+              regel=$(printf '%s' "$uit" | grep -o 'on line [0-9]*' | head -1 | grep -o '[0-9]*' || true)
+              echo "::error file=$f${regel:+,line=$regel},title=PHP-syntaxfout::$(printf '%s' "$uit" | tr '\n' ' ')"
+              fout=1
+            fi
+          done < <(find wp-plugin/mymmo-cards -name '*.php' -print0)
+          while IFS= read -r -d '' f; do
+            if ! uit=$(node --check "$f" 2>&1); then
+              echo "::error file=$f,title=JS-syntaxfout::$(printf '%s' "$uit" | tr '\n' ' ')"
+              fout=1
+            fi
+          done < <(find wp-plugin/mymmo-cards/assets/js -name '*.js' -print0)
+          exit $fout
+
       - name: Controle en review
+        if: ${{ !cancelled() }}
         run: node wp-plugin/huisstijl/controleer.mjs --bouw
+
+  naar-de-site:
+    name: Naar de site
+    needs: controle
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/component/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write
+    concurrency:
+      group: naar-de-site-${{ github.ref }}
+      cancel-in-progress: true
+    env:
+      GH_TOKEN: ${{ github.token }}
+      BRANCH: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # De stempel hoort bij de code van deze branch. Veranderde er op master
+      # intussen iets aan de componenten, dan is het SAMENGEVOEGDE resultaat
+      # andere code dan wat er nagekeken is -- en dan weigert de release.
+      - name: Is de branch nog bij?
+        run: |
+          BASIS=$(git merge-base origin/master HEAD)
+          if ! git diff --quiet "$BASIS" origin/master -- wp-plugin/mymmo-cards wp-plugin/huisstijl wp-plugin/build-mymmo-cards.sh; then
+            echo "::error title=Eerst master binnenhalen::Op master is intussen iets aan de componenten veranderd. Haal master binnen (git fetch origin, git merge origin/master), doe de review opnieuw, zet een nieuwe stempel en push opnieuw."
+            exit 1
+          fi
+
+      - name: Is het versienummer nieuw?
+        run: |
+          V=$(grep -m1 '^ \* Version:' wp-plugin/mymmo-cards/mymmo-cards.php | sed 's/.*Version: *//' | tr -d ' \r')
+          echo "VERSIE=$V" >> "$GITHUB_ENV"
+          if git rev-parse -q --verify "refs/tags/mymmo-cards-v$V" >/dev/null; then
+            if [ "$(node wp-plugin/huisstijl/controleer.mjs --afdruk "mymmo-cards-v$V")" != "$(node wp-plugin/huisstijl/controleer.mjs --afdruk)" ]; then
+              echo "::error title=Nieuw versienummer nodig::Versie $V staat al op de sites, met andere code. Verhoog het versienummer (twee plekken in mymmo-cards.php + een sectie in README.md), zet een nieuwe stempel en push opnieuw."
+              exit 1
+            fi
+          fi
+
+      - name: Samenvoegen en uitbrengen
+        run: |
+          PR=$(gh pr list --head "$BRANCH" --base master --state open --json number --jq '.[0].number // empty')
+          if [ -z "$PR" ]; then
+            if ! gh pr create --base master --head "$BRANCH" \
+                --title "$(git log -1 --format=%s)" \
+                --body "Automatisch gemaakt en samengevoegd na een groene huisstijlcontrole op \`$BRANCH\` (versie $VERSIE). Zie .github/workflows/huisstijl.yml." 2>fout.txt; then
+              echo "::error title=Niet op de site::Kon geen pull request maken: $(tr '\n' ' ' < fout.txt). Staat 'Allow GitHub Actions to create and approve pull requests' aan in de instellingen van de repo? Dat is iets voor Nico."
+              exit 1
+            fi
+            PR=$(gh pr list --head "$BRANCH" --base master --state open --json number --jq '.[0].number // empty')
+          fi
+
+          # Net na het maken weet GitHub soms nog niet of ze samengevoegd kan
+          # worden: een paar keer proberen. --match-head-commit: enkel precies
+          # de commit die net gecontroleerd is.
+          for poging in 1 2 3 4 5 6; do
+            if gh pr merge "$PR" --merge --match-head-commit "$GITHUB_SHA" 2>fout.txt; then
+              gh workflow run mymmo-cards-release.yml --ref master
+              echo "::notice title=Op weg naar de site::Versie $VERSIE is samengevoegd (pull request #$PR). De release start nu; enkele minuten later staat ze op de sites."
+              exit 0
+            fi
+            sleep 10
+          done
+
+          REDEN=$(tr '\n' ' ' < fout.txt)
+          gh pr comment "$PR" --body "Niet automatisch samengevoegd: $REDEN
+
+          Raakt deze branch iets buiten \`wp-plugin/mymmo-cards/\` of een vangrail, dan beslist Nico (CODEOWNERS)." || true
+          echo "::error title=Niet op de site::Samenvoegen lukte niet: $REDEN Raakt de branch iets buiten de componenten of een vangrail, dan wacht pull request #$PR op Nico."
+          exit 1

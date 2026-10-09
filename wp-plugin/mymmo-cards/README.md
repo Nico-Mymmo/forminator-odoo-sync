@@ -368,7 +368,16 @@ cache-busting van CSS en JS. Het script controleert dat en weigert anders.
 Sinds 1.9.0 maakt het script ook geen zip zolang de huisstijlcontrole niet
 groen is én er geen review is voor precies deze code
 (`wp-plugin/mymmo-cards.review.json`, gezet door `/huisstijl-review` in Claude
-Code). `CLAUDE.md` legt uit hoe.
+Code, met `bash wp-plugin/huisstijl/stempel.sh` -- enkel git nodig). `CLAUDE.md`
+legt uit hoe.
+
+**Pushen naar `component/<naam>` = op de site (sinds 1.9.2).** Is de controle
+op GitHub groen, dan maakt de job "Naar de site"
+(`.github/workflows/huisstijl.yml`) de pull request, voegt ze samen en start de
+release. Na de release roept de workflow `/wp-json/mymmo-cards/v1/kijk` aan op
+elke site, en die werkt zich meteen bij. Van push tot op de site: enkele
+minuten. Raakt de branch iets buiten de componenten of een vangrail, dan
+weigert GitHub het samenvoegen en wacht de pull request op Nico.
 
 **Uploaden hoeft niet meer (sinds 1.9.1).** Wat op `master` komt, bouwt GitHub
 en brengt het uit als release `mymmo-cards-vX.Y.Z`
@@ -406,6 +415,23 @@ Vervangt een handgebouwde versie op syndicoach.be met een eigen `<style>` en
 
 Ook nieuw: de lijststijl **Vinkjes (in een stap)** voor de kern-lijst, met een
 vinkje in de kleur van het nummer.
+
+**1.9.2** — van idee tot op de site, zonder tussenstappen. Wie een component
+bedenkt, heeft geen Node, geen Python en geen PHP op zijn computer; tot nu kon
+hij daardoor de stempel van de review niet zetten, moest hij zelf een pull
+request maken en samenvoegen, en wachtte de site daarna tot een uur. Nu:
+
+- De stempel kan met enkel git (`wp-plugin/huisstijl/stempel.sh`). De
+  vingerafdruk komt sindsdien uit git in plaats van uit de bestanden op schijf,
+  zodat ze op elke computer en op GitHub gelijk is.
+- Een push naar `component/<naam>` zet het component op de site als de
+  controle groen is (zie "Bouwen").
+- Twee nieuwe publieke routes op de site: `GET /wp-json/mymmo-cards/v1/versie`
+  (welke versie draait hier) en `POST /wp-json/mymmo-cards/v1/kijk` (kijk nu op
+  GitHub, hoogstens eens per drie minuten). De oproep draagt geen code: wat de
+  site binnenhaalt, gaat door dezelfde controles als het uurlijkse kijken.
+
+Aan de componenten zelf verandert niets.
 
 **1.9.1** — de plugin werkt zichzelf bij. Wat op `master` komt, brengt GitHub
 uit als release, en elke site haalt die binnen het uur op; uploaden is niet meer

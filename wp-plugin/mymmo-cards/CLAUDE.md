@@ -5,63 +5,151 @@ er in deze map gewerkt wordt. De regels van de repo (`claude.md` in de hoofdmap)
 gelden ook, in het bijzonder de **bestand-editingprocedure** en het blok
 "Componenten — mymmo-cards".
 
-## Hoe dit werkt: de vangrails beslissen, niet een persoon
+## Met wie je praat
 
-Je mag componenten bouwen en op de site zetten. Wat een designfout tegenhoudt, is
-geen goedkeuring van Nico, maar drie vangrails:
+Wie hier een component maakt, is meestal **geen ontwikkelaar**. Die persoon
+(vandaag David) bedenkt wat er op de pagina moet komen en hoe het moet werken; jij,
+Claude, doet de rest. Op die computer staan geen Node, geen Python en geen PHP, en
+dat hoeft ook niet: wat zo'n programma nodig heeft, draait op GitHub.
 
-1. **De huisstijlcontrole**: `node wp-plugin/huisstijl/controleer.mjs`. Harde
-   regels (kleur, afronding, zwaarte, breekpunten, blokinstellingen, ...). Rood =
-   geen zip, en op GitHub geen samenvoegen.
-2. **De review**: `/huisstijl-review` in Claude Code. Het oordeel dat een lint
-   niet kan geven: hiërarchie, zwaarte, consistentie, mobiel en desktop. Na een
-   goede review komt er een stempel bij precies deze code; zonder stempel geen
-   zip.
+Wat hij doet, en niets meer:
+
+1. Zeggen wat hij wil: in gewone woorden, met een schets, een schermafbeelding of
+   een voorbeeld van een andere site.
+2. Kijken op zijn **testpagina** (een conceptpagina op de site), op zijn telefoon
+   en op zijn computer.
+3. Zeggen wat er anders moet. Of dat het goed is.
+
+Al de rest doe jij, zonder het te vragen of uit te leggen: zie "Van idee tot op de
+site" hieronder. Dat hij iets vraagt, IS de opdracht om het op de site te zetten.
+
+**Zo praat je met hem:**
+
+- Gewone taal. Geen Node, Python, PHP, branch, commit, push, pull request,
+  samenvoegen, merge, stempel, review, controle, lint, workflow, release, CI,
+  versienummer of bestandsnaam -- tenzij hij er zelf naar vraagt. Zeg "ik zet het
+  op de site" en "het staat erop".
+- Vraag nooit iets te installeren, een commando te draaien, of iets op GitHub of in
+  wp-admin te doen. Kan iets alleen met een programma dat hier niet staat, dan doet
+  GitHub het.
+- Vraag geen toestemming voor tussenstappen ("zal ik committen?", "zal ik
+  pushen?"). Enkel wel als het iets raakt dat al op pagina's staat (zie hieronder).
+- Kort. Wat je maakte in een of twee zinnen, waar hij het vindt (in de editor:
+  blok toevoegen, categorie **Mymmo**, de naam van het blok) en wat hij kan
+  uitproberen. Geen lijst bestanden, geen regelaantallen, geen uitleg over hoe het
+  intern werkt.
+- Houdt de controle iets tegen, los het dan zelf op en zet het opnieuw op de site.
+  Zeg hoogstens in een zin wat je aanpaste, als hij het ziet ("de schaduw is
+  lichter: er mag maar een schaduwniveau zijn").
+- Lukt iets niet en kan jij het niet oplossen (het wacht op Nico, GitHub doet
+  niets), zeg dat dan in een zin, en dat Nico het oppakt. Laat hem nooit achter met
+  een technische foutmelding.
+
+**Wat al op de site staat.** Een NIEUW component ziet niemand tot iemand het op een
+pagina zet: dat kan zonder vragen. Een wijziging aan een component dat al op
+pagina's staat (de kaartenstapel, de keienwolk, de markeerstift, de knop, ...)
+zien bezoekers meteen. Vraag dan eerst, in een zin: "Dit verandert ook de
+kaartenstapel op elke pagina waar die al staat. Is dat goed?" Kan het ook als een
+nieuwe keuze in de zijbalk, met de huidige stand als standaard, stel dat dan voor:
+dan verandert er niets aan wat er al staat.
+
+## De vangrails beslissen, niet een persoon
+
+Wat een designfout tegenhoudt, is geen goedkeuring van Nico maar drie vangrails.
+Ze draaien vanzelf; wie het component bedenkt, merkt er niets van.
+
+1. **De huisstijlcontrole** (`wp-plugin/huisstijl/controleer.mjs`): harde regels
+   (kleur, afronding, zwaarte, breekpunten, blokinstellingen, ...), plus een
+   syntaxcontrole van de PHP en JS. Draait op GitHub bij elke push. Rood = niet op
+   de site.
+2. **De review** (`/huisstijl-review` in Claude Code): het oordeel dat een lint
+   niet kan geven -- hiërarchie, zwaarte, consistentie, mobiel en desktop. Na een
+   goede review zet jij een stempel bij precies deze code; zonder stempel is de
+   controle rood.
 3. **De bewaking in de editor** (`includes/class-bewaking.php`), op de site zelf:
    geen eigen kleuren, lettertypes, afrondingen, Extra CSS of themastijlen.
 
-**Je terrein is `wp-plugin/mymmo-cards/`.** Daar voeg je zelf samen zodra de
-controle groen is. Twee dingen wachten op Nico (`.github/CODEOWNERS`):
+**Het terrein is `wp-plugin/mymmo-cards/`.** Wat daarin blijft, gaat vanzelf naar
+de site. Twee dingen wachten op Nico (`.github/CODEOWNERS`; GitHub houdt ze
+tegen):
 
 - **de vangrails zelf**: de huisstijl, de controle, de uitzonderingen, de bewaking,
-  het automatisch bijwerken, het bouwscript en dit regelboek. Wil je een regel
+  het automatisch bijwerken, het bouwscript en dit regelboek. Wil iemand een regel
   anders, stel het voor (zie "Aanscherpen");
 - **alles buiten deze map**: de Worker (`src/`), de andere plugins, migraties, de
-  pagina's in `public/`. Heeft een component daar iets nodig, zet het dan in een
-  APARTE pull request, zodat het component zelf niet hoeft te wachten.
+  pagina's in `public/`. Heeft een component daar iets nodig, zet het dan op een
+  APARTE branch, zodat het component zelf niet hoeft te wachten.
 
-Claude: raakt een taak iets buiten deze map, zeg dat dan vooraf, in plaats van het
-er stil bij te doen.
+Raakt een vraag iets buiten deze map, zeg dan vooraf (in gewone taal) dat dat deel
+op Nico wacht, in plaats van het er stil bij te doen.
 
 > **Nooit** een controle, de huisstijl of een uitzondering aanpassen om rood groen
-> te krijgen. Pas het component aan. Claude: zit een regel echt in de weg, stop dan
-> en zeg welke en waarom -- werk er niet omheen.
+> te krijgen. Pas het component aan. Zit een regel echt in de weg, stop dan en zeg
+> welke en waarom -- werk er niet omheen.
 
-## Werkwijze
+## Van idee tot op de site
 
-1. Eigen branch vanaf `master`: `git switch -c component/<naam>`.
-2. Bouwen -- zie "Een component bouwen" hieronder.
-3. `node wp-plugin/huisstijl/controleer.mjs` tot er geen fouten meer zijn.
-4. Bekijken: `php wp-plugin/mymmo-cards-preview.php > proef.html` (zonder thema,
-   dus de letter klopt daar niet), en vooral op een **conceptpagina op de site**, op
-   een telefoon én op een computer.
-5. Versie ophogen: twee plekken in `mymmo-cards.php` (docblock + `MYMMO_CARDS_VERSION`)
-   en een `**X.Y.Z**`-sectie bovenaan "Versies" in `README.md`: wat er veranderde en
-   waarom. Doe dit VÓÓR de review: de stempel hoort bij precies deze code, en
-   `mymmo-cards.php` hoort daarbij.
-6. `/huisstijl-review` → stempel (`wp-plugin/mymmo-cards.review.json`).
-7. Een pull request naar `master`. GitHub draait dezelfde controle; is die groen,
-   dan voeg je zelf samen. Raakt je wijziging een vangrail (zie hierboven), dan
-   wacht ze op Nico.
-8. Daarna gaat het vanzelf: GitHub bouwt de zip, brengt ze uit als release, en
-   elke site werkt zichzelf binnen het uur bij (of meteen: Dashboard → Updates →
-   "Opnieuw controleren"). Niets uploaden.
+Dit doe jij, telkens hij iets wil zien. Op deze computer is enkel git nodig. Heb je
+toch Node, draai dan ook de controle zelf (stap 4): dat spaart een ronde.
 
-Iets uitproberen zonder het uit te brengen: `bash wp-plugin/build-mymmo-cards.sh
-X.Y.Z` bouwt lokaal een zip in `wp-plugin/` (gitignored). Zet die niet met de
-hand op een site: dan draait daar code die niet op `master` staat, en de volgende
-automatische update zet ze terug. Gebruik een conceptpagina met de versie van
-`master`, of een testsite.
+1. **De branch.** Een component = een branch `component/<naam>`; alleen zo'n
+   branch zet GitHub op de site. Begin altijd met `git fetch origin`.
+   - Nieuw component: `git switch -c component/<naam> origin/master`.
+   - Verder werken: `git switch component/<naam>`, `git pull` (iemand anders kan
+     er intussen iets op gezet hebben) en `git merge origin/master`.
+     Een conflict in het versienummer of in de README los je zelf op: het hoogste
+     nummer wint, beide secties in de README blijven staan.
+2. **Bouwen** -- zie "Een component bouwen" hieronder.
+3. **Het versienummer ophogen**, bij ELKE ronde die iets aan de plugin wijzigt:
+   een nieuw component +0.1.0 (1.9.2 → 1.10.0), een aanpassing +0.0.1 (1.10.0 →
+   1.10.1). Twee plekken in `mymmo-cards.php` (docblock + `MYMMO_CARDS_VERSION`)
+   en een `**X.Y.Z**`-sectie bovenaan "Versies" in `README.md`: wat er veranderde
+   en waarom. Een nummer dat al op de site staat, krijgt nooit andere code.
+4. **De review**: `/huisstijl-review`. Die eindigt met de stempel:
+   `bash wp-plugin/huisstijl/stempel.sh "<samenvatting>"` (enkel git nodig). Heb je
+   Node: eerst `node wp-plugin/huisstijl/controleer.mjs` tot er geen fouten meer
+   zijn.
+5. **Committen en pushen**: de code en `wp-plugin/mymmo-cards.review.json` samen,
+   dan `git push -u origin component/<naam>`.
+6. **GitHub doet de rest** (`.github/workflows/huisstijl.yml`): de controle, dan de
+   job "Naar de site" (pull request, samenvoegen, release), en daarna krijgen de
+   sites een seintje en werken ze zich bij. Enkele minuten.
+7. **Nakijken of het erop staat**, om de 30 seconden, hoogstens 10 minuten:
+   `curl -s https://syndicoach.be/wp-json/mymmo-cards/v1/versie`. Staat het nieuwe
+   nummer er, zeg dan: "Het staat erop. Ververs je testpagina." (In de editor de
+   pagina opnieuw laden, anders kent ze het nieuwe blok nog niet.)
+8. **Staat het er na 10 minuten niet**, kijk dan op GitHub. Dat kan zonder
+   aanmelding, maar hoogstens 60 keer per uur, dus zuinig:
+   - `curl -s https://api.github.com/repos/Nico-Mymmo/forminator-odoo-sync/commits/$(git rev-parse HEAD)/check-runs`
+     → per controle `name`, `status`, `conclusion` en `id`.
+   - Bij `failure`:
+     `curl -s https://api.github.com/repos/Nico-Mymmo/forminator-odoo-sync/check-runs/<id>/annotations`
+     → de meldingen, met bestand, regel en wat er in de plaats moet.
+
+   | Melding | Wat je doet |
+   |---|---|
+   | een H-, U- of R-code, of een PHP-/JS-syntaxfout | het component aanpassen (nooit de controle), versie +0.0.1, review en stempel opnieuw, pushen |
+   | "Eerst master binnenhalen" | `git fetch origin` en `git merge origin/master`, review en stempel opnieuw, pushen |
+   | "Nieuw versienummer nodig" | versie ophogen, stempel opnieuw, pushen |
+   | "Niet op de site" met een review die vereist is | de branch raakt iets buiten het terrein: dat wacht op Nico. Zeg het in een zin. |
+   | na 5 minuten nog geen enkele controle | de branch heet niet `component/...`, of GitHub hapert. Zeg dat Nico het bekijkt. |
+
+   Pas als je het niet kan oplossen, zeg je het tegen hem (zie "Zo praat je met
+   hem").
+9. **De volgende aanpassing** aan hetzelfde component: dezelfde branch, terug naar
+   stap 1 ("verder werken").
+
+Een **testpagina** is een conceptpagina (of een privépagina) op de site waar het
+component komt -- meestal syndicoach.be. Bezoekers zien ze niet. Het nieuwe blok
+staat in de editor onder de categorie **Mymmo**.
+
+Bewust GEEN aparte testsite: een component neemt zijn letter en kleuren van het
+thema van de site waar het staat. Op een andere site zie je dus niet wat er echt
+komt te staan.
+
+Lokaal een zip bouwen (`bash wp-plugin/build-mymmo-cards.sh X.Y.Z`) kan nog voor
+wie Node heeft. Zet die nooit met de hand op een site: dan draait daar code die niet
+op `master` staat, en de volgende automatische update zet ze terug.
 
 ## De huisstijl
 
@@ -264,3 +352,5 @@ Die wijzigingen raken de vangrails zelf, dus Nico keurt ze goed.
 - Een zip met een versienummer dat al bestaat.
 - Een zip met de hand op een site zetten: daar hoort enkel te staan wat op
   `master` staat.
+- Wie het component bedenkt iets laten installeren, een commando laten draaien,
+  of laten kiezen tussen technische stappen.
