@@ -1,21 +1,33 @@
-# De VANGRAILS van de huisstijl: alleen hier is de goedkeuring van Nico nodig.
+# Wie beslist over welk deel van de repo.
 #
-# Componenten bouwen in wp-plugin/mymmo-cards mag iedereen met toegang, en
-# samenvoegen kan zodra de controle groen is (.github/workflows/huisstijl.yml).
-# Maar wie de regels zelf wijzigt -- de huisstijl, de controle, de
-# uitzonderingen, de bewaking in de editor, het bouwscript, het regelboek --
-# wijzigt wat ALLE componenten tegenhoudt. Dat beslist Nico.
+# STANDAARD IS ALLES VAN NICO. Een pull request die iets buiten de componenten
+# raakt -- de Worker, de andere plugins, migraties, de vangrails -- wacht op zijn
+# goedkeuring, ook als de controle groen is.
 #
-# Werkt pas als op master een ruleset staat met "Require review from Code
-# Owners" (zie het regelboek, wp-plugin/mymmo-cards/CLAUDE.md).
+# DE COMPONENTEN (wp-plugin/mymmo-cards) hebben geen eigenaar: daar voegt wie ze
+# bouwt zelf samen, zodra de huisstijlcontrole groen is
+# (.github/workflows/huisstijl.yml).
+#
+# DE VANGRAILS binnen die map zijn weer van Nico: wie de regels wijzigt, wijzigt
+# wat alle componenten tegenhoudt.
+#
+# De LAATSTE regel die op een bestand past, wint. Iemand later meer ruimte geven
+# = een map onder "Vrij" zetten, zonder naam erachter. Dat is de enige plek waar
+# toegang geregeld wordt; schrijfrechten op GitHub zelf blijven voor iedereen
+# gelijk.
+#
+# Werkt via de ruleset "master: vangrails van de huisstijl" (Require review from
+# Code Owners). Nico kan als beheerder rechtstreeks pushen.
 
-/wp-plugin/huisstijl/                                   @Nico-Mymmo
-/wp-plugin/build-mymmo-cards.sh                         @Nico-Mymmo
+*                                                       @Nico-Mymmo
+
+# ── Vrij: hier voegt de bouwer zelf samen ──────────────────────────────────
+/wp-plugin/mymmo-cards/
+/wp-plugin/mymmo-cards.review.json
+
+# ── De vangrails: altijd Nico, ook binnen de vrije map ─────────────────────
 /wp-plugin/mymmo-cards/CLAUDE.md                        @Nico-Mymmo
 /wp-plugin/mymmo-cards/assets/css/mymmo-huisstijl.css   @Nico-Mymmo
 /wp-plugin/mymmo-cards/includes/class-huisstijl.php     @Nico-Mymmo
 /wp-plugin/mymmo-cards/includes/class-bewaking.php      @Nico-Mymmo
 /wp-plugin/mymmo-cards/includes/class-updates.php       @Nico-Mymmo
-/.claude/skills/huisstijl-review/                       @Nico-Mymmo
-/.github/                                               @Nico-Mymmo
-/claude.md                                              @Nico-Mymmo

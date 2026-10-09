@@ -20,9 +20,18 @@ geen goedkeuring van Nico, maar drie vangrails:
 3. **De bewaking in de editor** (`includes/class-bewaking.php`), op de site zelf:
    geen eigen kleuren, lettertypes, afrondingen, Extra CSS of themastijlen.
 
-Alleen de vangrails zélf vragen de goedkeuring van Nico (CODEOWNERS): de huisstijl,
-de controle, de uitzonderingen, de bewaking, het bouwscript en dit regelboek. Wil
-je een regel anders, stel het voor (zie "Aanscherpen").
+**Je terrein is `wp-plugin/mymmo-cards/`.** Daar voeg je zelf samen zodra de
+controle groen is. Twee dingen wachten op Nico (`.github/CODEOWNERS`):
+
+- **de vangrails zelf**: de huisstijl, de controle, de uitzonderingen, de bewaking,
+  het automatisch bijwerken, het bouwscript en dit regelboek. Wil je een regel
+  anders, stel het voor (zie "Aanscherpen");
+- **alles buiten deze map**: de Worker (`src/`), de andere plugins, migraties, de
+  pagina's in `public/`. Heeft een component daar iets nodig, zet het dan in een
+  APARTE pull request, zodat het component zelf niet hoeft te wachten.
+
+Claude: raakt een taak iets buiten deze map, zeg dat dan vooraf, in plaats van het
+er stil bij te doen.
 
 > **Nooit** een controle, de huisstijl of een uitzondering aanpassen om rood groen
 > te krijgen. Pas het component aan. Claude: zit een regel echt in de weg, stop dan
