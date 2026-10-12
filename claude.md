@@ -84,6 +84,25 @@ De **Operations Manager** — intern platform voor mymmo.com, draait als Cloudfl
 
 Cloudflare Worker (`src/`) met enkel API-routes en server-logica; statische frontend in `public/` (HTML + JS, daisyUI 4 + Tailwind + Lucide via CDN); Supabase (PostgreSQL) via `src/lib/database.js`; Odoo via `src/lib/odoo.js`; auth via sessie-cookie (`session=`) en `src/lib/auth/session.js`.
 
+## Live zetten — enkel vanaf `master`
+
+Er is GEEN dev- of testomgeving: elke `npm run deploy` gaat meteen naar productie, en
+de bindings (KV, R2, D1) wijzen ook lokaal naar de echte opslag. `wrangler deploy`
+neemt wat er in de werkboom staat, op welke branch ook en ook wat niet gecommit is.
+Daarom:
+
+- **Deploy enkel vanaf `master`, na `git pull`, met een schone werkboom**
+  (`git status` leeg). Zo is wat live staat altijd gelijk aan `master`, en
+  overschrijft een deploy geen werk van iemand anders.
+- **Eerst samenvoegen, dan deployen** -- nooit omgekeerd. Werk dat nog op een branch
+  staat, gaat niet live.
+- **Migraties eerst** (`npm run db:push`, D1: `npx wrangler d1 migrations apply ...
+  --remote`), dan de secrets die een wijziging nodig heeft, dan de deploy. De
+  uitrolvolgorde per module staat in haar eigen sectie.
+- Claude kan zelf niet deployen (geen toegang tot Cloudflare of Supabase). Zegt een
+  wijziging dat er een deploy, migratie of secret nodig is, dan meldt Claude dat
+  expliciet, met de stappen in die volgorde.
+
 ## Architectuur — request pipeline
 
 `src/index.js` is een dunne entry. Volgorde per request:
