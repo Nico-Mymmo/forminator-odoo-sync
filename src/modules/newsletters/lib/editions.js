@@ -185,6 +185,21 @@ export async function vernieuwNieuws(env, editie, item) {
 
 // ─── Alles samen voor de renderer ───────────────────────────────────────────
 
+/** Wie het woordje vooraf ondertekent, als dat iemand anders is dan de schrijver. */
+export function ondertekenaarId(item) {
+  return item?.kind === 'intro' ? item.content?.signer_user_id || null : null;
+}
+
+/**
+ * Het woordje vooraf krijgt `signer`: foto, naam en functie (uit Odoo) van wie
+ * ondertekent. Standaard de schrijver zelf.
+ */
+export function metOndertekening(item, perUser) {
+  if (item?.kind !== 'intro') return item;
+  const id = ondertekenaarId(item);
+  return { ...item, signer: (id && perUser?.[id]) || item.author || null };
+}
+
 /**
  * Bijdragen met hun auteur, en de context die de renderer nodig heeft.
  * `png`: true voor een mail (Gmail toont geen SVG), false voor het voorbeeld.
@@ -197,11 +212,13 @@ export async function verzamel(env, series, editie, { png = true, items = null }
     bedrijf(env),
     tekeningen(env, { enkelPng: png }),
   ]);
-  const perUser = await auteurs(env, users.filter((u) => bijdragen.some((b) => b.owner_user_id === u.id)));
-  const metAuteur = bijdragen.map((b) => ({ ...b, author: b.owner_user_id ? perUser[b.owner_user_id] || null : null }));
+  const nodig = new Set(bijdragen.flatMap((b) => [b.owner_user_id, ondertekenaarId(b)]).filter(Boolean));
+  const perUser = await auteurs(env, users.filter((u) => nodig.has(u.id)));
+  const metAuteur = bijdragen.map((b) => metOndertekening({ ...b, author: b.owner_user_id ? perUser[b.owner_user_id] || null : null }, perUser));
   return {
     items: metAuteur,
     users,
+    auteurs: perUser,
     ctx: { events, company: comp, thingieUrl: tek.url, now: Date.now() },
     thingies: tek.lijst,
   };

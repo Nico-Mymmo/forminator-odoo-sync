@@ -100,7 +100,7 @@ function bouwPrompt({ series, item, action, notes, inhoud = [] }) {
     `RUBRIEK: ${item.title || ''} (${KINDS[item.kind]?.label || item.kind})`,
     hintVan(series, item) ? `BEDOELING VAN DE RUBRIEK: ${hintVan(series, item)}` : null,
     item.kind === 'intro'
-      ? 'DIT IS HET WOORDJE VOORAF: een korte, persoonlijke inleiding van hoogstens 600 tekens die de lezer zin geeft om verder te lezen. Sluit NIET af met een groet of een naam: de groet en de ondertekening met foto komen er vanzelf onder.'
+      ? 'DIT IS HET WOORDJE VOORAF: een korte, persoonlijke inleiding van hoogstens 600 tekens die de lezer zin geeft om verder te lezen. Sluit af met een korte, warme groet op een eigen regel (bv. "Veel leesplezier,"), maar ZONDER naam: de handtekening met foto en naam komt er vanzelf onder.'
       : null,
     item.kind === 'intro' && inhoud.length ? `IN DEZE EDITIE STAAT (mag je kort noemen, verzin niets bij):\n- ${inhoud.slice(0, 10).join('\n- ')}` : null,
     '',

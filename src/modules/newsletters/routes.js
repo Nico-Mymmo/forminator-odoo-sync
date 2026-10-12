@@ -18,7 +18,7 @@ import {
   sendMode, testEmails, BRAND,
 } from './lib/constants.js';
 import { renderEdition, renderContribution, heeftInhoud, kopVan } from './lib/render.js';
-import { verzamel, maakEditieOp, vernieuwNieuws } from './lib/editions.js';
+import { verzamel, maakEditieOp, vernieuwNieuws, ondertekenaarId, metOndertekening } from './lib/editions.js';
 import { antwoordLinks, antwoordenVanEditie } from './lib/answers.js';
 import { tokenVeldBestaat, verstuurTest, planEchteMailing, leesCijfers } from './lib/odoo-mailing.js';
 import { stelStukjeVoor, stelOnderwerpVoor } from './lib/ai.js';
@@ -123,8 +123,8 @@ export function normaliseerInhoud(kind, c = {}) {
       return {
         title: kort(c.title, 160), text: kort(c.text, 4000),
         thingie: /^[a-z0-9-]{1,60}$/.test(String(c.thingie || '')) ? c.thingie : '',
-        signoff: kort(c.signoff, 80), sign_name: kort(c.sign_name, 80), sign_role: kort(c.sign_role, 100),
-        sign_photo_url: url(c.sign_photo_url),
+        // Wie ondertekent (een OM-gebruiker); leeg = de schrijver.
+        signer_user_id: /^[0-9a-f-]{36}$/i.test(String(c.signer_user_id || '')) ? c.signer_user_id : '',
       };
     case 'article':
       return {
@@ -397,7 +397,7 @@ export const routes = {
       const mode = b.mode === 'test' ? 'test' : 'preview';
       const v = await verzamel(env, series, edition, { png: mode !== 'preview' });
       const o = b.override && typeof b.override === 'object' ? b.override : null;
-      const items = o?.id ? v.items.map((it) => {
+      let items = o?.id ? v.items.map((it) => {
         if (it.id !== o.id) return it;
         const kind = isKind(o.kind) ? o.kind : it.kind;
         return {
@@ -406,6 +406,10 @@ export const routes = {
           content: o.content !== undefined ? normaliseerInhoud(kind, o.content) : it.content,
         };
       }) : v.items;
+      // Net een andere ondertekenaar gekozen: diens foto en functie erbij.
+      const nieuw = items.map(ondertekenaarId).filter((id) => id && !v.auteurs[id]);
+      if (nieuw.length) Object.assign(v.auteurs, await auteurs(env, v.users.filter((u) => nieuw.includes(u.id))));
+      items = items.map((it) => metOndertekening(it, v.auteurs));
       const { html, open } = renderEdition({
         series, edition, items, mode,
         ctx: { ...v.ctx, answerLink: antwoordLinks(series, 'preview', false) },
@@ -697,7 +701,8 @@ export const routes = {
       const b = await leesBody(request);
       const kind = isKind(b.kind) ? b.kind : item.kind;
       const users = await listUsers(env);
-      const eigenaar = users.filter((u) => u.id === item.owner_user_id);
+      const ondertekenaar = kind === 'intro' ? (b.content?.signer_user_id ?? item.content?.signer_user_id) : null;
+      const eigenaar = users.filter((u) => u.id === item.owner_user_id || u.id === ondertekenaar);
       const [perUser, tek, events] = await Promise.all([
         auteurs(env, eigenaar),
         tekeningen(env, { enkelPng: false }),
@@ -710,7 +715,7 @@ export const routes = {
         author: item.owner_user_id ? perUser[item.owner_user_id] || null : null,
       };
       const html = renderContribution({
-        series, item: ontwerp,
+        series, item: metOndertekening(ontwerp, perUser),
         ctx: { events, thingieUrl: tek.url, answerLink: antwoordLinks(series, 'preview', false) },
       });
       return json({ success: true, data: { html } });
