@@ -21,6 +21,8 @@
     .nb-voorbeeld { width: 100%; border: 0; border-radius: 12px; min-height: 600px; background: #fff; }
     .nb-kaart-actief { outline: 2px solid oklch(var(--p)); outline-offset: 1px; }
     .nb-tekening { width: 56px; height: 56px; object-fit: contain; }
+    .nb-sjabloon { cursor: grab; }
+    .nb-sjabloon:active { cursor: grabbing; }
     .nb-toast { position: fixed; right: 1rem; bottom: 1rem; z-index: 1000; display: flex; flex-direction: column; gap: .5rem; }
   </style>
 </head>
@@ -74,32 +76,6 @@
       <div class="modal-action">
         <button class="btn btn-ghost" data-action="sluit-dialoog" data-dialoog="dlgEditie">Annuleren</button>
         <button class="btn btn-primary" data-action="maak-editie">Aanmaken</button>
-      </div>
-    </div>
-    <form method="dialog" class="modal-backdrop"><button>sluiten</button></form>
-  </dialog>
-
-  <!-- Stukje toevoegen -->
-  <dialog id="dlgStukje" class="modal">
-    <div class="modal-box max-w-lg">
-      <h3 class="font-bold text-lg mb-4">Stukje toevoegen</h3>
-      <div class="space-y-3">
-        <label class="form-control">
-          <span class="label-text mb-1">Soort</span>
-          <select id="stukjeSoort" class="select select-bordered"></select>
-        </label>
-        <label class="form-control">
-          <span class="label-text mb-1">Naam van de rubriek (staat boven het stukje)</span>
-          <input id="stukjeTitel" type="text" class="input input-bordered" maxlength="120">
-        </label>
-        <label class="form-control">
-          <span class="label-text mb-1">Wie schrijft het?</span>
-          <select id="stukjeEigenaar" class="select select-bordered"></select>
-        </label>
-      </div>
-      <div class="modal-action">
-        <button class="btn btn-ghost" data-action="sluit-dialoog" data-dialoog="dlgStukje">Annuleren</button>
-        <button class="btn btn-primary" data-action="voeg-stukje-toe">Toevoegen</button>
       </div>
     </div>
     <form method="dialog" class="modal-backdrop"><button>sluiten</button></form>

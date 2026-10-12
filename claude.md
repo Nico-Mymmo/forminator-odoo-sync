@@ -5236,9 +5236,26 @@ https://claude.ai/artifact/4KzZk1KM5JWNg32Pa1WRgW
 | Cron (15-min-tak): edities, herinneringen, antwoorden | `lib/cron.js` |
 | Publieke bedankpagina na een klik | `public-api.js` + blok `/t/_v/` in `src/router/public-routes.js`, pagina `public/nieuwsbrief-antwoord.html` |
 | Scherm | `public/newsletters.html` + `newsletters-{core,overview,edition,contribution,series,bootstrap}.js` |
+| Redactietafel: de brief als werkblad, paneel, blokjes om toe te voegen (`SJABLONEN`) | `newsletters-edition.js`; het invulformulier zelf in `newsletters-contribution.js` (`renderPaneel`) |
 
 Afspraken die bewust zo zijn:
 
+- **De brief zelf is het werkblad** (2026-10-12). De redactietafel toont links de
+  mail (`POST /api/editions/:id/preview`, dezelfde renderer), rechts een paneel.
+  Klik op een blok en het paneel wordt het invulformulier ervan; wat je typt gaat
+  als `override` mee, zodat de hele brief meteen toont wat er nog niet bewaard is.
+  Zonder gekozen blok toont het paneel "Voor jou" (wat op je naam staat), "Iets
+  toevoegen" (kant-en-klare blokjes: slepen naar de brief, of klikken en een
+  blauwe plek kiezen; de plek gaat als `after_id` mee) en, voor de
+  hoofdredactie, "Te bevestigen", onderwerp, voorraad en datums. Wat niet
+  bevestigd is, krijgt in de brief een gele streep en een label; dat is enkel
+  opmaak in het scherm (de renderer weet er niets van). Een stukje van een
+  editie opent nooit meer op een eigen pagina: `#/stukje/<id>` opent de
+  redactietafel met dat blok gekozen; enkel een idee in de voorraad heeft nog
+  een eigen schrijfscherm.
+- **Iedereen kiest zelf de plek van een blok dat hij toevoegt**; de
+  hoofdredactie kan het nadien verschuiven, toewijzen of weghalen (paneel,
+  "Hoofdredactie"). "Bevestigen" in het scherm = de stand `approved`.
 - **Twee veiligheden bij het versturen.** (1) `NEWSLETTER_SEND_MODE` (wrangler.jsonc):
   alles behalve `live` is teststand, en dan bestaat enkel de testroute. (2) Een
   test gaat naar een EIGEN Odoo-lijst "OM nieuwsbrief - testadressen" die de OM

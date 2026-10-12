@@ -379,6 +379,35 @@ export const routes = {
     } catch (err) { return fout(err); }
   },
 
+  /**
+   * Hetzelfde voorbeeld, maar met EEN stukje zoals het nu in het schrijfpaneel
+   * staat (nog niet bewaard). Zo ziet de schrijver zijn tekst meteen op zijn
+   * plek in de brief, met dezelfde renderer als de mail.
+   */
+  'POST /api/editions/:id/preview': async ({ env, params, request }) => {
+    try {
+      const { edition, series } = await editieMetReeks(env, params.id);
+      const b = await leesBody(request);
+      const mode = b.mode === 'test' ? 'test' : 'preview';
+      const v = await verzamel(env, series, edition, { png: mode !== 'preview' });
+      const o = b.override && typeof b.override === 'object' ? b.override : null;
+      const items = o?.id ? v.items.map((it) => {
+        if (it.id !== o.id) return it;
+        const kind = isKind(o.kind) ? o.kind : it.kind;
+        return {
+          ...it, kind,
+          title: o.title !== undefined ? kort(o.title, 120) : it.title,
+          content: o.content !== undefined ? normaliseerInhoud(kind, o.content) : it.content,
+        };
+      }) : v.items;
+      const { html, open } = renderEdition({
+        series, edition, items, mode,
+        ctx: { ...v.ctx, answerLink: antwoordLinks(series, 'preview', false) },
+      });
+      return json({ success: true, data: { html, open: open.length } });
+    } catch (err) { return fout(err); }
+  },
+
   'GET /api/editions/:id/suggestions': async ({ env, params }) => {
     try {
       const { edition, series } = await editieMetReeks(env, params.id);
@@ -406,11 +435,29 @@ export const routes = {
       const afsluiting = items.find((i) => i.kind === 'closing');
       const positie = afsluiting ? afsluiting.position - 1 : laatste + 10;
 
+      // Gekozen plek in de brief: `after_id` = het stukje waarna het komt,
+      // '' = helemaal bovenaan. Iedereen die iets toevoegt, kiest zijn plek;
+      // de hoofdredactie kan het nadien nog verschuiven.
+      const plaats = async (nieuwId) => {
+        if (b.after_id === undefined || b.after_id === null) return;
+        const volgorde = items.map((i) => i.id).filter((id) => id !== nieuwId);
+        const na = b.after_id ? volgorde.indexOf(String(b.after_id)) : -1;
+        if (b.after_id && na < 0) return;
+        volgorde.splice(na + 1, 0, nieuwId);
+        const oud = new Map(items.map((i) => [i.id, i.position]));
+        let pos = 10;
+        for (const id of volgorde) {
+          if (oud.get(id) !== pos) await updateContribution(env, id, { position: pos });
+          pos += 10;
+        }
+      };
+
       if (b.from_pool_id) {
         eisEditor(user, series);
         const p = await getContribution(env, b.from_pool_id);
         if (!p || p.edition_id) throw new NewsletterError('Dat idee staat niet (meer) in de voorraad.', 404);
         const bij = await updateContribution(env, p.id, { edition_id: edition.id, position: positie });
+        await plaats(p.id);
         await logActivity(env, { editionId: edition.id, contributionId: p.id, userId: user.id, kind: 'added', text: `"${p.title}" uit de voorraad opgenomen` });
         return json({ success: true, data: bij }, 201);
       }
@@ -432,6 +479,7 @@ export const routes = {
         source: kort(b.source, 300),
         created_by: user.id,
       }]);
+      await plaats(rij.id);
       await logActivity(env, { editionId: edition.id, contributionId: rij.id, userId: user.id, kind: 'added', text: `Stukje "${rij.title}" toegevoegd` });
       return json({ success: true, data: rij }, 201);
     } catch (err) { return fout(err); }

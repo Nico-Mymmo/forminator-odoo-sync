@@ -121,7 +121,7 @@
     open: { label: 'Open', klasse: 'badge-ghost', kleur: '#e5e7eb' },
     draft: { label: 'Bezig', klasse: 'badge-warning', kleur: '#fdba74' },
     submitted: { label: 'Ingeleverd', klasse: 'badge-info', kleur: '#38bdf8' },
-    approved: { label: 'Goedgekeurd', klasse: 'badge-success', kleur: '#14b8a6' },
+    approved: { label: 'Bevestigd', klasse: 'badge-success', kleur: '#14b8a6' },
   };
 
   NB.EDITIE_STATUS = {
