@@ -87,7 +87,10 @@ export function profileUI(user) {
                   <label class="label">
                     <span class="label-text">New Password</span>
                   </label>
-                  <input type="password" id="newPassword" class="input input-bordered" required minlength="8">
+                  <input type="password" id="newPassword" class="input input-bordered" required minlength="12" autocomplete="new-password">
+                  <label class="label">
+                    <span class="label-text-alt">Minstens 12 tekens. Je andere sessies worden daarna uitgelogd.</span>
+                  </label>
                 </div>
                 <div class="form-control">
                   <label class="label">
@@ -108,6 +111,18 @@ export function profileUI(user) {
             </div>
           </div>
         </div>
+
+      <!-- Beveiliging (modern scherm: public/account-security.html) -->
+      <a href="/profile/beveiliging" class="card bg-base-100 shadow-xl mt-6 hover:shadow-2xl transition-shadow">
+        <div class="card-body flex-row items-center gap-4">
+          <i data-lucide="shield-check" class="w-6 h-6 text-primary"></i>
+          <div class="flex-1">
+            <h2 class="card-title text-base">Beveiliging</h2>
+            <p class="text-sm text-base-content/60">Tweestapsverificatie, herstelcodes, en waar je bent ingelogd.</p>
+          </div>
+          <i data-lucide="chevron-right" class="w-5 h-5 text-base-content/40"></i>
+        </div>
+      </a>
 
       <!-- E-mail koppelingen -->
       <div class="card bg-base-100 shadow-xl mt-6">
@@ -241,8 +256,8 @@ export function profileUI(user) {
           return;
         }
         
-        if (newPassword.length < 8) {
-          errorMsg.textContent = 'Password must be at least 8 characters';
+        if (newPassword.length < 12) {
+          errorMsg.textContent = 'Een wachtwoord moet minstens 12 tekens lang zijn';
           errorDiv.style.display = 'flex';
           return;
         }

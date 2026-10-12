@@ -155,7 +155,8 @@ const VALID_VISIBILITIES = ['private', 'shared', 'specific'];
  */
 const SOURCE_LABELS = {
   mini_app: 'Mini-app',
-  content_feed: 'Nieuws & updates'
+  content_feed: 'Nieuws & updates',
+  newsletters: 'Nieuwsbrieven'
 };
 
 // Lucide-iconnamen die de eigenaar mag kiezen in de Instellingen-tab (dropdown).

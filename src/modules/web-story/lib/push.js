@@ -40,11 +40,15 @@ const SHEET = {
   extra: () => ({}), titel: 'Hoe deze VME bij ons kwam',
 };
 
-/** De pagina in de OM met het volledige verhaal (filters, bevestigen, alle bezoeken). */
+/**
+ * De pagina in de OM met het volledige verhaal (filters, bevestigen, alle bezoeken):
+ * het tabblad Marketing in Dashboards. Oudere records in Odoo hebben nog een link
+ * naar /webgedrag?lead=<id>; die stuurt door (src/router/public-routes.js).
+ */
 export function omStoryUrl(env, kind, id) {
   const base = (env.APP_BASE_URL || '').replace(/\/$/, '');
   if (!base) return null;
-  return `${base}/webgedrag?${kind.model === 'crm.lead' ? 'lead' : 'sheet'}=${id}`;
+  return `${base}/dashboards?tab=marketing&${kind.model === 'crm.lead' ? 'lead' : 'sheet'}=${id}`;
 }
 
 function nowTs() { return new Date().toISOString().substring(0, 19).replace('T', ' '); }

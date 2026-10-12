@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Beveiliging - OpenVME Operations Manager</title>
+  <script>
+    (function () {
+      var t = 'light';
+      try { t = localStorage.getItem('selectedTheme') || 'light'; } catch (e) {}
+      document.documentElement.setAttribute('data-theme', t);
+    })();
+  </script>
+  <!-- Vastgepind, zoals op de loginpagina: hier worden wachtwoorden en 2FA-sleutels getoond. -->
+  <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet" type="text/css" />
+  <script src="https://cdn.tailwindcss.com/3.4.16"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"
+          integrity="sha384-mZT2gIty7ZDdOGkxfP6joZcYdMW1Jvj9dRlfpTmaJAKKXTqzygtB22k7FLe+KZC1"
+          crossorigin="anonymous" referrerpolicy="no-referrer" defer></script>
+  <script src="/shared-navbar.js"></script>
+</head>
+<body class="bg-base-200" style="overflow-y: scroll;">
+  <div id="navbar"></div>
+
+  <div style="padding-top: 48px;">
+    <div class="container mx-auto px-6 py-8 max-w-4xl">
+      <div class="mb-6">
+        <a href="/profile" class="text-sm link link-hover text-base-content/60">&larr; Profiel</a>
+        <h1 class="text-2xl font-bold mt-1">Beveiliging</h1>
+        <p class="text-sm text-base-content/60 mt-1">Tweestapsverificatie, herstelcodes, en waar je bent ingelogd.</p>
+      </div>
+
+      <div id="inhoud">
+        <div class="flex justify-center py-20">
+          <span class="loading loading-spinner loading-md text-primary"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Wachtwoord opnieuw vragen -->
+  <dialog id="pwDialog" class="modal">
+    <div class="modal-box max-w-sm">
+      <h3 class="font-bold text-lg mb-1" id="pwTitel">Bevestig met je wachtwoord</h3>
+      <p class="text-sm text-base-content/60 mb-4" id="pwUitleg"></p>
+      <form id="pwForm" novalidate>
+        <input type="password" id="pwInput" class="input input-bordered input-sm w-full mb-2" autocomplete="current-password" placeholder="Je wachtwoord">
+        <p id="pwFout" class="text-xs text-error mb-2 hidden"></p>
+        <div class="modal-action">
+          <button type="button" class="btn btn-ghost btn-sm" data-action="close-dialog" data-dialog="pwDialog">Annuleren</button>
+          <button type="submit" class="btn btn-primary btn-sm" data-knop>Verder</button>
+        </div>
+      </form>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>sluiten</button></form>
+  </dialog>
+
+  <!-- Authenticator (opnieuw) koppelen -->
+  <dialog id="setupDialog" class="modal">
+    <div class="modal-box max-w-md">
+      <h3 class="font-bold text-lg mb-1">Authenticator koppelen</h3>
+      <p class="text-sm text-base-content/60 mb-3">
+        Scan de QR-code met je authenticator-app (Google Authenticator, Microsoft Authenticator, 1Password, Bitwarden)
+        en typ daarna de code die de app toont. Je oude koppeling werkt pas niet meer als de nieuwe bevestigd is.
+      </p>
+      <div class="flex justify-center my-3">
+        <div id="qrVak" class="bg-white p-2 rounded-lg border border-base-content/10 w-48 h-48 flex items-center justify-center"></div>
+      </div>
+      <details class="text-xs mb-3">
+        <summary class="cursor-pointer text-base-content/60">Lukt scannen niet? Typ de sleutel in</summary>
+        <div class="mt-2 flex items-center gap-2">
+          <code id="setupSecret" class="font-mono text-sm bg-base-200 rounded px-2 py-1 break-all"></code>
+          <button type="button" class="btn btn-ghost btn-xs" data-action="copy-secret">Kopiëren</button>
+        </div>
+      </details>
+      <form id="setupForm" novalidate>
+        <input type="text" id="setupInput" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="123456"
+               class="input input-bordered w-full text-center text-xl tracking-[0.4em] font-mono mb-2">
+        <p id="setupFout" class="text-xs text-error mb-2 hidden"></p>
+        <div class="modal-action">
+          <button type="button" class="btn btn-ghost btn-sm" data-action="close-dialog" data-dialog="setupDialog">Annuleren</button>
+          <button type="submit" class="btn btn-primary btn-sm" data-knop>Bevestigen</button>
+        </div>
+      </form>
+    </div>
+  </dialog>
+
+  <!-- Herstelcodes tonen -->
+  <dialog id="codesDialog" class="modal">
+    <div class="modal-box max-w-md">
+      <h3 class="font-bold text-lg mb-1">Je nieuwe herstelcodes</h3>
+      <p class="text-sm text-base-content/60 mb-3">
+        Elke code werkt een keer. Je vorige herstelcodes werken vanaf nu niet meer. Bewaar deze in je
+        wachtwoordbeheerder of druk ze af &mdash; ze worden hierna niet meer getoond.
+      </p>
+      <p id="codesExtra" class="text-sm alert alert-info py-2 mb-3 hidden"></p>
+      <div id="herstelLijst" class="grid grid-cols-2 gap-2 bg-base-200 rounded-lg p-3 font-mono text-sm mb-3"></div>
+      <div class="flex gap-2 mb-2">
+        <button type="button" class="btn btn-sm flex-1" data-action="copy-codes">Kopiëren</button>
+        <button type="button" class="btn btn-sm flex-1" data-action="download-codes">Downloaden</button>
+      </div>
+      <div class="modal-action">
+        <button type="button" class="btn btn-primary btn-sm" data-action="close-codes">Ik heb ze bewaard</button>
+      </div>
+    </div>
+  </dialog>
+
+  <div id="toastContainer" class="toast toast-end z-50"></div>
+
+  <script src="/account-security.js"></script>
+</body>
+</html>

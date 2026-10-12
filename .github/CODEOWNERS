@@ -1,15 +1,27 @@
 # Wie beslist over welk deel van de repo.
 #
-# STANDAARD IS ALLES VAN NICO. Een pull request die iets buiten de componenten
+# STANDAARD IS ALLES VAN NICO. Een pull request die iets buiten de vrije mappen
 # raakt -- de Worker, de andere plugins, migraties, de vangrails -- wacht op zijn
-# goedkeuring, ook als de controle groen is.
+# goedkeuring, ook als de controles groen zijn.
 #
-# DE COMPONENTEN (wp-plugin/mymmo-cards) hebben geen eigenaar: daar voegt wie ze
-# bouwt zelf samen, zodra de huisstijlcontrole groen is
-# (.github/workflows/huisstijl.yml).
+# VRIJ (geen eigenaar): daar voegt wie bouwt zelf samen, zodra de controle van
+# die map groen is.
+#   - De componenten (wp-plugin/mymmo-cards): huisstijlcontrole,
+#     .github/workflows/huisstijl.yml.
+#   - Het tabblad Aanvragen in Dashboards (David): de browserkant in
+#     public/dashboard-aanvragen/ en de serverkant in
+#     src/modules/dashboards/lib/aanvragen/. Dashboardcontrole,
+#     .github/workflows/dashboards.yml; regelboek in
+#     src/modules/dashboards/lib/aanvragen/CLAUDE.md.
 #
-# DE VANGRAILS binnen die map zijn weer van Nico: wie de regels wijzigt, wijzigt
-# wat alle componenten tegenhoudt.
+# DE VANGRAILS binnen een vrije map zijn weer van Nico: wie de regels wijzigt,
+# wijzigt wat alles in die map tegenhoudt. Voor Aanvragen staan de vangrails
+# BUITEN de map en zijn ze dus al van Nico: het geraamte en de bouwstenen
+# (public/dashboards-kit.js), de pagina (public/dashboards.html), de route
+# (src/modules/dashboards/routes.js), wat het tabblad mag lezen
+# (src/modules/dashboards/lib/aanvragen-bronnen.js), de kanaalindeling
+# (src/modules/dashboards/lib/lead-kanalen.js) en de controle
+# (scripts/vangrails/aanvragen.mjs).
 #
 # De LAATSTE regel die op een bestand past, wint. Iemand later meer ruimte geven
 # = een map onder "Vrij" zetten, zonder naam erachter. Dat is de enige plek waar
@@ -17,17 +29,21 @@
 # gelijk.
 #
 # Werkt via de ruleset "master: vangrails van de huisstijl" (Require review from
-# Code Owners). Nico kan als beheerder rechtstreeks pushen.
+# Code Owners, en de controles "Huisstijlcontrole" en "Dashboardcontrole" als
+# verplichte status). Nico kan als beheerder rechtstreeks pushen.
 
 *                                                       @Nico-Mymmo
 
 # ── Vrij: hier voegt de bouwer zelf samen ──────────────────────────────────
 /wp-plugin/mymmo-cards/
 /wp-plugin/mymmo-cards.review.json
+/public/dashboard-aanvragen/
+/src/modules/dashboards/lib/aanvragen/
 
-# ── De vangrails: altijd Nico, ook binnen de vrije map ─────────────────────
+# ── De vangrails: altijd Nico, ook binnen de vrije mappen ──────────────────
 /wp-plugin/mymmo-cards/CLAUDE.md                        @Nico-Mymmo
 /wp-plugin/mymmo-cards/assets/css/mymmo-huisstijl.css   @Nico-Mymmo
 /wp-plugin/mymmo-cards/includes/class-huisstijl.php     @Nico-Mymmo
 /wp-plugin/mymmo-cards/includes/class-bewaking.php      @Nico-Mymmo
 /wp-plugin/mymmo-cards/includes/class-updates.php       @Nico-Mymmo
+/src/modules/dashboards/lib/aanvragen/CLAUDE.md         @Nico-Mymmo

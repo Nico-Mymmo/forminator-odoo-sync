@@ -37,22 +37,13 @@
   } catch (_) { /* geen opslag */ }
   function save() { try { localStorage.setItem(STORE, JSON.stringify({ f: st.f, ratio: st.ratio, unripe: st.unripe, prod: st.prod })); } catch (_) { /* geen opslag */ } }
 
-  function card(id, title, sub) {
-    return '<div class="rounded-2xl bg-base-100 border border-base-content/10 p-5" id="' + id + 'Card"><div class="flex flex-wrap items-start justify-between gap-2 mb-3"><div><h2 class="font-semibold">' + title + '</h2>'
-      + (sub ? '<p class="text-xs text-base-content/50 mt-0.5" id="' + id + 'Sub">' + sub + '</p>' : '') + '</div><div id="' + id + 'Controls" class="flex flex-wrap items-center gap-2"></div></div><div id="' + id + '"></div></div>';
-  }
-  root.innerHTML =
-    '<div class="flex flex-wrap items-end justify-between gap-3 mb-4">'
-    + '<div><h1 class="text-2xl font-bold">Targets</h1><p class="text-sm text-base-content/60">Halen we onze targets, en hoeveel aanvragen hebben we daarvoor nodig?</p></div>'
-    + '<div id="tgStatus"></div></div><div id="tgNotice" class="mb-3"></div>'
-    + '<div class="grid grid-cols-1 gap-5 items-start lg:grid-cols-[19rem_minmax(0,1fr)] 2xl:grid-cols-[19rem_minmax(0,1fr)_17rem]">'
-    + '<aside class="om-scroll space-y-3 lg:col-start-1 lg:row-start-1 lg:row-span-2 lg:sticky lg:top-[calc(48px+1rem)] lg:max-h-[calc(100vh-48px-2rem)] lg:overflow-y-auto">'
-    +   '<div class="rounded-2xl bg-base-100 border border-base-content/10 shadow-sm p-3 space-y-2"><div class="text-[11px] font-semibold uppercase tracking-wide text-base-content/50 flex items-center gap-1"><i data-lucide="target" class="w-3 h-3"></i> Je bekijkt</div>'
-    +   '<p id="tgSentence" class="text-sm"></p></div><div id="tgFilters"></div></aside>'
-    + '<aside class="om-scroll min-w-0 lg:col-start-2 lg:row-start-1 2xl:col-start-3 2xl:sticky 2xl:top-[calc(48px+1rem)] 2xl:max-h-[calc(100vh-48px-2rem)] 2xl:overflow-y-auto">'
-    +   '<div class="rounded-2xl bg-base-100 border border-base-content/10 p-5 2xl:p-3"><div class="text-xs font-semibold uppercase tracking-wide text-base-content/50 mb-2">Behaald, tot nu toe</div>'
-    +   '<div id="tgKpis" class="grid grid-cols-2 md:grid-cols-3 gap-3 2xl:grid-cols-1 2xl:gap-0 2xl:divide-y om-lijnen"></div></div></aside>'
-    + '<div class="min-w-0 space-y-5 lg:col-start-2 lg:row-start-2 2xl:row-start-1">'
+  // Het geraamte (drie kolommen) en de kaarten komen uit dashboards-kit.js: EEN vorm voor
+  // Verkoop, Targets en Aanvragen.
+  function card(id, title, sub) { return K.kaart(id, title, sub); }
+  root.innerHTML = K.geraamte({
+    prefix: 'tg', titel: 'Targets', uitleg: 'Halen we onze targets, en hoeveel aanvragen hebben we daarvoor nodig?',
+    icoon: 'target', kpiTitel: 'Behaald, tot nu toe',
+    midden: ''
     +   card('tgGrid', 'Targets en realisatie', 'Nieuwe aantallen per maand. Klik op een realisatie voor de lijst; "Targets wijzigen" maakt de targetrijen bewerkbaar.')
     +   card('tgCum', 'Cumulatief', 'Target en realisatie opgeteld sinds het begin van het boekjaar.')
     +   card('tgFunnel', 'Funnel per instroommaand', 'N(≥fase) = leads die die fase bereikten, ook als ze nadien verloren gingen. Conversie = N(≥volgende) / N(≥fase).')
@@ -61,7 +52,7 @@
     +   '<div class="grid grid-cols-1 xl:grid-cols-2 gap-5">' + card('tgUsers', 'Per verkoper', 'Leads van de instroommaanden hierboven.') + card('tgLost', 'Verliesredenen', 'Per merk en de fase waarin de lead verloren ging (top 15).') + '</div>'
     +   card('tgRatios', 'Handmatige doelratio\'s (keuze c)', 'Gebruikt in de omgekeerde funnel als de ratiokeuze op c staat.')
     +   card('tgDq', 'Datakwaliteit', 'Leads die niet of verkeerd meetellen.')
-    + '</div></div>';
+  });
 
   function D(kind, i) { return st.data.dict[kind] ? st.data.dict[kind][i] : ''; }
   function fyMonths() { return K.months(st.fy, K.addMonths(st.fy, 11)); }
@@ -402,12 +393,12 @@
   // ── Doorklikken: waarom staan ze erin, en wat staaft het per rij ──────────
   // De teksten BESCHRIJVEN lead-rules.js en derive.js; ze beslissen niets.
   var TWHY = {
-    merk: 'Merk van een lead: Syndicoach als ze merk-herkomst Syndicoach of Syndicuskiezen heeft, een kanaal dat met "syndicoach" begint, of "syndicoach" of "syndicus kiezen" in de naam of een label. Anders OpenVME: OpenVME heeft geen eigen signaal. Dezelfde regel als de Odoo-serveractie die dashboard 19 voedt.',
-    product: 'Product van een lead, in deze volgorde: Expert aangevinkt of een professionele syndicus (bedrijf of contactpersoon) = Professionele syndicus; merk OpenVME = Assistant; Syndicoach met "captain" in de naam, een label of het pakket = Captain; met "opstarthulp" = Opstarthulp; anders Niet toegewezen.',
-    fase: 'Fase = de plaats van de fase in de pijplijn (MQL, SQL, Demo, Follow Up, Conversion, Won). Een lead "bereikte" een fase als ze er nu in staat of verder; ook als ze nadien verloren ging.',
-    won: 'Gewonnen = een actieve lead in een gewonnen fase. Datum = de sluitdatum, anders de laatste fasewijziging (in Brussel). Won = trial opgestart of kans gewonnen, nog geen betalende klant.',
-    verloren: 'Verloren = verliesreden ingevuld, of gearchiveerd.',
-    wissel: 'Een wissel (planwissel of correctie bij een klant die in de 30 dagen ervoor nog een abonnement had) telt niet als nieuw contract. Een contract dat intussen gestopt is, telt wel: het werd in die maand verkocht.'
+    merk: 'Merk van een lead: Syndicoach als de lead Syndicoach of Syndicuskiezen als herkomst heeft, via een Syndicoach-kanaal kwam, of "syndicoach" of "syndicus kiezen" in zijn naam of een label heeft. Anders OpenVME. Dezelfde regel als in Odoo-dashboard 19.',
+    product: 'Product van een lead, in deze volgorde: "Expert" aangevinkt, of het bedrijf of de contactpersoon is een professionele syndicus = Professionele syndicus. Merk OpenVME = Assistant. Syndicoach met "captain" in de naam, een label of het pakket = Captain. Met "opstarthulp" = Opstarthulp. Anders: Niet toegewezen.',
+    fase: 'De fases, in volgorde: MQL, SQL, Demo, Follow Up, Conversion, Won. Een lead "bereikte" een fase als hij er nu in staat of al verder is, ook als hij nadien verloren ging.',
+    won: 'Gewonnen = een actieve lead in een gewonnen fase: de trial is opgestart of de kans is gewonnen (nog geen betalende klant). Datum = de sluitdatum, anders de laatste fasewijziging.',
+    verloren: 'Verloren = er is een verliesreden ingevuld, of de lead is gearchiveerd.',
+    wissel: 'Een wissel (een klant die in de 30 dagen ervoor nog een ander abonnement had, bijvoorbeeld bij een licentiewissel) telt niet als nieuw contract. Een contract dat intussen gestopt is, telt wel: het werd in die maand verkocht.'
   };
   /** De filters links die de lijst mee bepalen. */
   function selectieWhy(merkToo) {
@@ -415,14 +406,21 @@
     if (merkToo && st.f.merk !== '') bits.push('merk ' + (st.f.merk === '1' ? 'Syndicoach' : 'OpenVME'));
     if (st.f.user !== '') bits.push('verkoper ' + D('user', Number(st.f.user)));
     if (st.f.ch !== '') bits.push('kanaal ' + D('ch', Number(st.f.ch)));
-    return bits.length ? ['Filters: ' + esc(bits.join(' · ')) + '.'] : [];
+    return bits.length ? ['Je bekijkt enkel: ' + esc(bits.join(', ')) + '.'] : [];
   }
-  var LEAD_HEAD = ['Lead', 'Aangemaakt', 'Merk', 'Waarom dit merk', 'Fase', 'Product', 'Waarom dit product', 'Verkoper', 'Kanaal'];
+  // Klanttype (als badge) en expert vlak achter de lead of klant, zoals in Verkoop. Een lead
+  // zonder klant in Odoo heeft geen van beide.
+  function klantCel(ci) {
+    if (ci === undefined || ci === null || ci < 0) return ['<span class="text-base-content/40">—</span>', '<span class="text-base-content/40">—</span>'];
+    var c = st.data.customers[ci];
+    return [K.ctBadge(D('ct', c.ct)), K.expertCel(D('expert', c.expert))];
+  }
+  var LEAD_HEAD = ['Lead', 'Klanttype', 'Expert', 'Aangemaakt', 'Merk', 'Waarom dit merk', 'Fase', 'Product', 'Waarom dit product', 'Verkoper', 'Kanaal'];
   function leadName(r) { return r[L.name] || (r[L.cust] >= 0 ? st.data.customers[r[L.cust]].name : '') || ('Lead #' + r[L.id]); }
   function leadCells(r) {
-    return [K.odooLink('crm.lead', r[L.id], leadName(r)), K.dayLabel(r[L.cd]), r[L.sc] ? 'Syndicoach' : 'OpenVME', esc(D('mw', r[L.mw])),
+    return [K.odooLink('crm.lead', r[L.id], leadName(r))].concat(klantCel(r[L.cust]), [K.dayLabel(r[L.cd]), r[L.sc] ? 'Syndicoach' : 'OpenVME', esc(D('mw', r[L.mw])),
       esc(STAGES[r[L.nr] - 1] || 'geen fase') + (r[L.lost] ? ' · verloren (' + esc(D('lost', r[L.lr]) || 'geen reden') + ')' : '') + (r[L.won] ? ' · gewonnen ' + K.dayLabel(r[L.won]) : ''),
-      esc(st.data.leadProducts[r[L.prod]]), esc(D('pw', r[L.pw])), esc(D('user', r[L.user])), esc(D('ch', r[L.ch]))];
+      esc(st.data.leadProducts[r[L.prod]]), esc(D('pw', r[L.pw])), esc(D('user', r[L.user])), esc(D('ch', r[L.ch]))]);
   }
   /** Leads van de instroommaanden sinds cohortStart(), met de filters (en het merkfilter, tenzij skipMerk). */
   function cohort(skipMerk) {
@@ -490,26 +488,27 @@
       if (kinds.chain || ['assistant', 'openvme_professional', 'totaal_vmes'].indexOf(parts[1]) >= 0) why.push(TWHY.wissel, 'Verkoper = die van de laatste order van het abonnement.');
       if (['opstarthulp', 'expert_uren'].indexOf(parts[1]) >= 0) why.push('Bevestigde verkooporders, op orderdatum. Het verkoperfilter geldt hier niet: die orderlijnen hebben geen verkoper.');
       if (['captain', 'prof_syndici'].indexOf(parts[1]) >= 0) why.push(TWHY.won, TWHY.product, TWHY.merk);
-      head = ['Wat', 'Klant / lead', 'Datum', 'Aantal', 'Waarom'];
-      right = [3];
+      head = ['Wat', 'Klant / lead', 'Klanttype', 'Expert', 'Datum', 'Aantal', 'Waarom'];
+      right = [5];
       var dOf = function (it) { return String((it.kind === 'chain' ? it.d : it.kind === 'trans' ? it.r[0] : it.r[L.won]) || ''); };
       its.sort(function (a, b) { return dOf(b.it).localeCompare(dOf(a.it)); });
       rows = its.map(function (x) {
         var it = x.it;
         if (it.kind === 'chain') {
           var c = st.data.customers[it.ch.c];
-          return [K.odooLink('sale.order', it.p.o, it.p.n), esc(c.name), K.dayLabel(it.d), '1',
-            'Eerste contract, licentie ' + esc(D('lic', it.ch.lic)) + ', gestart ' + K.dayLabel(it.d) + ' · verkoper ' + esc(D('user', it.ch.user))
-              + (it.ch.end ? ' · intussen gestopt op ' + K.dayLabel(it.ch.end) : ' · loopt nog')];
+          return [K.odooLink('sale.order', it.p.o, it.p.n), esc(c.name)].concat(klantCel(it.ch.c), [K.dayLabel(it.d), '1',
+            '<p>Telt mee: het eerste contract van deze klant, met licentie ' + esc(D('lic', it.ch.lic)) + ', begonnen op ' + K.dayLabel(it.d) + ' en verkocht door ' + esc(D('user', it.ch.user)) + '.</p>'
+              + '<p>' + (it.ch.end ? 'Het is intussen gestopt (' + K.dayLabel(it.ch.end) + '), maar het werd in deze maand verkocht.' : 'Het loopt nog.') + '</p>']);
         }
         if (it.kind === 'trans') {
           var qty = it.r[4];
-          return [K.odooLink('sale.order', it.r[7], '#' + it.r[7]), esc(st.data.customers[it.r[6]].name), K.dayLabel(it.r[0]), nf(x.key === 'expert_uren' ? qty / 3 : qty, 2),
-            'Orderlijn ' + esc(D('tg', it.r[3])) + ' × ' + nf(qty, 2) + (x.key === 'expert_uren' ? ' credits = ' + nf(qty / 3, 2) + ' uur' : '') + ', order van ' + K.dayLabel(it.r[0])];
+          return [K.odooLink('sale.order', it.r[7], '#' + it.r[7]), esc(st.data.customers[it.r[6]].name)].concat(klantCel(it.r[6]), [K.dayLabel(it.r[0]), nf(x.key === 'expert_uren' ? qty / 3 : qty, 2),
+            '<p>Telt mee: de orderlijn "' + esc(D('tg', it.r[3])) + '" met aantal ' + nf(qty, 2) + ', op een order van ' + K.dayLabel(it.r[0]) + '.</p>'
+              + (x.key === 'expert_uren' ? '<p>' + nf(qty, 2) + ' credits ÷ 3 = ' + nf(qty / 3, 2) + ' uur.</p>' : '')]);
         }
         var r = it.r;
-        return [K.odooLink('crm.lead', r[L.id], leadName(r)), esc(r[L.cust] >= 0 ? st.data.customers[r[L.cust]].name : D('ch', r[L.ch])), K.dayLabel(r[L.won]), '1',
-          'Gewonnen op ' + K.dayLabel(r[L.won]) + ' · ' + esc(D('pw', r[L.pw])) + ' · ' + esc(D('mw', r[L.mw]))];
+        return [K.odooLink('crm.lead', r[L.id], leadName(r)), esc(r[L.cust] >= 0 ? st.data.customers[r[L.cust]].name : D('ch', r[L.ch]))].concat(klantCel(r[L.cust]), [K.dayLabel(r[L.won]), '1',
+          '<p>Telt mee: deze lead is gewonnen op ' + K.dayLabel(r[L.won]) + '.</p><p>Product: ' + esc(D('pw', r[L.pw])) + '</p><p>Merk: ' + esc(D('mw', r[L.mw])) + '</p>']);
       });
       why = why.concat(selectieWhy(false));
     } else {

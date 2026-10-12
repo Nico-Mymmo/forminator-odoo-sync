@@ -16,8 +16,8 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
   <script src="/shared-navbar.js"></script>
   <style>
-    /* Tabs Verkoop en Targets: dezelfde zijkolommen als Gedrag in Webgedrag
-       (public/webgedrag.html). Een smalle schuifbalk die pas verschijnt als je erover gaat. */
+    /* Tabs Verkoop, Targets, Aanvragen en Marketing: zijkolommen met een smalle schuifbalk
+       die pas verschijnt als je erover gaat. */
     .om-scroll { scrollbar-width: thin; scrollbar-color: transparent transparent; }
     .om-scroll:hover { scrollbar-color: oklch(var(--bc) / 0.25) transparent; }
     .om-scroll::-webkit-scrollbar { width: 6px; }
@@ -30,139 +30,214 @@
     /* Minder rijpe of minder betrouwbare cijfers: arceren, nooit weglaten. */
     .om-hatch { background-image: repeating-linear-gradient(135deg, oklch(var(--bc) / 0.06) 0 6px, transparent 6px 12px); }
     select option { background-color: oklch(var(--b1)); color: oklch(var(--bc)); }
+    /* Het menu Instellingen van Marketing is een <details>: zonder driehoekje. */
+    #mkSettingsMenu > summary { list-style: none; }
+    #mkSettingsMenu > summary::-webkit-details-marker { display: none; }
+    /* De tabel in het venster heeft een kop die plakt. In het "collapse"-model van een tabel
+       (Tailwind zet dat) plakken de randen niet mee: tussen de kopregel en de totaalregel bleef
+       een kier waar de rijen doorheen schenen. Daarom "separate", de lijnen per cel, en een
+       DEKKENDE achtergrond op elke cel van de kop. */
+    .om-drill-tabel { border-collapse: separate; border-spacing: 0; }
+    .om-drill-tabel :where(th, td) { border-bottom: 1px solid oklch(var(--bc) / 0.1); }
+    .om-drill-tabel thead th, .om-drill-tabel thead td { background-color: oklch(var(--b1)); }
+    .om-drill-tabel thead tr.om-totaal td { background-color: oklch(var(--b2)); }
   </style>
 </head>
 <body class="bg-base-200">
   <div id="navbar"></div>
 
   <div style="padding-top: 48px;">
-    <!-- id: dashboards-web.js maakt de pagina breder voor Verkoop en Targets (drie kolommen). -->
-    <main id="dashMain" class="max-w-7xl mx-auto p-4 md:p-6">
+    <!-- id: dashboards-web.js maakt de pagina breder voor Verkoop, Targets, Aanvragen en Marketing (drie kolommen). -->
+    <main id="dashMain" class="max-w-[1800px] mx-auto p-4 md:p-6">
 
+      <!-- Verkoop staat vooraan en is het standaardtabblad (showTab in dashboards-web.js). -->
       <div role="tablist" class="tabs tabs-boxed mb-5 w-fit">
-        <button role="tab" class="tab tab-active" data-dash-tab="instroom">Aanvragen</button>
+        <button role="tab" class="tab tab-active" data-dash-tab="verkoop">Verkoop</button>
+        <button role="tab" class="tab" data-dash-tab="targets">Targets</button>
+        <button role="tab" class="tab" data-dash-tab="instroom">Aanvragen</button>
+        <button role="tab" class="tab" data-dash-tab="marketing">Marketing</button>
         <button role="tab" class="tab" data-dash-tab="web">Website-bezoeken</button>
         <button role="tab" class="tab" data-dash-tab="kaart">Kaart</button>
-        <button role="tab" class="tab" data-dash-tab="verkoop">Verkoop</button>
-        <button role="tab" class="tab" data-dash-tab="targets">Targets</button>
       </div>
 
-      <!-- ── Tab: Aanvragen (public/dashboards.js) ───────────────────────────── -->
-      <div data-dash-panel="instroom">
+      <!-- ── Tab: Verkoop (public/dashboards-sales.js tekent het geraamte zelf) ── -->
+      <div data-dash-panel="verkoop"></div>
 
-      <div class="flex flex-wrap items-start justify-between gap-4 mb-6">
-        <div>
-          <h1 class="text-2xl font-bold">Van aanvraag tot actief gebouw</h1>
-          <p class="text-sm text-base-content/60 mt-1">
-            Instroom van aanvragen die als lead in Odoo binnenkomen, per merk-oorsprong en -kanaal.
-          </p>
-        </div>
-        <div class="join">
-          <button class="btn btn-sm join-item" data-action="setScope" data-scope="all">Alles</button>
-          <button class="btn btn-sm join-item" data-action="setScope" data-scope="syndicoach">Syndicoach</button>
-          <button class="btn btn-sm join-item" data-action="setScope" data-scope="openvme">OpenVME</button>
-          <button class="btn btn-sm join-item" data-action="setScope" data-scope="onbekend">Onbekend</button>
-        </div>
-      </div>
+      <!-- ── Tab: Targets (public/dashboards-targets.js) ──────────────────────── -->
+      <div data-dash-panel="targets" class="hidden"></div>
 
-      <div class="card bg-base-100 border border-base-content/10 shadow-sm mb-6">
-        <div class="card-body">
+      <!-- ── Tab: Aanvragen (public/dashboard-aanvragen/aanvragen.js tekent het geraamte zelf) ──
+           Het terrein van David: zie src/modules/dashboards/lib/aanvragen/CLAUDE.md. Ook het
+           venster "Targets instellen" staat in dat bestand, niet hier. -->
+      <div data-dash-panel="instroom" class="hidden"></div>
 
-          <div class="flex flex-wrap items-center justify-between gap-4 mb-1">
-            <div class="flex items-center gap-3">
-              <span class="badge badge-neutral badge-lg font-bold">1</span>
-              <h2 class="text-lg font-bold underline decoration-2 underline-offset-4">Instroom</h2>
-            </div>
-            <div class="join">
-              <button class="btn btn-sm join-item" data-action="setPeriod" data-period="30d">Laatste 30 dagen</button>
-              <button class="btn btn-sm join-item" data-action="setPeriod" data-period="3m">Laatste 3 maanden</button>
-              <button class="btn btn-sm join-item" data-action="setPeriod" data-period="6m">Laatste 6 maanden</button>
-              <button class="btn btn-sm join-item" data-action="setPeriod" data-period="12m">Laatste 12 maanden</button>
-            </div>
+      <!-- ── Tab: Marketing (public/dashboards-marketing.js + -behaviour.js) ──────
+           Tot 2026-10-09 de aparte module Webgedrag. Het overzicht (trends en flows
+           over alle bezoeken) en het traject van één lead, actieblad of bezoeker.
+           Uitgesloten en Twijfelgevallen zijn INSTELLINGEN van dit dashboard (menu
+           rechtsboven, elk in een venster), geen eigen tabbladen. -->
+      <div data-dash-panel="marketing" class="hidden">
+
+        <div class="flex flex-wrap items-end justify-between gap-3 mb-4">
+          <div>
+            <h1 class="text-2xl font-bold">Marketing</h1>
+            <p class="text-sm text-base-content/70">Hoe bezoekers onze twee websites gebruiken: het gemiddelde bezoek, de paden, en wat er verandert.</p>
           </div>
+          <div class="flex flex-wrap items-center gap-2">
+            <form id="mkSearchForm" class="join" title="Een individueel traject openen">
+              <input id="mkSearchInput" class="input input-sm input-bordered join-item w-64"
+                     placeholder="Lead, naam of e-mailadres" autocomplete="off">
+              <button class="btn btn-sm btn-primary join-item" type="submit" aria-label="Zoeken"><i data-lucide="search" class="w-4 h-4"></i></button>
+            </form>
+            <details id="mkSettingsMenu" class="dropdown dropdown-end">
+              <summary class="btn btn-sm btn-ghost gap-1" title="Instellingen van het marketingdashboard"><i data-lucide="settings" class="w-4 h-4"></i> Instellingen</summary>
+              <ul class="dropdown-content menu menu-sm bg-base-100 rounded-box border border-base-content/10 shadow-lg z-40 w-80 p-2 mt-1">
+                <li><button type="button" data-mk-action="settings" data-value="excluded">
+                  <span><span class="block font-medium">Uitgesloten uit de cijfers</span>
+                  <span class="block text-xs opacity-60">Partners en vaste klanten die de site intensief gebruiken</span></span></button></li>
+                <!-- Enkel voor beheerders (dashboards-marketing.js zet hidden af na /bootstrap). -->
+                <li id="mkReviewItem" class="hidden"><button type="button" data-mk-action="settings" data-value="review">
+                  <span><span class="block font-medium">Twijfelgevallen</span>
+                  <span class="block text-xs opacity-60">Bezoekers die mogelijk bij dezelfde VME horen</span></span></button></li>
+              </ul>
+            </details>
+          </div>
+        </div>
 
-          <p class="text-sm text-base-content/70 mb-4">
-            <span class="font-semibold">Wat je hier ziet:</span> nieuwe aanvragen in de gekozen periode,
-            afgezet tegen de target voor diezelfde periode.
-          </p>
+        <!-- ── Overzicht: trends en flows over alle bezoeken ──────────────────── -->
+        <section id="mkOverview">
+          <div id="bhStatus" class="mb-3"></div>
+          <!-- Drie kolommen vanaf 2xl, twee vanaf lg, één op een telefoon:
+                 links   WAT JE BEKIJKT + de filters, sticky: het segment, het vastgezette
+                         pad en de waarschuwingen staan altijd in beeld, ook diep in de analyse;
+                 midden  de analyse (trend, padverkenner, paden, pagina's, bezoeken);
+                 rechts  de kerncijfers onder elkaar, ook sticky (tussen lg en 2xl staan ze
+                         bovenaan het midden).
+               De filterkaart stond eerst bovenaan en was daar bewust NIET sticky (ze nam een
+               derde van het scherm); in een zijkolom kost sticky geen hoogte. -->
+          <div class="grid grid-cols-1 gap-5 items-start lg:grid-cols-[19rem_minmax(0,1fr)] 2xl:grid-cols-[19rem_minmax(0,1fr)_17rem]">
 
-          <div class="border border-base-content/10 rounded-box bg-base-200/40 p-4">
-            <div class="flex flex-col md:flex-row gap-4 md:gap-0">
-
-              <div class="md:flex-1 md:pr-6">
-                <div class="text-xs text-base-content/60" id="statCurrentLabel">Totaal aanvragen</div>
-                <div class="flex items-end gap-2 mt-1">
-                  <div class="text-4xl font-bold" id="statCurrentValue"><div class="skeleton h-10 w-20 rounded"></div></div>
+            <aside class="om-scroll space-y-3 lg:col-start-1 lg:row-start-1 lg:row-span-2 lg:sticky lg:top-[calc(48px+1rem)] lg:max-h-[calc(100vh-48px-2rem)] lg:overflow-y-auto">
+              <div class="rounded-2xl bg-base-100 border border-base-content/10 shadow-sm p-3 space-y-2">
+                <div class="text-[11px] font-semibold uppercase tracking-wide text-base-content/50 flex items-center gap-1">
+                  <i data-lucide="filter" class="w-3 h-3"></i> Je bekijkt
                 </div>
-                <div class="text-sm text-base-content/60 mt-1" id="statCurrentDelta">&nbsp;</div>
-                <div class="flex flex-wrap gap-1 mt-3" id="statCurrentBrands"></div>
+                <p id="bhSentence" class="text-sm"></p>
+                <span id="bhVisited"></span>
+                <!-- Eén persoon kleurt het SEGMENT (dashboards-marketing-behaviour.js, renderScope) -->
+                <div id="bhConcentration" class="empty:hidden space-y-2"></div>
+                <!-- Het vastgezette pad: wat het filtert, hoeveel bezoeken en personen, en
+                     of één persoon het kleurt. Bewust ONDER het segment: 7 van de 7 op het
+                     pad las bovenaan als een tegenspraak met 31 bezoeken door 18 prospecten. -->
+                <div id="bhPinSummary" class="empty:hidden"></div>
+                <p id="bhExcluded" class="text-xs text-base-content/50 empty:hidden"></p>
               </div>
+              <div id="bhFilters"></div>
+            </aside>
 
-              <div class="divider md:divider-horizontal my-0"></div>
-
-              <div class="md:flex-1 md:pl-6">
-                <div class="flex items-center justify-between gap-2">
-                  <div class="text-xs text-base-content/60">Marketingbenchmark</div>
-                  <button class="btn btn-xs btn-ghost" data-action="openTargets">
-                    <i data-lucide="settings" class="w-3.5 h-3.5"></i>
-                    Targets instellen
-                  </button>
-                </div>
-                <div class="flex items-center gap-4 mt-2">
-                  <progress class="progress progress-success flex-1" id="targetProgress" value="0" max="100"></progress>
-                  <span class="text-3xl font-bold shrink-0" id="targetPct">—</span>
-                </div>
-                <p class="text-sm text-base-content/60 mt-2" id="targetDesc">Nog geen target ingesteld voor deze periode.</p>
+            <aside id="bhKpiCol" class="om-scroll min-w-0 transition-opacity lg:col-start-2 lg:row-start-1 2xl:col-start-3 2xl:sticky 2xl:top-[calc(48px+1rem)] 2xl:max-h-[calc(100vh-48px-2rem)] 2xl:overflow-y-auto">
+              <div class="rounded-2xl bg-base-100 border border-base-content/10 p-5 2xl:p-3">
+                <div class="text-xs font-semibold uppercase tracking-wide text-base-content/50 mb-2">Het gemiddelde bezoek</div>
+                <div id="bhHero"></div>
+                <div id="bhTiles" class="grid grid-cols-2 md:grid-cols-3 gap-3 mt-4 2xl:grid-cols-1 2xl:gap-0 2xl:mt-2 2xl:divide-y om-lijnen"></div>
+                <div class="text-xs font-semibold uppercase tracking-wide text-base-content/50 mt-5 mb-2 2xl:mt-3 2xl:mb-0">Andere belangrijke acties</div>
+                <div id="bhActions" class="grid grid-cols-2 md:grid-cols-4 gap-3 2xl:grid-cols-1 2xl:gap-0 2xl:divide-y om-lijnen"></div>
               </div>
+            </aside>
 
-            </div>
-
-            <!-- Realisatie tegen target, per maand: 30 dagen = 1 KPI, 3 maanden = 3 KPI's,
-                 6 en 12 maanden = twee grafieken (zie renderTargetBreakdown). -->
-            <div class="border-t border-base-content/10 mt-4 pt-4">
-              <div id="targetKpis" class="grid gap-3"></div>
-              <div id="targetCharts" class="hidden grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                  <p class="text-xs text-base-content/60 mb-1">Aanvragen per maand, t.o.v. target (stippellijn)</p>
-                  <div style="height: 180px;"><canvas id="targetAbsoluteChart"></canvas></div>
-                </div>
-                <div>
-                  <p class="text-xs text-base-content/60 mb-1" id="targetPctCaption">% van target per maand (stippellijn = 100%)</p>
-                  <div style="height: 180px;"><canvas id="targetPctChart"></canvas></div>
+          <div id="bhBody" class="min-w-0 space-y-5 transition-opacity lg:col-start-2 lg:row-start-2 2xl:row-start-1">
+            <div class="rounded-2xl bg-base-100 border border-base-content/10 p-5">
+              <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+                <h2 class="font-semibold" id="bhTrendTitle">Bezoeken per dag</h2>
+                <div class="flex items-center gap-2">
+                  <div class="join">
+                    <button class="btn btn-xs join-item btn-active" data-bh-action="metric" data-value="sessions">Bezoeken</button>
+                    <button class="btn btn-xs join-item" data-bh-action="metric" data-value="eng">Klikt verder</button>
+                    <button class="btn btn-xs join-item" data-bh-action="metric" data-value="conv">Aanvraag</button>
+                  </div>
+                  <button class="btn btn-xs btn-ghost" data-bh-action="trend-table" title="Toon de waarden als tabel"><i data-lucide="table" class="w-3.5 h-3.5"></i></button>
                 </div>
               </div>
+              <div style="height: 240px;"><canvas id="bhTrendChart" aria-label="Trend van het segment, met de vorige periode in grijs"></canvas></div>
+              <!-- Wat de arcering (oude historiek) in de trend betekent: renderTrend(). -->
+              <p id="bhTrendNote" class="text-xs text-base-content/50 mt-2 empty:hidden"></p>
+              <div id="bhTrendTable" class="overflow-x-auto max-h-64"></div>
             </div>
-          </div>
 
-          <div class="flex flex-wrap gap-x-8 gap-y-2 mt-4 text-sm">
-            <div>
-              <span class="text-base-content/60">Vorige periode:</span>
-              <span class="font-semibold" id="statPreviousValue">—</span>
-              <span class="text-base-content/60" id="statPreviousDesc"></span>
+            <div id="bhFlowCard" class="scroll-mt-20 rounded-2xl bg-base-100 border border-base-content/10 p-5">
+              <h2 class="font-semibold">Hoe bezoekers door de site gaan</h2>
+              <!-- Leesvolgorde: hoe kijk je (bediening), het antwoord (waar het stokt,
+                   wat werkt), wat staat er vast, het pad zelf, en pas dan de legende. -->
+              <div id="bhFlowControls" class="mt-3"></div>
+              <div id="bhFlowAnswers"></div>
+              <div id="bhPins" class="flex flex-wrap items-center gap-2 mt-4 empty:hidden"></div>
+              <div id="bhFlow" class="overflow-x-auto pt-5 pb-2"></div>
+              <div id="bhFlowLegend" class="mt-2 text-[11px] text-base-content/55"></div>
             </div>
-            <div>
-              <span class="text-base-content/60">Sinds de start:</span>
-              <span class="font-semibold" id="statAllTimeValue">—</span>
-            </div>
-            <div>
-              <span class="text-base-content/60">Won-ratio (aangemaakt in periode):</span>
-              <span class="font-semibold" id="statWonRatioValue">—</span>
-              <span class="text-base-content/60" id="statWonRatioDesc"></span>
-            </div>
-          </div>
 
-        </div>
-      </div>
+            <!-- Pagina onder de loep: verschijnt zodra er een pagina in focus staat (een speld
+                 in de padverkenner, of de stand "Rond een pagina"). Hoe de pagina het doet als
+                 instap en later in het bezoek, wie er stopt en waar ze vandaan komen en heen
+                 gaan (dashboards-marketing-behaviour.js, renderFocus). -->
+            <div id="bhFocusCard" class="hidden scroll-mt-20 rounded-2xl bg-base-100 border border-base-content/10 p-5"></div>
 
-      <div class="card bg-base-100 border border-base-content/10 shadow-sm">
-        <div class="card-body">
-          <h2 class="text-base font-semibold mb-2" id="dailyChartTitle">Aanvragen per dag</h2>
-          <div style="height: 320px;">
-            <canvas id="dailyChart"></canvas>
+            <!-- Formulieren en popups: geopend -> gestart -> stappen -> verstuurd
+                 (dashboards-marketing-behaviour.js, renderForms). Over het segment. -->
+            <div class="rounded-2xl bg-base-100 border border-base-content/10 p-5">
+              <div class="flex flex-wrap items-baseline justify-between gap-2">
+                <h2 class="font-semibold">Formulieren en popups</h2>
+                <span class="text-xs text-base-content/50">hoeveel bezoeken een formulier openden, eraan begonnen en het verstuurden &middot; dit segment</span>
+              </div>
+              <div id="bhForms" class="mt-3"></div>
+            </div>
+
+            <div class="grid grid-cols-1 xl:grid-cols-5 gap-5">
+              <div class="rounded-2xl bg-base-100 border border-base-content/10 p-5 xl:col-span-2">
+                <h2 class="font-semibold" id="bhPathsTitle">Meest gevolgde paden</h2>
+                <p class="text-xs text-base-content/50 mb-2" id="bhPathsSub">De eerste stappen van een bezoek. Klik om het pad vast te zetten.</p>
+                <div id="bhPaths"></div>
+              </div>
+              <div class="rounded-2xl bg-base-100 border border-base-content/10 p-5 xl:col-span-3">
+                <div class="flex flex-wrap items-center justify-between gap-2 mb-1">
+                  <h2 class="font-semibold">Per pagina</h2>
+                  <input id="bhPageQuery" class="input input-bordered input-xs w-48" placeholder="Zoek een pagina">
+                </div>
+                <p class="text-xs text-base-content/50 mb-2">Klik een rij om enkel bezoeken te zien die deze pagina bekeken. Het vizier zet de pagina in het midden van de padverkenner.</p>
+                <div id="bhPages" class="overflow-x-auto"></div>
+              </div>
+            </div>
+
+            <div class="rounded-2xl bg-base-100 border border-base-content/10 p-5">
+              <div class="flex flex-wrap items-baseline justify-between gap-2">
+                <h2 class="font-semibold" id="bhSessionsTitle">Bezoeken in dit segment</h2>
+                <span id="bhSessionsCount" class="text-xs text-base-content/60"></span>
+              </div>
+              <p id="bhSessionsSub" class="text-xs text-base-content/50 mb-3">Wie het was, wat die deed en hoe ver die in een formulier kwam. Klik een bezoek voor het volledige traject.</p>
+              <!-- Weergave + sortering (dashboards-marketing-behaviour.js); het zoekveld staat vast in de HTML, zodat typen de focus niet verliest. -->
+              <div class="flex flex-wrap items-center gap-2 mb-2">
+                <div id="bhSessionsTools" class="flex flex-wrap items-center gap-2"></div>
+                <input id="bhSessionsQuery" class="input input-bordered input-sm w-full sm:w-72 sm:ml-auto" placeholder="Zoek e-mail, pagina of campagne" autocomplete="off">
+              </div>
+              <div id="bhSessionsLegend" class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-base-content/60 mb-2"></div>
+              <div id="bhSessions" class="divide-y om-lijnen"></div>
+              <div id="bhSessionsMore"></div>
+            </div>
+
+            <p id="bhNote" class="text-xs text-base-content/50"></p>
           </div>
-          <div id="dailyChartLegend" class="grid grid-cols-1 sm:grid-cols-3 gap-x-6 gap-y-4 mt-4"></div>
-        </div>
-      </div>
+          </div>
+        </section>
+
+        <!-- ── Traject: één lead, actieblad of bezoeker ────────────────────────── -->
+        <section id="mkDetail" class="hidden max-w-7xl mx-auto">
+          <button class="btn btn-ghost btn-sm mb-3" data-mk-action="back"><i data-lucide="arrow-left" class="w-4 h-4"></i> Terug naar het overzicht</button>
+          <div id="mkModeWarning" class="alert alert-info mb-4 hidden text-sm">
+            <i data-lucide="info" class="w-5 h-5"></i>
+            <span id="mkModeWarningText"></span>
+          </div>
+          <div id="mkSearchResults" class="mb-4"></div>
+          <div id="mkStoryHost"></div>
+        </section>
 
       </div>
 
@@ -382,65 +457,163 @@
 
       </div>
 
-      <!-- ── Tab: Verkoop (public/dashboards-sales.js tekent het geraamte zelf) ── -->
-      <div data-dash-panel="verkoop" class="hidden"></div>
-
-      <!-- ── Tab: Targets (public/dashboards-targets.js) ──────────────────────── -->
-      <div data-dash-panel="targets" class="hidden"></div>
-
     </main>
   </div>
 
-  <dialog id="targetsModal" class="modal">
-    <div class="modal-box max-w-3xl">
-      <h3 class="font-bold text-lg mb-1">Targets instellen <span class="text-base-content/50 font-normal" id="targetsModalScope"></span></h3>
-      <p class="text-sm text-base-content/60 mb-4">
-        Eén target per kalendermaand. Zowel voorbije als komende maanden zijn instelbaar -- de
-        benchmarkgrafiek toont enkel een percentage voor de periodes waarvoor een target bestaat.
-        Wijzig wat je nodig hebt en druk één keer op "Opslaan".
-      </p>
-      <div id="targetsRows" class="grid grid-cols-4 gap-3"></div>
-      <div class="modal-action">
-        <span id="targetsSaveStatus" class="text-sm text-base-content/60 self-center"></span>
-        <form method="dialog">
-          <button class="btn">Sluiten</button>
-        </form>
-        <button class="btn btn-primary" data-action="saveAllTargets">Opslaan</button>
+  <!-- ── Vensters van Marketing (dashboards-marketing.js en -behaviour.js) ─── -->
+
+  <!-- Het verloop van een kerncijfer over een langere periode (dashboards-marketing-behaviour.js, openKpi) -->
+  <dialog id="bhKpiDialog" class="modal">
+    <div class="modal-box max-w-4xl">
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <h3 class="font-semibold text-lg" id="bhKpiTitle">Verloop</h3>
+          <p class="text-xs text-base-content/60" id="bhKpiSub"></p>
+        </div>
+        <form method="dialog"><button class="btn btn-sm btn-ghost" aria-label="Sluiten"><i data-lucide="x" class="w-4 h-4"></i></button></form>
+      </div>
+      <!-- Welke reeks: die van het mini-verloop (zo opent het venster) of langer -->
+      <div id="bhKpiRange" class="mt-3 empty:hidden"></div>
+      <div class="flex flex-wrap items-center justify-between gap-2 mt-3">
+        <div id="bhKpiMetrics"></div>
+        <button class="btn btn-xs btn-ghost" data-bh-action="kpi-table" title="Toon de waarden als tabel"><i data-lucide="table" class="w-3.5 h-3.5"></i> Tabel</button>
+      </div>
+      <div id="bhKpiStatus" class="mt-2"></div>
+      <div id="bhKpiBody" class="transition-opacity">
+        <div style="height: 320px;" class="mt-3"><canvas id="bhKpiChart" aria-label="Verloop van het gekozen kerncijfer"></canvas></div>
+        <div id="bhKpiTable" class="overflow-x-auto max-h-64"></div>
       </div>
     </div>
-    <form method="dialog" class="modal-backdrop">
-      <button>Sluiten</button>
-    </form>
+    <form method="dialog" class="modal-backdrop"><button>sluiten</button></form>
   </dialog>
+
+  <!-- Iemand uitsluiten uit de cijfers (dashboards-marketing.js, openUitsluiten) -->
+  <dialog id="mkExclDialog" class="modal">
+    <div class="modal-box max-w-lg">
+      <h3 class="font-semibold text-lg">Uitsluiten uit de cijfers</h3>
+      <p class="text-sm opacity-70 mt-1">
+        <span id="mkExclWho" class="font-medium"></span> telt dan niet meer mee in Marketing, op Website-bezoeken en in de attributie.
+        Het eigen traject blijft zichtbaar; via Instellingen &rarr; Uitgesloten uit de cijfers laat je deze persoon weer meetellen.
+      </p>
+      <div id="mkExclChoices" class="space-y-2 mt-4"></div>
+      <label class="form-control mt-4">
+        <span class="label-text text-sm">Waarom? (optioneel, voor je collega's)</span>
+        <input id="mkExclReason" class="input input-sm input-bordered" placeholder="bv. partner, gebruikt de site dagelijks" maxlength="300" autocomplete="off">
+      </label>
+      <div class="modal-action">
+        <form method="dialog"><button class="btn btn-sm btn-ghost">Annuleren</button></form>
+        <button class="btn btn-sm btn-primary" data-mk-action="excl-save">Uitsluiten</button>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>sluiten</button></form>
+  </dialog>
+
+  <!-- Instelling: wie niet meetelt in de cijfers (src/modules/web-story/lib/exclusions.js) -->
+  <dialog id="mkExcludedDialog" class="modal">
+    <div class="modal-box max-w-5xl">
+      <div class="flex items-start justify-between gap-3">
+        <h3 class="font-semibold text-lg">Uitgesloten uit de cijfers</h3>
+        <form method="dialog"><button class="btn btn-sm btn-ghost" aria-label="Sluiten">✕</button></form>
+      </div>
+      <p class="text-sm opacity-70 mt-1">
+        Wie hier staat, telt niet mee in <strong>Marketing</strong>, op <strong>Website-bezoeken</strong>
+        en in de attributie. Bedoeld voor een partner of vaste klant die de site intensief gebruikt en anders
+        elk klein segment kleurt. Het eigen traject blijft volledig zichtbaar, en weer laten meetellen kan altijd.
+      </p>
+      <form id="mkExclAddForm" class="hidden flex flex-wrap items-end gap-2 mt-3">
+        <label class="form-control">
+          <span class="label-text text-xs">E-mailadres of bezoeker-ID</span>
+          <input id="mkExclAddValue" class="input input-sm input-bordered w-72" placeholder="naam@voorbeeld.be" autocomplete="off">
+        </label>
+        <label class="form-control">
+          <span class="label-text text-xs">Waarom (optioneel)</span>
+          <input id="mkExclAddReason" class="input input-sm input-bordered w-72" placeholder="bv. partner, gebruikt de site dagelijks" maxlength="300" autocomplete="off">
+        </label>
+        <button class="btn btn-sm btn-primary" type="submit">Uitsluiten</button>
+      </form>
+      <div id="mkExclHost" class="overflow-x-auto mt-3"></div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>sluiten</button></form>
+  </dialog>
+
+  <!-- Instelling: twijfelgevallen (beheerders) -->
+  <dialog id="mkReviewDialog" class="modal">
+    <div class="modal-box max-w-5xl">
+      <div class="flex items-start justify-between gap-3">
+        <h3 class="font-semibold text-lg">Twijfelgevallen: mogelijk dezelfde VME</h3>
+        <form method="dialog"><button class="btn btn-sm btn-ghost" aria-label="Sluiten">✕</button></form>
+      </div>
+      <div class="flex flex-wrap items-end justify-between gap-3 mt-1">
+        <p class="text-sm opacity-70 max-w-2xl">
+          Bezoekers met het adres van een <strong>collega bij dezelfde VME</strong>. Bevestig wat klopt,
+          wijs af wat er niet bij hoort. Je keuze blijft staan, ook als de koppelingen opnieuw berekend worden.
+        </p>
+        <div class="flex gap-2">
+          <button class="btn btn-sm btn-success" data-mk-action="bulk" data-status="bevestigd">Bevestig selectie</button>
+          <button class="btn btn-sm btn-ghost" data-mk-action="bulk" data-status="afgewezen">Wijs selectie af</button>
+        </div>
+      </div>
+      <div id="mkReviewHost" class="overflow-x-auto mt-3"></div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>sluiten</button></form>
+  </dialog>
+
+  <div id="mkToastHost" class="toast toast-end z-50"></div>
 
   <script src="/dashboards.js"></script>
   <script src="/dashboards-web.js"></script>
   <script src="/aanvragen-kaart.js"></script>
   <script src="/dashboards-map.js"></script>
 
-  <!-- "Wat zit hierachter": één venster voor elke doorklik in Verkoop en Targets (dashboards-kit.js). -->
+  <!-- "Wat zit hierachter": één venster voor elke doorklik in Verkoop, Targets en Aanvragen (dashboards-kit.js). -->
   <dialog id="omDrill" class="modal">
     <div class="modal-box max-w-6xl">
-      <div class="flex items-start justify-between gap-3">
-        <div><h3 class="font-bold text-lg" id="omDrillTitle"></h3><p class="text-xs text-base-content/60 mt-0.5" id="omDrillSub"></p></div>
-        <form method="dialog"><button class="btn btn-sm btn-ghost" aria-label="Sluiten">✕</button></form>
+      <!-- De kop (titel, vraagteken, sluitkruisje) PLAKT bovenaan: wie naar beneden schuift,
+           moet het venster nog kunnen sluiten en weten wat hij bekijkt. -top-6 + -mt-6/pt-6:
+           een scrollcontainer laat sticky plakken ONDER zijn opvulling (1,5rem), en in die
+           strook schenen de rijen anders door. -->
+      <div id="omDrillKop" class="sticky -top-6 z-30 -mx-6 px-6 -mt-6 pt-6 pb-3 bg-base-100 flex items-start justify-between gap-3">
+        <div class="min-w-0">
+          <div class="flex items-center gap-1.5"><h3 class="font-bold text-lg" id="omDrillTitle"></h3>
+            <!-- Wie in de lijst staat en waarom: aanwijzen toont het (dashboards-kit.js, #omTip). -->
+            <button type="button" id="omDrillWhyBtn" class="btn btn-ghost btn-xs btn-circle hidden" data-om-tip="regels" aria-label="Wie staat in deze lijst, en waarom?"><i data-lucide="help-circle" class="w-4 h-4 pointer-events-none"></i></button></div>
+          <p class="text-xs text-base-content/60 mt-0.5" id="omDrillSub"></p></div>
+        <!-- autofocus: anders zet showModal() de focus op het eerste vraagteken, en dan ging dat vak telkens vanzelf open. -->
+        <form method="dialog"><button class="btn btn-sm btn-ghost" aria-label="Sluiten" autofocus>✕</button></form>
       </div>
-      <!-- Waarom deze records erin staan (de regels), dan het verloop in het groot (een klik op
-           een maand beperkt de lijst), dan de records met per rij de gegevens die het staven. -->
-      <div id="omDrillWhy" class="hidden mt-3 rounded-xl bg-base-200/60 px-3 py-2"></div>
+      <!-- Het verloop in het groot (een klik op een maand beperkt de lijst), dan de records.
+           WAAROM staat achter een vraagteken: naast de titel voor de hele lijst, achteraan
+           elke rij voor die rij (met daarnaast EEN knop naar Odoo). -->
       <div id="omDrillChartWrap" class="hidden mt-3">
         <div style="height: 240px;"><canvas id="omDrillCanvas" aria-label="Verloop"></canvas></div>
         <p id="omDrillChartNote" class="text-[11px] text-base-content/50 mt-1"></p>
       </div>
-      <div id="omDrillTools" class="flex flex-wrap items-end gap-2 mt-4 pt-3 border-t border-base-content/10"></div>
-      <div class="text-xs text-base-content/50 mt-2" id="omDrillCount"></div>
-      <div class="overflow-auto mt-1 max-h-[50vh]" id="omDrillBody"></div>
+      <!-- EEN schuifbalk: die van het venster (modal-box). De grafiek en de uitleg schuiven
+           weg; zodra de filters bovenaan komen, plakken ze daar (sticky), en de kolomkoppen
+           en de totaalrij van de tabel plakken eronder (--om-drill-stick = hoogte van deze
+           balk, gemeten in dashboards-kit.js). Nooit een tweede schuifbalk in de tabel:
+           dan sta je met een halve grafiek en een lijst waarin je apart moet schuiven.
+           -mx-6/px-6: de balk loopt tot de rand van het venster, zodat er niets naast doorschuift. -->
+      <!-- Plakt net onder de kop (--om-drill-balk, gemeten in dashboards-kit.js). -->
+      <div id="omDrillStick" class="sticky z-20 -mx-6 px-6 pt-3 mt-4 bg-base-100 border-t border-base-content/10" style="top: var(--om-drill-balk, 0px)">
+        <div id="omDrillTools" class="flex flex-wrap items-end gap-2"></div>
+        <div class="text-xs text-base-content/50 mt-2 pb-1" id="omDrillCount"></div>
+      </div>
+      <div id="omDrillBody"></div>
     </div>
+    <!-- Het vak achter een vraagteken. IN de dialog: die ligt in de top layer, en wat erbuiten
+         staat valt eronder. pointer-events-none: anders steelt het de muis van het vraagteken. -->
+    <div id="omTip" role="tooltip" class="hidden fixed w-max rounded-xl border border-base-content/10 bg-base-100 text-base-content shadow-xl px-4 py-3 text-sm leading-relaxed pointer-events-none"
+         style="z-index: 60; max-width: min(26rem, calc(100vw - 16px));"></div>
     <form method="dialog" class="modal-backdrop"><button>Sluiten</button></form>
   </dialog>
 
   <script src="/dashboards-kit.js"></script>
   <script src="/dashboards-sales.js"></script>
   <script src="/dashboards-targets.js"></script>
+  <!-- Het terrein van David (src/modules/dashboards/lib/aanvragen/CLAUDE.md); na de kit. -->
+  <script src="/dashboard-aanvragen/aanvragen.js"></script>
+  <script src="/dashboards-marketing.js"></script>
+  <script src="/dashboards-marketing-behaviour.js"></script>
 </body>
 </html>

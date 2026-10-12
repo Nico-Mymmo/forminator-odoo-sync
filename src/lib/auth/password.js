@@ -1,100 +1,168 @@
 /**
- * Password Management
- * 
- * Secure password hashing and verification using bcrypt
- * Note: For Cloudflare Workers, we'll need to use a compatible bcrypt library
+ * Wachtwoorden.
+ *
+ * GEBRUIKERSWACHTWOORDEN gaan door hashUserPassword() / verifyUserPassword():
+ * PBKDF2-SHA256 met een eigen zout per wachtwoord.
+ *
+ * Tot 2026-10-09 stond elk wachtwoord als één ongezoute SHA-256 in
+ * users.password_hash (met een `$2a$`-voorvoegsel dat op bcrypt leek, maar het
+ * niet was). Twee gebruikers met hetzelfde wachtwoord hadden dezelfde hash, en
+ * een gelekte tabel was met een gewone woordenlijst in minuten te kraken.
+ * Zo'n oude hash wordt nog EEN keer aanvaard en bij die login meteen
+ * herschreven (`needsRehash`), zodat niemand daarvoor iets hoeft te doen.
+ *
+ * hashPassword() / verifyPassword() blijven bestaan voor de Claude-integratie,
+ * die er willekeurige tokens en client-secrets mee hasht en ze daarna OPZOEKT
+ * op die hash -- daarvoor moet de hash deterministisch zijn, en met 256 bits
+ * toeval is een zout daar ook niet nodig. Gebruik ze NOOIT voor iets dat een
+ * mens bedacht heeft.
  */
 
+import { base64UrlDecode, base64UrlEncode, timingSafeEqual } from './crypto.js';
+
 /**
- * Hash a password using bcrypt
- * 
- * @param {string} password - Plain text password
- * @returns {Promise<string>} Hashed password
+ * Het hoogste aantal iteraties dat Web Crypto in een Worker toelaat; daarboven
+ * gooit importKey/deriveBits een fout.
+ */
+const PBKDF2_ITERATIES = 100000;
+const PBKDF2_PREFIX = 'pbkdf2-sha256';
+
+/** Minimale lengte van een NIEUW wachtwoord. Bestaande wachtwoorden blijven geldig. */
+export const PASSWORD_MIN_LENGTH = 12;
+
+async function pbkdf2(password, salt, iteraties) {
+  const materiaal = await crypto.subtle.importKey(
+    'raw', new TextEncoder().encode(String(password)), 'PBKDF2', false, ['deriveBits']
+  );
+  const bits = await crypto.subtle.deriveBits(
+    { name: 'PBKDF2', hash: 'SHA-256', salt, iterations: iteraties },
+    materiaal,
+    256
+  );
+  return new Uint8Array(bits);
+}
+
+/**
+ * @param {string} password
+ * @returns {Promise<string>} `pbkdf2-sha256$<iteraties>$<zout>$<hash>`
+ */
+export async function hashUserPassword(password) {
+  const salt = new Uint8Array(16);
+  crypto.getRandomValues(salt);
+  const hash = await pbkdf2(password, salt, PBKDF2_ITERATIES);
+  return `${PBKDF2_PREFIX}$${PBKDF2_ITERATIES}$${base64UrlEncode(salt)}$${base64UrlEncode(hash)}`;
+}
+
+/** Een hash waartegen gecontroleerd wordt als het e-mailadres niet bestaat. */
+const DUMMY_SALT = new Uint8Array(16);
+
+/**
+ * Controleer een gebruikerswachtwoord.
+ *
+ * Zonder `stored` (onbekend e-mailadres) wordt toch een volledige PBKDF2
+ * gerekend: anders verraadt de korte antwoordtijd welke adressen een account
+ * hebben.
+ *
+ * @param {string} password
+ * @param {string|null|undefined} stored
+ * @returns {Promise<{ valid: boolean, needsRehash: boolean }>}
+ */
+export async function verifyUserPassword(password, stored) {
+  const waarde = String(stored || '');
+
+  if (waarde.startsWith(PBKDF2_PREFIX + '$')) {
+    const [, iterTekst, saltTekst, hashTekst] = waarde.split('$');
+    const iteraties = parseInt(iterTekst, 10);
+    if (!iteraties || !saltTekst || !hashTekst) return { valid: false, needsRehash: false };
+    const hash = await pbkdf2(password, base64UrlDecode(saltTekst), iteraties);
+    const valid = timingSafeEqual(base64UrlEncode(hash), hashTekst);
+    return { valid, needsRehash: valid && iteraties < PBKDF2_ITERATIES };
+  }
+
+  if (waarde.startsWith('$2a$')) {
+    const valid = timingSafeEqual(await hashPassword(password), waarde);
+    return { valid, needsRehash: valid };
+  }
+
+  await pbkdf2(password, DUMMY_SALT, PBKDF2_ITERATIES);
+  return { valid: false, needsRehash: false };
+}
+
+/**
+ * Mag dit een nieuw wachtwoord zijn? Geeft een foutmelding of null.
+ *
+ * Bewust GEEN eisen als "een hoofdletter en een cijfer": die maken
+ * wachtwoorden voorspelbaarder (Welkom123!), niet sterker. Lengte doet het
+ * werk, en de tweede factor de rest.
+ *
+ * @param {string} password
+ * @param {{ email?: string }} [ctx]
+ * @returns {string|null}
+ */
+export function checkNewPassword(password, { email } = {}) {
+  const pw = String(password || '');
+  if (pw.length < PASSWORD_MIN_LENGTH) {
+    return `Een wachtwoord moet minstens ${PASSWORD_MIN_LENGTH} tekens lang zijn.`;
+  }
+  if (pw.length > 256) return 'Een wachtwoord mag hoogstens 256 tekens lang zijn.';
+  if (/^(.)\1+$/.test(pw)) return 'Een wachtwoord mag niet uit één herhaald teken bestaan.';
+  const lokaal = String(email || '').split('@')[0].toLowerCase();
+  if (lokaal.length >= 3 && pw.toLowerCase().includes(lokaal)) {
+    return 'Een wachtwoord mag je e-mailadres niet bevatten.';
+  }
+  return null;
+}
+
+/**
+ * Deterministische SHA-256-hash. ENKEL voor willekeurige tokens (zie boven),
+ * nooit voor gebruikerswachtwoorden.
+ *
+ * @param {string} password
+ * @returns {Promise<string>}
  */
 export async function hashPassword(password) {
-  // Using Web Crypto API (compatible with Workers)
-  const encoder = new TextEncoder();
-  const data = encoder.encode(password);
+  const data = new TextEncoder().encode(password);
   const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-  
-  // Store with prefix - format: $2a${first2chars}${rest}
+  const hashHex = Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
   return `$2a$${hashHex.slice(0, 2)}$${hashHex.slice(2)}`;
 }
 
 /**
- * Verify a password against a hash
- * 
- * @param {string} password - Plain text password
- * @param {string} hash - Hashed password
- * @returns {Promise<boolean>} Match result
+ * Tegenhanger van hashPassword(). ENKEL voor willekeurige tokens.
+ *
+ * @param {string} password
+ * @param {string} hash
+ * @returns {Promise<boolean>}
  */
 export async function verifyPassword(password, hash) {
-  // Generate hash from provided password
-  const newHash = await hashPassword(password);
-  
-  // Compare hashes
-  return newHash === hash;
+  return timingSafeEqual(await hashPassword(password), hash);
 }
 
 /**
- * Validate password strength
- * 
- * Requirements:
- * - At least 8 characters
- * - Contains uppercase and lowercase
- * - Contains number
- * - Optional: special character
- * 
- * @param {string} password - Password to validate
- * @returns {Object} Validation result with errors
+ * @deprecated Gebruik checkNewPassword(). Blijft voor oudere aanroepers.
  */
 export function validatePasswordStrength(password) {
-  const errors = [];
-  
-  if (!password || password.length < 8) {
-    errors.push('Password must be at least 8 characters');
-  }
-  
-  if (!/[a-z]/.test(password)) {
-    errors.push('Password must contain lowercase letters');
-  }
-  
-  if (!/[A-Z]/.test(password)) {
-    errors.push('Password must contain uppercase letters');
-  }
-  
-  if (!/[0-9]/.test(password)) {
-    errors.push('Password must contain numbers');
-  }
-  
-  // Optional: check for special characters
-  // if (!/[^a-zA-Z0-9]/.test(password)) {
-  //   errors.push('Password should contain special characters');
-  // }
-  
-  return {
-    valid: errors.length === 0,
-    errors
-  };
+  const fout = checkNewPassword(password);
+  return { valid: !fout, errors: fout ? [fout] : [] };
 }
 
 /**
- * Generate a random password
- * 
- * @param {number} length - Password length (default 16)
- * @returns {string} Random password
+ * Een willekeurig wachtwoord, zonder tekens die je verwart bij het overtypen
+ * (0/O, 1/l/I).
+ *
+ * @param {number} [length=16]
+ * @returns {string}
  */
 export function generateRandomPassword(length = 16) {
-  const charset = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*';
-  const array = new Uint8Array(length);
-  crypto.getRandomValues(array);
-  
+  const charset = 'abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789!@#$%&*';
+  const limiet = 256 - (256 % charset.length);
   let password = '';
-  for (let i = 0; i < length; i++) {
-    password += charset[array[i] % charset.length];
+  while (password.length < length) {
+    const array = new Uint8Array(length * 2);
+    crypto.getRandomValues(array);
+    for (const b of array) {
+      if (b < limiet && password.length < length) password += charset[b % charset.length];
+    }
   }
-  
   return password;
 }

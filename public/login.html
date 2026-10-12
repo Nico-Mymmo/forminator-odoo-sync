@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Inloggen - OpenVME Operations Manager</title>
+  <script>
+    (function () {
+      var t = 'light';
+      try { t = localStorage.getItem('selectedTheme') || 'light'; } catch (e) {}
+      document.documentElement.setAttribute('data-theme', t);
+    })();
+  </script>
+  <!--
+    Bewust VASTGEPINDE versies en geen lucide@latest: dit is de pagina waar
+    wachtwoorden en 2FA-sleutels getypt worden. Een script dat ongemerkt van
+    versie verandert, kan die meelezen. De QR-bibliotheek heeft daarom ook een
+    integrity-hash.
+  -->
+  <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet" type="text/css" />
+  <script src="https://cdn.tailwindcss.com/3.4.16"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"
+          integrity="sha384-mZT2gIty7ZDdOGkxfP6joZcYdMW1Jvj9dRlfpTmaJAKKXTqzygtB22k7FLe+KZC1"
+          crossorigin="anonymous" referrerpolicy="no-referrer" defer></script>
+</head>
+<body class="bg-base-200">
+  <div class="flex items-center justify-center min-h-screen px-4 py-10">
+    <div class="card bg-base-100 border border-base-content/10 shadow-sm w-full max-w-md">
+      <div class="card-body">
+
+        <div class="flex flex-col items-center gap-2 mb-4 text-center">
+          <div class="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center text-primary" id="stapIcoon">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          </div>
+          <h1 class="text-2xl font-bold" id="stapTitel">Inloggen</h1>
+          <p class="text-sm text-base-content/60" id="stapOndertitel">OpenVME Operations Manager</p>
+        </div>
+
+        <div id="melding" class="alert alert-error text-sm py-2 px-3 mb-3 hidden" role="alert">
+          <span id="meldingTekst"></span>
+        </div>
+
+        <!-- 1. E-mailadres en wachtwoord -->
+        <section data-stap="credentials">
+          <form id="credentialsForm" novalidate>
+            <label class="form-control w-full mb-2">
+              <div class="label"><span class="label-text">E-mailadres</span></div>
+              <input type="email" id="emailInput" placeholder="naam@mymmo.com"
+                     class="input input-bordered input-sm w-full" autocomplete="username" required>
+            </label>
+            <label class="form-control w-full mb-4">
+              <div class="label"><span class="label-text">Wachtwoord</span></div>
+              <input type="password" id="passwordInput" placeholder="••••••••"
+                     class="input input-bordered input-sm w-full" autocomplete="current-password" required>
+            </label>
+            <button type="submit" class="btn btn-primary btn-sm w-full" data-knop>Inloggen</button>
+          </form>
+          <p class="text-xs text-base-content/50 text-center mt-4">
+            Geen account of wachtwoord vergeten? Vraag je beheerder.
+          </p>
+        </section>
+
+        <!-- 2. Code van de authenticator-app -->
+        <section data-stap="mfa_verify" class="hidden">
+          <form id="verifyForm" novalidate>
+            <p class="text-sm text-base-content/70 mb-3" id="verifyUitleg">
+              Open je authenticator-app en typ de code van 6 cijfers bij <strong>mymmo Operations Manager</strong>.
+            </p>
+            <input type="text" id="verifyInput" inputmode="numeric" autocomplete="one-time-code"
+                   maxlength="6" placeholder="123456"
+                   class="input input-bordered w-full text-center text-xl tracking-[0.4em] font-mono mb-4">
+            <button type="submit" class="btn btn-primary btn-sm w-full" data-knop>Bevestigen</button>
+          </form>
+          <div class="flex justify-between mt-4 text-xs">
+            <button type="button" class="link link-hover text-base-content/60" data-action="restart">Terug</button>
+            <button type="button" class="link link-hover text-base-content/60" data-action="toggle-recovery" id="toggleRecovery">Telefoon kwijt? Gebruik een herstelcode</button>
+          </div>
+        </section>
+
+        <!-- 3. 2FA instellen -->
+        <section data-stap="mfa_enroll" class="hidden">
+          <p class="text-sm text-base-content/70 mb-4">
+            Vanaf nu vraagt de Operations Manager bij het inloggen ook een code van je telefoon.
+            Dat instellen duurt een minuut, en je doet het maar een keer.
+          </p>
+          <ol class="space-y-4 text-sm">
+            <li class="flex gap-3">
+              <span class="badge badge-primary badge-sm mt-0.5 shrink-0">1</span>
+              <span>Installeer een authenticator-app op je telefoon: <strong>Google Authenticator</strong>,
+                <strong>Microsoft Authenticator</strong>, of de wachtwoordbeheerder die je al gebruikt
+                (1Password, Bitwarden).</span>
+            </li>
+            <li class="flex gap-3">
+              <span class="badge badge-primary badge-sm mt-0.5 shrink-0">2</span>
+              <div class="min-w-0 flex-1">
+                <span>Tik in de app op <em>Toevoegen</em> en scan deze QR-code.</span>
+                <div class="my-3 flex justify-center">
+                  <div id="qrVak" class="bg-white p-2 rounded-lg border border-base-content/10 w-48 h-48 flex items-center justify-center"></div>
+                </div>
+                <details class="text-xs">
+                  <summary class="cursor-pointer text-base-content/60">Lukt scannen niet? Typ de sleutel in</summary>
+                  <div class="mt-2 flex items-center gap-2">
+                    <code id="enrollSecret" class="font-mono text-sm bg-base-200 rounded px-2 py-1 break-all"></code>
+                    <button type="button" class="btn btn-ghost btn-xs" data-action="copy-secret">Kopiëren</button>
+                  </div>
+                  <p class="mt-1 text-base-content/50">Soort: op tijd gebaseerd (TOTP), 6 cijfers.</p>
+                </details>
+              </div>
+            </li>
+            <li class="flex gap-3">
+              <span class="badge badge-primary badge-sm mt-0.5 shrink-0">3</span>
+              <form id="enrollForm" class="flex-1" novalidate>
+                <span>Typ de code die de app nu toont.</span>
+                <input type="text" id="enrollInput" inputmode="numeric" autocomplete="one-time-code"
+                       maxlength="6" placeholder="123456"
+                       class="input input-bordered w-full text-center text-xl tracking-[0.4em] font-mono my-3">
+                <button type="submit" class="btn btn-primary btn-sm w-full" data-knop>Activeren</button>
+              </form>
+            </li>
+          </ol>
+          <div class="mt-4 text-xs">
+            <button type="button" class="link link-hover text-base-content/60" data-action="restart">Terug</button>
+          </div>
+        </section>
+
+        <!-- 4. Herstelcodes bewaren -->
+        <section data-stap="recovery_codes" class="hidden">
+          <p class="text-sm text-base-content/70 mb-3">
+            Ben je je telefoon kwijt, dan kom je met een van deze codes toch binnen. Elke code werkt
+            <strong>een keer</strong>. Bewaar ze in je wachtwoordbeheerder of druk ze af &mdash; niet enkel op
+            dezelfde telefoon als je authenticator-app.
+          </p>
+          <div id="herstelLijst" class="grid grid-cols-2 gap-2 bg-base-200 rounded-lg p-3 font-mono text-sm mb-3"></div>
+          <div class="flex gap-2 mb-4">
+            <button type="button" class="btn btn-sm flex-1" data-action="copy-codes">Kopiëren</button>
+            <button type="button" class="btn btn-sm flex-1" data-action="download-codes">Downloaden</button>
+          </div>
+          <label class="label cursor-pointer justify-start gap-3 mb-3">
+            <input type="checkbox" class="checkbox checkbox-sm" id="codesBewaard">
+            <span class="label-text text-sm">Ik heb mijn herstelcodes veilig bewaard</span>
+          </label>
+          <button type="button" class="btn btn-primary btn-sm w-full" data-action="codes-done" id="codesVerder" disabled>Verder</button>
+        </section>
+
+        <!-- 5. Eigen wachtwoord kiezen -->
+        <section data-stap="password_change" class="hidden">
+          <form id="passwordForm" novalidate>
+            <p class="text-sm text-base-content/70 mb-3">
+              Je wachtwoord werd door een beheerder ingesteld. Kies nu een wachtwoord dat alleen jij kent:
+              minstens <strong>12 tekens</strong>. Een zin van een paar woorden werkt goed en onthoud je makkelijk.
+            </p>
+            <input type="text" autocomplete="username" id="pwUsername" class="hidden" tabindex="-1" aria-hidden="true">
+            <label class="form-control w-full mb-2">
+              <div class="label"><span class="label-text">Nieuw wachtwoord</span></div>
+              <input type="password" id="newPasswordInput" class="input input-bordered input-sm w-full" autocomplete="new-password" minlength="12" required>
+            </label>
+            <label class="form-control w-full mb-4">
+              <div class="label"><span class="label-text">Nog een keer</span></div>
+              <input type="password" id="confirmPasswordInput" class="input input-bordered input-sm w-full" autocomplete="new-password" minlength="12" required>
+            </label>
+            <button type="submit" class="btn btn-primary btn-sm w-full" data-knop>Opslaan en inloggen</button>
+          </form>
+        </section>
+
+        <!-- 6. Bijna geen herstelcodes meer -->
+        <section data-stap="recovery_low" class="hidden">
+          <p class="text-sm text-base-content/70 mb-4" id="recoveryLowTekst"></p>
+          <a href="/profile/beveiliging" class="btn btn-sm w-full mb-2">Nu nieuwe codes maken</a>
+          <button type="button" class="btn btn-primary btn-sm w-full" data-action="finish">Verder</button>
+        </section>
+
+      </div>
+    </div>
+  </div>
+
+  <script src="/login.js"></script>
+</body>
+</html>

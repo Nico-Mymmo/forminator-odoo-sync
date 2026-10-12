@@ -61,18 +61,18 @@ export function leadProduct(lead, merk, tagNames, partners) {
 export function leadProductWhy(lead, merk, tagNames, partners) {
   const naam = String(lead.name || '').toLowerCase();
   const labels = tagNames.join(' | ');
-  if (lead.is_expert) return { prod: 'prof_syndicus', why: 'Expert aangevinkt op de lead' };
+  if (lead.is_expert) return { prod: 'prof_syndicus', why: 'Professionele syndicus, want "Expert" is aangevinkt op de lead.' };
   for (const p of partners) {
-    if (p && p.company_type_id === 2) return { prod: 'prof_syndicus', why: 'Bedrijf van de lead is een professionele syndicus (klanttype)' };
-    if (p && (p.contact_type_id === 5 || p.contact_type_id === 6)) return { prod: 'prof_syndicus', why: 'Contactpersoon is een professionele syndicus (contacttype)' };
+    if (p && p.company_type_id === 2) return { prod: 'prof_syndicus', why: 'Professionele syndicus, want het bedrijf van de lead heeft dat klanttype.' };
+    if (p && (p.contact_type_id === 5 || p.contact_type_id === 6)) return { prod: 'prof_syndicus', why: 'Professionele syndicus, want de contactpersoon heeft dat contacttype.' };
   }
-  if (merk === 'openvme') return { prod: 'assistant', why: 'Merk OpenVME en geen professionele syndicus' };
-  if (lead.syndicoach_pack === 'captain') return { prod: 'captain', why: 'Syndicoach, pakket Captain' };
-  if (naam.includes('captain')) return { prod: 'captain', why: 'Syndicoach, "captain" in de naam' };
-  if (labels.includes('captain')) return { prod: 'captain', why: 'Syndicoach, label "captain"' };
-  if (naam.includes('opstarthulp')) return { prod: 'opstarthulp', why: 'Syndicoach, "opstarthulp" in de naam' };
-  if (labels.includes('opstarthulp')) return { prod: 'opstarthulp', why: 'Syndicoach, label "opstarthulp"' };
-  return { prod: 'niet_toegewezen', why: 'Syndicoach zonder Captain- of Opstarthulp-signaal (naam, label of pakket)' };
+  if (merk === 'openvme') return { prod: 'assistant', why: 'Assistant, want het merk is OpenVME en het is geen professionele syndicus.' };
+  if (lead.syndicoach_pack === 'captain') return { prod: 'captain', why: 'Captain, want het Syndicoach-pakket op de lead is Captain.' };
+  if (naam.includes('captain')) return { prod: 'captain', why: 'Captain, want de naam van de lead bevat "captain".' };
+  if (labels.includes('captain')) return { prod: 'captain', why: 'Captain, want de lead heeft het label "captain".' };
+  if (naam.includes('opstarthulp')) return { prod: 'opstarthulp', why: 'Opstarthulp, want de naam van de lead bevat "opstarthulp".' };
+  if (labels.includes('opstarthulp')) return { prod: 'opstarthulp', why: 'Opstarthulp, want de lead heeft het label "opstarthulp".' };
+  return { prod: 'niet_toegewezen', why: 'Niet toegewezen: een Syndicoach-lead zonder teken van Captain of Opstarthulp (niet in de naam, de labels of het pakket).' };
 }
 
 /** Wondatum in Brussel, of null: enkel een ACTIEVE lead in een gewonnen fase. */

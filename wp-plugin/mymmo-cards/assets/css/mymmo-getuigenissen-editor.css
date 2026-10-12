@@ -1,0 +1,12 @@
+/**
+ * De getuigenissen -- enkel wat in de EDITOR anders is.
+ *
+ * De geometrie komt uit mymmo-getuigenissen.css, zodat wat je in de editor
+ * ziet, is wat er op de pagina komt.
+ */
+
+/* De knop "getuigenis toevoegen" neemt geen kolom in maar een eigen regel
+   onder de rij. */
+.mymmo-getuigenissen .mymmo-getuigenissen-rij > .block-list-appender {
+  grid-column: 1 / -1;
+}

@@ -1,5 +1,6 @@
 /**
- * Webgedrag — tabblad "Gedrag": trends en flows over ALLE bezoeken (ook anoniem).
+ * Dashboards — tabblad Marketing: trends en flows over ALLE bezoeken (ook anoniem).
+ * Tot 2026-10-09 was dit het tabblad "Gedrag" van de aparte module Webgedrag.
  *
  * De server (src/modules/web-story/lib/behaviour.js) stuurt compacte sessies
  * voor de periode en de vorige; alles hieronder -- segmenteren, de padverkenner,
@@ -26,7 +27,8 @@
  * staat in st.flowPrev; de kaart in het midden nog eens aanklikken zet ze terug.
  *
  * REGEL 3: één centrale listener, data-bh-*-attributen. Individuele trajecten
- * opent window.WebGedrag.open() (webgedrag.js).
+ * opent window.WebGedrag.open() (dashboards-marketing.js; de naam van dat object
+ * bleef staan bij de verhuizing).
  */
 
 (function () {
@@ -801,7 +803,7 @@
   async function longData(period) {
     if (period === st.period && st.data) return st.data;
     if (longCache[period]) return longCache[period];
-    var res = await fetch('/webgedrag/api/behaviour?period=' + period, { credentials: 'include' });
+    var res = await fetch('/dashboards/api/marketing/behaviour?period=' + period, { credentials: 'include' });
     if (res.status === 401) { window.location.href = '/'; throw new Error('Niet aangemeld'); }
     var j = await res.json();
     if (!j.success || !j.data.available) throw new Error(j.error || (j.data && j.data.reason) || 'Geen gegevens');
@@ -2048,7 +2050,7 @@
   //   per pagina, recente bezoeken). De eerste versie zette een waarschuwing over het
   //   pad bovenaan de pagina, onder de zin over het segment: "7 van de 7" naast
   //   "31 bezoeken door 18 prospecten" las als een tegenspraak.
-  // Uitsluiten opent het venster van webgedrag.js (window.WebGedrag.exclude).
+  // Uitsluiten opent het venster van dashboards-marketing.js (window.WebGedrag.exclude).
   var DOMINANT_MIN = 3, DOMINANT_SHARE = 0.25;
   function dominant(list) {
     var per = {};
@@ -2771,7 +2773,7 @@
     body.forEach(function (el) { el.style.opacity = st.data ? '0.5' : '1'; });   // vorige weergave houden, geen flits
     if (!st.data) $('bhStatus').innerHTML = '<span class="loading loading-spinner loading-sm"></span> Bezoeken laden…';
     try {
-      var res = await fetch('/webgedrag/api/behaviour?period=' + st.period, { credentials: 'include' });
+      var res = await fetch('/dashboards/api/marketing/behaviour?period=' + st.period, { credentials: 'include' });
       if (res.status === 401) { window.location.href = '/'; return; }
       var j = await res.json();
       if (!j.success) throw new Error(j.error || 'Fout');

@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Mymmo Componenten
  * Description:       Bouwstenen voor de blok-editor: de kaartenstapel en de markeerstift. Elk component bezit geometrie en gedrag, nooit typografie -- de letter komt altijd uit het thema.
- * Version:           1.10.0
+ * Version:           1.11.0
  * Requires at least: 6.2
  * Requires PHP:      8.0
  * Author:            Mymmo
@@ -65,6 +65,8 @@
  *     eigen inhoud, omringd door keitjes die parallax voorbijschuiven
  *   - de STAPPEN (`includes/class-stappen.php`) -- een genummerde reeks die op
  *     een computer stap voor stap openschuift terwijl je scrolt
+ *   - de GETUIGENISSEN (`includes/class-getuigenissen.php`) -- klanten aan het
+ *     woord, met foto, naast elkaar
  *
  * DE HUISSTIJL (sinds 1.9.0)
  * --------------------------
@@ -94,7 +96,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('MYMMO_CARDS_VERSION', '1.10.0');
+define('MYMMO_CARDS_VERSION', '1.11.0');
 define('MYMMO_CARDS_FILE', __FILE__);
 define('MYMMO_CARDS_DIR', plugin_dir_path(__FILE__));
 define('MYMMO_CARDS_URL', plugin_dir_url(__FILE__));
@@ -103,20 +105,24 @@ require_once MYMMO_CARDS_DIR . 'includes/helpers.php';
 require_once MYMMO_CARDS_DIR . 'includes/class-huisstijl.php';
 require_once MYMMO_CARDS_DIR . 'includes/class-bewaking.php';
 require_once MYMMO_CARDS_DIR . 'includes/class-updates.php';
+require_once MYMMO_CARDS_DIR . 'includes/class-nieuw.php';
 require_once MYMMO_CARDS_DIR . 'includes/class-blocks.php';
 require_once MYMMO_CARDS_DIR . 'includes/class-markering.php';
 require_once MYMMO_CARDS_DIR . 'includes/class-knop.php';
 require_once MYMMO_CARDS_DIR . 'includes/class-keien.php';
 require_once MYMMO_CARDS_DIR . 'includes/class-stappen.php';
+require_once MYMMO_CARDS_DIR . 'includes/class-getuigenissen.php';
 
 function mymmo_cards_bootstrap(): void {
     Mymmo_Cards_Huisstijl::init();
     Mymmo_Cards_Bewaking::init();
     Mymmo_Cards_Updates::init();
+    Mymmo_Cards_Nieuw::init();
     Mymmo_Cards_Blocks::init();
     Mymmo_Cards_Markering::init();
     Mymmo_Cards_Knop::init();
     Mymmo_Cards_Keien::init();
     Mymmo_Cards_Stappen::init();
+    Mymmo_Cards_Getuigenissen::init();
 }
 add_action('plugins_loaded', 'mymmo_cards_bootstrap');

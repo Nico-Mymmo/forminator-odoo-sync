@@ -7,24 +7,25 @@
  *    GET  /                     → Full-page UI (public/dashboards.html)
  *
  *  API (authenticated — iedereen met module-toegang)
- *    GET  /api/leads-instroom   → Instroom-widget data (?period=30d|3m|6m|12m&scope=all|syndicoach|openvme|onbekend)
+ *    GET  /api/aanvragen        → Tab "Aanvragen" (terrein van David): zie lib/aanvragen/index.js. Alle queryparameters gaan door.
  *    GET  /api/targets          → Instelbaar maand-venster (?monthsBack=5&monthsAhead=6&scope=...)
  *    POST /api/targets/batch    → Meerdere maand-targets in één keer opslaan (body: {scope, items: [{periodMonth, targetValue}]})
  *    GET  /api/web-visits       → Tab "Website-bezoeken": compacte sessies uit D1 (?period=7d|30d|90d|12m)
  *    GET  /api/aanvragen-kaart  → Tab "Kaart": aanvragen per postcode (?period=30d|90d|12m|alles)
  *    *    /api/sales*          → Tabs "Verkoop" en "Targets": zie lib/sales/routes.js
+ *    *    /api/marketing/*     → Tab "Marketing" (voorheen de module Webgedrag): zie lib/marketing-routes.js
  *
  * @module modules/dashboards/routes
  */
-import { getInstroomData, normalizePeriod, buildBuckets, buildTargetWindows } from './lib/leads-instroom.js';
-import { listTargetWindow, getTargetsForMonths, buildTargetTrend, upsertTargets } from './lib/targets.js';
+import { getAanvragen } from './lib/aanvragen/index.js';
+import { VALID_SCOPES } from './lib/lead-kanalen.js';
+import { listTargetWindow, upsertTargets } from './lib/targets.js';
 import { getWebVisitsCached, WEB_PERIODS } from './lib/web-visits.js';
 import { getWebAttributionCached } from './lib/web-attribution.js';
 import { loadExclusions, dropExcluded } from '../web-story/lib/exclusions.js';
 import { getAanvragenKaart, normalizeKaartPeriode } from './lib/aanvragen-kaart.js';
 import { salesRoutes } from './lib/sales/routes.js';
-
-const VALID_SCOPES = ['all', 'syndicoach', 'openvme', 'onbekend'];
+import { marketingRoutes } from './lib/marketing-routes.js';
 
 function json(body, status) {
   return new Response(JSON.stringify(body), {
@@ -41,33 +42,13 @@ function readScope(url) {
   return VALID_SCOPES.includes(scope) ? scope : 'all';
 }
 
-/**
- * Alle kalendermaand-sleutels (YYYY-MM-01) die overlappen met [start, end).
- * Gebruikt om vooraf de juiste rijen bij Supabase op te vragen (getTargetsForMonths)
- * vóór sumProratedTarget() de eigenlijke dag-per-dag optelling doet.
- */
-function monthKeysInRange(start, end) {
-  const keys = [];
-  let cursor = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), 1));
-  const last = new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), 1));
-  while (cursor.getTime() <= last.getTime()) {
-    keys.push(`${cursor.getUTCFullYear()}-${String(cursor.getUTCMonth() + 1).padStart(2, '0')}-01`);
-    cursor = new Date(Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth() + 1, 1));
-  }
-  return keys;
-}
-
-/** '2026-09-01' -> '2026-08-01' (shift -1) of '2026-10-01' (shift +1). */
-function shiftMonthKey(monthKey, deltaMonths) {
-  const [year, month] = monthKey.split('-').map(Number);
-  const d = new Date(Date.UTC(year, month - 1 + deltaMonths, 1));
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-01`;
-}
-
 export const routes = {
 
   // ── Verkoop en Targets (D1 om-sales) ─────────────────────────────────────
   ...salesRoutes,
+
+  // ── Marketing (D1 van de website-tracker; voorheen de module Webgedrag) ──
+  ...marketingRoutes,
 
   // ── UI ────────────────────────────────────────────────────────────────────
   'GET /': async (context) => {
@@ -89,57 +70,24 @@ export const routes = {
     }
   },
 
-  // ── Instroom-widget ──────────────────────────────────────────────────────
-  'GET /api/leads-instroom': async ({ env, request }) => {
-    const url = new URL(request.url);
-    const period = normalizePeriod(url.searchParams.get('period'));
-    const scope = readScope(url);
-
+  // ── Aanvragen: het terrein van David ─────────────────────────────────────
+  // De route geeft ALLE queryparameters door; wat er gelezen en berekend wordt,
+  // staat in lib/aanvragen/ (read-only, via lib/aanvragen-bronnen.js). Zo vraagt
+  // een nieuwe filter of een nieuw stuk van het antwoord geen wijziging hier.
+  'GET /api/aanvragen': async ({ env, request }) => {
+    const params = Object.fromEntries(new URL(request.url).searchParams);
     try {
-      const data = await getInstroomData(env, { period, scope });
-
-      // Marketingbenchmark: per dag geprorateerd op de maand-target van die
-      // dag (target_value / dagen in die maand), zodat een rollend 30-
-      // dagen-venster (dat meestal 2 kalendermaanden overlapt) én een 6-
-      // maanden-venster allebei een eerlijke vergelijking krijgen. Zie
-      // lib/targets.js — sumProratedTarget() voor de volledige uitleg.
-      // Targets zijn scope-gebonden: bij "Syndicoach" gefilterd vergelijken
-      // we tegen het Syndicoach-target, niet tegen het totaal-target.
-      const rangeStart = new Date(data.range.start.replace(' ', 'T') + 'Z');
-      const rangeEnd = new Date(data.range.end.replace(' ', 'T') + 'Z');
-      const monthKeys = monthKeysInRange(rangeStart, rangeEnd);
-      // Eén maand vóór en na de weergegeven periode meevragen: buildTargetTrend
-      // interpoleert tussen maand-MIDDENS, dus die extra maanden maken de
-      // curve net aan het begin/einde van de periode vloeiend i.p.v. daar
-      // plat te extrapoleren vanaf de eerste/laatste maand die in beeld is.
-      const paddedMonthKeys = [monthKeys[0], ...monthKeys, monthKeys[monthKeys.length - 1]]
-        .map((key, idx) => (idx === 0 ? shiftMonthKey(key, -1) : idx === monthKeys.length + 1 ? shiftMonthKey(key, 1) : key));
-      const targetsByMonth = await getTargetsForMonths(env, { scope, periodMonths: [...new Set(paddedMonthKeys)] });
-      data.target = buildTargetTrend(targetsByMonth, rangeStart, rangeEnd, monthKeys);
-
-      // De grafieken VOLGEN de periodetoggle (Nico, 2026-09-28) -- dat
-      // vervangt het vaste rollende venster over de voorbije 2 jaar.
-      //  - series: staafgrafiek per kanaal, per dag/week/maand (PERIOD_GRANULARITY)
-      //  - targetWindows: realisatie tegen target, ALTIJD per maand -- een
-      //    target per dag of per week wordt bewust nergens getoond.
-      const dailyTargets = data.target.value === null ? null : data.target.dailySeries;
-      const channelKeys = Object.keys(data.brandLabels);
-      data.series = buildBuckets(data.daily, dailyTargets, data.granularity, channelKeys);
-      data.targetWindows = buildTargetWindows(data.daily, dailyTargets, data.period, rangeEnd, channelKeys);
-      delete data.target.dailySeries;
-      delete data.daily; // zit volledig in data.series
-
-      return json({ success: true, data });
+      return json({ success: true, data: await getAanvragen(env, params) });
     } catch (error) {
-      console.error('leads-instroom fout:', error);
+      console.error('aanvragen fout:', error);
       return json({ success: false, error: error.message || 'Onbekende fout' }, 500);
     }
   },
 
   // ── Website-bezoeken (D1 van de website-tracker) ─────────────────────────
   // Geen no-store-uitzondering nodig: de response zelf wordt niet gecachet; de
-  // berekening wel, 10 minuten in de edge-cache (lib/web-visits.js). Wie in
-  // Webgedrag uitgesloten is, gaat er NA de cache uit (web-story/lib/exclusions.js).
+  // berekening wel, 10 minuten in de edge-cache (lib/web-visits.js). Wie onder
+  // Marketing -> Instellingen uitgesloten is, gaat er NA de cache uit (web-story/lib/exclusions.js).
   'GET /api/web-visits': async ({ env, request, ctx }) => {
     const url = new URL(request.url);
     const period = WEB_PERIODS[url.searchParams.get('period')] ? url.searchParams.get('period') : '30d';

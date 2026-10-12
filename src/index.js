@@ -19,6 +19,8 @@ import { runGmailChatterSync } from './modules/gmail-chatter/lib/sync.js';
 import { runWebStoryCron } from './modules/web-story/lib/push.js';
 import { runSalesCron } from './modules/dashboards/lib/sales/routes.js';
 import { purgeOldBotRejections } from './modules/forminator-sync-v2/forms/bot-rejections.js';
+import { runNewsletterCron } from './modules/newsletters/lib/cron.js';
+import { runAuthCleanup } from './lib/auth/cleanup.js';
 
 // Durable Object-klassen moeten vanuit de entry geexporteerd worden (wrangler.jsonc -> durable_objects).
 export { MiniAppStorage } from './modules/mini-apps/lib/storage-do.js';
@@ -129,6 +131,22 @@ export default {
       ctx.waitUntil(
         purgeOldBotRejections(env).catch(err =>
           console.error('[scheduled][forminator-sync-v2][botcontrole] CRASH:', err?.message, err?.stack)
+        )
+      );
+      // Nieuwsbrieven: edities aanmaken volgens het ritme, herinneringen in het
+      // chatkanaal (enkel als er een kanaal ingesteld is), antwoorden op vragen
+      // in de mail naar hun koppeling. Verstuurt NOOIT een nieuwsbrief: dat
+      // gebeurt enkel na een klik in de OM. "0" in NEWSLETTER_CRON zet het uit.
+      ctx.waitUntil(
+        runNewsletterCron(env, { scheduledTime: event?.scheduledTime }).catch(err =>
+          console.error('[scheduled][newsletters] CRASH:', err?.message, err?.stack)
+        )
+      );
+      // Inloggen: verlopen sessies en aanmeldstappen weg, het aanmeldlogboek
+      // na een jaar. Eens per uur (eerste kwartier).
+      ctx.waitUntil(
+        runAuthCleanup(env, { scheduledTime: event?.scheduledTime }).catch(err =>
+          console.error('[scheduled][auth] CRASH:', err?.message, err?.stack)
         )
       );
     }

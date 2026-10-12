@@ -1,25 +1,35 @@
 /**
- * Webgedrag — het verhaal van een lead, actieblad of bezoeker.
+ * Dashboards — tabblad Marketing. Tot 2026-10-09 was dit de aparte module
+ * Webgedrag (/webgedrag); de oude links sturen hierheen door.
  *
- * REGEL 3 uit CLAUDE.md: event handlers via data-attributen + één centrale
- * listener. Praat uitsluitend met /webgedrag/api/*. De tijdlijn komt als HTML
- * van de tracker (dezelfde als in Odoo) en staat in een iframe (srcdoc), zodat
- * haar inline stijlen de pagina niet raken en andersom.
+ * Het overzicht (trends en flows over alle bezoeken) staat in
+ * dashboards-marketing-behaviour.js. Dit bestand doet de rest van het tabblad:
+ *  - het TRAJECT van één lead, actieblad of bezoeker: zoeken bovenaan, of de link
+ *    uit Odoo: /dashboards?tab=marketing&lead=<id> | &sheet=<id> | &visitor=<uuid>;
+ *  - de INSTELLINGEN van het tabblad: wie uitgesloten is uit de cijfers, en de
+ *    twijfelgevallen (beheerders). Bewust geen tabbladen: het zijn instellingen
+ *    van dit dashboard, geen eigen schermen. Elk opent in een venster;
+ *    &instelling=uitgesloten opent het eerste rechtstreeks.
  *
- * Openen vanuit Odoo: /webgedrag?lead=<id> | ?sheet=<id> | ?visitor=<uuid>
+ * REGEL 3 uit CLAUDE.md: data-mk-*-attributen en één centrale listener. Praat
+ * uitsluitend met /dashboards/api/marketing/*. De tijdlijn komt als HTML van de
+ * tracker (dezelfde als in Odoo) en staat in een iframe (srcdoc), zodat haar
+ * inline stijlen de pagina niet raken en andersom.
  *
- * Vier panelen: Gedrag (trends over alle bezoeken, webgedrag-behaviour.js),
- * Traject (één lead/actieblad/bezoeker, hieronder), Twijfelgevallen en
- * Uitgesloten (wie niet meetelt in de cijfers, src/modules/web-story/lib/exclusions.js).
- * ?tab=uitgesloten opent dat laatste rechtstreeks (link vanuit het dashboard).
+ * Het tabblad wisselt dashboards-web.js (showTab); hier wordt enkel gekeken of
+ * het paneel zichtbaar werd, zoals bij Verkoop, Targets en Kaart.
  */
 
 (function () {
   'use strict';
 
-  var BASE = '/webgedrag/api';
+  var root = document.querySelector('[data-dash-panel="marketing"]');
+  if (!root) return;
+
+  var BASE = '/dashboards/api/marketing';
   var ODOO = 'https://mymmo.odoo.com/web#';
-  var state = { boot: null, story: null, filterKanaal: '', filterPersoon: '', review: [], gekozen: {}, excl: null, exclKeuzes: [] };
+  var KINDS = ['lead', 'sheet', 'visitor'];
+  var state = { boot: null, bootPromise: null, view: 'overview', story: null, filterKanaal: '', filterPersoon: '', review: [], gekozen: {}, excl: null, exclKeuzes: [] };
 
   // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -28,23 +38,40 @@
   }
   function $(id) { return document.getElementById(id); }
   function icons() { if (window.lucide) window.lucide.createIcons(); }
+  var SPINNER = '<div class="flex justify-center p-10"><span class="loading loading-spinner"></span></div>';
 
-  function showPanel(name) {
-    document.querySelectorAll('[data-story-tab]').forEach(function (t) { t.classList.toggle('tab-active', t.dataset.storyTab === name); });
-    $('panelBehaviour').classList.toggle('hidden', name !== 'behaviour');
-    $('panelDetail').classList.toggle('hidden', name !== 'detail');
-    $('panelReview').classList.toggle('hidden', name !== 'review');
-    if ($('panelExcluded')) $('panelExcluded').classList.toggle('hidden', name !== 'excluded');
-    if (name === 'detail') $('detailTab').classList.remove('hidden');
-    if (name === 'behaviour' && window.WebGedragBehaviour) window.WebGedragBehaviour.load();
-    if (name === 'review') laadReview().catch(function (err) { toast(err.message, 'error'); });
-    if (name === 'excluded') laadUitgesloten().catch(function (err) { toast(err.message, 'error'); });
+  /** Het overzicht (Gedrag) of het traject van één record. */
+  function showView(name) {
+    state.view = name;
+    $('mkOverview').classList.toggle('hidden', name !== 'overview');
+    $('mkDetail').classList.toggle('hidden', name !== 'detail');
+    if (name === 'overview' && window.WebGedragBehaviour) window.WebGedragBehaviour.load();
   }
+
+  /** Lead, actieblad of bezoeker in de adresbalk zetten (of weghalen), zodat herladen en delen werken. */
+  function zetUrl(kind, id) {
+    var u = new URL(window.location.href);
+    KINDS.forEach(function (k) { u.searchParams.delete(k); });
+    if (kind) { u.searchParams.set('tab', 'marketing'); u.searchParams.set(kind, id); }
+    history.replaceState(null, '', u.toString());
+  }
+
   function toast(msg, soort) {
+    // Een open venster ligt in de top layer van de browser: een melding erbuiten
+    // valt eronder. Staat er een venster open, dan komt de melding daarin.
+    var dlg = document.querySelector('dialog[open]');
+    var host = dlg ? dlg.querySelector('[data-mk-toast]') : $('mkToastHost');
+    if (!host && dlg) {
+      host = document.createElement('div');
+      host.className = 'toast toast-end z-50';
+      host.setAttribute('data-mk-toast', '');
+      dlg.appendChild(host);
+    }
+    if (!host) return;
     var el = document.createElement('div');
     el.className = 'alert ' + (soort === 'error' ? 'alert-error' : 'alert-success') + ' text-sm';
     el.textContent = msg;
-    $('toastHost').appendChild(el);
+    host.appendChild(el);
     setTimeout(function () { el.remove(); }, 4000);
   }
   async function api(pad, opties) {
@@ -77,8 +104,8 @@
     return s ? ' <span class="badge badge-sm whitespace-nowrap ' + (STATUS_BADGE[s.key] || '') + '">' + esc(s.label) + '</span>' : '';
   }
 
-  // Uitgesloten uit de cijfers (lib/exclusions.js): een badge waar het zo is, en
-  // voor beheerders de knop om dat te wijzigen. Het traject zelf blijft volledig.
+  // Uitgesloten uit de cijfers (web-story/lib/exclusions.js): een badge waar het zo
+  // is, en voor beheerders en marketing de knop om dat te wijzigen. Het traject zelf blijft volledig.
   function uitBadge(r) {
     return r ? ' <span class="badge badge-sm badge-neutral whitespace-nowrap" title="'
       + esc('Telt niet mee in de cijfers' + (r.reason ? ': ' + r.reason : '')) + '">uitgesloten</span>' : '';
@@ -86,38 +113,42 @@
   function uitKnop(r, uuid, norms, label) {
     if (!state.boot || !state.boot.can_exclude) return '';   // beheerders en marketing
     if (r) {
-      return '<button class="btn btn-xs btn-ghost" data-action="excl-remove" data-id="' + esc(r.id) + '" title="'
+      return '<button class="btn btn-xs btn-ghost" data-mk-action="excl-remove" data-id="' + esc(r.id) + '" title="'
         + esc('Uitgesloten via ' + r.label) + '">Weer laten meetellen</button>';
     }
-    return '<button class="btn btn-xs btn-ghost" data-action="excl-open" data-uuid="' + esc(uuid) + '" data-norms="'
+    return '<button class="btn btn-xs btn-ghost" data-mk-action="excl-open" data-uuid="' + esc(uuid) + '" data-norms="'
       + esc((norms || []).join(',')) + '" data-label="' + esc(label || '') + '">Uitsluiten uit de cijfers</button>';
   }
 
-  // ── Laden ──────────────────────────────────────────────────────────────────
+  // ── Traject: laden ─────────────────────────────────────────────────────────
+
+  /** De instellingenvensters sluiten: wie vanuit een lijst een traject opent, wil het traject zien. */
+  function sluitInstellingen() {
+    ['mkReviewDialog', 'mkExcludedDialog'].forEach(function (id) { var d = $(id); if (d && d.open) d.close(); });
+  }
 
   async function open(kind, id) {
-    showPanel('detail');
+    sluitInstellingen();
+    showView('detail');
     window.scrollTo(0, 0);
-    $('searchResults').innerHTML = '';
-    $('storyHost').innerHTML = '<div class="flex justify-center p-10"><span class="loading loading-spinner"></span></div>';
-    var u = new URL(window.location.href);
-    ['lead', 'sheet', 'visitor'].forEach(function (k) { u.searchParams.delete(k); });
-    u.searchParams.set(kind, id);
-    history.replaceState(null, '', u.toString());
+    $('mkSearchResults').innerHTML = '';
+    $('mkStoryHost').innerHTML = SPINNER;
+    zetUrl(kind, id);
     try {
       state.story = await api('/' + kind + '/' + encodeURIComponent(id));
       state.filterKanaal = '';
       state.filterPersoon = '';
       renderStory();
     } catch (e) {
-      $('storyHost').innerHTML = '<div class="alert alert-error">' + esc(e.message) + '</div>';
+      $('mkStoryHost').innerHTML = '<div class="alert alert-error">' + esc(e.message) + '</div>';
     }
   }
 
   async function zoek(q) {
     if (!q) return;
-    showPanel('detail');
-    $('storyHost').innerHTML = '';
+    showView('detail');
+    $('mkStoryHost').innerHTML = '';
+    $('mkSearchResults').innerHTML = SPINNER;
     var r = await api('/search?q=' + encodeURIComponent(q));
     if (r.leads.length === 1 && !r.visitors.length) return open('lead', r.leads[0].id);
     if (!r.leads.length && r.visitors.length === 1) return open('visitor', r.visitors[0].uuid);
@@ -126,19 +157,19 @@
     if (r.leads.length) {
       html += '<div class="card bg-base-100 mb-3"><div class="card-body p-4"><h3 class="font-semibold text-sm mb-2">Leads</h3><ul class="menu menu-sm p-0">'
         + r.leads.map(function (l) {
-          return '<li><a data-action="open" data-kind="lead" data-id="' + l.id + '">' + esc(l.name) + statusBadge(l.status) + ' <span class="opacity-60">' + esc(l.email_from || '') + ' · #' + l.id + '</span></a></li>';
+          return '<li><a data-mk-action="open" data-kind="lead" data-id="' + l.id + '">' + esc(l.name) + statusBadge(l.status) + ' <span class="opacity-60">' + esc(l.email_from || '') + ' · #' + l.id + '</span></a></li>';
         }).join('') + '</ul></div></div>';
     }
     if (r.visitors.length) {
       html += '<div class="card bg-base-100"><div class="card-body p-4"><h3 class="font-semibold text-sm mb-2">Bezoekers (browsers) met dit adres</h3><ul class="menu menu-sm p-0">'
         + r.visitors.map(function (v) {
-          return '<li><a data-action="open" data-kind="visitor" data-id="' + esc(v.uuid) + '">' + esc(v.uuid.slice(0, 8)) + ' <span class="opacity-60">' + esc(v.site || '') + ' · laatst ' + esc(datum(v.last_seen)) + '</span></a></li>';
+          return '<li><a data-mk-action="open" data-kind="visitor" data-id="' + esc(v.uuid) + '">' + esc(v.uuid.slice(0, 8)) + ' <span class="opacity-60">' + esc(v.site || '') + ' · laatst ' + esc(datum(v.last_seen)) + '</span></a></li>';
         }).join('') + '</ul></div></div>';
     }
-    $('searchResults').innerHTML = html;
+    $('mkSearchResults').innerHTML = html;
   }
 
-  // ── Verhaal ────────────────────────────────────────────────────────────────
+  // ── Traject: tekenen ───────────────────────────────────────────────────────
 
   function recordKaart(s) {
     var r = s.record;
@@ -151,14 +182,14 @@
       meta.push('aangemaakt ' + esc(datum(r.created)));
       links = '<a class="btn btn-xs" target="_blank" rel="noopener" href="' + odooLink('crm.lead', r.id) + '">Open in Odoo</a>'
         + (s.sheets || []).map(function (sh) {
-          return '<a class="btn btn-xs btn-ghost" data-action="open" data-kind="sheet" data-id="' + sh.id + '">Actieblad ' + esc(sh.name || '#' + sh.id) + '</a>';
+          return '<a class="btn btn-xs btn-ghost" data-mk-action="open" data-kind="sheet" data-id="' + sh.id + '">Actieblad ' + esc(sh.name || '#' + sh.id) + '</a>';
         }).join('');
     } else if (s.kind === 'sheet') {
       titel = 'Actieblad ' + (r.name || '#' + r.id);
       meta.push((s.leads || []).length + ' lead(s)');
       links = '<a class="btn btn-xs" target="_blank" rel="noopener" href="' + odooLink('x_sales_action_sheet', r.id) + '">Open in Odoo</a>'
         + (s.leads || []).map(function (l) {
-          return '<a class="btn btn-xs btn-ghost" data-action="open" data-kind="lead" data-id="' + l.id + '">' + esc(l.name) + statusBadge(l.status) + '</a>';
+          return '<a class="btn btn-xs btn-ghost" data-mk-action="open" data-kind="lead" data-id="' + l.id + '">' + esc(l.name) + statusBadge(l.status) + '</a>';
         }).join('');
     } else {
       titel = persoonLabel(r.email, r.uuid);
@@ -170,11 +201,11 @@
       if (r.bot) meta.push('<span class="badge badge-sm">bot</span>');
       if (r.uitgesloten) meta.push(uitBadge(r.uitgesloten).trim());
       links = uitKnop(r.uitgesloten, r.uuid, r.norms, persoonLabel(r.email, r.uuid)) + (s.leads || []).map(function (l) {
-        return '<a class="btn btn-xs btn-ghost" data-action="open" data-kind="lead" data-id="' + l.res_id + '">' + esc(l.name || '#' + l.res_id) + statusBadge(l.status) + '</a>';
+        return '<a class="btn btn-xs btn-ghost" data-mk-action="open" data-kind="lead" data-id="' + l.res_id + '">' + esc(l.name || '#' + l.res_id) + statusBadge(l.status) + '</a>';
       }).join('');
     }
-    var push = (s.kind !== 'visitor' && state.boot.mode === 'on')
-      ? '<button class="btn btn-xs btn-outline" data-action="push" data-kind="' + s.kind + '" data-id="' + r.id + '"><i data-lucide="refresh-cw" class="w-3 h-3"></i> Odoo nu bijwerken</button>' : '';
+    var push = (s.kind !== 'visitor' && state.boot && state.boot.mode === 'on')
+      ? '<button class="btn btn-xs btn-outline" data-mk-action="push" data-kind="' + s.kind + '" data-id="' + r.id + '"><i data-lucide="refresh-cw" class="w-3 h-3"></i> Odoo nu bijwerken</button>' : '';
     return '<div class="card bg-base-100 mb-4"><div class="card-body p-5">'
       + '<div class="flex flex-wrap justify-between gap-2"><h2 class="card-title">' + esc(titel) + '</h2>' + push + '</div>'
       + '<div class="text-sm opacity-70">' + meta.join(' · ') + '</div>'
@@ -214,13 +245,13 @@
     if (s.kind === 'visitor' || !(s.links || []).length) return '';
     var rows = s.links.map(function (l) {
       var acties = s.kind === 'lead'
-        ? (l.status !== 'bevestigd' ? '<button class="btn btn-xs btn-ghost text-success" data-action="judge" data-status="bevestigd" data-uuid="' + l.visitor_uuid + '" data-res="' + l.res_id + '">Bevestig</button>' : '')
-          + (l.status !== 'afgewezen' ? '<button class="btn btn-xs btn-ghost text-error" data-action="judge" data-status="afgewezen" data-uuid="' + l.visitor_uuid + '" data-res="' + l.res_id + '">Hoort er niet bij</button>' : '')
-          + (l.status !== 'actief' ? '<button class="btn btn-xs btn-ghost" data-action="judge" data-status="actief" data-uuid="' + l.visitor_uuid + '" data-res="' + l.res_id + '">Herstel</button>' : '')
+        ? (l.status !== 'bevestigd' ? '<button class="btn btn-xs btn-ghost text-success" data-mk-action="judge" data-status="bevestigd" data-uuid="' + l.visitor_uuid + '" data-res="' + l.res_id + '">Bevestig</button>' : '')
+          + (l.status !== 'afgewezen' ? '<button class="btn btn-xs btn-ghost text-error" data-mk-action="judge" data-status="afgewezen" data-uuid="' + l.visitor_uuid + '" data-res="' + l.res_id + '">Hoort er niet bij</button>' : '')
+          + (l.status !== 'actief' ? '<button class="btn btn-xs btn-ghost" data-mk-action="judge" data-status="actief" data-uuid="' + l.visitor_uuid + '" data-res="' + l.res_id + '">Herstel</button>' : '')
         : '';
       var status = l.status === 'actief' ? '' : '<span class="badge badge-sm ' + (l.status === 'bevestigd' ? 'badge-success' : 'badge-ghost') + '">' + esc(l.status) + '</span>';
       return '<tr class="' + (l.status === 'afgewezen' ? 'opacity-50' : '') + '">'
-        + '<td><a class="link link-hover" data-action="open" data-kind="visitor" data-id="' + l.visitor_uuid + '">' + esc(persoonLabel(l.email, l.visitor_uuid)) + '</a>'
+        + '<td><a class="link link-hover" data-mk-action="open" data-kind="visitor" data-id="' + l.visitor_uuid + '">' + esc(persoonLabel(l.email, l.visitor_uuid)) + '</a>'
         + (l.is_internal ? ' <span class="badge badge-sm badge-warning" title="Een collega-browser: telt niet mee in de cijfers">intern / test</span>' : '')
         + uitBadge(l.uitgesloten)
         + (l.gedeeld ? ' <span class="badge badge-sm badge-info badge-outline" title="Deze browser gebruikte meerdere adressen">gedeelde browser</span>'
@@ -273,8 +304,8 @@
     }).join('');
     return '<div class="card bg-base-100 mb-4"><div class="card-body p-5">'
       + '<div class="flex flex-wrap justify-between items-center gap-2"><h3 class="font-semibold">Alle bezoeken (' + lijst.length + ')</h3>'
-      + '<div class="flex gap-2"><select class="select select-xs select-bordered" data-filter="kanaal"><option value="">Alle kanalen</option>' + opt(kanalen, state.filterKanaal) + '</select>'
-      + '<select class="select select-xs select-bordered" data-filter="persoon"><option value="">Alle personen</option>' + opt(personen, state.filterPersoon, true) + '</select></div></div>'
+      + '<div class="flex gap-2"><select class="select select-xs select-bordered" data-mk-filter="kanaal"><option value="">Alle kanalen</option>' + opt(kanalen, state.filterKanaal) + '</select>'
+      + '<select class="select select-xs select-bordered" data-mk-filter="persoon"><option value="">Alle personen</option>' + opt(personen, state.filterPersoon, true) + '</select></div></div>'
       + '<div class="overflow-x-auto max-h-[28rem]"><table class="table table-sm table-pin-rows"><thead><tr><th>Wanneer</th><th>Wie</th><th>Kanaal</th><th>Pagina\'s</th><th></th></tr></thead><tbody>'
       + rows + '</tbody></table></div></div></div>';
   }
@@ -282,13 +313,13 @@
   function tijdlijnKaart(s) {
     if (!s.timeline_html) return '';
     return '<div class="card bg-base-100"><div class="card-body p-5"><h3 class="font-semibold mb-2">Tijdlijn (zoals in Odoo)</h3>'
-      + '<iframe id="timelineFrame" class="w-full border-0" style="min-height:400px" sandbox="allow-same-origin allow-popups"></iframe></div></div>';
+      + '<iframe id="mkTimelineFrame" class="w-full border-0" style="min-height:400px" sandbox="allow-same-origin allow-popups"></iframe></div></div>';
   }
 
   function renderStory() {
     var s = state.story;
-    $('storyHost').innerHTML = recordKaart(s) + verhaalKaart(s.journey) + personenKaart(s) + sessiesKaart(s) + tijdlijnKaart(s);
-    var f = $('timelineFrame');
+    $('mkStoryHost').innerHTML = recordKaart(s) + verhaalKaart(s.journey) + personenKaart(s) + sessiesKaart(s) + tijdlijnKaart(s);
+    var f = $('mkTimelineFrame');
     if (f) {
       f.srcdoc = '<!doctype html><meta charset="utf-8"><base target="_blank"><body style="margin:0;font-family:system-ui,sans-serif">'
         + (s.kpi_html || '') + s.timeline_html + '</body>';
@@ -297,18 +328,31 @@
     icons();
   }
 
-  // ── Twijfelgevallen ────────────────────────────────────────────────────────
+  // ── Instellingen ───────────────────────────────────────────────────────────
+
+  /** naam: 'excluded' (wie niet meetelt) of 'review' (twijfelgevallen, beheerders). */
+  function openInstelling(naam) {
+    if (naam === 'review') {
+      if (!state.boot || !state.boot.is_admin) return;
+      $('mkReviewDialog').showModal();
+      laadReview().catch(function (err) { toast(err.message, 'error'); });
+      return;
+    }
+    $('mkExcludedDialog').showModal();
+    laadUitgesloten().catch(function (err) { toast(err.message, 'error'); });
+  }
 
   async function laadReview() {
-    $('reviewHost').innerHTML = '<span class="loading loading-spinner"></span>';
+    var host = $('mkReviewHost');
+    host.innerHTML = '<span class="loading loading-spinner"></span>';
     state.review = await api('/review');
     state.gekozen = {};
-    if (!state.review.length) { $('reviewHost').innerHTML = '<p class="opacity-70 text-sm">Geen twijfelgevallen.</p>'; return; }
-    $('reviewHost').innerHTML = '<table class="table table-sm"><thead><tr><th><input type="checkbox" class="checkbox checkbox-xs" data-action="select-all"></th>'
+    if (!state.review.length) { host.innerHTML = '<p class="opacity-70 text-sm">Geen twijfelgevallen.</p>'; return; }
+    host.innerHTML = '<table class="table table-sm"><thead><tr><th><input type="checkbox" class="checkbox checkbox-xs" data-mk-action="select-all"></th>'
       + '<th>Lead</th><th>Bezoeker</th><th>Verantwoordelijke</th><th>Laatst</th></tr></thead><tbody>'
       + state.review.map(function (r, i) {
-        return '<tr><td><input type="checkbox" class="checkbox checkbox-xs" data-action="select" data-i="' + i + '"></td>'
-          + '<td><a class="link link-hover" data-action="open" data-kind="lead" data-id="' + r.res_id + '">' + esc(r.lead_name || '#' + r.res_id) + '</a>' + statusBadge(r.status)
+        return '<tr><td><input type="checkbox" class="checkbox checkbox-xs" data-mk-action="select" data-i="' + i + '"></td>'
+          + '<td><a class="link link-hover" data-mk-action="open" data-kind="lead" data-id="' + r.res_id + '">' + esc(r.lead_name || '#' + r.res_id) + '</a>' + statusBadge(r.status)
           + '<div class="text-xs opacity-60">' + esc(r.lead_email || '') + (r.partner ? ' · ' + esc(r.partner.name) : '') + '</div></td>'
           + '<td class="text-sm">' + esc(persoonLabel(r.email, r.visitor_uuid))
           + (r.gedeeld ? '<div class="text-xs opacity-70"><span class="badge badge-xs badge-info badge-outline">gedeelde browser</span> ook: '
@@ -323,11 +367,9 @@
     toast(changes.length === 1 ? 'Bewaard.' : changes.length + ' koppelingen bewaard.');
   }
 
-  // ── Uitsluiten: het venster en het tabblad Uitgesloten ─────────────────────
-
   /** t = { uuid, norms: [herleide adressen van die browser], label } */
   function openUitsluiten(t) {
-    var dlg = $('exclDialog');
+    var dlg = $('mkExclDialog');
     if (!dlg) return;
     var norms = (t.norms || []).filter(Boolean);
     // [soort, waarde, titel, uitleg]
@@ -341,24 +383,24 @@
     // browser, anders sluit je stil de andere persoon mee uit.
     var standaard = norms.length === 1 ? 0 : keuzes.length - 1;
     state.exclKeuzes = keuzes;
-    $('exclWho').textContent = t.label || persoonLabel(null, t.uuid);
-    $('exclChoices').innerHTML = (norms.length > 1
+    $('mkExclWho').textContent = t.label || persoonLabel(null, t.uuid);
+    $('mkExclChoices').innerHTML = (norms.length > 1
       ? '<p class="text-xs rounded-lg bg-info/10 p-2">Gedeelde browser: hier werden ' + norms.length + ' adressen gebruikt. Kies welke persoon je uitsluit, of enkel deze browser.</p>' : '')
       + keuzes.map(function (k, i) {
         return '<label class="flex items-start gap-3 rounded-lg border border-base-content/10 p-3 cursor-pointer om-hover">'
-          + '<input type="radio" name="exclScope" class="radio radio-sm radio-primary mt-0.5" value="' + i + '"' + (i === standaard ? ' checked' : '') + '>'
+          + '<input type="radio" name="mkExclScope" class="radio radio-sm radio-primary mt-0.5" value="' + i + '"' + (i === standaard ? ' checked' : '') + '>'
           + '<span><span class="block text-sm font-medium">' + esc(k[2]) + '</span><span class="block text-xs opacity-60">' + esc(k[3]) + '</span></span></label>';
       }).join('');
-    $('exclReason').value = '';
+    $('mkExclReason').value = '';
     dlg.showModal();
   }
 
   async function bewaarUitsluiten() {
-    var gekozen = document.querySelector('input[name="exclScope"]:checked');
+    var gekozen = document.querySelector('input[name="mkExclScope"]:checked');
     if (!gekozen) { toast('Kies wat je uitsluit.', 'error'); return; }
     var k = state.exclKeuzes[Number(gekozen.value)];
-    await api('/exclusions', { method: 'POST', body: JSON.stringify({ kind: k[0], value: k[1], reason: $('exclReason').value.trim() }) });
-    $('exclDialog').close();
+    await api('/exclusions', { method: 'POST', body: JSON.stringify({ kind: k[0], value: k[1], reason: $('mkExclReason').value.trim() }) });
+    $('mkExclDialog').close();
     toast('Uitgesloten: telt niet meer mee in de cijfers.');
     await naWijziging();
   }
@@ -369,11 +411,11 @@
     await naWijziging();
   }
 
-  /** Na een wijziging: Gedrag opnieuw laten tellen, en herladen wat open staat. */
+  /** Na een wijziging: het overzicht opnieuw laten tellen, en herladen wat open staat. */
   async function naWijziging() {
     if (window.WebGedragBehaviour && window.WebGedragBehaviour.reload) window.WebGedragBehaviour.reload();
-    if ($('panelExcluded') && !$('panelExcluded').classList.contains('hidden')) { await laadUitgesloten(); return; }
-    if (state.story && !$('panelDetail').classList.contains('hidden')) {
+    if ($('mkExcludedDialog').open) await laadUitgesloten();
+    if (state.story && state.view === 'detail' && !$('mkExcludedDialog').open) {
       var r = state.story.record;
       await open(state.story.kind, state.story.kind === 'visitor' ? r.uuid : r.id);
     }
@@ -385,12 +427,11 @@
   }
 
   async function laadUitgesloten() {
-    var host = $('exclHost');
-    if (!host) return;
+    var host = $('mkExclHost');
     host.innerHTML = '<span class="loading loading-spinner"></span>';
     var d = await api('/exclusions');
     state.excl = d;
-    if ($('exclAddForm')) $('exclAddForm').classList.toggle('hidden', !d.can_exclude);
+    $('mkExclAddForm').classList.toggle('hidden', !d.can_exclude);
     if (!d.rules.length) { host.innerHTML = '<p class="opacity-70 text-sm">Niemand uitgesloten: iedereen telt mee.</p>'; return; }
     host.innerHTML = '<table class="table table-sm"><thead><tr><th>Wie</th><th>Wat</th><th>Waarom</th><th>Door</th><th>Sinds</th><th>Laatst op de site</th><th></th></tr></thead><tbody>'
       + d.rules.map(function (r) {
@@ -401,29 +442,32 @@
           + '<td class="text-xs opacity-70 whitespace-nowrap">' + esc(sindsTekst(r.created_at)) + '</td>'
           + '<td class="text-xs opacity-70 whitespace-nowrap">' + esc(r.last_seen ? datum(r.last_seen) : '—') + '</td>'
           + '<td class="text-right whitespace-nowrap">'
-          + (r.visitor ? '<button class="btn btn-xs btn-ghost" data-action="open" data-kind="visitor" data-id="' + esc(r.visitor) + '">Traject</button>' : '')
-          + (d.can_exclude ? '<button class="btn btn-xs btn-ghost" data-action="excl-remove" data-id="' + esc(r.id) + '">Weer laten meetellen</button>' : '')
+          + (r.visitor ? '<button class="btn btn-xs btn-ghost" data-mk-action="open" data-kind="visitor" data-id="' + esc(r.visitor) + '">Traject</button>' : '')
+          + (d.can_exclude ? '<button class="btn btn-xs btn-ghost" data-mk-action="excl-remove" data-id="' + esc(r.id) + '">Weer laten meetellen</button>' : '')
           + '</td></tr>';
       }).join('') + '</tbody></table>';
   }
 
   // ── Centrale listeners ─────────────────────────────────────────────────────
+  // Op document en niet op het paneel: de instellingen staan in vensters buiten
+  // het paneel, en Website-bezoeken opent de lijst Uitgesloten ook.
 
   document.addEventListener('click', async function (e) {
-    var tab = e.target.closest('[data-story-tab]');
-    if (tab) { showPanel(tab.dataset.storyTab); return; }
-    var el = e.target.closest('[data-action]');
+    var el = e.target.closest('[data-mk-action]');
     if (!el) return;
-    var a = el.dataset.action;
+    var a = el.dataset.mkAction;
     try {
       if (a === 'open') {
         e.preventDefault();
         await open(el.dataset.kind, el.dataset.id);
       } else if (a === 'back') {
-        var u = new URL(window.location.href);
-        ['lead', 'sheet', 'visitor'].forEach(function (k) { u.searchParams.delete(k); });
-        history.replaceState(null, '', u.toString());
-        showPanel('behaviour');
+        zetUrl(null);
+        showView('overview');
+      } else if (a === 'settings') {
+        e.preventDefault();
+        var menu = el.closest('details');
+        if (menu) menu.removeAttribute('open');
+        openInstelling(el.dataset.value);
       } else if (a === 'judge') {
         await beoordeel([{ uuid: el.dataset.uuid, res_id: Number(el.dataset.res), status: el.dataset.status }]);
         await open('lead', state.story.record.id);
@@ -444,10 +488,10 @@
       } else if (a === 'select') {
         state.gekozen[el.dataset.i] = el.checked;
       } else if (a === 'select-all') {
-        document.querySelectorAll('[data-action="select"]').forEach(function (c) { c.checked = el.checked; state.gekozen[c.dataset.i] = el.checked; });
+        document.querySelectorAll('[data-mk-action="select"]').forEach(function (c) { c.checked = el.checked; state.gekozen[c.dataset.i] = el.checked; });
       } else if (a === 'bulk') {
         var changes = state.review.filter(function (_, i) { return state.gekozen[i]; })
-          .map(function (r) { return { uuid: r.visitor_uuid, res_id: r.res_id, status: el.dataset.status }; });
+          .map(function (x) { return { uuid: x.visitor_uuid, res_id: x.res_id, status: el.dataset.status }; });
         if (!changes.length) return toast('Selecteer eerst rijen.', 'error');
         await beoordeel(changes);
         await laadReview();
@@ -458,70 +502,105 @@
     }
   });
 
+  // Een open instellingenmenu sluit bij een klik ernaast.
+  document.addEventListener('click', function (e) {
+    var menu = $('mkSettingsMenu');
+    if (menu && menu.open && !menu.contains(e.target)) menu.removeAttribute('open');
+  });
+
   document.addEventListener('change', function (e) {
-    var f = e.target.closest('[data-filter]');
+    var f = e.target.closest('[data-mk-filter]');
     if (!f) return;
-    if (f.dataset.filter === 'kanaal') state.filterKanaal = f.value;
+    if (f.dataset.mkFilter === 'kanaal') state.filterKanaal = f.value;
     else state.filterPersoon = f.value;
     renderStory();
   });
 
   document.addEventListener('submit', function (e) {
-    if (e.target.id !== 'exclAddForm') return;
+    if (e.target.id === 'mkSearchForm') {
+      e.preventDefault();
+      zoek($('mkSearchInput').value.trim()).catch(function (err) { $('mkSearchResults').innerHTML = ''; toast(err.message, 'error'); });
+      return;
+    }
+    if (e.target.id !== 'mkExclAddForm') return;
     e.preventDefault();
-    var v = $('exclAddValue').value.trim();
+    var v = $('mkExclAddValue').value.trim();
     if (!v) return;
     var kind = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v) ? 'visitor' : 'email';
-    api('/exclusions', { method: 'POST', body: JSON.stringify({ kind: kind, value: v, reason: $('exclAddReason').value.trim() }) })
+    api('/exclusions', { method: 'POST', body: JSON.stringify({ kind: kind, value: v, reason: $('mkExclAddReason').value.trim() }) })
       .then(function () {
-        $('exclAddValue').value = '';
-        $('exclAddReason').value = '';
+        $('mkExclAddValue').value = '';
+        $('mkExclAddReason').value = '';
         toast('Uitgesloten: telt niet meer mee in de cijfers.');
         return naWijziging();
       })
       .catch(function (err) { toast(err.message, 'error'); });
   });
 
-  $('searchForm').addEventListener('submit', function (e) {
-    e.preventDefault();
-    zoek($('searchInput').value.trim()).catch(function (err) { toast(err.message, 'error'); });
-  });
-
-  // Voor webgedrag-behaviour.js: een bezoek aanklikken opent het traject.
+  // Voor dashboards-marketing-behaviour.js: een bezoek aanklikken opent het traject.
+  // De naam (WebGedrag) bleef staan bij de verhuizing uit de module Webgedrag.
   window.WebGedrag = {
     open: function (kind, id) { open(kind, id); },
     colors: {},
-    // Uitsluiten vanuit Gedrag (de waarschuwing "komt van één persoon").
+    // Uitsluiten vanuit het overzicht (de waarschuwing "komt van één persoon").
     exclude: function (t) { openUitsluiten(t); },
-    // Mag deze gebruiker uitsluiten? Beheerders en marketing (mayExclude in routes.js).
+    // Mag deze gebruiker uitsluiten? Beheerders en marketing (mayExclude in marketing-routes.js).
     canExclude: function () { return !!(state.boot && state.boot.can_exclude); },
   };
 
-  // ── Start ──────────────────────────────────────────────────────────────────
+  // ── Start: pas als het tabblad zichtbaar wordt ─────────────────────────────
 
-  (async function init() {
+  function boot() {
+    if (!state.bootPromise) {
+      state.bootPromise = api('/bootstrap').then(function (b) {
+        state.boot = b;
+        window.WebGedrag.colors = b.colors || {};
+        $('mkReviewItem').classList.toggle('hidden', !b.is_admin);
+        if (b.mode !== 'on') {
+          $('mkModeWarning').classList.remove('hidden');
+          $('mkModeWarningText').textContent = 'Dit scherm is live. In Odoo staat het verhaal nog niet: WEB_STORY_MODE staat op "'
+            + (b.mode || 'uit') + '", de tracker schrijft de tijdlijn op de lead voorlopig nog zelf.';
+        }
+        return b;
+      }).catch(function (err) { state.bootPromise = null; throw err; });
+    }
+    return state.bootPromise;
+  }
+
+  var gestart = false;
+  async function activeer() {
+    var eerste = !gestart;
+    gestart = true;
     try {
-      var res = await fetch('/api/auth/me', { credentials: 'include' });
-      if (res.status === 401) { window.location.href = '/'; return; }
-      var me = await res.json();
-      if (window.renderSharedNavbar) window.renderSharedNavbar(me.navbarHtml);
-    } catch (_) { /* navbar is niet kritisch */ }
-    try {
-      state.boot = await api('/bootstrap');
-      window.WebGedrag.colors = state.boot.colors || {};
-      $('reviewTab').classList.toggle('hidden', !state.boot.is_admin);
-      if (state.boot.mode !== 'on') {
-        $('modeWarning').classList.remove('hidden');
-        $('modeWarningText').textContent = 'Dit scherm is live. In Odoo staat het verhaal nog niet: WEB_STORY_MODE staat op "'
-          + (state.boot.mode || 'uit') + '", de tracker schrijft de tijdlijn op de lead voorlopig nog zelf.';
+      // Eerst de kanaalkleuren en de rechten: het overzicht tekent ermee.
+      await boot();
+      if (eerste) {
+        var q = new URL(window.location.href).searchParams;
+        var kind = KINDS.filter(function (k) { return q.get(k); })[0];
+        if (kind) await open(kind, q.get(kind));
+        else showView('overview');
+        if (q.get('instelling') === 'uitgesloten') {
+          var u = new URL(window.location.href);
+          u.searchParams.delete('instelling');
+          history.replaceState(null, '', u.toString());
+          openInstelling('excluded');
+        }
+      } else if (state.view === 'detail' && state.story) {
+        // Terug van een ander tabblad: showTab haalde de lead uit de adresbalk.
+        var rec = state.story.record;
+        zetUrl(state.story.kind, state.story.kind === 'visitor' ? rec.uuid : rec.id);
+      } else {
+        showView('overview');   // laadt de eerste keer, tekent daarna de linten opnieuw
       }
-      var q = new URL(window.location.href).searchParams;
-      if (q.get('lead')) await open('lead', q.get('lead'));
-      else if (q.get('sheet')) await open('sheet', q.get('sheet'));
-      else if (q.get('visitor')) await open('visitor', q.get('visitor'));
-      else if (q.get('tab') === 'uitgesloten' && $('panelExcluded')) showPanel('excluded');
-      else showPanel('behaviour');
-    } catch (err) { toast(err.message, 'error'); }
+    } catch (err) {
+      gestart = !eerste;
+      toast(err.message, 'error');
+    }
     icons();
-  })();
+  }
+
+  function zichtbaar() { return !root.classList.contains('hidden'); }
+  new MutationObserver(function () { if (zichtbaar()) activeer(); })
+    .observe(root, { attributes: true, attributeFilter: ['class'] });
+  if (zichtbaar()) activeer();
 })();

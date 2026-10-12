@@ -1,0 +1,36 @@
+# De controle van het tabblad Aanvragen in Dashboards, bij elke pull request.
+#
+# In public/dashboard-aanvragen/ en src/modules/dashboards/lib/aanvragen/ voegt
+# David zelf samen (.github/CODEOWNERS). Deze controle houdt tegen dat het
+# tabblad uit de toon valt naast Verkoop en Marketing (geraamte, kleuren,
+# randen, grafieken uit de kit) of dat het iets anders doet dan lezen.
+# Regels: scripts/vangrails/aanvragen.mjs; in mensentaal:
+# src/modules/dashboards/lib/aanvragen/CLAUDE.md.
+#
+# Bewust zonder paths-filter op pull_request: staat deze controle verplicht in
+# de ruleset, dan blijft een PR die het tabblad niet raakt anders eeuwig op
+# "wachten" staan. De controle duurt een paar seconden.
+#
+# Ook bij een push naar component/**: "Naar de site" in huisstijl.yml maakt daar
+# de pull request met de GITHUB_TOKEN, en die start zelf geen workflows. Zonder
+# deze trigger zou de verplichte "Dashboardcontrole" er nooit komen en weigert
+# GitHub het samenvoegen van elk component.
+
+name: Dashboards
+
+on:
+  pull_request:
+  push:
+    branches: [master, 'component/**']
+
+jobs:
+  controle:
+    name: Dashboardcontrole
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Tabblad Aanvragen
+        run: node scripts/vangrails/aanvragen.mjs

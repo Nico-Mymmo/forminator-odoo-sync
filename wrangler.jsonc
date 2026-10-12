@@ -110,6 +110,14 @@
 		// (goedkoper op input, 1M context, 128k output). Zet hier UITSLUITEND een
 		// model dat ook in MODEL_ALLOWLIST staat, anders kan een mini-app het
 		// niet expliciet kiezen terwijl het wel de stille standaard is.
+		// Inloggen -- tweestapsverificatie (src/lib/auth/mfa.js).
+		//   "required" (ook: leeg, onbekend) iedereen logt in met een code van een
+		//              authenticator-app; wie 2FA nog niet heeft, stelt het in bij de login
+		//   "optional" 2FA enkel voor wie het zelf instelde -- NOODUITGANG, niet de standaard
+		// Het geheim waarmee de 2FA-sleutels versleuteld worden, is een SECRET:
+		// AUTH_SECRET_KEY (minstens 32 tekens, `wrangler secret put AUTH_SECRET_KEY`).
+		// Zonder die secret kan niemand 2FA instellen of gebruiken, dus ook niet inloggen.
+		"AUTH_MFA_MODE": "required",
 		"AI_PROVIDER": "anthropic",
 		"ANTHROPIC_MODEL": "claude-sonnet-5",
 		"GEMINI_MODEL": "gemini-flash-lite-latest",
@@ -146,6 +154,15 @@
 		//   "on"    + naar Odoo schrijven. PAS NADAT de tracker LEAD_TIMELINE_BY_OM=1 heeft.
 		// Hier en niet in het dashboard: zonder keep_vars wist een deploy dashboardvariabelen.
 		"WEB_STORY_MODE": "match",
+		// Nieuwsbrieven (src/modules/newsletters/). Alles behalve exact "live" is
+		// TESTSTAND: dan kan de OM enkel een testmail sturen, en enkel naar
+		// NEWSLETTER_TEST_EMAILS (via een eigen Odoo-lijst "OM nieuwsbrief -
+		// testadressen" die niemand anders bevat). Een deploy op zich kan dus nooit
+		// een nieuwsbrief naar klanten sturen. Pas op "live" zetten na een
+		// geslaagde test EN na het beantwoorden van de open vragen over de
+		// doelgroepen (docs/ontwerp-om-nieuwsbrieven.md, §12).
+		"NEWSLETTER_SEND_MODE": "test",
+		"NEWSLETTER_TEST_EMAILS": "nico@mymmo.com",
 		// Event Operations v2 -- communicatie-studio. Bepaalt voor WELKE
 		// event-types de OM de mails (bevestiging/reminder/recap) overneemt van
 		// de Odoo-automations 53/58/62/63. Kommagescheiden event-type-id's, of

@@ -1,8 +1,13 @@
 /**
- * Gedeelde bouwstenen voor de tabbladen Verkoop (dashboards-sales.js) en
- * Targets (dashboards-targets.js): opmaak van getallen, de filterknoppen en
- * kerncijfers in de stijl van Webgedrag, een mini-verloop, de arcering voor
- * minder betrouwbare periodes, en het venster "wat zit hierachter".
+ * Gedeelde bouwstenen voor de tabbladen Verkoop (dashboards-sales.js), Targets
+ * (dashboards-targets.js) en Aanvragen (dashboard-aanvragen/aanvragen.js): het
+ * geraamte met drie kolommen, opmaak van getallen, de filterknoppen en
+ * kerncijfers in de stijl van Webgedrag, een mini-verloop, de kleuren, de
+ * arcering voor minder betrouwbare periodes, en het venster "wat zit hierachter".
+ *
+ * VANGRAIL: Aanvragen is het terrein van David (src/modules/dashboards/lib/
+ * aanvragen/CLAUDE.md). Wat hier staat, bepaalt hoe dat tabblad eruitziet, en
+ * wijzigt dus enkel met een review van Nico (.github/CODEOWNERS).
  *
  * window.OMDash. Laadt de verkoopfeiten één keer voor beide tabbladen.
  */
@@ -73,6 +78,33 @@
   var PALETTE = ['--p', '--s', '--a', '--in', '--su', '--wa', '--er', '--n'];
   function palette(i, alpha) { return themeColor(PALETTE[i % PALETTE.length], alpha); }
   var REF = '#94a3b8'; // vergelijkingslijn (vorige periode, target): grijs, zoals in Webgedrag
+  /**
+   * EEN kleur per kanaal (merk + kanaal, src/modules/dashboards/lib/lead-kanalen.js), voor
+   * Aanvragen en voor "Kanaal (lead)" in Verkoop. Per merk een kleurfamilie: blauw voor
+   * Syndicoach, groen voor OpenVME, grijs voor wat geen merk heeft. Tot 2026-10-09 stond
+   * dit als BRAND_COLORS in dashboards.js. Een kanaal erbij = een kleur hier.
+   */
+  var KANAAL_KLEUREN = {
+    syndicoach_vme_check: '#1d4ed8',
+    syndicoach_meta_lead_ad: '#3b82f6',
+    syndicoach_contact_form: '#60a5fa',
+    syndicoach_syndicus_kiezen: '#93c5fd',
+    syndicoach_telefoon: '#1e3a8a',
+    syndicoach_email: '#38bdf8',
+    syndicoach_overig: '#bfdbfe',
+    openvme_contact_form: '#0d9488',
+    openvme_opstarters: '#059669',
+    openvme_telefoon: '#065f46',
+    openvme_email: '#2dd4bf',
+    openvme_meta_lead_ad: '#10b981',
+    openvme_overig: '#99f6e4',
+    manual_overig: '#94a3b8'
+  };
+  /** De kleur van een kanaal als functie (alpha -> kleur), zoals area() en bars() die willen. */
+  function kanaalKleur(key) {
+    var hex = KANAAL_KLEUREN[key] || REF, n = parseInt(hex.slice(1), 16);
+    return function (a) { return a === undefined ? hex : 'rgba(' + ((n >> 16) & 255) + ',' + ((n >> 8) & 255) + ',' + (n & 255) + ',' + a + ')'; };
+  }
   function ink() { try { return getComputedStyle(document.body).color || '#374151'; } catch (_) { return '#374151'; } }
   /** Verloop van boven naar onder in een kleur (functie alpha -> kleur), als Chart.js-scriptable. */
   function gradient(colorFn, top, bottom) {
@@ -88,14 +120,106 @@
   function colorFnOf(c) { return typeof c === 'function' ? c : typeof c === 'number' ? function (a) { return palette(c, a); } : function (a) { return themeColor(c, a); }; }
   /** Vlak onder een lijn, zoals de trend in Webgedrag. `c` = paletindex, CSS-variabele of functie. */
   function area(label, data, c, extra) {
-    var f = colorFnOf(c);
-    return Object.assign({ label: label, data: data, borderColor: f(), backgroundColor: gradient(f, 0.35, 0), fill: true, borderWidth: 2,
-      tension: 0.3, pointRadius: 0, pointHoverRadius: 5, pointBackgroundColor: f(), spanGaps: true }, extra || {});
+    var f = colorFnOf(c), gewoon = gradient(f, 0.35, 0), sterk = gradient(f, 0.65, 0.25), zwak = gradient(f, 0.1, 0);
+    // Wijst de muis een vlak aan (bandHoverPlugin), dan licht DAT vlak op en vallen de andere
+    // terug: 1 = aangewezen, -1 = een ander, 0 = niets aangewezen (of geen gestapelde grafiek).
+    var stand = bandStand;
+    return Object.assign({ label: label, data: data, fill: true, tension: 0.3, pointRadius: 0, spanGaps: true,
+      backgroundColor: function (ctx) { var s = stand(ctx); return (s > 0 ? sterk : s < 0 ? zwak : gewoon)(ctx); },
+      borderColor: function (ctx) { return stand(ctx) < 0 ? f(0.35) : f(); },
+      borderWidth: function (ctx) { return stand(ctx) > 0 ? 3 : 2; },
+      // Het bolletje heeft de kleur van zijn lijn. Zonder pointHover*Color leidt Chart.js
+      // de hoverkleur af van het verloop van het vlak, en dan is elk bolletje zwart.
+      pointBackgroundColor: f(), pointBorderColor: f(), pointHoverBackgroundColor: f(), pointHoverBorderColor: pageBg(), pointHoverBorderWidth: 2,
+      // Wijst de muis een vlak aan (bandHover hieronder), dan is dat bolletje groot en de rest klein.
+      pointHoverRadius: function (ctx) { var b = ctx.chart.$omBand; return b === undefined || b < 0 ? 5 : b === ctx.datasetIndex ? 7 : 3; } }, extra || {});
   }
+  function pageBg() { try { return getComputedStyle(document.body).backgroundColor || '#fff'; } catch (_) { return '#fff'; } }
+  /** 1 = dit vlak of stuk wordt aangewezen, -1 = een ander wel, 0 = niets (of geen bandHoverPlugin). */
+  function bandStand(ctx) { var b = ctx.chart.$omBand; return b === undefined || b < 0 ? 0 : b === ctx.datasetIndex ? 1 : -1; }
+
+  /**
+   * Gestapelde vlakken waarin je er een aanklikt: welk vlak ligt onder (x, y)?
+   * band = datasetindex, -1 = boven de stapel of buiten de grafiek. Verborgen reeksen
+   * en vergelijkingslijnen (omRef) tellen niet mee. EEN berekening voor het oplichten
+   * en voor de klik, zodat wat oplicht ook is wat opent.
+   */
+  function bandAt(ch, x, y) {
+    if (ch.config.type === 'bar') return barAt(ch, x, y);
+    var xs = ch.scales.x, ys = ch.scales.y, a = ch.chartArea, n = ch.data.labels.length;
+    if (!xs || !ys || !a || !n || x < a.left || x > a.right || y < a.top || y > a.bottom) return { i: -1, band: -1 };
+    var i = Math.max(0, Math.min(n - 1, Math.round(xs.getValueForPixel(x))));
+    var v = ys.getValueForPixel(y), cum = 0, sets = ch.data.datasets;
+    for (var k = 0; k < sets.length; k++) {
+      if (sets[k].omRef || !ch.isDatasetVisible(k)) continue;
+      var val = sets[k].data[i];
+      if (val === null || val === undefined) continue;
+      cum += val;
+      if (v <= cum) return { i: i, band: k };
+    }
+    return { i: i, band: -1 };
+  }
+  /**
+   * Hetzelfde voor gestapelde STAVEN (boven en onder nul): welk stuk ligt onder (x, y)?
+   * Een dun stuk krijgt 6 px speling, anders is het niet aan te wijzen. Naast de staaf
+   * (wel in die maand) = band -1: dan gaat het over de hele maand.
+   */
+  function barAt(ch, x, y) {
+    var xs = ch.scales.x, a = ch.chartArea, n = ch.data.labels.length;
+    if (!xs || !a || !n || x < a.left || x > a.right || y < a.top || y > a.bottom) return { i: -1, band: -1 };
+    var i = Math.max(0, Math.min(n - 1, Math.round(xs.getValueForPixel(x)))), best = -1, afstand = Infinity;
+    ch.data.datasets.forEach(function (ds, k) {
+      if (ds.omRef || ds.type === 'line' || !ch.isDatasetVisible(k)) return;
+      var v = ds.data[i], el = ch.getDatasetMeta(k).data[i];
+      if (!el || !v) return;
+      var p = el.getProps(['x', 'y', 'base', 'width'], true);
+      if (Math.abs(x - p.x) > p.width / 2 + 4) return;
+      var top = Math.min(p.y, p.base), bot = Math.max(p.y, p.base), d = y < top ? top - y : y > bot ? y - bot : 0;
+      if (d < afstand) { afstand = d; best = k; }
+    });
+    return { i: i, band: afstand <= 6 ? best : -1 };
+  }
+  /**
+   * Plugin: zet chart.$omBand VOOR Chart.js de hoverstijl bepaalt (anders loopt het een
+   * beweging achter), en tekent opnieuw zodra het aangewezen vlak verandert. Dat laatste
+   * doet Chart.js zelf niet: blijf je in dezelfde maand en schuif je op of neer, dan
+   * veranderen de actieve punten niet, dus kwam er geen nieuwe tooltip en geen nieuwe
+   * stijl -- het oplichten volgde de muis niet. update() speelt de laatste muisbeweging
+   * opnieuw af; $omBezig houdt die herhaling uit een kringetje.
+   */
+  var bandHoverPlugin = {
+    id: 'omBandHover',
+    beforeEvent: function (ch, args) {
+      var e = args.event, b;
+      if (e.type === 'mouseout') b = -1;
+      else if (e.type === 'mousemove' || e.type === 'click') b = bandAt(ch, e.x, e.y).band;
+      else return;
+      if (b !== ch.$omBand) { ch.$omBand = b; ch.$omNieuw = true; }
+    },
+    afterEvent: function (ch) {
+      if (!ch.$omNieuw || ch.$omBezig) return;
+      ch.$omNieuw = false;
+      ch.$omBezig = true;
+      try { ch.update('none'); } finally { ch.$omBezig = false; }
+    }
+  };
+  /** Tooltip bij aangewezen vlakken: die regel helder, de rest gedimd, en onderaan wat een klik opent. */
+  var bandTooltip = {
+    labelTextColor: function (c) { var b = c.chart.$omBand; return b === undefined || b < 0 || b === c.datasetIndex ? '#fff' : 'rgba(255,255,255,0.5)'; },
+    footer: function (items) {
+      var ch = items.length ? items[0].chart : null;
+      if (!ch) return '';
+      return ch.$omBand >= 0 ? 'Klik: lijst van ' + ch.data.datasets[ch.$omBand].label : 'Klik: alles van die maand';
+    }
+  };
   /** Staven met een zacht verloop. */
   function bars(label, data, c, extra) {
-    var f = colorFnOf(c);
-    return Object.assign({ label: label, data: data, backgroundColor: gradient(f, 0.9, 0.45), hoverBackgroundColor: f(0.95),
+    var f = colorFnOf(c), gewoon = gradient(f, 0.9, 0.45);
+    // Zelfde oplichten als bij area(): het aangewezen stuk vol, de andere bleek. Ook de
+    // hoverkleur: bij mode 'index' zijn alle stukken van die maand "actief".
+    return Object.assign({ label: label, data: data,
+      backgroundColor: function (ctx) { var s = bandStand(ctx); return s > 0 ? f(0.95) : s < 0 ? f(0.18) : gewoon(ctx); },
+      hoverBackgroundColor: function (ctx) { var s = bandStand(ctx); return s > 0 ? f(1) : s < 0 ? f(0.22) : f(0.95); },
       borderRadius: 4, borderSkipped: false, maxBarThickness: 34 }, extra || {});
   }
   /** Vergelijkings- of targetlijn: grijs, gestippeld. */
@@ -193,19 +317,24 @@
       + (t.sub ? '<div class="text-xs text-base-content/50">' + t.sub + '</div>' : '') + '</div>';
   }
   /** Verschil met de vorige, even lange periode. kind 'pct' = procentpunten. */
-  function delta(cur, prev, upIsGood, kind) {
+  /**
+   * @param {string} [vs] waarmee vergeleken wordt, voluit: "t.o.v. 31 dec 2025" (een stand) of
+   *   "t.o.v. 1 jan – 6 okt 2025" (een periode). Zonder: "vs vorige" -- maar dan weet niemand
+   *   of dat een maand, een kwartaal of een jaar is. Geef het dus altijd mee.
+   */
+  function delta(cur, prev, upIsGood, kind, vs) {
     if (cur === null || cur === undefined) return '';
-    if (prev === null || prev === undefined) return '<span class="text-xs text-base-content/40">vorige periode: niets om mee te vergelijken</span>';
+    if (prev === null || prev === undefined) return '<span class="text-xs text-base-content/40">' + esc(vs || 'vorige periode') + ': niets om mee te vergelijken</span>';
     var diff, txt;
     if (kind === 'pct') { diff = cur - prev; txt = (diff >= 0 ? '+' : '−') + nf(Math.abs(diff), 1) + ' ptn'; }
     else if (kind === 'abs') { diff = cur - prev; txt = (diff >= 0 ? '+' : '−') + nf(Math.abs(diff)); }
     else {
-      if (!prev) return '<span class="text-xs text-base-content/40">vorige periode: 0</span>';
+      if (!prev) return '<span class="text-xs text-base-content/40">' + esc(vs || 'vorige periode') + ': 0</span>';
       diff = (cur - prev) / Math.abs(prev) * 100; txt = (diff >= 0 ? '+' : '−') + nf(Math.abs(diff), 0) + '%';
     }
-    if (Math.abs(diff) < (kind === 'pct' ? 0.5 : kind === 'abs' ? 0.5 : 2)) return '<span class="text-xs text-base-content/50">gelijk aan vorige periode</span>';
+    if (Math.abs(diff) < (kind === 'pct' ? 0.5 : kind === 'abs' ? 0.5 : 2)) return '<span class="text-xs text-base-content/50">gelijk, ' + esc(vs || 'vs vorige') + '</span>';
     var good = (diff > 0) === upIsGood;
-    return '<span class="text-xs font-medium ' + (good ? 'text-success' : 'text-error') + '">' + (diff > 0 ? '▲ ' : '▼ ') + txt + '</span><span class="text-xs text-base-content/50"> vs vorige</span>';
+    return '<span class="text-xs font-medium ' + (good ? 'text-success' : 'text-error') + '">' + (diff > 0 ? '▲ ' : '▼ ') + txt + '</span><span class="text-xs text-base-content/50"> ' + esc(vs || 'vs vorige') + '</span>';
   }
   /** Rood < 80%, oranje 80-100%, groen >= 100% (zo stond het in Odoo-dashboard 19). */
   function achievedClass(p) {
@@ -217,11 +346,91 @@
     return p >= 100 ? 'bg-success/15' : p >= 80 ? 'bg-warning/20' : 'bg-error/15';
   }
 
+  // ── Het geraamte: drie kolommen ────────────────────────────────────────────
+  /**
+   * EEN geraamte voor Verkoop, Targets en Aanvragen (Marketing heeft het in de HTML,
+   * met dezelfde klassen): links "Je bekijkt" en de filters, in het midden de kaarten,
+   * rechts de kerncijfers. Drie kolommen vanaf 2xl, twee vanaf lg (de kerncijfers staan
+   * dan bovenaan het midden), een op een telefoon. Beide zijkolommen plakken (sticky) en
+   * schuiven zelf als ze niet passen.
+   *
+   * Ids in het geraamte: <prefix>Status, -Notice, -Sentence, -Filters en -Kpis. Vul ze met
+   * status(), melding(), zin(), filters() en kpis() hieronder.
+   *
+   * @param {object} o
+   *   prefix   voorvoegsel van de ids ('sl', 'tg', 'av')
+   *   titel, uitleg  de kop van het tabblad (tekst, wordt ge-escaped)
+   *   icoon    lucide-icoon bij "Je bekijkt" (standaard filter)
+   *   zinExtra HTML onder de zin in "Je bekijkt" (bv. wie er buiten valt)
+   *   kpiTitel opschrift boven de kerncijfers (standaard Kerncijfers)
+   *   midden   HTML van de middenkolom: kaart() na kaart()
+   *   vensters HTML van de <dialog>s van het tabblad (achteraan, binnen het tabblad)
+   * @returns {string} HTML voor het paneel van het tabblad
+   */
+  function geraamte(o) {
+    var p = o.prefix;
+    return '<div class="flex flex-wrap items-end justify-between gap-3 mb-4">'
+      + '<div><h1 class="text-2xl font-bold">' + esc(o.titel) + '</h1><p class="text-sm text-base-content/60">' + esc(o.uitleg) + '</p></div>'
+      + '<div id="' + p + 'Status"></div></div>'
+      + '<div id="' + p + 'Notice" class="mb-3"></div>'
+      + '<div class="grid grid-cols-1 gap-5 items-start lg:grid-cols-[19rem_minmax(0,1fr)] 2xl:grid-cols-[19rem_minmax(0,1fr)_17rem]">'
+      + '<aside class="om-scroll space-y-3 lg:col-start-1 lg:row-start-1 lg:row-span-2 lg:sticky lg:top-[calc(48px+1rem)] lg:max-h-[calc(100vh-48px-2rem)] lg:overflow-y-auto">'
+      +   '<div class="rounded-2xl bg-base-100 border border-base-content/10 shadow-sm p-3 space-y-2">'
+      +     '<div class="text-[11px] font-semibold uppercase tracking-wide text-base-content/50 flex items-center gap-1"><i data-lucide="' + esc(o.icoon || 'filter') + '" class="w-3 h-3"></i> Je bekijkt</div>'
+      +     '<p id="' + p + 'Sentence" class="text-sm"></p>' + (o.zinExtra || '') + '</div>'
+      +   '<div id="' + p + 'Filters"></div></aside>'
+      + '<aside class="om-scroll min-w-0 lg:col-start-2 lg:row-start-1 2xl:col-start-3 2xl:sticky 2xl:top-[calc(48px+1rem)] 2xl:max-h-[calc(100vh-48px-2rem)] 2xl:overflow-y-auto">'
+      +   '<div class="rounded-2xl bg-base-100 border border-base-content/10 p-5 2xl:p-3">'
+      +     '<div class="text-xs font-semibold uppercase tracking-wide text-base-content/50 mb-2">' + esc(o.kpiTitel || 'Kerncijfers') + '</div>'
+      +     '<div id="' + p + 'Kpis" class="grid grid-cols-2 md:grid-cols-3 gap-3 2xl:grid-cols-1 2xl:gap-0 2xl:divide-y om-lijnen"></div></div></aside>'
+      + '<div class="min-w-0 space-y-5 lg:col-start-2 lg:row-start-2 2xl:row-start-1">' + (o.midden || '') + '</div></div>'
+      + (o.vensters || '');
+  }
+  /**
+   * Een kaart in de middenkolom. `titel` en `uitleg` zijn HTML. Ids: <id>Card, <id>Title,
+   * <id>Sub, <id>Controls (knoppen rechtsboven) en <id> (de inhoud).
+   */
+  function kaart(id, titel, uitleg, extra) {
+    return '<div class="rounded-2xl bg-base-100 border border-base-content/10 p-5" id="' + id + 'Card">'
+      + '<div class="flex flex-wrap items-start justify-between gap-2 mb-3"><div><h2 class="font-semibold" id="' + id + 'Title">' + titel + '</h2>'
+      + (uitleg ? '<p class="text-xs text-base-content/50 mt-0.5" id="' + id + 'Sub">' + uitleg + '</p>' : '') + '</div>'
+      + '<div id="' + id + 'Controls" class="flex flex-wrap items-center gap-2">' + (extra || '') + '</div></div>'
+      + '<div id="' + id + '"></div></div>';
+  }
+  /** Rechtsboven het tabblad: hoe vers, laden, een knop. */
+  function status(prefix, html) { var el = $(prefix + 'Status'); if (el) el.innerHTML = html || ''; }
+  /** Boven de kolommen: een melding (alert) of niets. */
+  function melding(prefix, html) { var el = $(prefix + 'Notice'); if (el) el.innerHTML = html || ''; }
+  /** "Je bekijkt": EEN zin die zegt wat de cijfers zijn (tekst, geen HTML). */
+  function zin(prefix, tekst) { var el = $(prefix + 'Sentence'); if (el) el.textContent = tekst || ''; }
+  /** De filters in de linkerkolom: `groepen` = HTML per groep (groupLabel + pills of select). */
+  function filters(prefix, groepen) {
+    var el = $(prefix + 'Filters');
+    if (el) el.innerHTML = '<div class="rounded-2xl bg-base-100 border border-base-content/10 shadow-sm p-4 space-y-3 lg:p-3">' + groepen.join('') + '</div>';
+  }
+  /** De kerncijfers in de rechterkolom: `tegels` = objecten voor tile(), niet HTML. */
+  function kpis(prefix, tegels) { var el = $(prefix + 'Kpis'); if (el) el.innerHTML = tegels.map(tile).join(''); }
+
   // ── Chart.js ───────────────────────────────────────────────────────────────
   var charts = {};
+  /**
+   * Tooltip-positie 'omZij': NAAST de aangewezen maand, bovenaan de grafiek, aan de kant
+   * met de meeste ruimte. Gecentreerd op het punt lag de tooltip precies over het vlak
+   * dat je aanwees.
+   */
+  function registreerZij() {
+    var T = window.Chart && window.Chart.Tooltip;
+    if (!T || !T.positioners || T.positioners.omZij) return;
+    T.positioners.omZij = function (items) {
+      if (!items.length) return false;
+      var a = this.chart.chartArea, x = items[0].element.x, rechts = x < (a.left + a.right) / 2;
+      return { x: x + (rechts ? 14 : -14), y: a.top, xAlign: rechts ? 'left' : 'right', yAlign: 'top' };
+    };
+  }
   function chart(id, config) {
     var el = $(id);
     if (!el || !window.Chart) return null;
+    registreerZij();
     if (charts[id]) charts[id].destroy();
     // Wat iemand in de legende wegklikte, blijft weg na een hertekening (andere periode,
     // filter of maat) -- zolang die reeksen nog bestaan.
@@ -305,8 +514,20 @@
   // ── "Wat zit hierachter": één venster voor elke lijst ──────────────────────
   var ODOO = 'https://mymmo.odoo.com';
   function odooUrl(model, id) { return ODOO + '/web#id=' + id + '&model=' + model + '&view_type=form'; }
-  function odooLink(model, id, label) {
-    return '<a class="link link-hover inline-flex items-center gap-1" target="_blank" rel="noopener" href="' + esc(odooUrl(model, id)) + '">' + esc(label) + '<i data-lucide="external-link" class="w-3 h-3 opacity-60"></i></a>';
+  /**
+   * Klanttype als badge: in een lange lijst moeten de drie soorten klanten meteen uit
+   * elkaar te houden zijn. Elk ander klanttype staat als gewone tekst.
+   */
+  var CT_KLEUR = { 'VME in advies': 'badge-info', 'VME in beheer': 'badge-secondary', 'Professionele syndicus': 'badge-accent' };
+  function ctBadge(label) {
+    if (!label) return '<span class="text-base-content/40">—</span>';
+    return CT_KLEUR[label] ? '<span class="badge badge-sm badge-outline whitespace-nowrap ' + CT_KLEUR[label] + '">' + esc(label) + '</span>' : esc(label);
+  }
+  /** De adviserend expert; "Geen" in de woordenlijst = geen expert. */
+  function expertCel(label) { return !label || label === 'Geen' ? '<span class="text-base-content/40">geen expert</span>' : esc(label); }
+  /** main: dit is HET record van de rij; in een doorklik wordt dat de Odoo-knop achteraan (anders de eerste link). */
+  function odooLink(model, id, label, main) {
+    return '<a class="link link-hover inline-flex items-center gap-1"' + (main ? ' data-om-main' : '') + ' target="_blank" rel="noopener" href="' + esc(odooUrl(model, id)) + '">' + esc(label) + '<i data-lucide="external-link" class="w-3 h-3 opacity-60"></i></a>';
   }
   // ── Sorteren: een tekst zoals hij op het scherm staat omzetten naar iets vergelijkbaars ──
   var MON = { jan: 1, feb: 2, mrt: 3, apr: 4, mei: 5, jun: 6, jul: 7, aug: 8, sep: 9, okt: 10, nov: 11, dec: 12 };
@@ -374,29 +595,39 @@
    *          optelling: een maand kiezen toont dan de stand van toen, zonder kiezen die van vandaag.
    *   keep:  zoekterm, filters en sortering van de vorige lijst behouden (klik op een maand)
    *   why:   ["regel", ...] -- WAAROM deze records erin staan: de regels die de lijst
-   *          bepalen, in mensentaal (HTML, de aanroeper escapet wat uit gegevens komt).
-   *          Staat boven de grafiek. Elke rij hoort daarnaast een kolom "Waarom" te
-   *          hebben met de gegevens die dat voor DIE rij staven (datums, order, lead).
+   *          bepalen, in gewone zinnen (HTML, de aanroeper escapet wat uit gegevens komt).
+   *          Achter het vraagteken naast de titel. Elke rij hoort daarnaast een kolom
+   *          "Waarom" te hebben (of "Waarom dit ...") met wat het voor DIE rij staaft:
+   *          zo'n kolom komt NIET in de tabel maar achter een vraagteken achteraan de rij,
+   *          in zinnen (<p> per zin). De Odoo-links in de cellen worden gewone tekst; er
+   *          staat EEN Odoo-knop achteraan, naar de link met data-om-main, anders de eerste.
+   *   chart.color: de kleur van het vlak in de hoofdgrafiek waarop geklikt werd (paletindex,
+   *          CSS-variabele of functie, zoals bij area()); zonder = primair.
    */
   function drill(title, sub, head, rows, opts) {
     opts = opts || {};
     var dlg = $('omDrill');
     if (!dlg) return;
     var prev = dr;
-    dr = { head: head, right: opts.right || [], rows: rows.map(function (r) { return r.map(function (h) { var t = textOf(h); return { h: h, t: t, s: parseSort(t) }; }); }),
-      sort: null, dir: 1, q: '', f: {}, chart: opts.chart || null };
-    if (opts.keep && prev && prev.head.join('|') === head.join('|')) { dr.sort = prev.sort; dr.dir = prev.dir; dr.q = prev.q; dr.f = prev.f; }
+    // Een kolom "Waarom..." komt niet in de tabel: die tekst drukte alles uiteen. Ze gaat
+    // achter het vraagteken achteraan de rij (rowOf).
+    var whyCols = [], vis = [];
+    head.forEach(function (h, i) { (WHY_COL.test(h) ? whyCols : vis).push(i); });
+    var visHead = vis.map(function (i) { return head[i]; });
+    dr = { head: visHead, right: (opts.right || []).map(function (i) { return vis.indexOf(i); }).filter(function (i) { return i >= 0; }),
+      rows: rows.map(function (r, k) { return rowOf(r, head, vis, whyCols, k); }),
+      sort: null, dir: 1, q: '', f: {}, chart: opts.chart || null, rules: opts.why || [] };
+    if (opts.keep && prev && prev.head.join('|') === visHead.join('|')) { dr.sort = prev.sort; dr.dir = prev.dir; dr.q = prev.q; dr.f = prev.f; }
     $('omDrillTitle').textContent = title;
     $('omDrillSub').innerHTML = sub || '';
-    var why = $('omDrillWhy'), lines = opts.why || [];
-    if (why) {
-      why.classList.toggle('hidden', !lines.length);
-      why.innerHTML = lines.length ? '<div class="text-[11px] font-semibold uppercase tracking-wide text-base-content/50 mb-1 flex items-center gap-1"><i data-lucide="help-circle" class="w-3 h-3"></i> Waarom staan ze erin</div>'
-        + '<ul class="list-disc pl-5 space-y-0.5 text-xs text-base-content/80">' + lines.map(function (l) { return '<li>' + l + '</li>'; }).join('') + '</ul>' : '';
-    }
+    verbergTip();
+    var wb = $('omDrillWhyBtn');
+    if (wb) wb.classList.toggle('hidden', !dr.rules.length);
     renderDrillChart();
     renderDrillTools();
     renderDrillTable();
+    // Opnieuw bovenaan beginnen: een vorige lijst kan ver naar beneden gescrold zijn.
+    if (!opts.keep) { var box = dlg.querySelector('.modal-box'); if (box) box.scrollTop = 0; }
     icons();
     if (!dlg.open) dlg.showModal();
   }
@@ -407,10 +638,12 @@
     if (!ch) return;
     var sel = ch.selected === undefined ? null : ch.selected;
     var fmt = ch.fmt || function (v) { return nf(v); };
+    // In de kleur van wat je in de hoofdgrafiek aanklikte; anders de primaire kleur.
+    var kleur = ch.color === undefined || ch.color === null ? '--p' : ch.color, kf = colorFnOf(kleur);
     var main = ch.type === 'line'
-      ? area(ch.label, ch.data, '--p', { pointRadius: ch.data.map(function (v, i) { return i === sel ? 6 : ch.onPick ? 3 : 0; }), pointHoverRadius: 7,
+      ? area(ch.label, ch.data, kleur, { pointRadius: ch.data.map(function (v, i) { return i === sel ? 6 : ch.onPick ? 3 : 0; }), pointHoverRadius: 7,
         pointBorderColor: getComputedStyle(document.body).backgroundColor || '#fff', pointBorderWidth: 2 })
-      : bars(ch.label, ch.data, '--p', sel === null ? {} : { backgroundColor: function (cx) { return cx.dataIndex === sel ? C.primary(0.95) : C.primary(0.25); } });
+      : bars(ch.label, ch.data, kleur, sel === null ? {} : { backgroundColor: function (cx) { return cx.dataIndex === sel ? kf(0.95) : kf(0.25); } });
     var sets = [main];
     if (ch.ref) sets.push(refLine(ch.ref.label, ch.ref.data));
     chart('omDrillCanvas', {
@@ -448,10 +681,111 @@
     tools.innerHTML = '<label class="min-w-0"><span class="block text-[11px] text-base-content/60">Zoeken</span><input type="search" class="input input-bordered input-xs w-56" placeholder="Klant, order, …" data-om-drill-q value="' + esc(dr.q) + '"></label>'
       + sel + '<button type="button" class="btn btn-ghost btn-xs" data-om-drill-reset>Wissen</button>';
   }
+  /**
+   * Drie lagen plakken boven elkaar: de kop (titel + sluitkruisje), de filterbalk eronder
+   * (--om-drill-balk) en de kolomkoppen met de totaalrij daaronder (--om-drill-stick).
+   * De kop plakt met een negatieve top (over de opvulling van het venster); de andere
+   * rekenen vanaf dezelfde lijn, dus die top telt mee.
+   */
+  function stickHoogte() {
+    var kop = $('omDrillKop'), s = $('omDrillStick'), dlg = $('omDrill');
+    if (!kop || !s || !dlg) return;
+    var balk = kop.offsetHeight + (parseFloat(getComputedStyle(kop).top) || 0);
+    dlg.style.setProperty('--om-drill-balk', balk + 'px');
+    dlg.style.setProperty('--om-drill-stick', (balk + s.offsetHeight) + 'px');
+  }
+  (function () {
+    // Kop en balk worden hoger bij een lange titel of filters over twee regels.
+    if (!window.ResizeObserver) return;
+    var ro = new window.ResizeObserver(stickHoogte);
+    ['omDrillKop', 'omDrillStick'].forEach(function (id) { var el = $(id); if (el) ro.observe(el); });
+  })();
+  // ── Een rij: zichtbare cellen, de uitleg erachter, en EEN Odoo-knop ─────────
+  var WHY_COL = /^Waarom/;
+  var LINK_RE = /<a\b[^>]*\bhref="([^"]*)"[^>]*>([\s\S]*?)<\/a>/g;
+  function zonderLinks(h) {
+    return String(h === undefined || h === null ? '' : h).replace(/<i data-lucide="external-link"[^>]*><\/i>/g, '').replace(/<a\b[^>]*>/g, '').replace(/<\/a>/g, '');
+  }
+  function rowOf(r, head, vis, whyCols, k) {
+    var html = vis.map(function (i) { return r[i]; }).join(' '), m, main = null, first = null;
+    LINK_RE.lastIndex = 0;
+    while ((m = LINK_RE.exec(html))) {
+      if (m[1].indexOf(ODOO) !== 0) continue;
+      var l = { href: m[1], label: textOf(m[2]) };
+      if (!first) first = l;
+      if (!main && /data-om-main/.test(m[0])) main = l;
+    }
+    var row = vis.map(function (i) { var h = zonderLinks(r[i]), t = textOf(h); return { h: h, t: t, s: parseSort(t) }; });
+    row.odoo = main || first;
+    row.why = whyCols.map(function (i) { return { kop: head[i] === 'Waarom' ? '' : head[i], h: zonderLinks(r[i]) }; }).filter(function (x) { return textOf(x.h); });
+    row.wt = row.why.map(function (x) { return textOf(x.h); }).join(' ').toLowerCase();
+    row.k = k;
+    return row;
+  }
+  function actiesCel(r) {
+    return '<div class="flex items-center justify-end gap-0.5">'
+      + (r.why.length ? '<button type="button" class="btn btn-ghost btn-xs btn-square" data-om-tip="' + r.k + '" aria-label="Waarom staat dit erin?"><i data-lucide="help-circle" class="w-4 h-4 pointer-events-none"></i></button>' : '')
+      + (r.odoo ? '<a class="btn btn-ghost btn-xs btn-square" target="_blank" rel="noopener" href="' + r.odoo.href + '" title="Openen in Odoo: ' + esc(r.odoo.label) + '" aria-label="Openen in Odoo"><i data-lucide="external-link" class="w-4 h-4 pointer-events-none"></i></a>' : '')
+      + '</div>';
+  }
+
+  // ── Het vraagteken: uitleg die je LEEST door aan te wijzen ─────────────────
+  // Eén zwevend vak (#omTip, in de dialog). Naast de titel: wie in de lijst staat en
+  // waarom; achteraan een rij: wat het voor die rij staaft.
+  var tipVan = null;
+  function tipHtml(sleutel) {
+    if (!dr) return '';
+    if (sleutel === 'regels') {
+      return dr.rules.length ? '<div class="font-semibold mb-2">Wie staat in deze lijst, en waarom?</div>'
+        + '<ul class="list-disc pl-4 space-y-1.5">' + dr.rules.map(function (l) { return '<li>' + l + '</li>'; }).join('') + '</ul>' : '';
+    }
+    var r = dr.rows[Number(sleutel)];
+    if (!r || !r.why.length) return '';
+    return '<div class="font-semibold mb-2">' + esc(r[0] ? r[0].t : '') + '</div>'
+      + r.why.map(function (x) {
+        return (x.kop ? '<div class="text-[11px] font-semibold uppercase tracking-wide text-base-content/50 mt-3 mb-1">' + esc(x.kop) + '</div>' : '')
+          + '<div class="space-y-1.5">' + x.h + '</div>';
+      }).join('');
+  }
+  function toonTip(knop) {
+    var t = $('omTip'), html = tipHtml(knop.getAttribute('data-om-tip'));
+    if (!t || !html) return;
+    t.innerHTML = html;
+    t.classList.remove('hidden');
+    tipVan = knop;
+    var b = knop.getBoundingClientRect(), w = t.offsetWidth, h = t.offsetHeight, vw = window.innerWidth, vh = window.innerHeight;
+    // Rechts uitgelijnd op het vraagteken (dat staat achteraan de rij); past dat niet, dan vanaf het vraagteken.
+    var left = b.right - w;
+    if (left < 8) left = Math.min(b.left, vw - w - 8);
+    var top = b.bottom + 6;
+    if (top + h > vh - 8) top = Math.max(8, b.top - h - 6);
+    t.style.left = Math.max(8, left) + 'px';
+    t.style.top = top + 'px';
+  }
+  function verbergTip() { var t = $('omTip'); if (t) t.classList.add('hidden'); tipVan = null; }
+  document.addEventListener('mouseover', function (e) {
+    var k = e.target.closest ? e.target.closest('[data-om-tip]') : null;
+    if (k && k !== tipVan) toonTip(k);
+  });
+  document.addEventListener('mouseout', function (e) {
+    var k = e.target.closest ? e.target.closest('[data-om-tip]') : null;
+    if (k && !(e.relatedTarget && k.contains(e.relatedTarget))) verbergTip();
+  });
+  // Enkel bij focus met het TOETSENBORD (Tab): een focus die het venster zelf zet, opent niets.
+  document.addEventListener('focusin', function (e) {
+    var k = e.target.closest && e.target.closest('[data-om-tip]'), zichtbaar = false;
+    try { zichtbaar = !!k && k.matches(':focus-visible'); } catch (_) { zichtbaar = false; }
+    if (zichtbaar) toonTip(k);
+  });
+  document.addEventListener('focusout', function (e) { if (e.target.closest && e.target.closest('[data-om-tip]')) verbergTip(); });
+  // Schuiven zet het vraagteken ergens anders: dan weg met het vak.
+  document.addEventListener('scroll', function () { if (tipVan) verbergTip(); }, true);
+  (function () { var d = $('omDrill'); if (d) d.addEventListener('close', verbergTip); })();
+
   function drillRows() {
     var q = dr.q.toLowerCase();
     var out = dr.rows.filter(function (r) {
-      if (q && !r.some(function (c) { return c.t.toLowerCase().indexOf(q) >= 0; })) return false;
+      if (q && !r.some(function (c) { return c.t.toLowerCase().indexOf(q) >= 0; }) && r.wt.indexOf(q) < 0) return false;
       return Object.keys(dr.f).every(function (i) { return !dr.f[i] || (r[i] && r[i].t === dr.f[i]); });
     });
     if (dr.sort !== null) {
@@ -464,7 +798,7 @@
     return out;
   }
   function renderDrillTable() {
-    var rows = drillRows(), right = dr.right;
+    var rows = drillRows(), right = dr.right, acties = dr.rows.some(function (r) { return r.why.length || r.odoo; });
     var sums = dr.head.map(function (h, i) {
       if (right.indexOf(i) < 0 || !SUM_COL.test(h) || /Dagen|graad|%/.test(h)) return null;
       var s = 0, ok = false;
@@ -473,15 +807,19 @@
     });
     var isEur = function (i) { return rows.some(function (r) { return r[i] && r[i].t.indexOf('€') >= 0; }); };
     $('omDrillBody').innerHTML = rows.length
-      ? '<table class="table table-sm"><thead class="sticky top-0 bg-base-100 z-10"><tr>' + dr.head.map(function (h, i) {
+      ? '<table class="table table-sm om-drill-tabel"><thead class="sticky z-10" style="top: var(--om-drill-stick, 0px)"><tr>' + dr.head.map(function (h, i) {
           var on = dr.sort === i;
           return '<th class="cursor-pointer select-none whitespace-nowrap ' + (right.indexOf(i) >= 0 ? 'text-right' : '') + '" data-om-drill-sort="' + i + '" title="Sorteren">' + esc(h)
             + (on ? '<span class="text-primary"> ' + (dr.dir === 1 ? '▲' : '▼') + '</span>' : '<span class="opacity-30"> ↕</span>') + '</th>';
-        }).join('') + '</tr></thead><tbody>'
-        + rows.map(function (r) { return '<tr class="om-hover">' + r.map(function (c, i) { return '<td class="' + (right.indexOf(i) >= 0 ? 'text-right tabular-nums' : '') + '">' + c.h + '</td>'; }).join('') + '</tr>'; }).join('')
-        + '</tbody>' + (sums.some(function (s) { return s !== null; })
-          ? '<tfoot><tr>' + dr.head.map(function (h, i) { return '<td class="' + (right.indexOf(i) >= 0 ? 'text-right tabular-nums' : '') + ' font-semibold">' + (i === 0 ? 'Totaal' : sums[i] === null ? '' : isEur(i) ? eur(sums[i]) : nf(sums[i], 2)) + '</td>'; }).join('') + '</tr></tfoot>' : '')
-        + '</table>'
+        }).join('') + (acties ? '<th class="w-px"></th>' : '') + '</tr>'
+        // De totaalrij staat BOVENAAN, onder de kolomkoppen, en plakt mee: onderaan zag je ze pas
+        // na het hele lijstje, en net daar wil je ze tijdens het schuiven.
+        + (sums.some(function (s) { return s !== null; })
+          ? '<tr class="om-totaal">' + dr.head.map(function (h, i) { return '<td class="' + (right.indexOf(i) >= 0 ? 'text-right tabular-nums' : '') + ' font-semibold">' + (i === 0 ? 'Totaal' : sums[i] === null ? '' : isEur(i) ? eur(sums[i]) : nf(sums[i], 2)) + '</td>'; }).join('') + (acties ? '<td></td>' : '') + '</tr>' : '')
+        + '</thead><tbody>'
+        + rows.map(function (r) { return '<tr class="om-hover">' + r.map(function (c, i) { return '<td class="' + (right.indexOf(i) >= 0 ? 'text-right tabular-nums' : '') + '">' + c.h + '</td>'; }).join('')
+          + (acties ? '<td class="w-px whitespace-nowrap">' + actiesCel(r) + '</td>' : '') + '</tr>'; }).join('')
+        + '</tbody></table>'
       : '<p class="text-sm text-base-content/60 py-4">Niets in deze selectie.</p>';
     $('omDrillCount').textContent = nf(rows.length) + (rows.length !== dr.rows.length ? ' van ' + nf(dr.rows.length) : '') + ' ' + (dr.rows.length === 1 ? 'rij' : 'rijen');
     icons();
@@ -500,6 +838,9 @@
     if (!dr) return;
     var th = e.target.closest('[data-om-drill-sort]');
     if (th) { var i = Number(th.getAttribute('data-om-drill-sort')); if (dr.sort === i) dr.dir = -dr.dir; else { dr.sort = i; dr.dir = dr.right.indexOf(i) >= 0 ? -1 : 1; } renderDrillTable(); return; }
+    // Op een aanraakscherm is er geen aanwijzen: tikken toont het vak.
+    var tk = e.target.closest('[data-om-tip]');
+    if (tk) { toonTip(tk); return; }
     if (e.target.closest('[data-om-drill-reset]')) { dr.q = ''; dr.f = {}; dr.sort = null; renderDrillTools(); renderDrillTable(); return; }
     if (e.target.closest('[data-om-drill-all]') && dr.chart && dr.chart.onPick) dr.chart.onPick(dr.chart.selected);
   });
@@ -551,6 +892,10 @@
     C: C, palette: palette, gradient: gradient, area: area, bars: bars, refLine: refLine, REF: REF, ink: ink, groupLabel: groupLabel, pills: pills, select: select, sparkline: sparkline, tile: tile, delta: delta, compact: compact, COMPACT: COMPACT,
     achievedClass: achievedClass, achievedBg: achievedBg,
     chart: chart, hatchPlugin: hatchPlugin, baseOptions: baseOptions, soloLegend: soloLegend,
-    odooUrl: odooUrl, odooLink: odooLink, drill: drill, parseSort: parseSort, api: api, loadSales: loadSales, freshness: freshness
+    bandAt: bandAt, bandHoverPlugin: bandHoverPlugin, bandTooltip: bandTooltip,
+    colorOf: function (c, a) { return colorFnOf(c)(a); }, ctBadge: ctBadge, expertCel: expertCel,
+    odooUrl: odooUrl, odooLink: odooLink, drill: drill, parseSort: parseSort, api: api, loadSales: loadSales, freshness: freshness,
+    geraamte: geraamte, kaart: kaart, status: status, melding: melding, zin: zin, filters: filters, kpis: kpis,
+    KANAAL_KLEUREN: KANAAL_KLEUREN, kanaalKleur: kanaalKleur
   };
 })();

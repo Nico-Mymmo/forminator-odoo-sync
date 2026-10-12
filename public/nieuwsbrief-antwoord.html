@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex">
+  <title>Bedankt voor je antwoord</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Rethink+Sans:wght@400;600;700&display=swap">
+  <style>
+    @font-face { font-family: 'Gelica'; src: url('https://openvme.be/wp-content/uploads/fonts/Gelica-Regular.otf') format('opentype'); font-weight: 400; font-display: swap; }
+    :root { --blauw: #0369a1; --mint: #99f6e4; --tekst: #4b5563; --kop: #030712; --lijn: #e5e7eb; --zacht: #f0f9ff; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #ffffff; color: var(--tekst); font-family: 'Rethink Sans', Helvetica, Arial, sans-serif; font-size: 16px; line-height: 1.55; }
+    .kop { display: flex; justify-content: center; padding: 18px 16px 14px; border-bottom: 1px solid #f3f4f6; }
+    .kop img { height: 26px; width: auto; }
+    main { max-width: 520px; margin: 0 auto; padding: 28px 20px 24px; display: flex; flex-direction: column; gap: 20px; }
+    h1 { margin: 0; font-family: Gelica, Georgia, serif; font-weight: 400; font-size: 28px; line-height: 1.15; color: var(--kop); }
+    .vink { width: 48px; height: 48px; flex: none; border-radius: 50%; background: var(--mint); color: var(--blauw); display: flex; align-items: center; justify-content: center; }
+    .titel { display: flex; gap: 14px; align-items: center; }
+    .vraag { background: var(--zacht); border-radius: 14px; padding: 16px; }
+    .vraag .label { font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--blauw); }
+    .vraag .tekst { font-family: Gelica, Georgia, serif; font-size: 20px; line-height: 1.25; color: var(--kop); margin-top: 4px; }
+    .opties { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+    .opties button { flex: 1 1 auto; min-height: 44px; font: inherit; font-weight: 700; font-size: 15px; padding: 10px 14px; border-radius: 8px; cursor: pointer; background: #fff; color: var(--blauw); border: 1.5px solid #bae6fd; }
+    .opties button[aria-pressed="true"] { background: var(--blauw); color: #fff; border-color: var(--blauw); }
+    .klein { font-size: 13px; color: #6b7280; }
+    .balk { margin-bottom: 10px; }
+    .balk .rij { display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 4px; }
+    .balk .bak { height: 10px; border-radius: 999px; background: #f3f4f6; overflow: hidden; }
+    .balk .vul { height: 10px; border-radius: 999px; background: #bae6fd; }
+    .balk.jij .vul { background: var(--blauw); }
+    .balk.jij .rij span:first-child { color: var(--blauw); font-weight: 700; }
+    label { font-weight: 700; color: #1f2937; font-size: 15px; }
+    textarea { width: 100%; font: inherit; font-size: 15px; color: #1f2937; border: 1.5px solid #d1d5db; border-radius: 10px; padding: 12px; resize: vertical; margin-top: 6px; }
+    textarea:focus, button:focus-visible { outline: 2px solid var(--blauw); outline-offset: 2px; }
+    .knop { font: inherit; font-weight: 700; font-size: 15px; background: var(--mint); color: var(--blauw); border: 0; border-radius: 8px; padding: 12px 20px; cursor: pointer; min-height: 44px; margin-top: 8px; }
+    .bedankt { background: #f0fdfa; color: #0f766e; border-radius: 14px; padding: 16px; }
+    .melding { background: #fff7ed; color: #9a3412; border-radius: 14px; padding: 14px 16px; font-size: 14px; }
+    .fout { background: #fef2f2; color: #991b1b; border-radius: 14px; padding: 16px; }
+    footer { max-width: 520px; margin: 0 auto; padding: 14px 20px 28px; border-top: 1px solid #f3f4f6; font-size: 12px; color: #6b7280; }
+    footer a { color: var(--blauw); }
+    .verborgen { display: none; }
+    @media (prefers-color-scheme: dark) { body { background: #ffffff; } }
+  </style>
+</head>
+<body>
+  <div class="kop"><a id="logoLink" href="https://openvme.be"><img id="logo" alt="" src="https://openvme.be/wp-content/uploads/2024/05/OpenVME-peppol-ready-1.png"></a></div>
+  <main id="inhoud">
+    <p class="klein">Even geduld…</p>
+  </main>
+  <footer id="voet" class="verborgen">
+    <a id="siteLink" href="https://openvme.be">Naar de website</a>
+    <div style="margin-top:8px">Je antwoord hoort bij je e-mailadres, zodat we je vraag kunnen opvolgen. Wil je dat niet, antwoord dan niet of laat het ons weten via een reply op de mail.</div>
+  </footer>
+
+  <script>
+  (function () {
+    'use strict';
+    var LOGO = {
+      syndicoach: 'https://syndicoach.be/wp-content/uploads/2026/04/syndicoach-logo.png',
+      openvme: 'https://openvme.be/wp-content/uploads/2024/05/OpenVME-peppol-ready-1.png'
+    };
+    var m = /^\/t\/_v\/([0-9a-f-]{36})\/([a-z0-9-]{1,40})\/?$/i.exec(window.location.pathname);
+    var q = new URLSearchParams(window.location.search);
+    var voorbeeld = q.get('voorbeeld') === '1';
+    var inhoud = document.getElementById('inhoud');
+    var staat = null;
+
+    function esc(v) {
+      return String(v === null || v === undefined ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    function sleutelNaam() { return 'nb-antwoord-' + (m ? m[1] : ''); }
+    function leesSleutel() { try { return localStorage.getItem(sleutelNaam()) || ''; } catch (e) { return ''; } }
+    function bewaarSleutel(k) { try { if (k) localStorage.setItem(sleutelNaam(), k); } catch (e) { /* privévenster */ } }
+
+    async function post(pad, body) {
+      var res = await fetch('/t/_v/api/' + pad, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      var data = await res.json().catch(function () { return null; });
+      if (!res.ok || !data || !data.success) throw new Error((data && data.error) || 'Er ging iets mis.');
+      return data.data;
+    }
+
+    function merk(d) {
+      var logo = LOGO[d.brand] || LOGO.openvme;
+      document.getElementById('logo').src = logo;
+      document.getElementById('logo').alt = d.brand === 'syndicoach' ? 'Syndicoach' : 'OpenVME';
+      document.getElementById('logoLink').href = d.site;
+      document.getElementById('siteLink').href = d.site;
+      document.getElementById('siteLink').textContent = 'Naar ' + d.site.replace(/^https?:\/\//, '');
+      document.getElementById('voet').classList.remove('verborgen');
+    }
+
+    function render(d, gekozen) {
+      staat = d;
+      merk(d);
+      var opties = d.options.map(function (o) {
+        var aan = o.value === gekozen;
+        return '<button type="button" data-optie="' + esc(o.value) + '" aria-pressed="' + (aan ? 'true' : 'false') + '">' + esc(o.label) + '</button>';
+      }).join('');
+      var resultaten = '';
+      if (d.show_results && d.results && d.results.total > 0) {
+        resultaten = '<div><div style="font-weight:700;color:#1f2937;margin-bottom:10px">Zo antwoordde iedereen tot nu toe</div>'
+          + d.options.map(function (o) {
+            var n = d.results.counts[o.value] || 0;
+            var pct = Math.round((n / d.results.total) * 100);
+            return '<div class="balk' + (o.value === gekozen ? ' jij' : '') + '"><div class="rij"><span>' + esc(o.label) + (o.value === gekozen ? ' (jij)' : '') + '</span><span>' + pct + '%</span></div>'
+              + '<div class="bak"><div class="vul" style="width:' + pct + '%"></div></div></div>';
+          }).join('')
+          + '<div class="klein">' + d.results.total + ' ' + (d.results.total === 1 ? 'antwoord' : 'antwoorden') + '</div></div>';
+      }
+      var toelichting = d.ask_comment && !voorbeeld
+        ? '<div id="toelichtingBlok">' + (d.comment
+          ? '<div class="bedankt">Dank je voor je toelichting. We lezen ze allemaal.</div>'
+          : '<label for="waarom">Wil je kort zeggen waarom? <span style="font-weight:400;color:#6b7280">(mag ook niet)</span></label>'
+            + '<textarea id="waarom" rows="3"></textarea><button type="button" class="knop" id="verstuur">Versturen</button>') + '</div>'
+        : '';
+      inhoud.innerHTML = (voorbeeld ? '<div class="melding">Dit is een voorbeeld: er wordt niets bewaard.</div>' : '')
+        + '<div class="titel"><div class="vink" aria-hidden="true"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"></path></svg></div>'
+        + '<h1>Bedankt, je antwoord is genoteerd</h1></div>'
+        + '<div class="vraag">' + (d.kicker ? '<div class="label">' + esc(d.kicker) + '</div>' : '')
+        + '<div class="tekst">' + esc(d.question) + '</div><div class="opties">' + opties + '</div>'
+        + '<div class="klein" style="margin-top:10px">Toch anders? Tik een ander antwoord aan, het laatste telt.</div></div>'
+        + resultaten + toelichting;
+    }
+
+    async function antwoord(optie) {
+      if (voorbeeld) { render(staat, optie); return; }
+      var d = await post('answer', { cid: m[1], opt: optie, c: q.get('c') || '', t: q.get('t') || '', key: leesSleutel() });
+      bewaarSleutel(d.answer_key);
+      render(d, d.chosen);
+    }
+
+    inhoud.addEventListener('click', async function (ev) {
+      var knop = ev.target.closest('[data-optie]');
+      if (knop) {
+        try { await antwoord(knop.getAttribute('data-optie')); } catch (e) { toonFout(e); }
+        return;
+      }
+      if (ev.target.id === 'verstuur') {
+        var tekst = document.getElementById('waarom').value.trim();
+        if (!tekst) return;
+        ev.target.disabled = true;
+        try {
+          await post('comment', { answer_id: staat.answer_id, key: staat.answer_key, comment: tekst });
+          staat.comment = tekst;
+          document.getElementById('toelichtingBlok').innerHTML = '<div class="bedankt">Dank je voor je toelichting. We lezen ze allemaal.</div>';
+        } catch (e) { ev.target.disabled = false; toonFout(e); }
+      }
+    });
+
+    function toonFout(e) {
+      var div = document.createElement('div');
+      div.className = 'fout';
+      div.textContent = e.message || 'Er ging iets mis. Probeer het later opnieuw.';
+      inhoud.appendChild(div);
+    }
+
+    async function start() {
+      if (!m) { inhoud.innerHTML = '<div class="fout">Deze link klopt niet.</div>'; return; }
+      try {
+        if (voorbeeld) {
+          var res = await fetch('/t/_v/api/question?cid=' + encodeURIComponent(m[1]));
+          var data = await res.json();
+          if (!data.success) throw new Error(data.error || 'Deze vraag bestaat niet (meer).');
+          render(data.data, m[2]);
+        } else {
+          await antwoord(m[2]);
+          // Het token hoort niet in de adresbalk te blijven staan: wie de link
+          // doorstuurt, zou anders in jouw naam kunnen antwoorden.
+          if (window.history && window.history.replaceState) window.history.replaceState(null, '', window.location.pathname);
+        }
+      } catch (e) {
+        inhoud.innerHTML = '<div class="fout">' + esc(e.message) + '</div>';
+      }
+    }
+
+    start();
+  })();
+  </script>
+</body>
+</html>

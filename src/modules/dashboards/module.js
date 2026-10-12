@@ -12,8 +12,14 @@
  * Bewust hardcoded en NIET generiek -- eerst dit ene patroon bewijzen
  * (query -> KPI-kaarten + grafiek) voor we naar een door gebruikers zelf
  * samen te stellen widget-systeem gaan, zoals uiteindelijk de bedoeling is.
- * Zie src/modules/dashboards/lib/leads-instroom.js voor de analyse achter de
- * merk-groepering en de definitie van "won-ratio vanaf MQL".
+ * De merk- en kanaalindeling staat in lib/lead-kanalen.js (gedeeld met Verkoop en
+ * Targets), de definitie van "won-ratio vanaf MQL" in lib/aanvragen/instroom.js.
+ *
+ * Tabbladen (2026-10-09), in deze volgorde: Verkoop (standaard), Targets,
+ * Aanvragen, Marketing, Website-bezoeken, Kaart. Marketing was tot dan de
+ * aparte module Webgedrag (web_story); zie lib/marketing-routes.js.
+ * Aanvragen is het terrein van David (lib/aanvragen/CLAUDE.md): hij voegt daar
+ * zelf samen, binnen de vangrails.
  *
  * Route: /dashboards
  */
@@ -26,5 +32,12 @@ export default {
   route: '/dashboards',
   icon: 'layout-dashboard',
   isActive: true,
+  /**
+   * Sub-rollen (waarden van users.role), afgedwongen in lib/marketing-routes.js:
+   *   'user'                – alles lezen
+   *   'marketing_signature' – ook uitsluiten uit de cijfers / weer laten meetellen
+   *   'admin'               – alles, ook de twijfelgevallen van Marketing
+   */
+  subRoles: ['user', 'marketing_signature', 'admin'],
   routes
 };

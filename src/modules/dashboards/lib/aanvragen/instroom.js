@@ -1,171 +1,36 @@
 /**
- * Instroom-widget — leads-aanvragen uit crm.lead
+ * Tabblad Aanvragen — de instroom van leads uit crm.lead.
  *
- * Eerste widget van de nieuwe dashboards-module, bedoeld om de bestaande
- * Looker Studio-instroomsectie (Odoo -> odoo-proxy -> google-odoo-dataset-sync
- * -> Sheet -> Looker Studio) te vervangen door een rechtstreekse Odoo-
- * bevraging.
+ * TERREIN VAN DAVID: lees eerst CLAUDE.md in deze map. Lezen gaat ENKEL via
+ * ../aanvragen-bronnen.js en ../lead-kanalen.js (de controle weigert de rest).
  *
- * Kanaal-indeling (bijgewerkt 2026-09-08, tweede iteratie):
- * Naast `x_studio_brand_origin` (het merk) gebruiken we nu ook het nieuwe
- * Studio-veld `x_studio_lead_channel` (fijnmaziger kanaal binnen dat merk,
- * bv. "VME-Check", "Contactform", "Telefoon"). Beide zijn properties op de
- * lead zelf -- geen leadnaam-heuristiek in DEZE code. Het eenmalig vullen
- * van `x_studio_lead_channel` op oudere leads (op basis van leadnaam)
- * gebeurt bewust apart, via een manueel te draaien Odoo Server Action, niet
- * hier -- dat blijft een menselijk gecontroleerde, eenmalige data-cleanup.
+ * Tot 2026-10-09 stond dit in lib/leads-instroom.js, samen met de kanaalindeling.
+ * Die indeling is gedeeld met Verkoop en Targets en staat nu apart, in
+ * ../lead-kanalen.js.
  *
- * Twee uitzonderingen die WEL hier in code horen: `x_studio_brand_origin
- * === 'directregistration'` betekent altijd `openvme_opstarters`, en
- * `=== 'syndicuskiezen'` betekent altijd `syndicoach_syndicus_kiezen` --
- * dat zijn geen gokken maar bevestigde 1-op-1 bedrijfsregels (Nico,
- * 2026-09-08), dus die mogen rechtstreeks op de betrouwbare brand_origin-
- * property worden toegepast i.p.v. te wachten tot elke individuele lead
- * een los kanaalveld heeft.
+ * Herkomst: vervangt de Looker Studio-instroomsectie (Odoo -> odoo-proxy ->
+ * google-odoo-dataset-sync -> Sheet -> Looker Studio) door een rechtstreekse
+ * Odoo-bevraging.
  *
- * Voor leads waar `x_studio_lead_channel` (nog) niet is ingevuld en het
- * merk niet in die twee uitzonderingen valt, vallen we terug op een
- * "overig"-categorie per merk (bv. "Syndicoach: overig/onbekend") --
- * expliciet zichtbaar als "nog niet verfijnd", nooit stilzwijgend
- * weggelaten of fout-gecategoriseerd.
+ * "Won-ratio vanaf MQL": MQL (crm.stage id=1) is de instapstage -- vrijwel elke
+ * nieuwe lead start daar. We benaderen "vanaf MQL binnen periode X" daarom als
+ * "aangemaakt binnen periode X", i.p.v. de volledige stage-historie
+ * (duration_tracking) te parsen zoals het Apps Script funnel-sheet
+ * (google-odoo-dataset-sync/importLeads.js) doet -- eenvoudiger, en voor een
+ * instroom-widget (i.t.t. een doorlooptijd-widget) het juiste precisieniveau.
  *
- * Merk-filter (toegevoegd 2026-08-09, derde iteratie): de widget-brede
- * Alles/Syndicoach/OpenVME/Onbekend-toggle uit de referentie-mockup. Dit
- * filtert op Odoo-domainniveau (scopeDomain hieronder), gebaseerd op
- * dezelfde bevestigde brand_origin-regels -- dus geen aparte "onbekend"-
- * queries nodig, gewoon het merk uitsluiten/insluiten in het domain vóór
- * we het ophalen. "Onbekend" = alles wat niet in de 4 gekende merken valt
- * (in de praktijk vrijwel altijd 'manual').
- *
- * "Won-ratio vanaf MQL": MQL (crm.stage id=1) is de instapstage -- vrijwel
- * elke nieuwe lead start daar. We benaderen "vanaf MQL binnen periode X"
- * daarom als "aangemaakt binnen periode X", i.p.v. de volledige
- * stage-historie (duration_tracking) te parsen zoals het Apps Script
- * funnel-sheet (google-odoo-dataset-sync/importLeads.js) doet -- eenvoudiger,
- * en voor een instroom-widget (i.t.t. een doorlooptijd-widget) het juiste
- * precisieniveau. Kan later verfijnd worden indien nodig.
- *
- * Geen relatie-traversal nodig (alles staat op crm.lead zelf), dus
- * rechtstreeks via lib/odoo.js -- de cascade-motor van sales-insight-explorer
- * (single source of truth voor RELATIES tussen modellen) is hier niet van
- * toepassing; dit is het "enkel basismodel + aggregaties"-geval, dus via
- * Odoo's read_group (geen per-lead detail nodig zolang we op property
- * groeperen).
- *
- * @module modules/dashboards/lib/leads-instroom
+ * Alles staat op crm.lead zelf, dus via read_group (geen per-lead detail nodig
+ * zolang we op een property groeperen).
  */
-
-import { executeKw } from '../../../lib/odoo.js';
-
-// Kanalen zoals ze letterlijk bestaan als selectiewaarden van
-// x_studio_lead_channel in Odoo Studio (ir.model.fields.selection op
-// crm.lead), aangevuld met een "overig"-vangnet per merk voor leads die
-// (nog) geen kanaaldetail hebben. Volgorde bepaalt de volgorde in de
-// legende/grafiek -- gegroepeerd per merk.
-const BRAND_KEYS = [
-  'syndicoach_vme_check',
-  'syndicoach_meta_lead_ad',
-  'syndicoach_contact_form',
-  'syndicoach_syndicus_kiezen',
-  'syndicoach_telefoon',
-  'syndicoach_email',
-  'syndicoach_overig',
-  'openvme_contact_form',
-  'openvme_opstarters',
-  'openvme_telefoon',
-  'openvme_email',
-  'openvme_meta_lead_ad',
-  'openvme_overig',
-  'manual_overig'
-];
-
-// Ook gebruikt door het verkoopdashboard (lib/sales/derive.js): EEN kanaalindeling
-// voor leads, zodat "Kanaal (lead)" in Verkoop en Targets hetzelfde zegt als hier.
-export const BRAND_LABELS = {
-  syndicoach_vme_check: 'Syndicoach: VME-Check',
-  syndicoach_meta_lead_ad: 'Syndicoach: Meta lead ad',
-  syndicoach_contact_form: 'Syndicoach: Contactform',
-  syndicoach_syndicus_kiezen: 'Syndicoach: Syndicus kiezen',
-  syndicoach_telefoon: 'Syndicoach: Telefoon',
-  syndicoach_email: 'Syndicoach: E-mail',
-  syndicoach_overig: 'Syndicoach: overig/onbekend',
-  openvme_contact_form: 'OpenVME: Contactformulier',
-  openvme_opstarters: 'OpenVME: Zelfstarters',
-  openvme_telefoon: 'OpenVME: Telefoon',
-  openvme_email: 'OpenVME: E-mail',
-  openvme_meta_lead_ad: 'OpenVME: Meta lead ad',
-  openvme_overig: 'OpenVME: overig/onbekend',
-  manual_overig: 'Manueel/overig'
-};
-
-// Set van de kanaalwaarden die ECHT als zodanig in Odoo bestaan (i.t.t. de
-// lokale "overig"-vangnetcategorieën hierboven, die geen Odoo-waarde zijn).
-const KNOWN_CHANNEL_VALUES = new Set([
-  'syndicoach_vme_check',
-  'syndicoach_meta_lead_ad',
-  'syndicoach_contact_form',
-  'syndicoach_syndicus_kiezen',
-  'syndicoach_telefoon',
-  'syndicoach_email',
-  'openvme_contact_form',
-  'openvme_opstarters',
-  'openvme_telefoon',
-  'openvme_email',
-  'openvme_meta_lead_ad'
-]);
-
-/**
- * @param {string|false} brandOrigin - x_studio_brand_origin
- * @param {string|false} channelValue - x_studio_lead_channel
- * @returns {string} één van BRAND_KEYS
- */
-export function resolveChannel(brandOrigin, channelValue) {
-  // Bevestigde bedrijfsregels, geen gok: rechtstreeks op de betrouwbare
-  // brand_origin-property toepassen, zodat dit ook al werkt vóór elke
-  // individuele lead een los kanaalveld heeft.
-  if (brandOrigin === 'directregistration') return 'openvme_opstarters';
-  if (brandOrigin === 'syndicuskiezen') return 'syndicoach_syndicus_kiezen';
-
-  if (channelValue && KNOWN_CHANNEL_VALUES.has(channelValue)) return channelValue;
-
-  switch (brandOrigin) {
-    case 'syndicoach': return 'syndicoach_overig';
-    case 'openvme': return 'openvme_overig';
-    default: return 'manual_overig';
-  }
-}
-
-/**
- * Odoo-domain-uitbreiding voor de widget-brede merk-toggle. Gebaseerd op
- * dezelfde bevestigde brand_origin-regels als resolveChannel() hierboven --
- * 'directregistration' hoort bij OpenVME, 'syndicuskiezen' bij Syndicoach.
- * "Onbekend" is alles wat niet in de 4 gekende merken valt.
- *
- * @param {'all'|'syndicoach'|'openvme'|'onbekend'} scope
- */
-function scopeDomain(scope) {
-  switch (scope) {
-    case 'syndicoach': return [['x_studio_brand_origin', 'in', ['syndicoach', 'syndicuskiezen']]];
-    case 'openvme': return [['x_studio_brand_origin', 'in', ['openvme', 'directregistration']]];
-    case 'onbekend': return [['x_studio_brand_origin', 'not in', ['syndicoach', 'openvme', 'directregistration', 'syndicuskiezen']]];
-    default: return [];
-  }
-}
-
-/** Enkel de BRAND_KEYS die relevant zijn voor de gekozen scope (voor een opgekuiste legende/badges). */
-function relevantKeysForScope(scope) {
-  if (scope === 'syndicoach') return BRAND_KEYS.filter((k) => k.startsWith('syndicoach'));
-  if (scope === 'openvme') return BRAND_KEYS.filter((k) => k.startsWith('openvme'));
-  if (scope === 'onbekend') return ['manual_overig'];
-  return BRAND_KEYS;
-}
+import { leesGroepen } from '../aanvragen-bronnen.js';
+import { BRAND_KEYS, BRAND_LABELS, resolveChannel, normalizeScope, scopeDomain, relevantKeysForScope } from '../lead-kanalen.js';
 
 function pad2(n) {
   return String(n).padStart(2, '0');
 }
 
 /** Odoo verwacht naïeve UTC-datetimes in dit formaat. */
-function toOdooDatetime(date) {
+export function toOdooDatetime(date) {
   return `${date.getUTCFullYear()}-${pad2(date.getUTCMonth() + 1)}-${pad2(date.getUTCDate())} ` +
     `${pad2(date.getUTCHours())}:${pad2(date.getUTCMinutes())}:${pad2(date.getUTCSeconds())}`;
 }
@@ -186,7 +51,7 @@ export function addMonths(date, months) {
   return d;
 }
 
-// Periodetoggle van de widget. De GRANULARITEIT hoort bij de periode en
+// Periodekeuze van het tabblad. De GRANULARITEIT hoort bij de periode en
 // wordt nergens anders bepaald: 30 dagen per dag, 3 en 6 maanden per week,
 // 12 maanden per maand (Nico, 2026-09-28). Per dag over een half jaar gaf
 // 180 staafjes waar niets meer uit af te lezen viel.
@@ -220,22 +85,15 @@ function getPeriodRange(period) {
 // Enkel echte opportunities tellen als "aanvraag" -- zelfde conventie als
 // google-odoo-dataset-sync/importLeads.js ("Filter enkel type = opportunity").
 const BASE_DOMAIN = [['type', '=', 'opportunity']];
-// active_test: false -- verloren/gearchiveerde leads blijven meetellen als
-// instroom (de aanvraag is wel degelijk binnengekomen), zelfde bedoeling als
-// de baseDomain van de crm.lead-node in sales-insight-explorer/lib/graph.
-const BASE_CONTEXT = { active_test: false };
 
 function dateRangeDomain(field, start, end) {
   return [[field, '>=', toOdooDatetime(start)], [field, '<', toOdooDatetime(end)]];
 }
 
-async function readGroup(env, { domain, fields, groupBy }) {
-  return executeKw(env, {
-    model: 'crm.lead',
-    method: 'read_group',
-    args: [domain, fields, groupBy],
-    kwargs: { context: BASE_CONTEXT, lazy: false }
-  });
+// ookGearchiveerd: verloren/gearchiveerde leads blijven meetellen als instroom
+// (de aanvraag is wel degelijk binnengekomen).
+function readGroup(env, { domain, fields, groupBy }) {
+  return leesGroepen(env, 'crm.lead', { domain, fields, groupBy, ookGearchiveerd: true });
 }
 
 async function countLeads(env, domain) {
@@ -259,46 +117,12 @@ function emptyDailySeries(start, end) {
 
 /**
  * @param {Object} env - Worker environment
- * @param {{period: '30d'|'6m', scope?: 'all'|'syndicoach'|'openvme'|'onbekend'}} options
+ * @param {{period: '30d'|'3m'|'6m'|'12m', scope?: 'all'|'syndicoach'|'openvme'|'onbekend'}} options
  * @returns {Promise<Object>}
  */
-/**
- * Totaal aantal (opportunity-)leads per dag, zero-filled, voor een
- * willekeurige periode -- gebruikt voor het voortschrijdend-30-dagen-
- * benchmarklijntje (dat een veel langere/andere periode beslaat dan de
- * 30d/6m-toggle van de widget zelf, dus een aparte, lichtere query dan
- * getInstroomData()).
- *
- * @param {Object} env
- * @param {{ scope?: string, start: Date, end: Date }} options
- * @returns {Promise<Array<{date: string, count: number}>>}
- */
-export async function getDailyTotalsSeries(env, { scope, start, end } = {}) {
-  const normalizedScope = ['syndicoach', 'openvme', 'onbekend'].includes(scope) ? scope : 'all';
-  const domain = [...BASE_DOMAIN, ...scopeDomain(normalizedScope), ...dateRangeDomain('create_date', start, end)];
-
-  const rows = await readGroup(env, { domain, fields: ['id'], groupBy: ['create_date:day'] });
-  const countByDate = new Map();
-  for (const row of rows) {
-    const rangeInfo = row.__range && row.__range['create_date:day'];
-    const dateKey = rangeInfo && rangeInfo.from ? rangeInfo.from.slice(0, 10) : null;
-    if (dateKey) countByDate.set(dateKey, (countByDate.get(dateKey) || 0) + (row.__count || 0));
-  }
-
-  const series = [];
-  let cursor = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate()));
-  const last = new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate()));
-  while (cursor.getTime() < last.getTime()) {
-    const key = toDateKey(cursor);
-    series.push({ date: key, count: countByDate.get(key) || 0 });
-    cursor = addDays(cursor, 1);
-  }
-  return series;
-}
-
 export async function getInstroomData(env, { period, scope } = {}) {
   const normalizedPeriod = normalizePeriod(period);
-  const normalizedScope = ['syndicoach', 'openvme', 'onbekend'].includes(scope) ? scope : 'all';
+  const normalizedScope = normalizeScope(scope);
   const { start, end, prevStart, prevEnd } = getPeriodRange(normalizedPeriod);
 
   const scopedBase = [...BASE_DOMAIN, ...scopeDomain(normalizedScope)];
@@ -369,7 +193,13 @@ export async function getInstroomData(env, { period, scope } = {}) {
     period: normalizedPeriod,
     granularity: PERIOD_GRANULARITY[normalizedPeriod],
     scope: normalizedScope,
-    range: { start: toOdooDatetime(start), end: toOdooDatetime(end) },
+    // prevStart/prevEnd: zodat elk kerncijfer voluit kan zeggen waarmee het vergelijkt.
+    range: {
+      start: toOdooDatetime(start),
+      end: toOdooDatetime(end),
+      prevStart: toOdooDatetime(prevStart),
+      prevEnd: toOdooDatetime(prevEnd)
+    },
     totals: {
       current: { count: currentTotal, byBrand: scopedByBrand },
       previous: { count: previousCount },

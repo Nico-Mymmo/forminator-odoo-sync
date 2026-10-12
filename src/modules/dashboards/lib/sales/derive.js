@@ -37,6 +37,12 @@
  * ongekoppeld contract; zonder deze regel stond dat als verloren + nieuw.
  * Het verschil in MRR telt als wissel (in de brug: uitbreiding/verlaging).
  *
+ * Naar expert: het LAATSTE abonnement van een klant stopte, maar op de klant staat
+ * nu "facturatie via expert" aan, met een expert en status Actief. Dat is een VME
+ * in beheer die voortaan in het abonnement van haar expert zit: geen verloren
+ * klant. Odoo bewaart niet wanneer dat vinkje aanging, dus dit volgt de stand van
+ * vandaag (endVia, zie "Naar facturatie via expert" hieronder).
+ *
  * Uitsluitingen (Supabase sales_exclusions): een uitgesloten klant of order
  * verdwijnt hier, en `excluded` zegt altijd hoeveel -- stil weglaten leest als
  * een kleiner cijfer.
@@ -55,15 +61,18 @@
  * -- assistant (ondersteuning, uren in regie per credit), captain (Syndicoach is de
  * syndicus), coach. Syndicoach factureert nog niet in Odoo.
  * Begeleiding: de adviserend expert (x_studio_parent_expert) is Syndicoach, een
- * andere expert, of niemand.
+ * andere expert, of niemand. Een PROFESSIONELE SYNDICUS staat apart: hij heeft
+ * geen adviserend expert, hij IS de expert van zijn gebouwen. "Geen expert" is dus
+ * enkel een VME (of een klant zonder klanttype) zonder expert -- en dat is een fout
+ * in Odoo (staat bij "Na te kijken").
  * Gratis (x_studio_non_invoiced_customer): interne gebruikers met een gratis licentie.
  */
 
 import { readSales, hasSalesDb } from '../../../../lib/sales-db.js';
 import { leadMerkWhy, leadProductWhy, leadWonDate, leadVerloren } from './lead-rules.js';
-import { resolveChannel, BRAND_LABELS } from '../leads-instroom.js';
+import { resolveChannel, BRAND_LABELS, BRAND_KEYS } from '../lead-kanalen.js';
 
-export const SHAPE_VERSION = 6; // 2: pendHist, 3: waarom (merk, product, leadnaam), 4: pakket, begeleiding, gratis, licentie-aandeel, experts, 5: testpartners, 6: kanaal zoals Aanvragen, licenties gegroepeerd
+export const SHAPE_VERSION = 9; // 2: pendHist, 3: waarom (merk, product, leadnaam), 4: pakket, begeleiding, gratis, licentie-aandeel, experts, 5: testpartners, 6: kanaal zoals Aanvragen, licenties gegroepeerd, 7: waarom in zinnen, 8: naar expert (endVia), 9: begeleiding: professionele syndici apart
 
 // Licenties: één per abonnement, de rest zijn opties. Volgorde = volgorde in de filter.
 // Basic, Smart en Coached zijn de licenties die vandaag verkocht worden; Unlimited is
@@ -204,7 +213,7 @@ export async function deriveSalesFacts(env, settings) {
   const D = { user: dict(), ct: dict(), plan: dict(), lic: dict(), ch: dict(), org: dict(), syn: dict(), plots: dict(),
     reason: dict(), tg: dict(), lost: dict(), expert: dict(), merk: dict(), mw: dict(), pw: dict(), pack: dict(), beg: dict() };
   ['Geen pakket', 'Assistant', 'Captain', 'Coach'].forEach((x) => D.pack.add(x));
-  ['Syndicoach', 'Andere expert', 'Geen expert'].forEach((x) => D.beg.add(x));
+  ['Syndicoach', 'Andere expert', 'Geen expert', 'Professionele syndicus'].forEach((x) => D.beg.add(x));
   // Syndicoach als ADVISEREND EXPERT is de partner met exact die naam. Niet in de
   // code vastgezet als id: dan klopt het dashboard niet meer op een kopie of na een
   // samenvoeging, zonder dat iemand het merkt. meta.syndicoachId zegt welke.
@@ -212,15 +221,19 @@ export async function deriveSalesFacts(env, settings) {
   PLOT_ORDER.forEach((p) => D.plots.add(p));
   D.merk.add('OpenVME'); D.merk.add('Syndicoach'); D.merk.add('Onbekend');
   const tagName = (id) => String(lkName('tag', id) || '').toLowerCase();
-  /** Het signaal van de merkregel in mensentaal (zonder lead-id: die tekst komt in een woordenlijst). */
+  /**
+   * Het signaal van de merkregel als ZIN (zonder lead-id: die tekst komt in een
+   * woordenlijst). Het staat achter een vraagteken in het dashboard, dus het moet
+   * zonder uitleg te lezen zijn.
+   */
   const merkTekst = (w) => {
-    if (w.k === 'herkomst') return `Syndicoach: merk-herkomst "${lkName('sel:crm.lead.x_studio_brand_origin', w.v) || w.v}"`;
-    if (w.k === 'kanaal') return `Syndicoach: kanaal "${lkName('sel:crm.lead.x_studio_lead_channel', w.v) || w.v}"`;
-    if (w.k === 'naam') return `Syndicoach: "${w.v}" in de naam van de lead`;
-    if (w.k === 'label') return `Syndicoach: label "${w.v}"`;
-    return 'OpenVME: geen Syndicoach-signaal in herkomst, kanaal, naam of labels van de lead';
+    if (w.k === 'herkomst') return `Syndicoach, want de lead heeft als merk-herkomst "${lkName('sel:crm.lead.x_studio_brand_origin', w.v) || w.v}".`;
+    if (w.k === 'kanaal') return `Syndicoach, want de lead kwam via het kanaal "${lkName('sel:crm.lead.x_studio_lead_channel', w.v) || w.v}".`;
+    if (w.k === 'naam') return `Syndicoach, want de naam van de lead bevat "${w.v}".`;
+    if (w.k === 'label') return `Syndicoach, want de lead heeft het label "${w.v}".`;
+    return 'OpenVME, want de lead heeft geen enkel Syndicoach-signaal (niet in de herkomst, het kanaal, de naam of de labels).';
   };
-  const GEEN_LEAD = 'Onbekend: geen kans op de orders van deze klant, en geen lead op de klant of op een contactpersoon ervan';
+  const GEEN_LEAD = 'Onbekend, want deze klant heeft geen enkele lead in Odoo: niet op zijn orders, niet op de klant zelf en niet op een contactpersoon.';
 
   // Leads per klant: de lead die het eerste contract opleverde, anders de oudste gewonnen, anders de oudste.
   const leadsByCustomer = new Map();
@@ -273,7 +286,7 @@ export async function deriveSalesFacts(env, settings) {
       inv: p.invoiced_by_partner ? 1 : 0,
       expert: D.expert.add(p.parent_expert_id ? (partner.get(p.parent_expert_id) || {}).name || `#${p.parent_expert_id}` : 'Geen'),
       pack: D.pack.add(p.syndicoach_pack ? (PACK_LABELS[p.syndicoach_pack] || p.syndicoach_pack) : 'Geen pakket'),
-      beg: D.beg.add(!p.parent_expert_id ? 'Geen expert' : p.parent_expert_id === syndicoachId ? 'Syndicoach' : 'Andere expert'),
+      beg: D.beg.add(ctId === 2 ? 'Professionele syndicus' : !p.parent_expert_id ? 'Geen expert' : p.parent_expert_id === syndicoachId ? 'Syndicoach' : 'Andere expert'),
       free: p.non_invoiced ? 1 : 0,
       lead: lead ? lead.id : null
     };
@@ -367,7 +380,7 @@ export async function deriveSalesFacts(env, settings) {
       paused: !ended && last.sub_state === '4_paused' ? 1 : 0,
       pend: null, p: periods,
       onContact: (() => { const p = partner.get(last.partner_id); return p && !p.is_company && p.parent_id ? 1 : 0; })(),
-      newSwitch: 0, endSwitch: 0
+      newSwitch: 0, endSwitch: 0, endVia: null
     };
     if (pend.length && !ended) {
       const q = pend.sort((a, b) => b.id - a.id)[0];
@@ -408,9 +421,33 @@ export async function deriveSalesFacts(env, settings) {
       if (others.some((o) => o.start <= to && (!o.end || o.end > ch.end))) ch.endSwitch = 1;
     }
   });
+  // ── Naar facturatie via expert ───────────────────────────────────────────
+  // Een VME in beheer gaat soms van facturatie door OpenVME (eigen abonnement) over
+  // naar facturatie door haar expert. In Odoo stopt dan haar eigen abonnement (meestal
+  // met reden 7, "vernieuwd met een nieuw plan"), gaat "facturatie via expert" aan en
+  // blijft haar status Actief. Dat is geen verloren klant: haar kavels zitten voortaan
+  // in het abonnement van de expert, tegen zijn prijs. Gemeten op 2026-10-08: Beterveld,
+  // Mheerstraat en Zavelpand II (Immo Pauly, 1 oktober) en Excelsior (Marco Vanerom,
+  // 24 september) stonden zo als verloren.
+  // Odoo bewaart niet WANNEER het vinkje aanging; dit volgt dus de stand van vandaag.
+  // Daarom enkel het LAATSTE abonnement van de klant, en enkel zolang vinkje, expert en
+  // status (x_studio_company_status = 'Active') zo staan. Komt de status op iets anders
+  // (Blocked, ...), dan is het vanzelf weer verloren.
+  // endVia: [expert-id, naam, lopend abonnement van de expert [order-id, naam, mrr, sinds] of null]
+  chains.forEach((ch) => {
+    if (!ch.end || ch.endSwitch) return;
+    const p = partner.get(customers[ch.c].id);
+    if (!p || p.active === 0 || !p.invoiced_by_partner || p.company_status !== 'Active' || !p.parent_expert_id) return;
+    if ((chainsByCust.get(ch.c) || []).some((i) => chains[i] !== ch && chains[i].start > ch.start)) return;
+    const eCh = custIdx.has(p.parent_expert_id)
+      ? (chainsByCust.get(custIdx.get(p.parent_expert_id)) || []).map((i) => chains[i]).find((x) => !x.end) : null;
+    const eLp = eCh ? eCh.p[eCh.p.length - 1] : null;
+    ch.endVia = [p.parent_expert_id, (partner.get(p.parent_expert_id) || {}).name || `#${p.parent_expert_id}`,
+      eLp ? [eLp.o, eLp.n, eLp.m, eCh.start] : null];
+  });
   const NOT_CHURN_REASONS = [7, 13, 14, 16];
   chains.forEach((ch) => {
-    if (ch.end && !ch.endSwitch && ch.end <= today && NOT_CHURN_REASONS.includes(ch.reasonId)) {
+    if (ch.end && !ch.endSwitch && !ch.endVia && ch.end <= today && NOT_CHURN_REASONS.includes(ch.reasonId)) {
       const last = ch.p[ch.p.length - 1];
       const c = customers[ch.c];
       att('warn', 'switch_without_successor', `${last.n}: gestopt met "${lkName('close_reason', ch.reasonId)}" zonder opvolger`,
@@ -418,6 +455,18 @@ export async function deriveSalesFacts(env, settings) {
         + 'verhuisd naar de facturatie van een professionele syndicus?', [{ model: 'sale.order', id: last.o, label: last.n }]);
     }
   });
+  // Een VME met een lopend abonnement hoort een adviserend expert te hebben. Ontbreekt
+  // die, dan staat ze in "Begeleiding" onder "Geen expert" -- een fout in Odoo, geen keuze.
+  const zonderExpert = [];
+  for (const [ci, idxs] of chainsByCust) {
+    const c = customers[ci];
+    if ((c.ctId === 1 || c.ctId === 3) && D.beg.list[c.beg] === 'Geen expert' && idxs.some((i) => !chains[i].end)) zonderExpert.push(c);
+  }
+  if (zonderExpert.length) {
+    att('warn', 'vme_no_expert', `${zonderExpert.length} VME's met een lopend abonnement zonder adviserend expert`,
+      'In Odoo is "Parent expert" leeg. Een VME in advies of in beheer hoort een expert te hebben; in Verloop > Begeleiding staat ze nu onder "Geen expert".',
+      zonderExpert.slice(0, 25).map((c) => ({ model: 'res.partner', id: c.id, label: c.name })));
+  }
   // Meer dan één lopend abonnement bij dezelfde klant.
   for (const [ci, idxs] of chainsByCust) {
     const running = idxs.map((i) => chains[i]).filter((ch) => !ch.end);
@@ -607,7 +656,10 @@ export async function deriveSalesFacts(env, settings) {
       syncErrors: raw.sync.filter((s) => s.last_error).map((s) => ({ model: s.model, error: s.last_error })),
       odooUrl: 'https://mymmo.odoo.com',
       products: PRODUCT_TARGETS, stages: stageNames, assistantLicenses: ASSISTANT_LICENSES, proLicense: PRO_LICENSE,
-      syndicoachId
+      syndicoachId,
+      // De kanalen in de volgorde van het tabblad Aanvragen (per merk), zodat
+      // "Kanaal (lead)" dezelfde volgorde en kleuren krijgt (dashboards-sales.js).
+      kanalen: BRAND_KEYS.map((k) => ({ key: k, label: BRAND_LABELS[k] }))
     },
     dict: Object.fromEntries(Object.entries(D).map(([k, v]) => [k, v.list])),
     bron: BRON.list, leadProducts: PROD.list,

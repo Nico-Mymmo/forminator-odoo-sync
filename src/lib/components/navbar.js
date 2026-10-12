@@ -53,6 +53,7 @@ export function navbar(user) {
     user: svg('<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>'),
     palette: svg('<circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"/><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/>'),
     logout: svg('<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/>'),
+    shield: svg('<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/>'),
     settings: svg('<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>', 14),
     monitor: svg('<rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/>', 14)
   };
@@ -96,6 +97,12 @@ export function navbar(user) {
   const displayName = (user && (user.full_name || user.username || user.email)) || '';
   const userEmail = (user && user.email) || '';
   const isAdmin = !!(user && user.role === 'admin');
+
+  // Odoo-links openen in debugmodus (?debug=1) voor deze adressen. Een
+  // persoonlijke voorkeur, geen recht: debugmodus toont in Odoo meer, maar geeft
+  // geen extra toegang. Zie odooDebugScript hieronder.
+  const ODOO_DEBUG_EMAILS = ['admin@mymmo.com'];
+  const odooDebug = ODOO_DEBUG_EMAILS.indexOf(userEmail.toLowerCase()) !== -1;
 
   function initialsOf(name) {
     const parts = String(name).replace('@', ' ').trim().split(/[\s.]+/).filter(Boolean);
@@ -203,6 +210,7 @@ export function navbar(user) {
     + '<div class="text-xs text-base-content/50 normal-case">' + userEmail + '</div>'
     + '</li>'
     + '<li><a href="/profile">' + ICONS.user + 'Profiel</a></li>'
+    + '<li><a href="/profile/beveiliging">' + ICONS.shield + 'Beveiliging</a></li>'
     + themeMenu
     + '<div class="divider my-1"></div>'
     + '<li><a data-action="logout" class="text-error">' + ICONS.logout + '<span data-role="logoutLabel">Uitloggen</span></a></li>'
@@ -456,6 +464,42 @@ export function navbar(user) {
     '</' + 'script>'
   ].join('\n');
 
+  // ---------- Odoo-links in debugmodus (enkel voor ODOO_DEBUG_EMAILS) ----------
+  //
+  // Hier en niet per module: de OM bouwt Odoo-links op een twintigtal plekken
+  // (dashboards, webgedrag, cx, eventbeheer, links die de server meestuurt), en
+  // een nieuwe plek zou anders telkens vergeten worden. Deze navbar staat op elke
+  // pagina, legacy en modern. De href wordt herschreven op het moment dat je de
+  // link aanwijst, met het toetsenbord bereikt of aanklikt (ook middelklik en
+  // rechtsklik "openen in nieuw tabblad"), dus wie een link bouwt hoeft hier niets
+  // van te weten. Een link die al een debug-parameter heeft, blijft zoals ze is.
+  // Niet bereikt: mini-apps (sandbox-iframe zonder toegang) en offerte.html
+  // (geen navbar).
+  const odooDebugScript = !odooDebug ? '' : [
+    '<script>',
+    '(function () {',
+    '  if (window.__omOdooDebugInit) return;',
+    '  window.__omOdooDebugInit = true;',
+    '  var ODOO_HOST = /^mymmo(-[a-z0-9-]+\\.dev)?\\.odoo\\.com$/i;',
+    '  function metDebug(a) {',
+    "    var href = a.getAttribute('href');",
+    "    if (!href || href.indexOf('odoo.com') === -1) return;",
+    '    var url;',
+    '    try { url = new URL(href, location.href); } catch (err) { return; }',
+    "    if (!ODOO_HOST.test(url.hostname) || url.searchParams.has('debug')) return;",
+    "    url.searchParams.set('debug', '1');",
+    "    a.setAttribute('href', url.toString());",
+    '  }',
+    "  ['mouseover', 'focusin', 'click', 'auxclick', 'contextmenu'].forEach(function (type) {",
+    '    document.addEventListener(type, function (e) {',
+    "      var a = e.target && e.target.closest ? e.target.closest('a[href]') : null;",
+    '      if (a) metDebug(a);',
+    '    }, true);',
+    '  });',
+    '})();',
+    '</' + 'script>'
+  ].join('\n');
+
   // ---------- Samenstellen ----------
   return '<header class="flex items-center justify-between bg-base-100 border-b border-base-content/10 px-4" style="position: fixed; top: 0; left: 0; right: 0; height: 48px; z-index: 50;">'
     + '<div class="flex items-center gap-3">'
@@ -475,5 +519,6 @@ export function navbar(user) {
     + '</div>'
     + '</header>'
     + mobileMenu
-    + script;
+    + script
+    + odooDebugScript;
 }
