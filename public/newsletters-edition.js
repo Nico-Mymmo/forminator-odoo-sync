@@ -19,6 +19,7 @@
    * mail en mag nadien nog wijzigen.
    */
   var SJABLONEN = [
+    { key: 'vooraf', kind: 'intro', titel: 'Woordje vooraf', icoon: 'hand-heart', uitleg: 'Een korte inleiding bovenaan, ondertekend met foto.' },
     { key: 'vraag', kind: 'question', titel: 'Korte vraag', icoon: 'circle-help', uitleg: 'Eén vraag, lezers antwoorden met een klik.' },
     { key: 'stelling', kind: 'statement', titel: 'Stelling', icoon: 'scale', uitleg: 'Eens of oneens? Eén klik volstaat.' },
     { key: 'peiling', kind: 'poll', titel: 'Jij beslist mee', icoon: 'list-checks', uitleg: 'Laat lezers kiezen tussen een paar opties.' },

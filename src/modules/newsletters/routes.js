@@ -120,6 +120,12 @@ function normaliseerOpties(lijst, kind) {
 export function normaliseerInhoud(kind, c = {}) {
   switch (kind) {
     case 'intro':
+      return {
+        title: kort(c.title, 160), text: kort(c.text, 4000),
+        thingie: /^[a-z0-9-]{1,60}$/.test(String(c.thingie || '')) ? c.thingie : '',
+        signoff: kort(c.signoff, 80), sign_name: kort(c.sign_name, 80), sign_role: kort(c.sign_role, 100),
+        sign_photo_url: url(c.sign_photo_url),
+      };
     case 'article':
       return {
         title: kort(c.title, 160), text: kort(c.text, 4000), image_url: url(c.image_url), image_alt: kort(c.image_alt, 160),
@@ -722,8 +728,14 @@ export const routes = {
         title: b.title !== undefined ? b.title : item.title,
         content: b.content !== undefined ? normaliseerInhoud(kind, b.content) : item.content,
       };
+      // Het woordje vooraf zegt wat er in de editie staat: geef de titels mee.
+      const inhoud = kind === 'intro' && item.edition_id
+        ? (await listContributions(env, item.edition_id))
+          .filter((i) => i.id !== item.id && !['toc', 'closing', 'intro'].includes(i.kind) && heeftInhoud(i, { events: [{ id: 0 }] }))
+          .map(kopVan).filter(Boolean)
+        : [];
       const voorstel = await stelStukjeVoor(env, user, {
-        series, item: ontwerp, action: String(b.action || 'write'), notes: b.notes !== undefined ? b.notes : item.raw_notes,
+        series, item: ontwerp, action: String(b.action || 'write'), notes: b.notes !== undefined ? b.notes : item.raw_notes, inhoud,
       });
       return json({ success: true, data: voorstel });
     } catch (err) { return fout(err); }

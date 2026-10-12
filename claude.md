@@ -5253,6 +5253,12 @@ Afspraken die bewust zo zijn:
   editie opent nooit meer op een eigen pagina: `#/stukje/<id>` opent de
   redactietafel met dat blok gekozen; enkel een idee in de voorraad heeft nog
   een eigen schrijfscherm.
+- **Het woordje vooraf** (`intro`) is een korte inleiding bovenaan, afgesloten met
+  een groet en een ondertekening: foto, naam en functie van de schrijver (uit
+  Odoo, `hr.employee`), of wat er in `sign_name`/`sign_role`/`sign_photo_url`
+  staat als iemand het namens een ander schrijft. Het staat NOOIT in de
+  inhoudstafel. De AI krijgt de titels van de editie mee en schrijft geen groet
+  of naam in de tekst.
 - **Iedereen kiest zelf de plek van een blok dat hij toevoegt**; de
   hoofdredactie kan het nadien verschuiven, toewijzen of weghalen (paneel,
   "Hoofdredactie"). "Bevestigen" in het scherm = de stand `approved`.
