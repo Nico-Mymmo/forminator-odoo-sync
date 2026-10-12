@@ -24,6 +24,7 @@ import { tokenVeldBestaat, verstuurTest, planEchteMailing, leesCijfers } from '.
 import { stelStukjeVoor, stelOnderwerpVoor } from './lib/ai.js';
 import { linkVoorbeeld, eventsVoorEditie, auteurs, tekeningen } from './lib/sources.js';
 import { stuurHerinnering } from './lib/cron.js';
+import { naamVoor } from '../../lib/medewerkers.js';
 import { lijstTekeningen, pngSleutel, vergeetTekeningen } from '../av-slides/lib/thingies.js';
 import { listIntegrations } from '../forminator-sync-v2/database.js';
 import { ArticleFetchError } from '../content-feed/lib/article-fetch.js';
@@ -182,7 +183,7 @@ export function normaliseerInhoud(kind, c = {}) {
 
 function naamVan(users, id) {
   const u = users.find((x) => x.id === id);
-  return u ? (u.full_name || u.email) : null;
+  return u ? naamVoor(null, u) : null;
 }
 
 function voortgang(items) {
@@ -228,7 +229,7 @@ export const routes = {
           kinds: KINDS,
           brands: BRAND,
           series: series.map((s) => ({ ...s, is_editor: isEditorVan(user, s) })),
-          users: users.map((u) => ({ id: u.id, name: u.full_name || u.email, email: u.email })),
+          users: users.map((u) => ({ id: u.id, name: naamVoor(null, u), email: u.email })),
         },
       });
     } catch (err) { return fout(err); }

@@ -44,6 +44,7 @@
  */
 
 import { searchRead, create, write, batchCreate } from '../../../lib/odoo.js';
+import { medewerkerOpId } from '../../../lib/medewerkers.js';
 import {
   ODOO_MODELS,
   EVENT_FIELDS,
@@ -322,10 +323,10 @@ export async function resolveSender(env, event) {
 /**
  * Functietitel en profielfoto van de host.
  *
- * De foto komt uit `x_public_image_attachment_id` op hr.employee. De
- * oorspronkelijke template bouwde daar een RELATIEVE URL mee (`/web/image/%s`),
- * wat in een mail niet werkt -- een mailclient heeft geen basis-URL. Hier
- * wordt het een absolute URL op de Odoo-host.
+ * Uit src/lib/medewerkers.js, zoals overal in de OM: de publieke pasfoto
+ * (`x_public_image_attachment_id`) als ABSOLUTE URL op de Odoo-host -- een
+ * mailclient heeft geen basis-URL voor de relatieve `/web/image/%s` van de
+ * oorspronkelijke template.
  *
  * Nooit fataal: zonder foto of functietitel valt dat deel van de
  * afzenderkaart gewoon weg.
@@ -334,25 +335,8 @@ export async function resolveSender(env, event) {
  * @returns {Promise<{ jobTitle: string, avatarUrl: string }>}
  */
 async function resolveHostProfile(env, employeeId) {
-  try {
-    const rows = await searchRead(env, {
-      model: 'hr.employee',
-      domain: [['id', '=', employeeId]],
-      fields: ['id', 'job_title', 'x_public_image_attachment_id'],
-      limit: 1
-    });
-
-    const attachmentId = m2oId(rows?.[0]?.x_public_image_attachment_id);
-    const base = String(env?.ODOO_WEB_ORIGIN || 'https://mymmo.odoo.com').replace(/\/+$/, '');
-
-    return {
-      jobTitle: String(rows?.[0]?.job_title || '').trim(),
-      avatarUrl: attachmentId ? `${base}/web/image/${attachmentId}` : ''
-    };
-  } catch (error) {
-    console.warn(`${LOG_PREFIX} profiel van host ${employeeId} niet gelezen: ${error?.message}`);
-    return { jobTitle: '', avatarUrl: '' };
-  }
+  const p = await medewerkerOpId(env, employeeId);
+  return { jobTitle: p?.functie || '', avatarUrl: p?.foto_url || '' };
 }
 
 /**

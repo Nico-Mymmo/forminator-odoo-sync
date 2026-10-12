@@ -103,6 +103,27 @@ Daarom:
   wijziging dat er een deploy, migratie of secret nodig is, dan meldt Claude dat
   expliciet, met de stappen in die volgorde.
 
+## Medewerkers — één opzoeking in Odoo (`src/lib/medewerkers.js`)
+
+**Regel: wie een collega nodig heeft (naam, voornaam, functie, foto) gebruikt
+`src/lib/medewerkers.js`. Geen eigen query op `hr.employee` meer om te weten
+"wie is dit".** Daar staat ook hoe een OM-gebruiker een medewerker wordt:
+gekoppelde Odoo-gebruiker (`odoo_uid`), dan werkadres, dan login, dan hetzelfde
+adres op mymmo.com. Hoofdletters tellen niet.
+
+- `medewerkersVoorGebruikers(env, users)`, `medewerkerVoorGebruiker`,
+  `medewerkerVoorOdooGebruiker`, `medewerkerOpId` geven een profiel
+  `{ employee_id, user_id, naam, voornaam, functie, email, foto_url }`.
+- **Een e-mailadres is nooit een naam.** `naamVoor(profiel, gebruiker)`: de naam
+  uit Odoo, anders die uit de OM, anders het stuk voor de @ met een hoofdletter.
+- `foto_url` = de publieke pasfoto (`x_public_image_attachment_id`) als absolute
+  URL: werkt in een mail. De foto als bytes (pdf): `fotoAlsDataUri()`.
+- Gebruikt door: nieuwsbrieven (auteurs, handtekening), eventmails
+  (afzenderkaart), offertes (contactpersoon).
+- Bewust (nog) apart: de boekingslinks (avatar van `res.users` voor WordPress:
+  toont Odoo's initialen als er geen foto is) en de handtekeningen-designer
+  (foto uit Google Workspace).
+
 ## Architectuur — request pipeline
 
 `src/index.js` is een dunne entry. Volgorde per request:
@@ -5257,11 +5278,10 @@ Afspraken die bewust zo zijn:
   zet de groet ZELF in de tekst (dan staat ze in hetzelfde lettertype); eronder
   komt vanzelf een handtekening: foto, voornaam, en daaronder de functie. Geen
   achternaam, geen mailadres. Wie ondertekent is de schrijver, of een collega
-  gekozen in `signer_user_id`; foto en functie komen uit `hr.employee`
-  (`x_public_image_attachment_id`, `job_title`) via `auteurs()` in
-  `lib/sources.js`, dezelfde bron als de afzenderkaart van de eventmails. Geen
-  OM-gebruiker gekoppeld aan Odoo (`odoo_uid`) = initialen in plaats van een
-  foto. Het woordje vooraf staat NOOIT in de inhoudstafel.
+  gekozen in `signer_user_id`; naam, functie en foto komen uit
+  `src/lib/medewerkers.js` (zie "Medewerkers"). Geen publieke pasfoto in Odoo =
+  de eerste letter van de voornaam. Het woordje vooraf staat NOOIT in de
+  inhoudstafel.
 - **Iedereen kiest zelf de plek van een blok dat hij toevoegt**; de
   hoofdredactie kan het nadien verschuiven, toewijzen of weghalen (paneel,
   "Hoofdredactie"). "Bevestigen" in het scherm = de stand `approved`.

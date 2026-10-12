@@ -11,6 +11,7 @@
  * Verstuurt NOOIT een nieuwsbrief. Dat gebeurt enkel na een klik in de OM.
  */
 
+import { naamVoor } from '../../../lib/medewerkers.js';
 import { sendSystemChannelMessage } from '../../mini-apps/lib/chat.js';
 import {
   listSeries, listEditions, listContributions, updateEdition, logActivity, listUsers,
@@ -40,7 +41,7 @@ export async function standVan(env, series, edition) {
   const open = echt.filter((i) => ![CONTRIBUTION_STATUS.SUBMITTED, CONTRIBUTION_STATUS.APPROVED].includes(i.status));
   const naam = (id) => {
     const u = users.find((x) => x.id === id);
-    return u ? String(u.full_name || u.email).split(/\s+/)[0] : 'nog niemand';
+    return u ? naamVoor(null, u).split(/\s+/)[0] : 'nog niemand';
   };
   return {
     binnen: binnen.length,

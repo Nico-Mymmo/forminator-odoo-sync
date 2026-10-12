@@ -16,6 +16,7 @@ import { listSnippets } from '../../content-feed/lib/content-service.js';
 import { fetchArticle } from '../../content-feed/lib/article-fetch.js';
 import { lijstTekeningen, tekeningZoeker } from '../../av-slides/lib/thingies.js';
 import { searchRead } from '../../../lib/odoo.js';
+import { medewerkersVoorGebruikers, naamVoor } from '../../../lib/medewerkers.js';
 import { LOG_PREFIX, ASSET_ORIGIN } from './constants.js';
 
 const DAG_MS = 24 * 60 * 60 * 1000;
@@ -117,36 +118,16 @@ export async function linkVoorbeeld(url) {
 // ─── Mensen ─────────────────────────────────────────────────────────────────
 
 /**
- * Naam, functie en foto per OM-gebruiker, voor de naam onder elk stukje.
- * Functie en foto komen van hr.employee (zelfde bron als de afzenderkaart in de
- * eventmails). Nooit fataal: zonder Odoo is het gewoon de naam.
+ * Naam, functie en foto per OM-gebruiker, voor de naam onder elk stukje en de
+ * handtekening. Uit src/lib/medewerkers.js, zoals overal in de OM; nooit een
+ * e-mailadres als naam. Nooit fataal: zonder Odoo is het gewoon de naam.
  */
 export async function auteurs(env, users) {
+  const profielen = await medewerkersVoorGebruikers(env, users || []);
   const perId = {};
-  for (const u of users || []) perId[u.id] = { name: u.full_name || u.email || '', job_title: '', avatar_url: '' };
-  const metOdoo = (users || []).filter((u) => Number.isInteger(u.odoo_uid) && u.odoo_uid > 0);
-  if (!metOdoo.length) return perId;
-  try {
-    const rijen = await searchRead(env, {
-      model: 'hr.employee',
-      domain: [['user_id', 'in', metOdoo.map((u) => u.odoo_uid)]],
-      fields: ['id', 'user_id', 'name', 'job_title', 'x_public_image_attachment_id'],
-      limit: 200,
-    });
-    const base = String(env?.ODOO_WEB_ORIGIN || 'https://mymmo.odoo.com').replace(/\/+$/, '');
-    for (const r of rijen || []) {
-      const uid = Array.isArray(r.user_id) ? r.user_id[0] : r.user_id;
-      const u = metOdoo.find((x) => x.odoo_uid === uid);
-      if (!u) continue;
-      const att = Array.isArray(r.x_public_image_attachment_id) ? r.x_public_image_attachment_id[0] : r.x_public_image_attachment_id;
-      perId[u.id] = {
-        name: perId[u.id].name || r.name || '',
-        job_title: String(r.job_title || '').trim(),
-        avatar_url: att ? `${base}/web/image/${att}` : '',
-      };
-    }
-  } catch (error) {
-    console.warn(`${LOG_PREFIX} functies en foto's niet gelezen:`, error?.message);
+  for (const u of users || []) {
+    const p = profielen[u.id];
+    perId[u.id] = { name: naamVoor(p, u), job_title: p?.functie || '', avatar_url: p?.foto_url || '' };
   }
   return perId;
 }
