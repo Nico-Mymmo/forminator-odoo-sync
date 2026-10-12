@@ -171,7 +171,8 @@
       nummerLetter: { type: 'string', default: '' },
       horizontaal: { type: 'boolean', default: true },
       boven: { type: 'number', default: 96 },
-      scroll: { type: 'number', default: 55 }
+      scroll: { type: 'number', default: 55 },
+      hoogte: { type: 'number', default: 640 }
     },
 
     edit: function (props) {
@@ -222,6 +223,18 @@
                 min: 0,
                 max: 240,
                 onChange: function (w) { zet({ boven: w === undefined ? 96 : w }); },
+                __nextHasNoMarginBottom: true
+              })
+            : null,
+          a.horizontaal
+            ? el(RangeControl, {
+                label: 'Hoogte van de panelen (px)',
+                help: 'Standaard 640: past op een gewone laptop. Op een groter scherm blijven de panelen zo hoog, zodat er geen leeg vlak onder de tekst staat. Heeft een stap meer nodig, dan worden ze hoger, tot het scherm vol is.',
+                value: a.hoogte,
+                min: 400,
+                max: 1000,
+                step: 10,
+                onChange: function (w) { zet({ hoogte: w === undefined ? 640 : w }); },
                 __nextHasNoMarginBottom: true
               })
             : null

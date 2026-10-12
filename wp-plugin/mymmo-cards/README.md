@@ -394,6 +394,13 @@ Uitzetten per site: `define('MYMMO_CARDS_GEEN_AUTO_UPDATE', true);` in
 
 ## Versies
 
+**1.11.3** — de stappen worden niet meer schermhoog. Op een groot scherm
+stonden de panelen even hoog als het scherm, met een groot leeg vlak onder de
+tekst. Nu is er een vaste hoogte: **Hoogte van de panelen** in de zijbalk,
+standaard 640px (een gewone laptop van 15"). Heeft een stap meer nodig, dan
+groeien alle panelen samen mee tot het scherm vol is; pas daarna krimpt de
+inhoud. Op een kleiner scherm worden ze lager, zoals voorheen.
+
 **1.11.2** — de stappen schuiven weer naast elkaar open. Op een pagina met
 het offertevenster bleven ze onder elkaar staan: Mymmo Forms gebruikt voor de
 stappen van een formulier dezelfde namen (`mymmo-stappen`, `mymmo-stap`,
