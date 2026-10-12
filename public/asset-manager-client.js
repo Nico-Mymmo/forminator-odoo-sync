@@ -1,5 +1,5 @@
-﻿/**
- * Asset Manager â€” Client JS
+/**
+ * Asset Manager — Client JS
  *
  * Draait uitsluitend in de browser. Geen server-side code.
  *
@@ -7,19 +7,27 @@
  *  - Geen template literals voor HTML-generatie
  *  - DOM-manipulatie via document.createElement + element.textContent
  *  - Gebruikers-input NOOIT via innerHTML
- *  - Lucide icon SVG strings (bibliotheekcode) wÃ©l via innerHTML toegestaan
+ *  - Lucide icon SVG strings (bibliotheekcode) wél via innerHTML toegestaan,
+ *    net als <i data-lucide="..."> + lucide.createIcons()
  *  - DaisyUI klassen via classList
  *  - IIFE om global scope niet te vervuilen
  *
- * @version 3.0.0 â€” Redesign: categorie-sidebar, grid/list view, kebab acties, preview modal
+ * Mappen werken zoals in Koppelingen (forminator-sync-v2-core.js,
+ * renderFolderSidebar): één vaste zijbalk "Mappen" met de volledige boom
+ * (uit GET /api/assets/folders), een "Alle bestanden"-rij bovenaan, per map
+ * een aantal en een ⋯-menu (Submap / Hernoemen / Link-domein / Verwijderen).
+ * Het content-paneel toont enkel bestanden -- mappen staan uitsluitend in de
+ * zijbalk, niet meer als tegels tussen de bestanden.
+ *
+ * @version 4.0.0 — Mappenstructuur naar het model van Koppelingen
  */
 
 (function AssetManagerClient() {
   'use strict';
 
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ══════════════════════════════════════════════════════════════
   // STATE
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ══════════════════════════════════════════════════════════════
 
   var state          = window.__ASSET_STATE__ || { userRole: 'user', userId: '', canUpload: false, canAdmin: false, assetBaseUrl: '' };
   // Vaste basis voor /assets/-URL's -- env.APP_BASE_URL server-side, met
@@ -28,29 +36,41 @@
   // deze Worker) niet naar de werkende R2-asset-route leidde.
   var assetBase      = state.assetBaseUrl || window.location.origin;
   var viewMode       = 'grid';    // 'grid' | 'list'
-  var activeCategory = '';        // actief prefix (kan een submap zijn, bv. 'uploads/contracten/')
+  var activeFolder   = '';        // '' = "Alle bestanden", anders een map-prefix (bv. 'uploads/contracten/')
   var activeCursor   = null;
   var allObjects     = [];        // cache voor client-side sort/filter
-  var allFolders     = [];        // submappen op het huidige prefix (uit GET .../list)
+  var listRequestSeq = 0;         // negeert trage antwoorden van een eerder geopende map
   var sortField      = 'date';    // 'name' | 'size' | 'date'
   var sortAsc        = false;     // false = nieuwste eerst (default)
+
+  // Mappenboom (GET /api/assets/folders): platte lijst
+  // { prefix, name, parent, kind: 'fixed'|'category'|'own'|'sub', count, brand, brandExplicit, canWrite }
+  var folders          = [];
+  var folderByPrefix   = {};
+  var totalFiles       = 0;
+  var foldersTruncated = false;
+  var foldersLoaded    = false;
+  var expandedFolders  = loadExpandedFolders();   // prefix -> true (uitgeklapt in de boom)
+
   var pendingDeleteKey = null;
   var pendingRenameKey = null;
   var pendingMoveKey   = null;
-  // null = nieuwe top-level categorie (sidebar), anders het prefix waarin de
-  // submap aangemaakt wordt (zie openFolderModal/confirmCreateFolder).
+  // null = nieuwe top-level map (admin), anders het prefix waarin de submap
+  // aangemaakt wordt (zie openFolderModal/confirmCreateFolder).
   var pendingFolderParentPrefix = null;
   // Custom MIME-achtige key om te herkennen dat een drag een bestaand asset
   // is (i.p.v. bestanden vanaf het OS-bureaublad, die het 'Files' type dragen).
   var ASSET_DRAG_TYPE = 'application/x-asset-key';
+  var EXPANDED_STORAGE_KEY = 'assetManager.expandedFolders';
 
-  // â”€â”€ DOM refs â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── DOM refs ──────────────────────────────────────────────
 
   var gridView       = document.getElementById('asset-grid-view');
   var listView       = document.getElementById('asset-list-view');
   var listBody       = document.getElementById('asset-list-body');
   var listLoading    = document.getElementById('asset-list-loading');
   var listEmpty      = document.getElementById('asset-list-empty');
+  var listEmptyText  = document.getElementById('asset-list-empty-text');
   var alertBox       = document.getElementById('asset-alert');
   var searchInput    = document.getElementById('asset-search');
   var assetCount     = document.getElementById('asset-count');
@@ -60,9 +80,7 @@
   var uploadBtn      = document.getElementById('asset-upload-btn');
   var uploadModal    = document.getElementById('asset-upload-modal');
   var uploadFileInput      = document.getElementById('upload-file-input');
-  var uploadCategorySelect = document.getElementById('upload-category-select');
-  var uploadCustomWrap     = document.getElementById('upload-custom-wrap');
-  var uploadPrefixInput    = document.getElementById('upload-prefix-input');
+  var uploadFolderSelect   = document.getElementById('upload-folder-select');
   var uploadOverwriteInput = document.getElementById('upload-overwrite-input');
   var uploadProgress       = document.getElementById('upload-progress');
   var uploadConfirmBtn     = document.getElementById('upload-confirm-btn');
@@ -73,9 +91,7 @@
   var renameNewKeyInput  = document.getElementById('rename-newkey-input');
   var renameConfirmBtn   = document.getElementById('rename-confirm-btn');
   var moveModal          = document.getElementById('asset-move-modal');
-  var moveCategorySelect = document.getElementById('move-category-select');
-  var moveCustomWrap     = document.getElementById('move-custom-wrap');
-  var movePrefixInput    = document.getElementById('move-prefix-input');
+  var moveFolderSelect   = document.getElementById('move-folder-select');
   var moveConfirmBtn     = document.getElementById('move-confirm-btn');
   var moveFilename       = document.getElementById('move-modal-filename');
   var previewModal        = document.getElementById('preview-modal');
@@ -83,25 +99,21 @@
   var viewGridBtn  = document.getElementById('view-grid-btn');
   var viewListBtn  = document.getElementById('view-list-btn');
   var sortSelect   = document.getElementById('sort-select');
-  var categoryMenu = document.getElementById('category-menu');
-  var addFolderBtnMobile = document.getElementById('add-folder-btn-mobile');
-  var newSubfolderBtn    = document.getElementById('asset-new-subfolder-btn');
-  var brandControl       = document.getElementById('asset-brand-control');
-  var brandSelect        = document.getElementById('asset-brand-select');
+  var folderTreeEl       = document.getElementById('asset-folder-tree');
+  var addRootFolderBtn   = document.getElementById('asset-add-root-folder-btn');
+  var breadcrumbList     = document.getElementById('asset-breadcrumb-list');
+  var brandInfo          = document.getElementById('asset-brand-info');
   var folderModal        = document.getElementById('asset-folder-modal');
-  var folderModalTitle    = document.getElementById('folder-modal-title');
   var folderModalLocation = document.getElementById('folder-modal-location');
   var folderLabelInput   = document.getElementById('folder-label-input');
   var folderSlugPreview  = document.getElementById('folder-slug-preview');
   var folderModalError   = document.getElementById('folder-modal-error');
   var folderConfirmBtn   = document.getElementById('folder-confirm-btn');
-  var breadcrumbWrap     = document.getElementById('asset-breadcrumb');
-  var breadcrumbList     = document.getElementById('asset-breadcrumb-list');
   var contentSection     = document.getElementById('asset-content-section');
 
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ══════════════════════════════════════════════════════════════
   // HELPERS
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ══════════════════════════════════════════════════════════════
 
   function formatBytes(bytes) {
     if (!bytes || bytes === 0) return '0 B';
@@ -119,6 +131,10 @@
 
   function basename(key) {
     return key.split('/').pop() || key;
+  }
+
+  function dirOf(key) {
+    return key.indexOf('/') !== -1 ? key.substring(0, key.lastIndexOf('/') + 1) : '';
   }
 
   function showAlert(message, type) {
@@ -148,14 +164,19 @@
     return key.startsWith('users/' + state.userId + '/');
   }
 
-  // Client-side benadering van de server-side canWritePrefix-check (routes.js) --
-  // enkel om kebab-acties (brand instellen / map verwijderen) al dan niet te
-  // tonen. De server controleert dit hoe dan ook opnieuw bij elke aanroep.
-  function canManageFolder(prefix) {
-    return state.canAdmin || state.canUpload || (prefix || '').indexOf('users/' + state.userId + '/') === 0;
+  function refreshIcons() {
+    if (window.lucide && window.lucide.createIcons) window.lucide.createIcons();
   }
 
-  var BRAND_LABELS = { openvme: 'OpenVME', syndicoach: 'Syndicoach' };
+  function lucideIcon(name, cls) {
+    var i = document.createElement('i');
+    i.setAttribute('data-lucide', name);
+    i.className = cls || 'w-3.5 h-3.5';
+    return i;
+  }
+
+  var BRAND_LABELS  = { openvme: 'OpenVME', syndicoach: 'Syndicoach' };
+  var BRAND_DOMAINS = { openvme: 'link.openvme.be', syndicoach: 'link.syndicoach.be' };
 
   function mimeFromKey(key) {
     var ext = (key.split('.').pop() || '').toLowerCase();
@@ -170,24 +191,6 @@
     return mime && mime.indexOf('image/') === 0;
   }
 
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-  // CATEGORIEÃ‹N
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-
-  function setActiveCategory(prefix) {
-    // Desktop sidebar
-    if (categoryMenu) {
-      categoryMenu.querySelectorAll('a[data-prefix]').forEach(function(a) {
-        a.classList.toggle('active', a.dataset.prefix === prefix);
-      });
-    }
-    // Mobile tabs
-    document.querySelectorAll('.cat-tab').forEach(function(btn) {
-      btn.className = 'btn btn-sm cat-tab ' +
-        (btn.dataset.prefix === prefix ? 'btn-primary' : 'btn-ghost');
-    });
-  }
-
   // Client-side voorvertoning van de slug -- de server bepaalt de
   // definitieve, gevalideerde prefix (zelfde regels, best-effort hier).
   function slugifyLabel(label) {
@@ -198,10 +201,386 @@
       .replace(/^-+|-+$/g, '');
   }
 
-  // parentPrefix: undefined/null → nieuwe top-level categorie (sidebar, admin-only,
-  // volledige page reload nodig zodat de nieuwe sidebar-link meekomt vanaf de server).
-  // Een prefix-string → submap in de huidig geopende map (geen reload, gewoon herladen
-  // van de lijst).
+  // ══════════════════════════════════════════════════════════════
+  // MAPPEN — data
+  // ══════════════════════════════════════════════════════════════
+
+  function loadExpandedFolders() {
+    try {
+      var raw = window.localStorage.getItem(EXPANDED_STORAGE_KEY);
+      var parsed = raw ? JSON.parse(raw) : null;
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch (_) { return {}; }
+  }
+
+  function saveExpandedFolders() {
+    try { window.localStorage.setItem(EXPANDED_STORAGE_KEY, JSON.stringify(expandedFolders)); } catch (_) { /* geen opslag beschikbaar */ }
+  }
+
+  function loadFolders() {
+    return fetch('/assets/api/assets/folders')
+      .then(function(res) { return res.json(); })
+      .then(function(json) {
+        if (!json.success) {
+          showAlert(json.error || 'Mappen ophalen mislukt.', 'error');
+          return;
+        }
+        folders = json.data.folders || [];
+        totalFiles = json.data.total || 0;
+        foldersTruncated = !!json.data.truncated;
+        foldersLoaded = true;
+        folderByPrefix = {};
+        folders.forEach(function(f) { folderByPrefix[f.prefix] = f; });
+
+        // De open map bestaat niet meer (bv. net verwijderd) → terug naar de
+        // dichtstbijzijnde bovenliggende map die nog wel bestaat.
+        if (activeFolder && !folderByPrefix[activeFolder]) {
+          var fallback = activeFolder;
+          while (fallback && !folderByPrefix[fallback]) fallback = parentPrefixOf(fallback);
+          switchFolder(fallback);
+          return;
+        }
+        renderFolderUi();
+        // Mapnamen bij bestanden ("Alle bestanden") en de lege-staat-tekst
+        // hangen af van de boom -- opnieuw tekenen nu die er is.
+        if (listLoading && listLoading.style.display === 'none') {
+          renderView(sortObjects(allObjects));
+          if (searchInput && searchInput.value) filterList(searchInput.value);
+        }
+      })
+      .catch(function(err) { showAlert('Mappen ophalen mislukt: ' + err.message, 'error'); });
+  }
+
+  function parentPrefixOf(prefix) {
+    var trimmed = (prefix || '').replace(/\/$/, '');
+    var idx = trimmed.lastIndexOf('/');
+    return idx === -1 ? '' : trimmed.slice(0, idx + 1);
+  }
+
+  // Zelfde opbouw als buildFolderTree() in Koppelingen: platte lijst → boom.
+  // Top-level mappen behouden de volgorde van de server (vaste mappen eerst),
+  // submappen staan alfabetisch.
+  function buildFolderTree() {
+    var byId = {};
+    folders.forEach(function(f) { byId[f.prefix] = Object.assign({}, f, { children: [] }); });
+    var roots = [];
+    folders.forEach(function(f) {
+      var node = byId[f.prefix];
+      if (f.parent && byId[f.parent]) byId[f.parent].children.push(node);
+      else roots.push(node);
+    });
+    function sortRec(list) {
+      list.sort(function(a, b) { return String(a.name).localeCompare(String(b.name), 'nl'); });
+      list.forEach(function(n) { sortRec(n.children); });
+    }
+    roots.forEach(function(n) { sortRec(n.children); });
+    return roots;
+  }
+
+  function flattenFolderTree() {
+    var flat = [];
+    (function walk(nodes, depth) {
+      nodes.forEach(function(n) { flat.push({ node: n, depth: depth }); walk(n.children, depth + 1); });
+    })(buildFolderTree(), 0);
+    return flat;
+  }
+
+  // Keten van mappen van de top-level map tot en met `prefix`.
+  function folderChain(prefix) {
+    var chain = [];
+    var p = prefix;
+    while (p && folderByPrefix[p]) {
+      chain.unshift(folderByPrefix[p]);
+      p = folderByPrefix[p].parent;
+    }
+    return chain;
+  }
+
+  // Leesbaar pad ("Overige / contracten / 2026") i.p.v. het ruwe R2-prefix.
+  function folderPathLabel(prefix) {
+    var chain = folderChain(prefix);
+    if (chain.length === 0) return prefix.replace(/\/$/, '');
+    return chain.map(function(f) { return f.name; }).join(' / ');
+  }
+
+  function folderHasChildren(prefix) {
+    return folders.some(function(f) { return f.parent === prefix; });
+  }
+
+  function expandAncestors(prefix) {
+    var p = folderByPrefix[prefix] ? folderByPrefix[prefix].parent : null;
+    var changed = false;
+    while (p) {
+      if (!expandedFolders[p]) { expandedFolders[p] = true; changed = true; }
+      p = folderByPrefix[p] ? folderByPrefix[p].parent : null;
+    }
+    if (changed) saveExpandedFolders();
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // MAPPEN — zijbalk (zelfde opmaak als Koppelingen)
+  // ══════════════════════════════════════════════════════════════
+
+  function renderFolderUi() {
+    renderFolderSidebar();
+    renderBreadcrumb();
+    renderBrandInfo();
+  }
+
+  var ROW_BASE_CLASS   = 'flex items-center rounded-lg py-1 cursor-pointer hover:bg-base-200';
+  var ROW_ACTIVE_CLASS = ' bg-primary/10 text-primary font-medium';
+
+  function renderFolderSidebar() {
+    if (!folderTreeEl) return;
+    folderTreeEl.textContent = '';
+
+    var allRow = document.createElement('div');
+    allRow.className = ROW_BASE_CLASS + ' gap-1.5 px-1.5' + (activeFolder === '' ? ROW_ACTIVE_CLASS : '');
+    allRow.appendChild(lucideIcon('layout-grid', 'w-3.5 h-3.5 shrink-0 text-base-content/40'));
+    var allLabel = document.createElement('span');
+    allLabel.className = 'flex-1 truncate text-sm';
+    allLabel.textContent = 'Alle bestanden';
+    allRow.appendChild(allLabel);
+    var allCount = document.createElement('span');
+    allCount.className = 'text-xs text-base-content/35';
+    allCount.textContent = foldersLoaded ? String(totalFiles) : '';
+    allRow.appendChild(allCount);
+    allRow.addEventListener('click', function() { switchFolder(''); });
+    folderTreeEl.appendChild(allRow);
+
+    var divider = document.createElement('div');
+    divider.className = 'divider my-1';
+    folderTreeEl.appendChild(divider);
+
+    var tree = buildFolderTree();
+    if (tree.length === 0) {
+      var none = document.createElement('p');
+      none.className = 'text-xs text-base-content/40 italic px-1.5 py-2';
+      none.textContent = foldersLoaded ? 'Nog geen mappen.' : 'Laden...';
+      folderTreeEl.appendChild(none);
+    }
+    tree.forEach(function(node) { folderTreeEl.appendChild(renderFolderNode(node, 0)); });
+
+    if (foldersTruncated) {
+      var warn = document.createElement('p');
+      warn.className = 'text-xs text-warning px-1.5 pt-2';
+      warn.textContent = 'Niet alle mappen konden geladen worden (te veel bestanden).';
+      folderTreeEl.appendChild(warn);
+    }
+
+    refreshIcons();
+  }
+
+  function renderFolderNode(node, depth) {
+    var wrap = document.createElement('div');
+    var isActive    = activeFolder === node.prefix;
+    var hasChildren = node.children.length > 0;
+    var isExpanded  = !!expandedFolders[node.prefix];
+
+    var row = document.createElement('div');
+    row.className = ROW_BASE_CLASS + ' gap-1 pr-1.5' + (isActive ? ROW_ACTIVE_CLASS : '');
+    row.style.paddingLeft = (8 + depth * 14) + 'px';
+    row.title = node.name;
+
+    if (hasChildren) {
+      var chevron = document.createElement('button');
+      chevron.type = 'button';
+      chevron.className = 'shrink-0 w-4 h-4 flex items-center justify-center';
+      chevron.title = isExpanded ? 'Inklappen' : 'Uitklappen';
+      chevron.appendChild(lucideIcon(isExpanded ? 'chevron-down' : 'chevron-right', 'w-3 h-3'));
+      chevron.addEventListener('click', function(e) {
+        e.stopPropagation();
+        if (expandedFolders[node.prefix]) delete expandedFolders[node.prefix];
+        else expandedFolders[node.prefix] = true;
+        saveExpandedFolders();
+        renderFolderSidebar();
+      });
+      row.appendChild(chevron);
+    } else {
+      var spacer = document.createElement('span');
+      spacer.className = 'shrink-0 w-4';
+      row.appendChild(spacer);
+    }
+
+    row.appendChild(lucideIcon(isActive ? 'folder-open' : 'folder', 'w-3.5 h-3.5 shrink-0 text-base-content/40'));
+
+    var name = document.createElement('span');
+    name.className = 'flex-1 truncate text-sm';
+    name.textContent = node.name;
+    row.appendChild(name);
+
+    var count = document.createElement('span');
+    count.className = 'text-xs text-base-content/35';
+    count.textContent = String(node.count || 0);
+    row.appendChild(count);
+
+    var menu = buildFolderMenu(node);
+    if (menu) row.appendChild(menu);
+
+    row.addEventListener('click', function(e) {
+      if (e.target.closest('.dropdown')) return;
+      switchFolder(node.prefix);
+    });
+    if (node.canWrite) bindFolderDropTarget(row, node.prefix);
+
+    wrap.appendChild(row);
+    if (hasChildren && isExpanded) {
+      node.children.forEach(function(child) { wrap.appendChild(renderFolderNode(child, depth + 1)); });
+    }
+    return wrap;
+  }
+
+  // ⋯-menu per map -- zelfde dropdown als in Koppelingen. Items afhankelijk
+  // van wat de server toelaat (canWrite) en het soort map: vaste mappen
+  // (Banners/Events/...) en "Mijn bestanden" kan je niet verwijderen, enkel
+  // zelf aangemaakte top-level mappen hebben een hernoembaar label.
+  function buildFolderMenu(node) {
+    var items = [];
+    if (node.canWrite) {
+      items.push({ icon: 'folder-plus', label: 'Submap', handler: function() { openFolderModal(node.prefix); } });
+    }
+    if (node.kind === 'category' && state.canAdmin) {
+      items.push({ icon: 'pencil', label: 'Hernoemen', handler: function() { renameCategoryLabel(node.prefix, node.name); } });
+    }
+    if (node.canWrite) {
+      items.push({ title: 'Link-domein' });
+      ['openvme', 'syndicoach'].forEach(function(brandKey) {
+        items.push({
+          icon: node.brandExplicit === brandKey ? 'check' : null,
+          label: BRAND_LABELS[brandKey],
+          handler: function() { setFolderBrand(node.prefix, brandKey); },
+        });
+      });
+      items.push({
+        icon: node.brandExplicit ? null : 'check',
+        label: 'Overerven',
+        handler: function() { setFolderBrand(node.prefix, null); },
+      });
+    }
+    var deletable = (node.kind === 'sub' && node.canWrite) || (node.kind === 'category' && state.canAdmin);
+    if (deletable) {
+      items.push({ divider: true });
+      items.push({ icon: 'trash-2', label: 'Verwijderen', cls: 'text-error', handler: function() { deleteFolder(node.prefix, node.name); } });
+    }
+    if (items.length === 0) return null;
+
+    var dropdown = document.createElement('div');
+    dropdown.className = 'dropdown dropdown-end shrink-0';
+
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.tabIndex = 0;
+    btn.className = 'btn btn-ghost btn-xs px-1';
+    btn.title = 'Acties';
+    btn.appendChild(lucideIcon('more-horizontal', 'w-3.5 h-3.5'));
+    btn.addEventListener('click', function(e) { e.stopPropagation(); });
+    dropdown.appendChild(btn);
+
+    var ul = document.createElement('ul');
+    ul.tabIndex = 0;
+    ul.className = 'dropdown-content z-[20] menu menu-xs p-1 shadow-lg bg-base-100 rounded-lg w-44 border border-base-200 text-base-content font-normal';
+
+    items.forEach(function(def) {
+      var li = document.createElement('li');
+      if (def.divider) {
+        var hr = document.createElement('hr');
+        hr.className = 'my-1 border-base-200';
+        li.appendChild(hr);
+        ul.appendChild(li);
+        return;
+      }
+      if (def.title) {
+        li.className = 'menu-title text-[11px] px-2 pt-1.5 pb-0.5';
+        li.textContent = def.title;
+        ul.appendChild(li);
+        return;
+      }
+      var a = document.createElement('a');
+      if (def.cls) a.className = def.cls;
+      if (def.icon) {
+        a.appendChild(lucideIcon(def.icon, 'w-3.5 h-3.5'));
+      } else {
+        var blank = document.createElement('span');
+        blank.className = 'w-3.5 h-3.5';
+        a.appendChild(blank);
+      }
+      var lbl = document.createElement('span');
+      lbl.textContent = def.label;
+      a.appendChild(lbl);
+      a.addEventListener('click', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+        def.handler();
+      });
+      li.appendChild(a);
+      ul.appendChild(li);
+    });
+
+    dropdown.appendChild(ul);
+    return dropdown;
+  }
+
+  // ── Pad van de open map (boven de bestanden) ─────────────────
+
+  function renderBreadcrumb() {
+    if (!breadcrumbList) return;
+    breadcrumbList.textContent = '';
+
+    function addCrumb(label, targetPrefix, isLast, icon) {
+      var li = document.createElement('li');
+      var el = document.createElement(isLast ? 'span' : 'a');
+      el.className = 'inline-flex items-center gap-1' + (isLast ? ' font-semibold' : '');
+      if (icon) el.appendChild(lucideIcon(icon, 'w-3.5 h-3.5 opacity-60'));
+      var text = document.createElement('span');
+      text.textContent = label;
+      el.appendChild(text);
+      if (!isLast) {
+        el.href = '#';
+        el.addEventListener('click', function(e) {
+          e.preventDefault();
+          switchFolder(targetPrefix);
+        });
+        var target = targetPrefix ? folderByPrefix[targetPrefix] : null;
+        if (target && target.canWrite) bindFolderDropTarget(el, targetPrefix);
+      }
+      li.appendChild(el);
+      breadcrumbList.appendChild(li);
+    }
+
+    var chain = activeFolder ? folderChain(activeFolder) : [];
+    addCrumb('Alle bestanden', '', chain.length === 0, 'layout-grid');
+    chain.forEach(function(f, idx) {
+      addCrumb(f.name, f.prefix, idx === chain.length - 1, idx === chain.length - 1 ? 'folder-open' : null);
+    });
+    refreshIcons();
+  }
+
+  // Toont via welk domein "link kopiëren" voor deze map werkt. Wijzigen
+  // gebeurt via het ⋯-menu van de map in de zijbalk.
+  function renderBrandInfo() {
+    if (!brandInfo) return;
+    var node = activeFolder ? folderByPrefix[activeFolder] : null;
+    if (!node) {
+      brandInfo.style.display = 'none';
+      return;
+    }
+    brandInfo.textContent = '';
+    brandInfo.appendChild(lucideIcon('link', 'w-3 h-3'));
+    var lbl = document.createElement('span');
+    lbl.textContent = (BRAND_DOMAINS[node.brand] || node.brand) + (node.brandExplicit ? '' : ' (overgeërfd)');
+    brandInfo.appendChild(lbl);
+    brandInfo.title = 'Link-domein van deze map' + (node.canWrite ? ' \u2014 wijzigen via ⋯ bij de map in de zijbalk' : '');
+    brandInfo.style.removeProperty('display');
+    refreshIcons();
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // MAPPEN — acties
+  // ══════════════════════════════════════════════════════════════
+
+  // parentPrefix: undefined/null → nieuwe top-level map (admin-only).
+  // Een prefix-string → submap in die map.
   function openFolderModal(parentPrefix) {
     if (!folderModal) return;
     pendingFolderParentPrefix = parentPrefix || null;
@@ -210,10 +589,11 @@
     if (folderModalError) { folderModalError.style.display = 'none'; folderModalError.textContent = ''; }
     if (folderModalLocation) {
       if (pendingFolderParentPrefix) {
-        folderModalLocation.textContent = 'in: ' + pendingFolderParentPrefix;
+        folderModalLocation.textContent = 'In: ' + folderPathLabel(pendingFolderParentPrefix);
         folderModalLocation.style.removeProperty('display');
       } else {
-        folderModalLocation.style.display = 'none';
+        folderModalLocation.textContent = 'Nieuwe map op het hoogste niveau';
+        folderModalLocation.style.removeProperty('display');
       }
     }
     if (folderModal.showModal) folderModal.showModal();
@@ -247,16 +627,10 @@
         if (folderModal.close) folderModal.close();
         showAlert('Map "' + json.data.label + '" aangemaakt.', 'success');
         if (parentPrefix) {
-          if (activeCategory === parentPrefix) loadList(activeCategory, null);
-          expandAndRefresh(parentPrefix);
-        } else {
-          var newCat = { prefix: json.data.prefix, label: json.data.label, icon: 'folder', removable: true };
-          state.categories = (state.categories || []).concat([newCat]);
-          rebuildCategoryMenu();
-          addMobileCategoryTab(newCat);
-          addCategorySelectOption(uploadCategorySelect, newCat);
-          addCategorySelectOption(moveCategorySelect, newCat);
+          expandedFolders[parentPrefix] = true;
+          saveExpandedFolders();
         }
+        loadFolders();
       })
       .catch(function(err) {
         if (folderConfirmBtn) folderConfirmBtn.disabled = false;
@@ -264,269 +638,88 @@
       });
   }
 
-  // Boomstructuur in de zijbalk: top-level categorieën (state.categories,
-  // meegeleverd server-side) én hun submappen (lui geladen bij het eerste
-  // uitklappen) delen dezelfde rij-opbouw. Zo is er nog maar één plek in de
-  // UI om een map aan te maken -- de hover-"+" op eender welke rij, op eender
-  // welke diepte -- in plaats van het oude onderscheid "hoofdmap via de
-  // zijbalk, submap via een aparte knop in de toolbar".
-  var expandedTreePrefixes = {};
+  function renameCategoryLabel(prefix, currentLabel) {
+    var next = window.prompt('Nieuwe naam voor deze map:', currentLabel);
+    if (next === null) return;
+    next = next.trim();
+    if (!next || next === currentLabel) return;
 
-  function parentPrefixOf(prefix) {
-    var trimmed = (prefix || '').replace(/\/$/, '');
-    var idx = trimmed.lastIndexOf('/');
-    return idx === -1 ? '' : trimmed.slice(0, idx + 1);
-  }
-
-  function findTreeLi(prefix) {
-    if (!categoryMenu) return null;
-    return categoryMenu.querySelector('li[data-tree-prefix="' + prefix + '"]');
-  }
-
-  function rebuildCategoryMenu() {
-    if (!categoryMenu) return;
-    categoryMenu.querySelectorAll('li[data-tree-prefix], li[data-add-root-folder]').forEach(function(li) { li.remove(); });
-    renderCategoryTree();
-    setActiveCategory(activeCategory);
-  }
-
-  function renderCategoryTree() {
-    if (!categoryMenu) return;
-    (state.categories || []).forEach(function(cat) {
-      categoryMenu.appendChild(buildTreeLi(cat, 0));
-    });
-    if (state.canAdmin) categoryMenu.appendChild(buildAddRootFolderLi());
-  }
-
-  function buildAddRootFolderLi() {
-    var li = document.createElement('li');
-    li.dataset.addRootFolder = '1';
-    var a = document.createElement('a');
-    a.href = '#';
-    a.className = 'gap-2 text-primary mt-1 pt-2 border-t border-base-content/10';
-    a.innerHTML = SVG_PLUS_SM;
-    var span = document.createElement('span');
-    span.textContent = 'Nieuwe hoofdmap';
-    a.appendChild(span);
-    a.addEventListener('click', function(e) { e.preventDefault(); openFolderModal(); });
-    li.appendChild(a);
-    return li;
-  }
-
-  // depth: enkel voor de inspringing van submappen -- een top-level categorie
-  // staat op depth 0.
-  function buildTreeLi(cat, depth) {
-    var li = document.createElement('li');
-    li.dataset.treePrefix = cat.prefix;
-
-    var row = document.createElement('div');
-    row.className = 'flex items-center gap-0.5 group';
-    if (depth > 0) row.style.paddingLeft = (depth * 0.85) + 'rem';
-
-    var chevronBtn = document.createElement('button');
-    chevronBtn.type = 'button';
-    chevronBtn.className = 'btn btn-ghost btn-xs btn-square shrink-0 opacity-40 transition-transform';
-    chevronBtn.innerHTML = SVG_CHEVRON_RIGHT;
-    chevronBtn.title = 'Submappen tonen';
-    chevronBtn.addEventListener('click', function(e) {
-      e.preventDefault();
-      e.stopPropagation();
-      toggleTreeNode(li, cat.prefix, chevronBtn);
-    });
-    row.appendChild(chevronBtn);
-
-    var a = document.createElement('a');
-    a.dataset.prefix = cat.prefix;
-    a.className = 'gap-2 flex-1 min-w-0';
-    a.href = '#';
-    var iconWrap = document.createElement('span');
-    iconWrap.className = 'shrink-0 inline-flex';
-    iconWrap.innerHTML = categoryIconSvg(cat.icon);
-    a.appendChild(iconWrap);
-    var labelSpan = document.createElement('span');
-    labelSpan.className = 'truncate';
-    labelSpan.textContent = cat.label;
-    a.appendChild(labelSpan);
-    a.addEventListener('click', function(e) {
-      e.preventDefault();
-      switchCategory(cat.prefix);
-    });
-    bindFolderDropTarget(a, cat.prefix);
-    row.appendChild(a);
-
-    var actions = document.createElement('span');
-    actions.className = 'shrink-0 flex items-center opacity-0 group-hover:opacity-100 focus-within:opacity-100';
-
-    if (canManageFolder(cat.prefix)) {
-      var addBtn = document.createElement('button');
-      addBtn.type = 'button';
-      addBtn.className = 'btn btn-ghost btn-xs btn-square';
-      addBtn.title = 'Submap toevoegen';
-      addBtn.innerHTML = SVG_PLUS_SM;
-      addBtn.addEventListener('click', function(e) {
-        e.preventDefault();
-        e.stopPropagation();
-        openFolderModal(cat.prefix);
-      });
-      actions.appendChild(addBtn);
-    }
-
-    if (depth === 0) {
-      if (cat.removable) actions.appendChild(renderCategoryKebabMenu(cat.prefix, cat.label));
-    } else {
-      actions.appendChild(renderFolderKebabMenu({ prefix: cat.prefix, name: cat.label, brand: cat.brand }));
-    }
-
-    row.appendChild(actions);
-    li.appendChild(row);
-
-    var childrenUl = document.createElement('ul');
-    childrenUl.className = 'menu p-0 gap-0.5';
-    childrenUl.style.display = 'none';
-    li.appendChild(childrenUl);
-
-    if (expandedTreePrefixes[cat.prefix]) {
-      chevronBtn.classList.add('rotate-90');
-      childrenUl.style.removeProperty('display');
-      loadTreeChildren(cat.prefix, childrenUl, true);
-    }
-
-    return li;
-  }
-
-  function toggleTreeNode(li, prefix, chevronBtn) {
-    var childrenUl = li.querySelector(':scope > ul');
-    if (!childrenUl) return;
-    var isOpen = childrenUl.style.display !== 'none';
-    if (isOpen) {
-      childrenUl.style.display = 'none';
-      chevronBtn.classList.remove('rotate-90');
-      delete expandedTreePrefixes[prefix];
-    } else {
-      childrenUl.style.removeProperty('display');
-      chevronBtn.classList.add('rotate-90');
-      expandedTreePrefixes[prefix] = true;
-      loadTreeChildren(prefix, childrenUl);
-    }
-  }
-
-  // refresh: forceer een herlading, ook als deze node al eerder kinderen
-  // toonde (na het aanmaken/verwijderen van een submap erin).
-  function loadTreeChildren(prefix, childrenUl, refresh) {
-    if (!refresh && childrenUl.dataset.loaded === '1') return;
-    childrenUl.textContent = '';
-    var loadingLi = document.createElement('li');
-    loadingLi.className = 'text-xs text-base-content/30 px-3 py-1';
-    loadingLi.textContent = 'Laden...';
-    childrenUl.appendChild(loadingLi);
-
-    fetch('/assets/api/assets/list?limit=1000&prefix=' + encodeURIComponent(prefix))
+    fetch('/assets/api/assets/rename-category', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prefix: prefix, label: next }),
+    })
       .then(function(res) { return res.json(); })
       .then(function(json) {
-        childrenUl.textContent = '';
-        childrenUl.dataset.loaded = '1';
-        if (!json.success) return;
-        var folders = json.data.folders || [];
-        if (folders.length === 0) {
-          var emptyLi = document.createElement('li');
-          emptyLi.className = 'text-xs text-base-content/30 px-3 py-1';
-          emptyLi.textContent = 'Geen submappen';
-          childrenUl.appendChild(emptyLi);
-          return;
-        }
-        var childDepth = prefix.replace(/\/$/, '').split('/').length;
-        folders.forEach(function(folder) {
-          childrenUl.appendChild(buildTreeLi({ prefix: folder.prefix, label: folder.name, icon: 'folder', brand: folder.brand }, childDepth));
-        });
+        if (!json.success) { showAlert(json.error || 'Naam wijzigen mislukt.', 'error'); return; }
+        showAlert('Naam bijgewerkt.', 'success');
+        loadFolders();
       })
-      .catch(function() { childrenUl.textContent = ''; });
+      .catch(function(err) { showAlert('Fout: ' + err.message, 'error'); });
   }
 
-  // Klapt (indien nodig) de node voor `prefix` open en herlaadt haar
-  // kinderen -- gebruikt na het aanmaken van een submap zodat de zijbalk
-  // meteen klopt, ook als de node daarvoor nog was ingeklapt.
-  function expandAndRefresh(prefix) {
-    var li = findTreeLi(prefix);
-    if (!li) return;
-    var childrenUl = li.querySelector(':scope > ul');
-    var chevronBtn = li.querySelector(':scope > div > button');
-    if (!childrenUl) return;
-    expandedTreePrefixes[prefix] = true;
-    childrenUl.style.removeProperty('display');
-    if (chevronBtn) chevronBtn.classList.add('rotate-90');
-    loadTreeChildren(prefix, childrenUl, true);
+  function setFolderBrand(prefix, brand) {
+    fetch('/assets/api/assets/set-folder-brand', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prefix: prefix, brand: brand }),
+    })
+      .then(function(res) { return res.json(); })
+      .then(function(json) {
+        if (!json.success) { showAlert(json.error || 'Link-domein instellen mislukt.', 'error'); return; }
+        showAlert('Link-domein bijgewerkt.', 'success');
+        // Publieke links van de bestanden veranderen mee -- beide herladen.
+        refreshAll();
+      })
+      .catch(function(err) { showAlert('Fout: ' + err.message, 'error'); });
   }
 
-  // Ververst enkel de kinderen van een reeds-uitgeklapte node (bv. na het
-  // wijzigen van het link-domein van één van haar submappen). Doet niets als
-  // de node nooit werd uitgeklapt -- die pikt de wijziging vanzelf op bij de
-  // eerstvolgende klik.
-  function refreshTreeChildrenIfExpanded(prefix) {
-    if (!expandedTreePrefixes[prefix]) return;
-    var li = findTreeLi(prefix);
-    if (!li) return;
-    var childrenUl = li.querySelector(':scope > ul');
-    if (childrenUl) loadTreeChildren(prefix, childrenUl, true);
+  function deleteFolder(prefix, name) {
+    if (!window.confirm('Map "' + name + '" verwijderen?\n\nEnkel lege mappen kunnen verwijderd worden. Dit kan niet ongedaan gemaakt worden.')) return;
+    fetch('/assets/api/assets/delete-folder', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prefix: prefix }),
+    })
+      .then(function(res) { return res.json(); })
+      .then(function(json) {
+        if (!json.success) { showAlert(json.error || 'Map verwijderen mislukt.', 'error'); return; }
+        showAlert('Map verwijderd.', 'success');
+        delete expandedFolders[prefix];
+        saveExpandedFolders();
+        // loadFolders() springt zelf naar de bovenliggende map als de
+        // verwijderde map (of een submap ervan) open stond.
+        loadFolders();
+      })
+      .catch(function(err) { showAlert('Fout: ' + err.message, 'error'); });
   }
 
-  // Houdt de mobiele categorie-tabs en de upload/verplaats-selects in sync
-  // met state.categories, zodat een top-level map aanmaken/hernoemen/
-  // verwijderen ook daar zonder page reload zichtbaar wordt.
-  function addMobileCategoryTab(cat) {
-    var mobileTabs = document.getElementById('mobile-category-tabs');
-    if (!mobileTabs) return;
-    var btn = document.createElement('button');
-    btn.dataset.prefix = cat.prefix;
-    btn.className = 'btn btn-sm btn-ghost cat-tab';
-    btn.textContent = cat.label;
-    btn.addEventListener('click', function() { switchCategory(btn.dataset.prefix); });
-    bindFolderDropTarget(btn, cat.prefix);
-    var addBtnMobile = document.getElementById('add-folder-btn-mobile');
-    if (addBtnMobile) mobileTabs.insertBefore(btn, addBtnMobile); else mobileTabs.appendChild(btn);
-  }
-
-  function renameMobileCategoryTab(prefix, label) {
-    var mobileTabs = document.getElementById('mobile-category-tabs');
-    if (!mobileTabs) return;
-    var btn = mobileTabs.querySelector('.cat-tab[data-prefix="' + prefix + '"]');
-    if (btn) btn.textContent = label;
-  }
-
-  function removeMobileCategoryTab(prefix) {
-    var mobileTabs = document.getElementById('mobile-category-tabs');
-    if (!mobileTabs) return;
-    var btn = mobileTabs.querySelector('.cat-tab[data-prefix="' + prefix + '"]');
-    if (btn) btn.remove();
-  }
-
-  function addCategorySelectOption(selectEl, cat) {
-    if (!selectEl) return;
-    var opt = document.createElement('option');
-    opt.value = cat.prefix;
-    opt.textContent = cat.label;
-    var customOpt = selectEl.querySelector('option[value="_custom"]');
-    if (customOpt) selectEl.insertBefore(opt, customOpt); else selectEl.appendChild(opt);
-  }
-
-  function renameCategorySelectOption(prefix, label) {
-    [uploadCategorySelect, moveCategorySelect].forEach(function(selectEl) {
-      if (!selectEl) return;
-      var opt = selectEl.querySelector('option[value="' + prefix + '"]');
-      if (opt) opt.textContent = label;
+  // Vult een <select> met de mappen waarin de gebruiker mag schrijven, in
+  // boomvolgorde (zelfde lijst als "Verplaats naar map" in Koppelingen). Elke
+  // optie toont het volledige pad, zodat ook de gekozen waarde in de
+  // ingeklapte select ondubbelzinnig is ("Overige / contracten / 2026").
+  function fillFolderSelect(selectEl, preferredPrefix) {
+    if (!selectEl) return 0;
+    selectEl.textContent = '';
+    var writable = flattenFolderTree().filter(function(item) { return item.node.canWrite; });
+    writable.forEach(function(item) {
+      var opt = document.createElement('option');
+      opt.value = item.node.prefix;
+      opt.textContent = folderPathLabel(item.node.prefix);
+      selectEl.appendChild(opt);
     });
+    var values = writable.map(function(item) { return item.node.prefix; });
+    if (preferredPrefix && values.indexOf(preferredPrefix) !== -1) {
+      selectEl.value = preferredPrefix;
+    } else if (values.indexOf('uploads/') !== -1) {
+      selectEl.value = 'uploads/';
+    }
+    return writable.length;
   }
 
-  function removeCategorySelectOption(prefix) {
-    [uploadCategorySelect, moveCategorySelect].forEach(function(selectEl) {
-      if (!selectEl) return;
-      var opt = selectEl.querySelector('option[value="' + prefix + '"]');
-      if (opt) opt.remove();
-    });
-  }
-
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ══════════════════════════════════════════════════════════════
   // SORT
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ══════════════════════════════════════════════════════════════
 
   function parseSortSelect() {
     if (!sortSelect) return;
@@ -549,8 +742,8 @@
         vb = b.uploaded ? new Date(b.uploaded).getTime() : 0;
         return sortAsc ? va - vb : vb - va;
       }
-      va = (a.key || '').toLowerCase();
-      vb = (b.key || '').toLowerCase();
+      va = basename(a.key || '').toLowerCase();
+      vb = basename(b.key || '').toLowerCase();
       return sortAsc
         ? (va < vb ? -1 : va > vb ? 1 : 0)
         : (vb < va ? -1 : vb > va ? 1 : 0);
@@ -558,9 +751,9 @@
     return arr;
   }
 
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ══════════════════════════════════════════════════════════════
   // VIEW TOGGLE + RENDERING
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ══════════════════════════════════════════════════════════════
 
   function setView(mode) {
     viewMode = mode;
@@ -580,9 +773,20 @@
     if (searchInput && searchInput.value) filterList(searchInput.value);
   }
 
+  function emptyStateText() {
+    if (!activeFolder) return 'Nog geen bestanden.';
+    var node = folderByPrefix[activeFolder];
+    var text = folderHasChildren(activeFolder)
+      ? 'Geen bestanden in deze map \u2014 kies een submap in de zijbalk.'
+      : 'Geen bestanden in deze map.';
+    if (state.canUpload && node && node.canWrite) text += ' Sleep bestanden hierheen of klik op Uploaden.';
+    return text;
+  }
+
   function renderView(objects) {
-    if ((!objects || objects.length === 0) && allFolders.length === 0) {
+    if (!objects || objects.length === 0) {
       setLoading(false);
+      if (listEmptyText) listEmptyText.textContent = emptyStateText();
       if (listEmpty) listEmpty.style.removeProperty('display');
       if (gridView) gridView.textContent = '';
       if (listBody) listBody.textContent = '';
@@ -596,152 +800,27 @@
     }
   }
 
-  // â”€â”€â”€ Breadcrumb (submap-navigatie) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-
-  function renderBreadcrumb(prefix) {
-    if (!breadcrumbWrap || !breadcrumbList) return;
-    breadcrumbList.textContent = '';
-
-    if (!prefix) {
-      breadcrumbWrap.style.display = 'none';
-      return;
-    }
-    breadcrumbWrap.style.removeProperty('display');
-
-    var segments = prefix.replace(/\/$/, '').split('/');
-    var pathSoFar = '';
-
-    function addCrumb(label, targetPrefix, isLast, icon) {
-      var li = document.createElement('li');
-      if (isLast) {
-        var span = document.createElement('span');
-        span.className = 'font-medium inline-flex items-center gap-1';
-        if (icon) span.innerHTML = icon;
-        var textSpan = document.createElement('span');
-        textSpan.textContent = label;
-        span.appendChild(textSpan);
-        li.appendChild(span);
-      } else {
-        var a = document.createElement('a');
-        a.className = 'inline-flex items-center gap-1';
-        a.href = '#';
-        if (icon) a.innerHTML = icon;
-        var textSpan2 = document.createElement('span');
-        textSpan2.textContent = label;
-        a.appendChild(textSpan2);
-        a.dataset.prefix = targetPrefix;
-        a.addEventListener('click', function(e) {
-          e.preventDefault();
-          switchCategory(targetPrefix);
-        });
-        li.appendChild(a);
-      }
-      breadcrumbList.appendChild(li);
-    }
-
-    addCrumb('Alles', '', false, SVG_HOME);
-    segments.forEach(function(seg, idx) {
-      pathSoFar += seg + '/';
-      addCrumb(seg, pathSoFar, idx === segments.length - 1);
-    });
-  }
-
-  // â”€â”€ SVG icon strings (Lucide-stijl, inline toegestaan) â”€â”€â”€â”€
+  // ── SVG icon strings (Lucide-stijl, inline toegestaan) ────
 
   var SVG_FILE = '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="opacity-25"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>';
-  var SVG_FOLDER = '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="text-primary opacity-70"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/></svg>';
-  var SVG_FOLDER_SM = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-primary opacity-70"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/></svg>';
   var SVG_DOTS = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>';
   var SVG_FILE_SM = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="opacity-40"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>';
   var SVG_LINK    = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>';
-  var SVG_HOME    = '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/></svg>';
-  var SVG_CHEVRON_RIGHT = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>';
-  var SVG_PLUS_SM       = '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>';
-  var SVG_IMAGE_SM      = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>';
-  var SVG_CALENDAR_SM   = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>';
-  var SVG_STAR_SM       = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>';
 
-  function categoryIconSvg(icon) {
-    var icons = { image: SVG_IMAGE_SM, calendar: SVG_CALENDAR_SM, star: SVG_STAR_SM, folder: SVG_FOLDER_SM };
-    return icons[icon] || SVG_FOLDER_SM;
-  }
-
-  // â”€â”€â”€ Grid view â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-
-  function renderSectionLabel(text) {
-    var el = document.createElement('div');
-    el.className = 'col-span-full text-xs font-semibold text-base-content/40 uppercase tracking-wide mt-1 first:mt-0';
-    el.textContent = text;
-    return el;
-  }
+  // ─── Grid view ─────────────────────────────────────────────
 
   function renderGrid(objects) {
     if (!gridView) return;
     gridView.textContent = '';
-    var showLabels = allFolders.length > 0 && objects.length > 0;
-    if (allFolders.length > 0) {
-      if (showLabels) gridView.appendChild(renderSectionLabel('Mappen'));
-      allFolders.forEach(function(folder) {
-        gridView.appendChild(renderFolderCard(folder));
-      });
-    }
-    if (objects.length > 0) {
-      if (showLabels) gridView.appendChild(renderSectionLabel('Bestanden'));
-      objects.forEach(function(obj) {
-        gridView.appendChild(renderGridCard(obj));
-      });
-    }
-  }
-
-  function renderFolderCard(folder) {
-    var card = document.createElement('div');
-    card.className = 'card bg-primary/5 border border-primary/10 shadow-sm hover:shadow-md hover:border-primary/30 transition-all cursor-pointer';
-    card.dataset.folderPrefix = folder.prefix;
-    card.title = 'Open map';
-    card.addEventListener('click', function(e) {
-      if (e.target.closest('details')) return;
-      switchCategory(folder.prefix);
+    objects.forEach(function(obj) {
+      gridView.appendChild(renderGridCard(obj));
     });
-    bindFolderDropTarget(card, folder.prefix);
-
-    var thumb = document.createElement('div');
-    thumb.className = 'aspect-square flex items-center justify-center overflow-hidden rounded-t-[var(--rounded-box,1rem)]';
-    thumb.innerHTML = SVG_FOLDER;
-    card.appendChild(thumb);
-
-    var body = document.createElement('div');
-    body.className = 'p-3 pt-2';
-
-    var row1 = document.createElement('div');
-    row1.className = 'flex items-start gap-1 mb-1';
-    var nameEl = document.createElement('p');
-    nameEl.className = 'text-sm font-medium truncate flex-1 min-w-0';
-    nameEl.title = folder.name;
-    nameEl.textContent = folder.name;
-    row1.appendChild(nameEl);
-    row1.appendChild(renderFolderKebabMenu(folder));
-    body.appendChild(row1);
-
-    body.appendChild(renderBrandBadge(folder.brand));
-
-    card.appendChild(body);
-    return card;
   }
 
-  function renderBrandBadge(brand) {
-    var badge = document.createElement('span');
-    badge.className = 'badge badge-ghost badge-xs gap-1 opacity-60';
-    badge.innerHTML = SVG_LINK;
-    var lbl = document.createElement('span');
-    lbl.textContent = BRAND_LABELS[brand] || brand || '';
-    badge.appendChild(lbl);
-    return badge;
-  }
-
-  // â”€â”€â”€ Drag & drop â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ─── Drag & drop ─────────────────────────────────────────────
   //
-  // Twee soorten drags landen op een map (folder-tile, breadcrumb, sidebar
-  // categorie): een bestaand asset (intern, ASSET_DRAG_TYPE) -- verplaatst het
+  // Twee soorten drags landen op een map (map in de zijbalk, pad boven de
+  // bestanden): een bestaand asset (intern, ASSET_DRAG_TYPE) -- verplaatst het
   // bestand -- of bestanden vanaf het OS-bureaublad ('Files') -- upload ze
   // rechtstreeks naar die map. bindFolderDropTarget bindt beide op eender welk
   // element dat een prefix als doel heeft.
@@ -760,18 +839,19 @@
       e.preventDefault();
       e.stopPropagation();
       e.dataTransfer.dropEffect = e.dataTransfer.types.indexOf('Files') !== -1 ? 'copy' : 'move';
-      el.classList.add('ring', 'ring-primary', 'ring-2');
+      el.classList.add('bg-primary/20');
     });
     el.addEventListener('dragleave', function() {
-      el.classList.remove('ring', 'ring-primary', 'ring-2');
+      el.classList.remove('bg-primary/20');
     });
     el.addEventListener('drop', function(e) {
       e.preventDefault();
       e.stopPropagation();
-      el.classList.remove('ring', 'ring-primary', 'ring-2');
+      el.classList.remove('bg-primary/20');
 
       if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-        uploadFilesTo(e.dataTransfer.files, targetPrefix);
+        if (!state.canUpload) return;
+        uploadFiles(e.dataTransfer.files, targetPrefix, false);
         return;
       }
       var key = e.dataTransfer.getData(ASSET_DRAG_TYPE) || e.dataTransfer.getData('text/plain');
@@ -780,10 +860,9 @@
   }
 
   // Achtervang voor het hele content-paneel: bestanden vanaf het OS-bureaublad
-  // ergens in de lege ruimte (niet op een specifieke map-tile) droppen upload
-  // ze naar de huidig geopende map ("Alles" → 'uploads/' als redelijke default).
-  // Folder-tiles roepen zelf stopPropagation() aan, dus deze handler vuurt
-  // enkel als de drop niet al door een tile is opgevangen.
+  // ergens in het paneel droppen upload ze naar de open map ("Alle bestanden"
+  // → 'uploads/' als redelijke default). Mappen in de zijbalk roepen zelf
+  // stopPropagation() aan, dus deze handler vuurt enkel daarbuiten.
   function bindContentDropzone(el) {
     if (!el) return;
     el.addEventListener('dragover', function(e) {
@@ -794,9 +873,19 @@
       if (!e.dataTransfer.files || e.dataTransfer.files.length === 0) return;
       e.preventDefault();
       if (!state.canUpload) return;
-      var target = activeCategory || 'uploads/';
-      uploadFilesTo(e.dataTransfer.files, target);
+      var node = activeFolder ? folderByPrefix[activeFolder] : null;
+      var target = node && node.canWrite ? activeFolder : 'uploads/';
+      uploadFiles(e.dataTransfer.files, target, false);
     });
+  }
+
+  // Op "Alle bestanden" staan bestanden uit alle mappen door elkaar -- dan
+  // tonen we bij elk bestand in welke map het zit.
+  function renderFolderHint(obj) {
+    var hint = document.createElement('span');
+    hint.className = 'text-xs text-base-content/40 block leading-tight truncate';
+    hint.textContent = folderPathLabel(dirOf(obj.key));
+    return hint;
   }
 
   function renderGridCard(obj) {
@@ -831,13 +920,17 @@
     var row1 = document.createElement('div');
     row1.className = 'flex items-start gap-1 mb-1';
 
+    var nameWrap = document.createElement('div');
+    nameWrap.className = 'flex-1 min-w-0';
     var nameEl = document.createElement('p');
-    nameEl.className = 'text-sm font-medium truncate flex-1 min-w-0';
+    nameEl.className = 'text-sm font-medium truncate';
     nameEl.title = obj.key;
     nameEl.textContent = basename(obj.key);
-    row1.appendChild(nameEl);
+    nameWrap.appendChild(nameEl);
+    if (!activeFolder) nameWrap.appendChild(renderFolderHint(obj));
+    row1.appendChild(nameWrap);
     row1.appendChild(renderQuickCopyBtn(obj));
-    row1.appendChild(renderKebabMenu(obj, 'grid'));
+    row1.appendChild(renderKebabMenu(obj));
     body.appendChild(row1);
 
     var row2 = document.createElement('div');
@@ -858,69 +951,14 @@
     return card;
   }
 
-  // â”€â”€â”€ List view â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-
-  function renderSectionLabelRow(text) {
-    var tr = document.createElement('tr');
-    var td = document.createElement('td');
-    td.colSpan = 6;
-    td.className = 'text-xs font-semibold text-base-content/40 uppercase tracking-wide bg-base-200/40 py-1';
-    td.textContent = text;
-    tr.appendChild(td);
-    return tr;
-  }
+  // ─── List view ─────────────────────────────────────────────
 
   function renderTableList(objects) {
     if (!listBody) return;
     listBody.textContent = '';
-    var showLabels = allFolders.length > 0 && objects.length > 0;
-    if (allFolders.length > 0) {
-      if (showLabels) listBody.appendChild(renderSectionLabelRow('Mappen'));
-      allFolders.forEach(function(folder) {
-        listBody.appendChild(renderFolderRow(folder));
-      });
-    }
-    if (objects.length > 0) {
-      if (showLabels) listBody.appendChild(renderSectionLabelRow('Bestanden'));
-      objects.forEach(function(obj) {
-        listBody.appendChild(renderListRow(obj));
-      });
-    }
-  }
-
-  function renderFolderRow(folder) {
-    var tr = document.createElement('tr');
-    tr.dataset.folderPrefix = folder.prefix;
-    tr.className = 'cursor-pointer hover bg-primary/5';
-    tr.addEventListener('click', function(e) {
-      if (e.target.closest('details')) return;
-      switchCategory(folder.prefix);
+    objects.forEach(function(obj) {
+      listBody.appendChild(renderListRow(obj));
     });
-    bindFolderDropTarget(tr, folder.prefix);
-
-    var tdIcon = document.createElement('td');
-    tdIcon.className = 'w-10 pr-0';
-    var iconBox = document.createElement('div');
-    iconBox.className = 'w-8 h-8 rounded bg-base-200 flex items-center justify-center';
-    iconBox.innerHTML = SVG_FOLDER_SM;
-    tdIcon.appendChild(iconBox);
-    tr.appendChild(tdIcon);
-
-    var tdName = document.createElement('td');
-    tdName.colSpan = 4;
-    var nameSpan = document.createElement('span');
-    nameSpan.className = 'font-medium text-sm mr-2';
-    nameSpan.textContent = folder.name;
-    tdName.appendChild(nameSpan);
-    tdName.appendChild(renderBrandBadge(folder.brand));
-    tr.appendChild(tdName);
-
-    var tdAct = document.createElement('td');
-    tdAct.className = 'text-right';
-    tdAct.appendChild(renderFolderKebabMenu(folder));
-    tr.appendChild(tdAct);
-
-    return tr;
   }
 
   function renderListRow(obj) {
@@ -952,19 +990,13 @@
     }
     tr.appendChild(tdThumb);
 
-    // Naam + pad
+    // Naam (+ map, enkel op "Alle bestanden")
     var tdName = document.createElement('td');
     var nameSpan = document.createElement('span');
     nameSpan.className = 'font-medium text-sm';
     nameSpan.textContent = basename(obj.key);
     tdName.appendChild(nameSpan);
-    var prefix = obj.key.includes('/') ? obj.key.substring(0, obj.key.lastIndexOf('/') + 1) : '';
-    if (prefix) {
-      var pathSpan = document.createElement('span');
-      pathSpan.className = 'text-xs text-base-content/40 block leading-tight';
-      pathSpan.textContent = prefix;
-      tdName.appendChild(pathSpan);
-    }
+    if (!activeFolder) tdName.appendChild(renderFolderHint(obj));
     tr.appendChild(tdName);
 
     // Type
@@ -992,7 +1024,7 @@
     var tdAct = document.createElement('td');
     tdAct.className = 'text-right whitespace-nowrap';
     tdAct.appendChild(renderQuickCopyBtn(obj));
-    tdAct.appendChild(renderKebabMenu(obj, 'list'));
+    tdAct.appendChild(renderKebabMenu(obj));
     tr.appendChild(tdAct);
 
     return tr;
@@ -1012,9 +1044,17 @@
     return btn;
   }
 
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-  // KEBAB MENU
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // Verplaatsen mag een admin overal; anderen binnen mappen waar ze zelf
+  // mogen schrijven (zelfde regel als POST /api/assets/move).
+  function canMoveKey(key) {
+    if (state.canAdmin) return true;
+    var node = folderByPrefix[dirOf(key)];
+    return !!(node && node.canWrite);
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // KEBAB MENU (bestanden)
+  // ══════════════════════════════════════════════════════════════
 
   function renderKebabMenu(obj) {
     var details = document.createElement('details');
@@ -1049,7 +1089,9 @@
 
     if (state.canAdmin) {
       addItem('Hernoemen', function() { openRenameModal(obj.key); });
-      addItem('Verplaatsen', function() { openMoveModal(obj.key); });
+    }
+    if (canMoveKey(obj.key)) {
+      addItem('Verplaatsen naar map...', function() { openMoveModal(obj.key); });
     }
 
     if (state.canAdmin || isOwnKey(obj.key)) {
@@ -1063,170 +1105,9 @@
     return details;
   }
 
-  // Zelfde dropdown-patroon als renderKebabMenu, maar voor een foldertegel:
-  // link-domein instellen (openvme/syndicoach/overerven) en de map verwijderen
-  // (enkel mogelijk als ze leeg is -- de server blokkeert dit anders, zie
-  // POST /api/assets/delete-folder).
-  // Generieke opbouw van een kebab-dropdown (⋮) uit een lijst item-definities:
-  // { label, handler, cls } voor een klikbaar item, { divider: true } voor een
-  // scheidingslijn, of { title: '...' } voor een niet-klikbare menu-titel.
-  // Gedeeld door renderFolderKebabMenu (submap-tegel) en renderCategoryKebabMenu
-  // (top-level categorie in de zijbalk) zodat de dropdown-mechaniek (details/
-  // summary, sluiten na klik) niet dubbel onderhouden hoeft te worden.
-  function buildActionsDropdown(itemDefs) {
-    var details = document.createElement('details');
-    details.className = 'dropdown dropdown-end';
-
-    var summary = document.createElement('summary');
-    summary.className = 'btn btn-ghost btn-xs btn-square';
-    summary.style.listStyle = 'none';
-    summary.innerHTML = SVG_DOTS;
-    details.appendChild(summary);
-
-    var ul = document.createElement('ul');
-    ul.className = 'dropdown-content menu bg-base-100 rounded-box shadow-lg z-30 w-52 p-1 text-sm';
-
-    itemDefs.forEach(function(def) {
-      if (def.divider) {
-        var divLi = document.createElement('li');
-        divLi.innerHTML = '<hr class="my-1 border-base-content/10" />';
-        ul.appendChild(divLi);
-        return;
-      }
-      if (def.title) {
-        var titleLi = document.createElement('li');
-        titleLi.className = 'menu-title text-xs px-2 pt-1 pb-0';
-        titleLi.textContent = def.title;
-        ul.appendChild(titleLi);
-        return;
-      }
-      var li = document.createElement('li');
-      if (def.cls) li.className = def.cls;
-      var a = document.createElement('a');
-      a.href = '#';
-      a.textContent = def.label;
-      a.addEventListener('click', function(e) {
-        e.preventDefault();
-        details.removeAttribute('open');
-        def.handler();
-      });
-      li.appendChild(a);
-      ul.appendChild(li);
-    });
-
-    details.appendChild(ul);
-    return details;
-  }
-
-  function brandMenuItems(prefix, currentBrand) {
-    var items = [{ title: 'Link-domein' }];
-    ['openvme', 'syndicoach'].forEach(function(brandKey) {
-      items.push({
-        label: (currentBrand === brandKey ? '✓ ' : '') + BRAND_LABELS[brandKey],
-        handler: function() { setFolderBrand(prefix, brandKey); },
-      });
-    });
-    items.push({ label: 'Overerven van bovenliggende map', handler: function() { setFolderBrand(prefix, null); } });
-    return items;
-  }
-
-  function renderFolderKebabMenu(folder) {
-    if (!canManageFolder(folder.prefix)) {
-      // Niets te beheren voor deze gebruiker -- geen (lege) kebab tonen.
-      return document.createElement('span');
-    }
-    var items = brandMenuItems(folder.prefix, folder.brand);
-    items.push({ divider: true });
-    items.push({ label: 'Verwijderen', cls: 'text-error', handler: function() { deleteFolder(folder.prefix, folder.name); } });
-    return buildActionsDropdown(items);
-  }
-
-  // Kebab voor een top-level, door de gebruiker aangemaakte categorie (zijbalk/
-  // mobiele tabs) -- enkel admins mogen die hernoemen/verwijderen (zelfde regel
-  // als op de server, zie routes.js create/delete-folder/rename-category).
-  function renderCategoryKebabMenu(prefix, label) {
-    if (!state.canAdmin) return document.createElement('span');
-    var items = [
-      { label: 'Naam wijzigen', handler: function() { renameCategoryLabel(prefix, label); } },
-    ];
-    items = items.concat(brandMenuItems(prefix, null));
-    items.push({ divider: true });
-    items.push({ label: 'Verwijderen', cls: 'text-error', handler: function() { deleteFolder(prefix, label); } });
-    return buildActionsDropdown(items);
-  }
-
-  function renameCategoryLabel(prefix, currentLabel) {
-    var next = window.prompt('Nieuwe naam voor deze map:', currentLabel);
-    if (next === null) return;
-    next = next.trim();
-    if (!next || next === currentLabel) return;
-
-    fetch('/assets/api/assets/rename-category', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prefix: prefix, label: next }),
-    })
-      .then(function(res) { return res.json(); })
-      .then(function(json) {
-        if (!json.success) { showAlert(json.error || 'Naam wijzigen mislukt.', 'error'); return; }
-        showAlert('Naam bijgewerkt.', 'success');
-        var cat = (state.categories || []).filter(function(c) { return c.prefix === prefix; })[0];
-        if (cat) cat.label = next;
-        rebuildCategoryMenu();
-        renameMobileCategoryTab(prefix, next);
-        renameCategorySelectOption(prefix, next);
-      })
-      .catch(function(err) { showAlert('Fout: ' + err.message, 'error'); });
-  }
-
-  function setFolderBrand(prefix, brand) {
-    fetch('/assets/api/assets/set-folder-brand', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prefix: prefix, brand: brand }),
-    })
-      .then(function(res) { return res.json(); })
-      .then(function(json) {
-        if (!json.success) { showAlert(json.error || 'Link-domein instellen mislukt.', 'error'); return; }
-        showAlert('Link-domein bijgewerkt.', 'success');
-        loadList(activeCategory, null);
-        refreshTreeChildrenIfExpanded(parentPrefixOf(prefix));
-      })
-      .catch(function(err) { showAlert('Fout: ' + err.message, 'error'); });
-  }
-
-  function deleteFolder(prefix, name) {
-    if (!window.confirm('Map "' + name + '" verwijderen? Dit kan niet ongedaan gemaakt worden.')) return;
-    fetch('/assets/api/assets/delete-folder', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prefix: prefix }),
-    })
-      .then(function(res) { return res.json(); })
-      .then(function(json) {
-        if (!json.success) { showAlert(json.error || 'Map verwijderen mislukt.', 'error'); return; }
-        showAlert('Map verwijderd.', 'success');
-        var wasTopLevel = (state.categories || []).some(function(c) { return c.prefix === prefix; });
-        if (wasTopLevel) {
-          state.categories = (state.categories || []).filter(function(c) { return c.prefix !== prefix; });
-          removeMobileCategoryTab(prefix);
-          removeCategorySelectOption(prefix);
-        }
-        delete expandedTreePrefixes[prefix];
-        rebuildCategoryMenu();
-        if (activeCategory === prefix) {
-          switchCategory('');
-        } else {
-          refreshTreeChildrenIfExpanded(parentPrefixOf(prefix));
-          loadList(activeCategory, null);
-        }
-      })
-      .catch(function(err) { showAlert('Fout: ' + err.message, 'error'); });
-  }
-
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ══════════════════════════════════════════════════════════════
   // PREVIEW MODAL
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ══════════════════════════════════════════════════════════════
 
   function openPreviewModal(obj) {
     if (!previewModal || !previewModalContent) return;
@@ -1266,7 +1147,7 @@
 
     var metaEl = document.createElement('p');
     metaEl.className = 'text-sm text-base-content/50 mb-5';
-    metaEl.textContent = [mime || '\u2014', formatBytes(obj.size), obj.uploaded ? formatDate(obj.uploaded) : '']
+    metaEl.textContent = [folderPathLabel(dirOf(obj.key)), mime || '\u2014', formatBytes(obj.size), obj.uploaded ? formatDate(obj.uploaded) : '']
       .filter(Boolean).join(' \u00B7 ');
     container.appendChild(metaEl);
 
@@ -1297,7 +1178,9 @@
     container.appendChild(urlRow);
 
     // Admin / eigen acties
-    if (state.canAdmin || isOwnKey(obj.key)) {
+    var canMove = canMoveKey(obj.key);
+    var canDelete = state.canAdmin || isOwnKey(obj.key);
+    if (state.canAdmin || canMove || canDelete) {
       var actRow = document.createElement('div');
       actRow.className = 'flex flex-wrap gap-2';
 
@@ -1319,160 +1202,164 @@
         actRow.appendChild(makeActBtn('Hernoem',
           '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4z"/></svg>',
           function() { openRenameModal(obj.key); }));
+      }
+      if (canMove) {
         actRow.appendChild(makeActBtn('Verplaats',
           '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>',
           function() { openMoveModal(obj.key); }));
       }
-      actRow.appendChild(makeActBtn('Verwijder',
-        '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>',
-        function() { openDeleteModal(obj.key); }, 'btn-error'));
+      if (canDelete) {
+        actRow.appendChild(makeActBtn('Verwijder',
+          '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>',
+          function() { openDeleteModal(obj.key); }, 'btn-error'));
+      }
 
       container.appendChild(actRow);
     }
   }
 
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ══════════════════════════════════════════════════════════════
   // DATA LADEN
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ══════════════════════════════════════════════════════════════
 
   function loadList(prefix, cursor) {
-    setLoading(true);
+    var requestId = ++listRequestSeq;
+    if (!cursor) setLoading(true);
     hideAlert();
 
     var url = '/assets/api/assets/list?limit=100';
     if (prefix) url += '&prefix=' + encodeURIComponent(prefix);
     if (cursor) url += '&cursor=' + encodeURIComponent(cursor);
 
-    fetch(url)
+    return fetch(url)
       .then(function(res) { return res.json(); })
       .then(function(json) {
+        if (requestId !== listRequestSeq) return;   // intussen een andere map geopend
         setLoading(false);
         if (!json.success) {
           showAlert(json.error || 'Lijst ophalen mislukt.', 'error');
           return;
         }
         var data = json.data;
-        allObjects = data.objects || [];
-        allFolders = data.folders || [];
-        // currentBrand(Explicit) zit enkel in de respons bij een concreet prefix
-        // (niet bij "Alles") -- zie GET /api/assets/list in routes.js.
-        if (brandControl) {
-          if (prefix && 'currentBrand' in data && canManageFolder(prefix)) {
-            brandControl.style.removeProperty('display');
-            if (brandSelect) brandSelect.value = data.currentBrandExplicit || '';
-          } else {
-            brandControl.style.display = 'none';
-          }
-        }
+        var page = data.objects || [];
+        // "Meer laden" voegt toe aan wat er al stond i.p.v. het te vervangen.
+        allObjects = cursor ? allObjects.concat(page) : page;
         parseSortSelect();
         renderView(sortObjects(allObjects));
         if (assetCount) {
-          var countText = allObjects.length + ' bestand' + (allObjects.length !== 1 ? 'en' : '');
-          if (allFolders.length > 0) {
-            countText += ' · ' + allFolders.length + ' map' + (allFolders.length !== 1 ? 'pen' : '');
-          }
-          assetCount.textContent = countText;
+          assetCount.textContent = allObjects.length + ' bestand' + (allObjects.length !== 1 ? 'en' : '');
         }
-        if (data.truncated && data.cursor) {
-          activeCursor = data.cursor;
+        activeCursor = data.cursor || null;
+        if (data.truncated) {
           if (pagination) pagination.style.removeProperty('display');
-          if (paginationInfo) paginationInfo.textContent = allObjects.length + ' geladen \u2014 meer beschikbaar';
-        } else {
-          activeCursor = null;
-          if (pagination) pagination.style.setProperty('display', 'none', 'important');
-          if (paginationInfo) paginationInfo.textContent = allObjects.length + ' bestand' +
-            (allObjects.length !== 1 ? 'en' : '');
+          if (nextBtn) nextBtn.style.display = activeCursor ? '' : 'none';
+          if (paginationInfo) {
+            paginationInfo.textContent = activeCursor
+              ? allObjects.length + ' geladen \u2014 meer beschikbaar'
+              : 'Toont de ' + allObjects.length + ' nieuwste bestanden \u2014 open een map om de rest te zien';
+          }
+        } else if (pagination) {
+          pagination.style.setProperty('display', 'none', 'important');
         }
         // Filter opnieuw toepassen
         if (searchInput && searchInput.value) filterList(searchInput.value);
       })
       .catch(function(err) {
+        if (requestId !== listRequestSeq) return;
         setLoading(false);
         showAlert('Netwerkfout: ' + err.message, 'error');
       });
   }
 
-  function switchCategory(prefix) {
-    activeCategory = prefix;
-    activeCursor   = null;
-    setActiveCategory(prefix);
-    renderBreadcrumb(prefix);
-    // "Nieuwe map hier" heeft geen zin op "Alles" (geen eenduidig prefix) --
-    // de server toetst schrijfrechten sowieso opnieuw bij het aanmaken zelf.
-    if (newSubfolderBtn) newSubfolderBtn.style.display = prefix ? '' : 'none';
-    loadList(prefix, null);
+  function switchFolder(prefix) {
+    activeFolder = prefix || '';
+    activeCursor = null;
+    if (activeFolder) expandAncestors(activeFolder);
+    renderFolderUi();
+    loadList(activeFolder, null);
   }
 
-  // â”€â”€â”€ Filter (client-side zoeken) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // Na elke wijziging (upload, verplaatsen, verwijderen, link-domein): zowel
+  // de bestanden als de mappen (aantallen) opnieuw ophalen.
+  function refreshAll() {
+    loadFolders();
+    loadList(activeFolder, null);
+  }
+
+  // ─── Filter (client-side zoeken) ──────────────────────────
 
   function filterList(query) {
     var q = query.toLowerCase();
     gridView.querySelectorAll('[data-key]').forEach(function(el) {
-      el.style.display = (!q || el.dataset.key.toLowerCase().indexOf(q) !== -1) ? '' : 'none';
+      el.style.display = (!q || basename(el.dataset.key).toLowerCase().indexOf(q) !== -1) ? '' : 'none';
     });
     listBody.querySelectorAll('tr[data-key]').forEach(function(tr) {
-      tr.style.display = (!q || tr.dataset.key.toLowerCase().indexOf(q) !== -1) ? '' : 'none';
-    });
-    gridView.querySelectorAll('[data-folder-prefix]').forEach(function(el) {
-      el.style.display = (!q || el.dataset.folderPrefix.toLowerCase().indexOf(q) !== -1) ? '' : 'none';
-    });
-    listBody.querySelectorAll('tr[data-folder-prefix]').forEach(function(tr) {
-      tr.style.display = (!q || tr.dataset.folderPrefix.toLowerCase().indexOf(q) !== -1) ? '' : 'none';
+      tr.style.display = (!q || basename(tr.dataset.key).toLowerCase().indexOf(q) !== -1) ? '' : 'none';
     });
   }
 
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ══════════════════════════════════════════════════════════════
   // UPLOAD
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ══════════════════════════════════════════════════════════════
 
-  function getUploadPrefix() {
-    if (!uploadCategorySelect) return activeCategory || 'uploads/';
-    var val = uploadCategorySelect.value;
-    if (val === '_custom') {
-      return (uploadPrefixInput ? uploadPrefixInput.value.trim() : '') || 'uploads/';
-    }
-    return val;
+  function openUploadModal() {
+    if (uploadFileInput) uploadFileInput.value = '';
+    var count = fillFolderSelect(uploadFolderSelect, activeFolder);
+    if (uploadConfirmBtn) uploadConfirmBtn.disabled = count === 0;
+    if (count === 0) showAlert('Er is geen map waarin je mag uploaden.', 'warning');
+    if (uploadModal.showModal) uploadModal.showModal();
   }
 
-  // Drag & drop van OS-bestanden op een map (folder-tile of huidige map):
-  // upload elk bestand rechtstreeks naar dat prefix, zonder de upload-modal
-  // te tonen. Overschrijven staat hier altijd uit (geen checkbox beschikbaar) --
-  // een conflict geeft gewoon de bestaande 409-foutmelding via uploadFile.
-  function uploadFilesTo(fileList, prefix) {
+  // Uploadt de bestanden één na één naar `prefix` en herlaadt daarna één
+  // keer. useOverwrite: enkel vanuit de upload-modal (checkbox) -- bij slepen
+  // staat overschrijven altijd uit, een conflict geeft dan de 409-melding.
+  function uploadFiles(fileList, prefix, useOverwrite) {
     var files = Array.prototype.slice.call(fileList);
     if (files.length === 0) return;
-    files.forEach(function(f) { uploadFile(f, prefix); });
+    var overwrite = !!(useOverwrite && uploadOverwriteInput && uploadOverwriteInput.checked);
+    var errors = [];
+    var done = 0;
+
+    if (uploadProgress) uploadProgress.style.removeProperty('display');
+    if (uploadConfirmBtn) uploadConfirmBtn.disabled = true;
+
+    files.reduce(function(chain, file) {
+      return chain.then(function() {
+        return uploadFile(file, prefix, overwrite)
+          .then(function() { done++; })
+          .catch(function(err) { errors.push(file.name + ': ' + err.message); });
+      });
+    }, Promise.resolve()).then(function() {
+      if (uploadProgress) uploadProgress.style.display = 'none';
+      if (uploadConfirmBtn) uploadConfirmBtn.disabled = false;
+      if (uploadModal && uploadModal.open && uploadModal.close) uploadModal.close();
+      var where = folderPathLabel(prefix);
+      if (errors.length) {
+        showAlert((done ? done + ' geüpload naar ' + where + '. ' : '') + 'Mislukt: ' + errors.join(' \u00B7 '), 'error');
+      } else {
+        showAlert(done === 1 ? 'Geüpload naar ' + where + '.' : done + ' bestanden geüpload naar ' + where + '.', 'success');
+      }
+      refreshAll();
+    });
   }
 
-  function uploadFile(file, prefix) {
-    uploadProgress.style.removeProperty('display');
-    uploadConfirmBtn.disabled = true;
-
+  function uploadFile(file, prefix, overwrite) {
     var formData = new FormData();
     formData.append('file', file);
     formData.append('prefix', prefix || 'uploads/');
-    formData.append('overwrite', uploadOverwriteInput && uploadOverwriteInput.checked ? 'true' : 'false');
+    formData.append('overwrite', overwrite ? 'true' : 'false');
 
-    fetch('/assets/api/assets/upload', { method: 'POST', body: formData })
+    return fetch('/assets/api/assets/upload', { method: 'POST', body: formData })
       .then(function(res) { return res.json(); })
       .then(function(json) {
-        uploadProgress.style.display = 'none';
-        uploadConfirmBtn.disabled = false;
-        if (uploadModal.close) uploadModal.close();
-        if (!json.success) { showAlert(json.error || 'Upload mislukt.', 'error'); return; }
-        showAlert('GeÃ¼pload: ' + basename(json.data.key), 'success');
-        loadList(activeCategory, null);
-      })
-      .catch(function(err) {
-        uploadProgress.style.display = 'none';
-        uploadConfirmBtn.disabled = false;
-        showAlert('Upload fout: ' + err.message, 'error');
+        if (!json.success) throw new Error(json.error || 'Upload mislukt.');
+        return json.data;
       });
   }
 
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ══════════════════════════════════════════════════════════════
   // DELETE
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ══════════════════════════════════════════════════════════════
 
   function openDeleteModal(key) {
     pendingDeleteKey = key;
@@ -1495,14 +1382,14 @@
       .then(function(json) {
         if (!json.success) { showAlert(json.error || 'Verwijderen mislukt.', 'error'); return; }
         showAlert('Verwijderd.', 'success');
-        loadList(activeCategory, null);
+        refreshAll();
       })
       .catch(function(err) { showAlert('Fout: ' + err.message, 'error'); });
   }
 
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ══════════════════════════════════════════════════════════════
   // RENAME
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ══════════════════════════════════════════════════════════════
 
   function openRenameModal(key) {
     pendingRenameKey = key;
@@ -1527,44 +1414,37 @@
       .then(function(json) {
         if (!json.success) { showAlert(json.error || 'Hernoemen mislukt.', 'error'); return; }
         showAlert('Hernoemd naar: ' + newKey, 'success');
-        loadList(activeCategory, null);
+        refreshAll();
       })
       .catch(function(err) { showAlert('Fout: ' + err.message, 'error'); });
   }
 
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ══════════════════════════════════════════════════════════════
   // MOVE
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-
-  function getMovePrefix() {
-    if (!moveCategorySelect) return activeCategory || 'uploads/';
-    var val = moveCategorySelect.value;
-    if (val === '_custom') {
-      return (movePrefixInput ? movePrefixInput.value.trim() : '') || 'uploads/';
-    }
-    return val;
-  }
+  // ══════════════════════════════════════════════════════════════
 
   function openMoveModal(key) {
     pendingMoveKey = key;
-    if (moveFilename) moveFilename.textContent = key;
+    if (moveFilename) moveFilename.textContent = basename(key) + ' \u00B7 nu in ' + folderPathLabel(dirOf(key));
+    var count = fillFolderSelect(moveFolderSelect, dirOf(key));
+    if (moveConfirmBtn) moveConfirmBtn.disabled = count === 0;
     if (moveModal.showModal) moveModal.showModal();
   }
 
   function confirmMove() {
     if (!pendingMoveKey) return;
     var key    = pendingMoveKey;
-    var target = getMovePrefix();
+    var target = moveFolderSelect ? moveFolderSelect.value : '';
     pendingMoveKey = null;
     if (moveModal.close) moveModal.close();
-    if (!target) return;
+    if (!target || target === dirOf(key)) return;
     moveAssetTo(key, target);
   }
 
   // Herbruikt door zowel de "Verplaatsen"-modal als drag & drop van een asset
-  // op een map (folder-tile, breadcrumb-segment, sidebar-categorie).
+  // op een map (zijbalk of pad boven de bestanden).
   function moveAssetTo(key, targetPrefix) {
-    if (!key || !targetPrefix) return;
+    if (!key || !targetPrefix || dirOf(key) === targetPrefix) return;
     fetch('/assets/api/assets/move', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1573,15 +1453,15 @@
       .then(function(res) { return res.json(); })
       .then(function(json) {
         if (!json.success) { showAlert(json.error || 'Verplaatsen mislukt.', 'error'); return; }
-        showAlert('Verplaatst naar ' + targetPrefix, 'success');
-        loadList(activeCategory, null);
+        showAlert('Verplaatst naar ' + folderPathLabel(targetPrefix) + '.', 'success');
+        refreshAll();
       })
       .catch(function(err) { showAlert('Fout: ' + err.message, 'error'); });
   }
 
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-  // URL KOPIÃ‹REN
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ══════════════════════════════════════════════════════════════
+  // URL KOPIËREN
+  // ══════════════════════════════════════════════════════════════
 
   // objOrKey: het volledige object (met .publicUrl, het brand-domein zoals
   // link.openvme.be/link.syndicoach.be) of, voor terugwaartse compatibiliteit,
@@ -1608,51 +1488,13 @@
     }
   }
 
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ══════════════════════════════════════════════════════════════
   // EVENT BINDINGS
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ══════════════════════════════════════════════════════════════
 
   function bindEvents() {
-    // "Alles" blijft het enige server-side gerenderde item in de zijbalk --
-    // geen drop-doel (leeg prefix is geen eenduidige bestemming), zelfde regel
-    // als voorheen. De rest van de boom (categorieën + submappen) bindt zijn
-    // eigen events, zie buildTreeLi().
-    var catAlles = document.getElementById('cat-alles');
-    if (catAlles) {
-      catAlles.addEventListener('click', function(e) {
-        e.preventDefault();
-        switchCategory('');
-      });
-    }
-    renderCategoryTree();
-
-    // Categorie-tabs mobile
-    document.querySelectorAll('.cat-tab').forEach(function(btn) {
-      btn.addEventListener('click', function() { switchCategory(btn.dataset.prefix); });
-      if (btn.dataset.prefix) bindFolderDropTarget(btn, btn.dataset.prefix);
-    });
-
-    // Kebab (naam wijzigen / link-domein / verwijderen) op elke door de
-    // gebruiker aangemaakte top-level categorie -- de 5 hardcoded categorieën
-    // krijgen server-side bewust geen placeholder (zie ui.js), dus hier is
-    // niets te doen voor die.
-    document.querySelectorAll('.dynamic-cat-actions').forEach(function(el) {
-      el.appendChild(renderCategoryKebabMenu(el.dataset.prefix, el.dataset.label));
-    });
-
-    // Nieuwe map hier (submap in de huidig geopende map)
-    if (newSubfolderBtn) {
-      newSubfolderBtn.addEventListener('click', function() {
-        if (activeCategory) openFolderModal(activeCategory);
-      });
-    }
-
-    // Link-domein van de huidig geopende map
-    if (brandSelect) {
-      brandSelect.addEventListener('change', function() {
-        if (activeCategory) setFolderBrand(activeCategory, brandSelect.value || null);
-      });
-    }
+    // Nieuwe top-level map (admin) -- de "+"-knop naast "Mappen", zoals in Koppelingen
+    if (addRootFolderBtn) addRootFolderBtn.addEventListener('click', function() { openFolderModal(); });
 
     // View toggle
     if (viewGridBtn) viewGridBtn.addEventListener('click', function() { setView('grid'); });
@@ -1672,40 +1514,8 @@
       searchInput.addEventListener('input', function() { filterList(searchInput.value); });
     }
 
-    // Upload knop
-    if (uploadBtn) {
-      uploadBtn.addEventListener('click', function() {
-        if (uploadFileInput) uploadFileInput.value = '';
-        // Pre-selecteer huidige categorie/submap. Een submap heeft geen eigen
-        // <option> in de select -- val dan terug op "Aangepast pad" met het
-        // huidige prefix al ingevuld, zodat uploaden in een geopende submap
-        // niet per ongeluk naar de top-level categorie gaat.
-        if (uploadCategorySelect && activeCategory) {
-          var opt = uploadCategorySelect.querySelector('option[value="' + activeCategory + '"]');
-          if (opt) {
-            uploadCategorySelect.value = activeCategory;
-            if (uploadCustomWrap) uploadCustomWrap.style.display = 'none';
-          } else {
-            uploadCategorySelect.value = '_custom';
-            if (uploadCustomWrap) uploadCustomWrap.style.removeProperty('display');
-            if (uploadPrefixInput) uploadPrefixInput.value = activeCategory;
-          }
-        }
-        if (uploadModal.showModal) uploadModal.showModal();
-      });
-    }
-
-    // Upload categorie toggle
-    if (uploadCategorySelect) {
-      uploadCategorySelect.addEventListener('change', function() {
-        if (uploadCustomWrap) {
-          uploadCustomWrap.style.display =
-            uploadCategorySelect.value === '_custom' ? '' : 'none';
-        }
-      });
-    }
-
-    // Upload bevestigen
+    // Upload
+    if (uploadBtn) uploadBtn.addEventListener('click', openUploadModal);
     if (uploadConfirmBtn) {
       uploadConfirmBtn.addEventListener('click', function() {
         var files = uploadFileInput ? uploadFileInput.files : [];
@@ -1713,37 +1523,25 @@
           showAlert('Selecteer een bestand.', 'warning');
           return;
         }
-        var prefix = getUploadPrefix();
-        Array.from(files).forEach(function(f) { uploadFile(f, prefix); });
+        var prefix = uploadFolderSelect ? uploadFolderSelect.value : '';
+        if (!prefix) return;
+        uploadFiles(files, prefix, true);
       });
     }
 
-    // Delete
+    // Delete / rename / move
     if (deleteConfirmBtn) deleteConfirmBtn.addEventListener('click', confirmDelete);
-
-    // Rename
     if (renameConfirmBtn) renameConfirmBtn.addEventListener('click', confirmRename);
-
-    // Move categorie toggle
-    if (moveCategorySelect) {
-      moveCategorySelect.addEventListener('change', function() {
-        if (moveCustomWrap) {
-          moveCustomWrap.style.display =
-            moveCategorySelect.value === '_custom' ? '' : 'none';
-        }
-      });
-    }
-
-    // Move
     if (moveConfirmBtn) moveConfirmBtn.addEventListener('click', confirmMove);
 
-    // Nieuwe hoofdmap (mobiel -- desktop zit in de categorieboom, zie
-    // buildAddRootFolderLi() in renderCategoryTree()).
-    if (addFolderBtnMobile) addFolderBtnMobile.addEventListener('click', function () { openFolderModal(); });
+    // Nieuwe map
     if (folderLabelInput) {
       folderLabelInput.addEventListener('input', function() {
         var slug = slugifyLabel(folderLabelInput.value);
-        if (folderSlugPreview) folderSlugPreview.textContent = slug ? (slug + '/') : '-';
+        if (folderSlugPreview) folderSlugPreview.textContent = slug ? ((pendingFolderParentPrefix || '') + slug + '/') : '-';
+      });
+      folderLabelInput.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') { e.preventDefault(); confirmCreateFolder(); }
       });
     }
     if (folderConfirmBtn) folderConfirmBtn.addEventListener('click', confirmCreateFolder);
@@ -1751,7 +1549,7 @@
     // Paginering
     if (nextBtn) {
       nextBtn.addEventListener('click', function() {
-        if (activeCursor) loadList(activeCategory, activeCursor);
+        if (activeCursor) loadList(activeFolder, activeCursor);
       });
     }
 
@@ -1768,13 +1566,13 @@
     });
   }
 
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ══════════════════════════════════════════════════════════════
   // INIT
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ══════════════════════════════════════════════════════════════
 
   function init() {
     // Lucide icons voor statische HTML-elementen renderen
-    if (window.lucide) window.lucide.createIcons();
+    refreshIcons();
 
     bindEvents();
 
@@ -1782,8 +1580,10 @@
     if (sortSelect) sortSelect.value = 'date-desc';
     parseSortSelect();
 
-    // Start met 'Alles' categorie (lege prefix = alle bestanden)
-    switchCategory('');
+    // Start met "Alle bestanden"; de mappenboom laadt parallel.
+    renderFolderUi();
+    loadFolders();
+    loadList('', null);
   }
 
   if (document.readyState === 'loading') {
