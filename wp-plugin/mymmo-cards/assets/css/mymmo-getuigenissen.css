@@ -1,0 +1,148 @@
+/**
+ * De getuigenissen -- geometrie, nooit typografie.
+ *
+ * OP EEN COMPUTER (vanaf 782px) staan de getuigenissen naast elkaar, zo veel
+ * kolommen als de server telde (--mk-kolommen). Elke getuigenis is een vlak met
+ * dezelfde opvulling en afronding als een kaart; de naam zakt naar onderen,
+ * zodat de namen in een rij op dezelfde hoogte staan, ook als het ene citaat
+ * langer is dan het andere.
+ *
+ * SMALLER DAN 782PX staan ze onder elkaar: drie kolommen van een tablet breed
+ * laten elke regel na twee woorden afbreken. Een brede foto wordt daar lager
+ * (16:9), op een telefoon weer wat hoger (4:3), zodat ze nooit meer dan de
+ * helft van het scherm vult. Een rond portret wordt op een telefoon kleiner.
+ *
+ * Geen schaduw: de getuigenissen zweven niet, ze staan op de pagina.
+ */
+
+.mymmo-getuigenissen {
+  /* De opvulling van een getuigenis: een van de drie van de huisstijl. */
+  --mk-pad: var(--mymmo-ruimte-normaal);
+  /* De maat van een rond portret. */
+  --mk-portret: 5rem;
+}
+
+.mymmo-getuigenissen.mymmo-getuigenissen--pad-krap { --mk-pad: var(--mymmo-ruimte-krap); }
+.mymmo-getuigenissen.mymmo-getuigenissen--pad-ruim { --mk-pad: var(--mymmo-ruimte-ruim); }
+
+@media (max-width: 781px) {
+  .mymmo-getuigenissen.mymmo-getuigenissen--pad-krap { --mk-pad: var(--mymmo-ruimte-krap-telefoon); }
+  .mymmo-getuigenissen.mymmo-getuigenissen--pad-normaal { --mk-pad: var(--mymmo-ruimte-normaal-telefoon); }
+  .mymmo-getuigenissen.mymmo-getuigenissen--pad-ruim { --mk-pad: var(--mymmo-ruimte-ruim-telefoon); }
+}
+
+/* ── De rij ───────────────────────────────────────────────────────────────── */
+
+.mymmo-getuigenissen .mymmo-getuigenissen-rij {
+  display: grid;
+  grid-template-columns: repeat(var(--mk-kolommen, 3), minmax(0, 1fr));
+  gap: var(--mymmo-ruimte-krap);
+  align-items: stretch;
+}
+
+@media (max-width: 781px) {
+  .mymmo-getuigenissen .mymmo-getuigenissen-rij {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ── Een getuigenis ───────────────────────────────────────────────────────── */
+
+.mymmo-getuigenissen .mymmo-getuigenis {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: var(--mk-pad);
+  border-radius: var(--mymmo-afronding-l);
+  background-color: var(--mk-getuigenis-bg, var(--mk-getuigenissen-bg, var(--mymmo-kleur-vlak)));
+}
+
+.mymmo-getuigenis .mymmo-getuigenis-inhoud {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: var(--mymmo-ruimte-krap);
+}
+
+/* De ruimte tussen de blokken komt van de gap, niet van de marges van het
+   thema: anders staat de foto bij het ene thema verder van het citaat. */
+.mymmo-getuigenis .mymmo-getuigenis-inhoud > * {
+  margin-block: 0;
+}
+
+/* Een alinea die leeg bleef (geen "wie", bijvoorbeeld), neemt geen plaats in.
+   Niet in de editor: daar is een lege alinea de plek waar je typt. */
+.mymmo-getuigenis .mymmo-getuigenis-inhoud > p:empty:not(.block-editor-block-list__block) {
+  display: none;
+}
+
+/* De naam zakt naar onderen; wie de persoon is, volgt er vlak onder. */
+.mymmo-getuigenis .mymmo-getuigenis-inhoud > .mymmo-getuigenis-naam {
+  margin-top: auto;
+}
+
+.mymmo-getuigenis .mymmo-getuigenis-inhoud > .mymmo-getuigenis-naam + .mymmo-getuigenis-wie {
+  margin-top: calc(var(--mymmo-ruimte-krap) * -1);
+}
+
+/* Wie de persoon is: de tekstkleur, zacht. Zo blijft er een accentkleur over
+   voor wie er een kiest, en haalt de tekst op het vlak nog 4,5:1. */
+.mymmo-getuigenis .mymmo-getuigenis-wie {
+  opacity: 0.75;
+}
+
+/* De aanhalingstekens zet het component, zodat ze op elke kaart gelijk zijn. */
+.mymmo-getuigenis .mymmo-getuigenis-citaat::before { content: "\201C"; }
+.mymmo-getuigenis .mymmo-getuigenis-citaat::after { content: "\201D"; }
+
+/* ── De foto ──────────────────────────────────────────────────────────────── */
+
+.mymmo-getuigenis .mymmo-getuigenis-inhoud > .wp-block-image {
+  margin: 0;
+}
+
+.mymmo-getuigenis .wp-block-image img {
+  display: block;
+  width: 100%;
+  height: auto;
+  object-fit: cover;
+}
+
+/* Rond portret: een vaste maat, wat de redacteur ook als grootte koos. */
+.mymmo-getuigenissen--foto-rond .mymmo-getuigenis .wp-block-image {
+  width: var(--mk-portret);
+  max-width: 100%;
+}
+
+.mymmo-getuigenissen--foto-rond .mymmo-getuigenis .wp-block-image img {
+  aspect-ratio: 1;
+  border-radius: var(--mymmo-afronding-rond);
+}
+
+/* Breed: over de breedte van de kaart, met de afronding van beeld in een vlak. */
+.mymmo-getuigenissen--foto-breed .mymmo-getuigenis .wp-block-image {
+  width: 100%;
+}
+
+.mymmo-getuigenissen--foto-breed .mymmo-getuigenis .wp-block-image img {
+  aspect-ratio: 4 / 3;
+  border-radius: var(--mymmo-afronding-m);
+}
+
+@media (min-width: 640px) and (max-width: 781px) {
+  .mymmo-getuigenissen--foto-breed .mymmo-getuigenis .wp-block-image img {
+    aspect-ratio: 16 / 9;
+  }
+}
+
+/* ── Een telefoon ─────────────────────────────────────────────────────────── */
+
+@media (max-width: 639.98px) {
+  .mymmo-getuigenissen {
+    --mk-portret: 4rem;
+  }
+
+  .mymmo-getuigenissen .mymmo-getuigenissen-rij {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

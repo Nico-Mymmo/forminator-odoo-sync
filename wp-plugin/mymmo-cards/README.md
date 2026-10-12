@@ -7,6 +7,7 @@ regel CSS. Wat erin zit:
 |---|---|
 | **Kaartenstapel** | vier blokken. Kaarten die tijdens het scrollen op elkaar blijven liggen, met een randje van de vorige zichtbaar. |
 | **Markeerstift** | een opmaakknop in de werkbalk van elke kop en alinea: een woord selecteren en er een streep achter zetten, in een kleur van het thema. |
+| **Getuigenissen** | twee blokken. Klanten aan het woord: citaat, naam en foto, naast elkaar op een computer, onder elkaar op een telefoon. |
 | **Knop die een venster opent** | de gewone WordPress-knop, met één keuze erbij: welk tabblad van welke pop-up hij opent. |
 
 Elk component volgt dezelfde regel: **geometrie en gedrag, nooit typografie**. In
@@ -392,6 +393,20 @@ Uitzetten per site: `define('MYMMO_CARDS_GEEN_AUTO_UPDATE', true);` in
 `wp-config.php`. De nieuwe versie staat dan nog wel onder Updates.
 
 ## Versies
+
+**1.11.0** — de getuigenissen. Een nieuw component om klanten aan het woord
+te laten: drie (of twee, of vier) citaten met foto naast elkaar. Tot nu moest
+dat met kolommen en groepen met de hand, met per kaart een eigen opvulling.
+
+- Twee blokken: **Getuigenissen** (`mymmo/getuigenissen`, de rij) en
+  **Getuigenis** (`mymmo/getuigenis`). De inhoud zijn gewone blokken: een
+  afbeelding en drie alinea's (citaat, naam, wie), dus de letter volgt het thema.
+- Het aantal kolommen telt de server: zo veel als er getuigenissen zijn, met
+  een maximum (2, 3 of 4, standaard 3). Smaller dan 782px onder elkaar.
+- Foto **rond** (portret, standaard) of **breed** (over de kaart, 4:3; op een
+  tablet 16:9 zodat ze het scherm niet vult).
+- De aanhalingstekens rond het citaat zet het blok; de namen staan in een rij
+  op dezelfde hoogte, ook als het ene citaat langer is. Geen schaduw.
 
 **1.10.2** — zien wanneer iets op de site staat. Tot nu werkte de plugin zich
 in de achtergrond bij, en wist niemand wanneer: niet wie op de site werkt, en
