@@ -223,6 +223,28 @@ function antwoordA(item, optie, ctx, stijl, inhoud) {
 
 // ─── De blokken ─────────────────────────────────────────────────────────────
 
+/**
+ * De ondertekening onder het woordje vooraf: een groet, en dan foto, naam en
+ * functie. Standaard die van de schrijver (foto en functie uit Odoo), maar
+ * wie het namens iemand anders schrijft, kan naam, functie en foto invullen.
+ */
+function ondertekening(item, c) {
+  const a = item.author || {};
+  const naam = String(c.sign_name || a.name || '').trim();
+  if (!naam) return '';
+  const functie = String(c.sign_role || a.job_title || '').trim();
+  const foto = safeUrl(c.sign_photo_url) || safeUrl(a.avatar_url) || '';
+  const groet = String(c.signoff || '').trim() || 'Veel leesplezier,';
+  const beeld = foto
+    ? `<img src="${foto}" width="64" height="64" alt="${esc(naam)}" style="display:block;width:64px;height:64px;border-radius:50%;object-fit:cover;border:3px solid #ffffff">`
+    : avatar({ name: naam }, 64);
+  return `<div style="margin-top:28px;font-family:${S.fontHead};font-size:21px;line-height:1.3;color:${S.heading}">${esc(groet)}</div>
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin-top:14px"><tr>
+<td valign="middle" style="padding-right:14px">${beeld}</td>
+<td valign="middle" style="font-family:${S.fontBody}"><div style="font-size:16px;font-weight:700;line-height:1.3;color:${S.headingSoft}">${esc(naam)}</div>${functie ? `<div style="font-size:13px;line-height:1.4;color:${S.muted};margin-top:2px">${esc(functie)}</div>` : ''}</td>
+</tr></table>`;
+}
+
 function blokIntro(item, ctx, id) {
   const c = item.content || {};
   const tekening = c.thingie && ctx.thingieUrl ? ctx.thingieUrl(c.thingie) : null;
@@ -233,7 +255,7 @@ function blokIntro(item, ctx, id) {
 <td valign="top">${pil(item.title, '#ffffff', S.primary)}
 ${kop(c.title, { size: 38, tag: 'h1', margin: '18px 0 16px' })}
 ${tekstNaarHtml(c.text, { size: 17 })}
-${byline(item.author)}</td>${rechts}</tr></table>`;
+${ondertekening(item, c)}</td>${rechts}</tr></table>`;
   return `<tr${id ? ` data-nb-id="${esc(id)}"` : ''}><td style="padding:44px 40px 40px;background-color:${S.teal50}">${inhoud}</td></tr>`;
 }
 

@@ -85,7 +85,7 @@ function hintVan(series, item) {
   return String((series.sections || []).find((s) => s.key === item.section_key)?.hint || '').trim();
 }
 
-function bouwPrompt({ series, item, action, notes }) {
+function bouwPrompt({ series, item, action, notes, inhoud = [] }) {
   const c = item.content || {};
   const huidig = KINDS[item.kind]?.interactive
     ? `Vraag: ${c.question || '(leeg)'}\nUitleg: ${c.intro || '(leeg)'}\nOpties: ${(c.options || []).map((o) => o.label).join(' / ') || '(leeg)'}`
@@ -99,6 +99,10 @@ function bouwPrompt({ series, item, action, notes }) {
     '',
     `RUBRIEK: ${item.title || ''} (${KINDS[item.kind]?.label || item.kind})`,
     hintVan(series, item) ? `BEDOELING VAN DE RUBRIEK: ${hintVan(series, item)}` : null,
+    item.kind === 'intro'
+      ? 'DIT IS HET WOORDJE VOORAF: een korte, persoonlijke inleiding van hoogstens 600 tekens die de lezer zin geeft om verder te lezen. Sluit NIET af met een groet of een naam: de groet en de ondertekening met foto komen er vanzelf onder.'
+      : null,
+    item.kind === 'intro' && inhoud.length ? `IN DEZE EDITIE STAAT (mag je kort noemen, verzin niets bij):\n- ${inhoud.slice(0, 10).join('\n- ')}` : null,
     '',
     'NOTITIES VAN DE SCHRIJVER (de enige bron):',
     String(notes || item.raw_notes || '(geen notities)').slice(0, 6000),
@@ -126,8 +130,8 @@ async function vraag(env, user, { prompt, schema }) {
 }
 
 /** Een voorstel voor een stukje. Wordt NIET bewaard. */
-export async function stelStukjeVoor(env, user, { series, item, action = 'write', notes = '' }) {
-  const json = await vraag(env, user, { prompt: bouwPrompt({ series, item, action, notes }), schema: schemaVoor(item.kind) });
+export async function stelStukjeVoor(env, user, { series, item, action = 'write', notes = '', inhoud = [] }) {
+  const json = await vraag(env, user, { prompt: bouwPrompt({ series, item, action, notes, inhoud }), schema: schemaVoor(item.kind) });
   if (KINDS[item.kind]?.interactive) {
     const opties = (Array.isArray(json.options) ? json.options : []).map((o) => knip(o, 40)).filter(Boolean).slice(0, 5);
     return { question: knip(json.question, 120), intro: knip(json.intro, 300), options: opties };

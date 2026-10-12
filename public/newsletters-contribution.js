@@ -168,6 +168,15 @@
   function velden(kind) {
     switch (kind) {
       case 'intro':
+        return veld('Titel', 'content.title', { hint: 'Bv. Een nieuw jasje voor je vertrouwde info' })
+          + veld('Tekst', 'content.text', { rijen: 7, uitleg: 'Een paar zinnen: wat staat er deze keer in, waarom is het de moeite. Geen groet of naam: die komen er hieronder vanzelf bij.' })
+          + '<div class="border border-base-content/10 rounded-xl p-3 flex flex-col gap-3"><span class="font-semibold text-sm">Ondertekening</span>'
+          + veld('Groet', 'content.signoff', { hint: 'Veel leesplezier,', klein: true })
+          + '<div class="grid sm:grid-cols-2 gap-3">' + veld('Naam', 'content.sign_name', { hint: (NB.state.stukje.item.owner_name || 'Wie schrijft'), klein: true })
+          + veld('Functie', 'content.sign_role', { hint: 'Bv. zaakvoerder', klein: true }) + '</div>'
+          + beeldKeuze('content.sign_photo_url', 'Foto (leeg = de foto uit Odoo)')
+          + '<p class="text-xs opacity-60">Leeg laten = de naam, functie en foto van wie het schrijft. Vul ze in als je het namens iemand anders schrijft.</p></div>'
+          + tekeningKeuze();
       case 'article':
         return veld('Titel', 'content.title')
           + veld('Tekst', 'content.text', { rijen: 8, uitleg: 'Lege regel = nieuwe alinea. **vet** en [tekst](https://link) mogen.' })
