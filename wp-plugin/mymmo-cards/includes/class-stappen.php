@@ -178,6 +178,25 @@ final class Mymmo_Cards_Stappen {
         return [
             // Leeg = de achtergrond van de reeks.
             'achtergrond' => ['type' => 'string', 'default' => ''],
+            /*
+             * DE ILLUSTRATIE: een vorm achter de inhoud, zoals op een kaart van
+             * de stapel (zelfde namen, zelfde betekenis). Breedte en
+             * horizontale plaats in % van de breedte van de stap, verticale
+             * plaats in % van de hoogte; 50/50 = gecentreerd. Wat buiten de
+             * stap valt, wordt afgesneden.
+             */
+            'sier'              => ['type' => 'string', 'default' => ''],
+            'sierBreedte'       => ['type' => 'number', 'default' => 70],
+            'sierX'             => ['type' => 'number', 'default' => 50],
+            'sierY'             => ['type' => 'number', 'default' => 50],
+            'sierDraai'         => ['type' => 'number', 'default' => 0],
+            'sierDekking'       => ['type' => 'number', 'default' => 100],
+            'sierMobiel'        => ['type' => 'boolean', 'default' => false],
+            'sierBreedteMobiel' => ['type' => 'number', 'default' => 70],
+            'sierXMobiel'       => ['type' => 'number', 'default' => 50],
+            'sierYMobiel'       => ['type' => 'number', 'default' => 50],
+            'sierDraaiMobiel'   => ['type' => 'number', 'default' => 0],
+            'sierDekkingMobiel' => ['type' => 'number', 'default' => 100],
         ];
     }
 
@@ -270,12 +289,50 @@ final class Mymmo_Cards_Stappen {
             $stijl[] = '--mk-stap-bg:' . $bg;
         }
 
+        $klassen  = ['mymmo-werkstap'];
+        $sier_html = '';
+        $sier = mymmo_cards_afbeelding((string) ($attrs['sier'] ?? ''));
+        if ($sier !== '') {
+            $klassen[] = 'mymmo-werkstap--sier';
+            $stijl = array_merge($stijl, self::sier_stijl($attrs, ''));
+            if (self::vlag($attrs, 'sierMobiel', false)) {
+                $klassen[] = 'mymmo-werkstap--sier-m';
+                $stijl = array_merge($stijl, self::sier_stijl($attrs, 'Mobiel'));
+            }
+            // Een vlak met de afbeelding als achtergrond, geen <img>: zie de
+            // uitleg bij .mymmo-kaart-sier in mymmo-cards.css. Versiering, dus
+            // aria-hidden.
+            $sier_html = '<span class="mymmo-werkstap-sier" aria-hidden="true"'
+                . ' style="background-image:url(' . esc_url($sier) . ')"></span>';
+        }
+
         $nummer_klassen = trim('mymmo-werkstap-nummer ' . self::$nummer_klassen);
 
-        return '<div ' . self::wikkel(['class' => 'mymmo-werkstap', 'style' => implode(';', $stijl)]) . ' data-mymmo-werkstap="' . ($index + 1) . '">'
+        return '<div ' . self::wikkel(['class' => implode(' ', $klassen), 'style' => implode(';', $stijl)]) . ' data-mymmo-werkstap="' . ($index + 1) . '">'
+            . $sier_html
             . '<span class="' . esc_attr($nummer_klassen) . '" aria-hidden="true">' . ($index + 1) . '</span>'
             . '<div class="mymmo-werkstap-inhoud">' . $content . '</div>'
             . '</div>';
+    }
+
+    /**
+     * De maat en plaats van de illustratie als variabelen. Breedte en
+     * horizontale plaats gaan als FACTOR mee (0.7, niet 70%): in de stand
+     * naast elkaar rekent de CSS ze tegen de breedte van een OPEN paneel, zodat
+     * de vorm niet meegroeit terwijl het paneel openschuift.
+     *
+     * @param array<string,mixed> $attrs
+     * @return array<int,string>
+     */
+    private static function sier_stijl(array $attrs, string $stand): array {
+        $m = $stand === '' ? '' : '-m';
+        return [
+            '--mk-sier-b' . $m . ':' . (mymmo_cards_px($attrs['sierBreedte' . $stand] ?? null, 70, 5, 1000) / 100),
+            '--mk-sier-x' . $m . ':' . (mymmo_cards_px($attrs['sierX' . $stand] ?? null, 50, -300, 400) / 100),
+            '--mk-sier-y' . $m . ':' . mymmo_cards_px($attrs['sierY' . $stand] ?? null, 50, -300, 400) . '%',
+            '--mk-sier-draai' . $m . ':' . mymmo_cards_px($attrs['sierDraai' . $stand] ?? null, 0, -180, 180) . 'deg',
+            '--mk-sier-dekking' . $m . ':' . (mymmo_cards_px($attrs['sierDekking' . $stand] ?? null, 100, 0, 100) / 100),
+        ];
     }
 
     // ─────────────────────────────────────────────────────────────────────────

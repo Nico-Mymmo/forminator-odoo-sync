@@ -1,8 +1,8 @@
 {
   "plugin": "mymmo-cards",
-  "versie": "1.11.3",
-  "hash": "20805262d2081916",
-  "datum": "2026-10-12T13:18:01.000Z",
+  "versie": "1.12.0",
+  "hash": "634c6c32da361039",
+  "datum": "2026-10-12T14:04:43.000Z",
   "door": "Claude",
-  "samenvatting": "Stappen 1.11.3: panelen naast elkaar krijgen een vaste hoogte (nieuwe schuifbalk 'Hoogte van de panelen', geometrie, standaard 640px voor een 15-inch laptop) in plaats van schermhoog; groeien mee met de hoogste stap tot het scherm vol is, daarna krimpt de inhoud. Telefoon, editor en huisstijlwaarden ongewijzigd; getest op 2560x1300, 1920x1080, 1536x740 en 1366x650."
+  "samenvatting": "Stappen 1.12.0: illustratie op de achtergrond per stap, zelfde instellingen en opzet als de vorm op een kaart (vlak met achtergrond, aria-hidden, transform enkel op de vorm). Naast elkaar gerekend tegen de breedte van een open paneel en zichtbaar met de inhoud; eigen telefoonwaarden via schakelaar zonder standaard; reduced-motion zonder overgang. Getest op 1536x740 en 375 breed, geen horizontale overloop."
 }
