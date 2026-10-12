@@ -82,6 +82,61 @@
   }
 }
 
+/* ── De illustratie: een vorm achter de inhoud ───────────────────────────────
+
+   Zelfde opzet als .mymmo-kaart-sier in mymmo-cards.css (lees daar waarom het
+   een vlak met een achtergrond is en geen <img>): een vierkant vlak via een
+   procentuele opvulling, de tekening erin met `contain`. Breedte en
+   horizontale plaats komen als factor binnen (--mk-sier-b, --mk-sier-x), zodat
+   de stand naast elkaar ze tegen de breedte van een OPEN paneel kan rekenen.
+   De transform staat op de vorm zelf, die geen inhoud bevat: een venster van
+   Mymmo Forms in de stap zit er dus niet in gevangen. */
+
+.mymmo-werkstappen .mymmo-werkstap--sier {
+  position: relative;
+  overflow: hidden;
+}
+
+.mymmo-werkstap--sier .mymmo-werkstap-sier {
+  display: block;
+  box-sizing: content-box;
+  position: absolute;
+  z-index: 0;
+  left: calc(100% * var(--mk-sier-x, 0.5));
+  top: var(--mk-sier-y, 50%);
+  width: calc(100% * var(--mk-sier-b, 0.7));
+  height: 0;
+  padding-top: calc(100% * var(--mk-sier-b, 0.7));
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: contain;
+  transform: translate(-50%, -50%) rotate(var(--mk-sier-draai, 0deg));
+  opacity: var(--mk-sier-dekking, 1);
+  pointer-events: none;
+  user-select: none;
+}
+
+/* Nummer en inhoud liggen erboven. */
+.mymmo-werkstap--sier .mymmo-werkstap-nummer,
+.mymmo-werkstap--sier .mymmo-werkstap-inhoud {
+  position: relative;
+  z-index: 1;
+}
+
+/* Een telefoon: eigen maat en plaats, als de redacteur ze instelde. De stap
+   heeft daar een heel andere vorm: wat op een computer een hoek vult, ligt op
+   375px over de halve tekst. */
+@media (max-width: 639.98px) {
+  .mymmo-werkstap--sier-m .mymmo-werkstap-sier {
+    left: calc(100% * var(--mk-sier-x-m, var(--mk-sier-x, 0.5)));
+    top: var(--mk-sier-y-m, var(--mk-sier-y, 50%));
+    width: calc(100% * var(--mk-sier-b-m, var(--mk-sier-b, 0.7)));
+    padding-top: calc(100% * var(--mk-sier-b-m, var(--mk-sier-b, 0.7)));
+    transform: translate(-50%, -50%) rotate(var(--mk-sier-draai-m, var(--mk-sier-draai, 0deg)));
+    opacity: var(--mk-sier-dekking-m, var(--mk-sier-dekking, 1));
+  }
+}
+
 /* ── Vinkjes: een kern-lijst met de stijl "Vinkjes (in een stap)" ──────────── */
 
 .mymmo-werkstap .is-style-mymmo-vinkjes {
@@ -174,6 +229,22 @@
     transition: opacity 0.2s ease, visibility 0s linear 0.2s;
   }
 
+  /* De illustratie: gerekend tegen de breedte van een OPEN paneel, zodat ze
+     niet meegroeit terwijl het paneel openschuift. In een dicht paneel is ze
+     weg, net als de inhoud: in een strook van 80px is ze enkel een vlek. */
+  .mymmo-werkstappen.mymmo-werkstappen--naast .mymmo-werkstap-sier {
+    left: calc(var(--mk-open) * var(--mk-sier-x, 0.5));
+    width: calc(var(--mk-open) * var(--mk-sier-b, 0.7));
+    padding-top: calc(var(--mk-open) * var(--mk-sier-b, 0.7));
+    opacity: 0;
+    transition: opacity 0.2s ease;
+  }
+
+  .mymmo-werkstappen.mymmo-werkstappen--naast .mymmo-werkstap.is-open .mymmo-werkstap-sier {
+    opacity: var(--mk-sier-dekking, 1);
+    transition: opacity 0.35s ease 0.3s;
+  }
+
   .mymmo-werkstappen.mymmo-werkstappen--naast .mymmo-werkstap.is-open .mymmo-werkstap-inhoud {
     opacity: 1;
     visibility: visible;
@@ -184,7 +255,9 @@
 @media (prefers-reduced-motion: reduce) {
   .mymmo-werkstappen.mymmo-werkstappen--naast .mymmo-werkstap,
   .mymmo-werkstappen.mymmo-werkstappen--naast .mymmo-werkstap-inhoud,
-  .mymmo-werkstappen.mymmo-werkstappen--naast .mymmo-werkstap.is-open .mymmo-werkstap-inhoud {
+  .mymmo-werkstappen.mymmo-werkstappen--naast .mymmo-werkstap.is-open .mymmo-werkstap-inhoud,
+  .mymmo-werkstappen.mymmo-werkstappen--naast .mymmo-werkstap-sier,
+  .mymmo-werkstappen.mymmo-werkstappen--naast .mymmo-werkstap.is-open .mymmo-werkstap-sier {
     transition: none;
   }
 }

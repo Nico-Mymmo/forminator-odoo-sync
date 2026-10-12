@@ -33,6 +33,7 @@ final class Mymmo_Cards_Nieuw {
      * Gewone taal: wat het is en waar je het vindt, geen techniek.
      */
     private const NIEUWS = [
+        '1.12.0' => 'Stappen: elke stap kan nu een illustratie op de achtergrond krijgen, zoals een kaart van de kaartenstapel. Klik een stap aan en open rechts Illustratie op de achtergrond.',
         '1.11.0' => 'Nieuw blok: Getuigenissen. Klanten aan het woord, met foto, naast elkaar. Blok toevoegen, categorie Mymmo, Getuigenissen.',
         '1.10.2' => 'Hier zie je voortaan wat er nieuw is in de Mymmo-blokken. Staat er een nieuwe versie klaar, dan haal je die hier meteen binnen met één klik.',
         '1.10.1' => 'Afgeronde hoeken: klik een blok met een achtergrond aan (een groep of kolommen) en kies rechts, onder Rand, de afronding Klein of Groot.',

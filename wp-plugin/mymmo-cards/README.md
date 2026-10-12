@@ -394,6 +394,18 @@ Uitzetten per site: `define('MYMMO_CARDS_GEEN_AUTO_UPDATE', true);` in
 
 ## Versies
 
+**1.12.0** — een illustratie achter een stap. Elke **Stap** kan een vorm op
+de achtergrond krijgen (een swirl, een blob), met dezelfde instellingen als de
+vorm op een kaart van de stapel: grootte, plaats, draaiing, dekking, en eigen
+waarden op een telefoon. Wat buiten de stap valt, wordt afgesneden.
+
+- In de stand naast elkaar rekent de vorm tegen de breedte van een OPEN
+  paneel, zodat ze niet meegroeit terwijl het paneel openschuift. In een dicht
+  paneel is ze weg; ze verschijnt samen met de inhoud.
+- Een vlak met een achtergrond en geen `<img>`, zoals op de kaart. De
+  draaiing staat op de vorm zelf, niet op iets rond de inhoud: een venster van
+  Mymmo Forms in de stap blijft over de pagina liggen.
+
 **1.11.3** — de stappen worden niet meer schermhoog. Op een groot scherm
 stonden de panelen even hoog als het scherm, met een groot leeg vlak onder de
 tekst. Nu is er een vaste hoogte: **Hoogte van de panelen** in de zijbalk,
