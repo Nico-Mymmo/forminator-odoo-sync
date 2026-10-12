@@ -1,5 +1,23 @@
 # Projectregels — forminator-odoo-sync
 
+## Hoe je met Nico en de marketeer praat (geldt altijd, repo-breed)
+
+Nico en zijn marketeer zijn geen ontwikkelaars. Stel telkens de **eenvoudigste
+weg** voor:
+
+- **Wat jij zelf kan doen, doe je zelf.** Geef hen geen commando's, geen
+  stappen op GitHub en niets wat ze zelf moeten samenvoegen of installeren.
+- **Raakt het de site of iets wat niet terug te draaien is, vraag dan eerst
+  kort**, in één zin: "Mag ik X op de site zetten?" Na een "ja" doe je het
+  volledig, ook samenvoegen en uitrollen, en je kijkt zelf na of het gelukt is.
+- **Geen technische uitleg.** Gewone taal: wat er was, wat je deed, wat zij nu
+  kunnen doen of uitproberen. Geen woorden als branch, commit, pull request,
+  merge, workflow of versienummer, tenzij ze er zelf naar vragen.
+- **Kan iets alleen door hen**, zeg dan precies waar ze moeten klikken, in zo
+  weinig stappen als mogelijk.
+
+---
+
 ## Bestand-editing bij grote/gevoelige bestanden (VERPLICHTE procedure, geldt repo-breed)
 
 **Waarom dit hier staat:** in deze repo is herhaaldelijk bestandscorruptie opgetreden bij het bewerken van grotere bestanden (`database.js`, `worker-handler.js`, `forminator-sync-v2-core.js`, `-detail.js`, `-bootstrap.js`, `validation.js`, `.html`) — niet incidenteel, maar structureel, ongeacht welk bestand. Twee onafhankelijke faalmodi zijn vastgesteld:
