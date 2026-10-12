@@ -1,8 +1,8 @@
 {
   "plugin": "mymmo-cards",
-  "versie": "1.10.2",
-  "hash": "5988aca49a05959c",
-  "datum": "2026-10-12T11:53:27.000Z",
+  "versie": "1.11.0",
+  "hash": "0a8f1121a0447f23",
+  "datum": "2026-10-12T12:05:59.000Z",
   "door": "Claude",
-  "samenvatting": "Melding in de editor bij een nieuwe versie + knop Nu binnenhalen; release wacht tot de sites mee zijn (1.10.2)"
+  "samenvatting": "Nieuw component Getuigenissen (1.11.0) nagekeken naast de stappen en de kaartenstapel: zelfde opvullingen, afronding-l per vlak, afronding-m/rond voor de foto, geen schaduw of rand, een accentkleur via het palet. Grid met door de server getelde kolommen, onder 782px onder elkaar, eigen fotoverhouding op tablet en telefoon; proef op 375/768/1280 zonder horizontale schuifbalk. Geen koppen of typografie in het component; aanhalingstekens en zachte 'wie'-regel met CSS."
 }
