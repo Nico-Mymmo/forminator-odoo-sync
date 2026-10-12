@@ -393,6 +393,18 @@ Uitzetten per site: `define('MYMMO_CARDS_GEEN_AUTO_UPDATE', true);` in
 
 ## Versies
 
+**1.10.2** — zien wanneer iets op de site staat. Tot nu werkte de plugin zich
+in de achtergrond bij, en wist niemand wanneer: niet wie op de site werkt, en
+niet Claude (die de site vanuit de cloud niet altijd kan bereiken).
+
+- In de editor staat een melding zodra er een nieuwe versie klaarstaat, met de
+  knop **Nu binnenhalen**: die werkt de plugin meteen bij, zonder op de site
+  of op WP-cron te wachten (`Mymmo_Cards_Updates::nu_bijwerken()`).
+- Na een update staat er een keer in gewone taal wat er nieuw is en waar je het
+  vindt (`Mymmo_Cards_Nieuw::NIEUWS`). Weggeklikt = gezien, per gebruiker.
+- De release wacht tot elke site het nieuwe nummer noemt, en zegt dat op
+  GitHub: "Op de site" (blauw) of "Niet op de site" (rood) na tien minuten.
+
 **1.10.1** — afgeronde hoeken op een gewoon blok, met de maten van de
 huisstijl. Sinds 1.9.1 stond afronding in de editor volledig uit, dus kon
 niemand nog een kader (een groep met een achtergrond) met ronde hoeken maken.

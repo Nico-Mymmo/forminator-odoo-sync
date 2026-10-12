@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Mymmo Componenten
  * Description:       Bouwstenen voor de blok-editor: de kaartenstapel en de markeerstift. Elk component bezit geometrie en gedrag, nooit typografie -- de letter komt altijd uit het thema.
- * Version:           1.10.1
+ * Version:           1.10.2
  * Requires at least: 6.2
  * Requires PHP:      8.0
  * Author:            Mymmo
@@ -94,7 +94,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('MYMMO_CARDS_VERSION', '1.10.1');
+define('MYMMO_CARDS_VERSION', '1.10.2');
 define('MYMMO_CARDS_FILE', __FILE__);
 define('MYMMO_CARDS_DIR', plugin_dir_path(__FILE__));
 define('MYMMO_CARDS_URL', plugin_dir_url(__FILE__));
@@ -103,6 +103,7 @@ require_once MYMMO_CARDS_DIR . 'includes/helpers.php';
 require_once MYMMO_CARDS_DIR . 'includes/class-huisstijl.php';
 require_once MYMMO_CARDS_DIR . 'includes/class-bewaking.php';
 require_once MYMMO_CARDS_DIR . 'includes/class-updates.php';
+require_once MYMMO_CARDS_DIR . 'includes/class-nieuw.php';
 require_once MYMMO_CARDS_DIR . 'includes/class-blocks.php';
 require_once MYMMO_CARDS_DIR . 'includes/class-markering.php';
 require_once MYMMO_CARDS_DIR . 'includes/class-knop.php';
@@ -113,6 +114,7 @@ function mymmo_cards_bootstrap(): void {
     Mymmo_Cards_Huisstijl::init();
     Mymmo_Cards_Bewaking::init();
     Mymmo_Cards_Updates::init();
+    Mymmo_Cards_Nieuw::init();
     Mymmo_Cards_Blocks::init();
     Mymmo_Cards_Markering::init();
     Mymmo_Cards_Knop::init();
