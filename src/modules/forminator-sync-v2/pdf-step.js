@@ -28,6 +28,7 @@
  */
 
 import { searchRead, create } from '../../lib/odoo.js';
+import { medewerkerVoorGebruiker, medewerkerVoorOdooGebruiker, fotoAlsDataUri, HOOFDDOMEIN } from '../../lib/medewerkers.js';
 import { resolveEmployeeRef } from './employee-reference.js';
 import { postChatterMessage } from './odoo-client.js';
 import { getSupabaseClient } from '../../lib/database.js';
@@ -451,16 +452,11 @@ export async function buildPdfGegevens(env, { target, template, mappings, form, 
         // De pasfoto staat op hr.employee, niet op res.users -- een gemiste
         // koppeling (geen hr.employee-record voor deze gebruiker) is geen
         // fout, dan blijft de sjabloonfoto gewoon staan.
-        const medewerkers = await searchRead(env, {
-          model: 'hr.employee',
-          domain: [['user_id', '=', contactRef.id]],
-          fields: ['image_512'],
-          limit: 1
-        });
+        const medewerker = await medewerkerVoorOdooGebruiker(env, contactRef.id);
         rec = {
           name: gebruiker.name,
           work_email: gebruiker.email,
-          image_512: (Array.isArray(medewerkers) && medewerkers.length) ? medewerkers[0].image_512 : null
+          foto: medewerker ? await fotoAlsDataUri(env, medewerker.employee_id, 512) : null
         };
       }
     } else {
@@ -471,7 +467,9 @@ export async function buildPdfGegevens(env, { target, template, mappings, form, 
 
     gegevens.contact.naam = String(rec.name || '').trim();
     gegevens.contact.email = emailOpBedrijfsdomein(String(rec.work_email || '').trim(), gegevens.bedrijf);
-    if (rec.image_512) {
+    if (rec.foto) {
+      gegevens.contact.foto = rec.foto;
+    } else if (rec.image_512) {
       gegevens.contact.foto = `data:${gokAfbeeldingMime(rec.image_512)};base64,${rec.image_512}`;
     }
   }
@@ -830,23 +828,8 @@ export async function getOfferContact(env, id) {
  * Niet gevonden is GEEN fout: dan geeft dit null en kiest de gebruiker zelf.
  */
 export async function getOfferContactVoorGebruiker(env, user) {
-  const email = String((user && user.email) || '').trim().toLowerCase();
-  if (!/^[^@\s]+@[^@\s]+$/.test(email)) return null;
-  const opHoofddomein = `${email.split('@')[0]}@${HOOFDDOMEIN}`;
-  const rijen = await searchRead(env, {
-    model: 'hr.employee',
-    domain: [
-      ['active', '=', true],
-      '|', '|',
-      ['work_email', '=ilike', email],
-      ['user_id.login', '=ilike', email],
-      ['work_email', '=ilike', opHoofddomein]
-    ],
-    fields: ['id'],
-    limit: 1
-  });
-  const rec = Array.isArray(rijen) && rijen.length ? rijen[0] : null;
-  return rec ? getOfferContact(env, rec.id) : null;
+  const p = await medewerkerVoorGebruiker(env, user);
+  return p ? getOfferContact(env, p.employee_id) : null;
 }
 
 export async function createPdfTemplate(env, { name, data }) {
@@ -1009,8 +992,8 @@ async function nextSequenceNumber(env, templateId) {
 
 // ─── E-mailadres van de contactpersoon op het domein van het bedrijf ────────
 
-/** Ons hoofddomein: daar staan de medewerkers mee in Odoo (work_email). */
-const HOOFDDOMEIN = 'mymmo.com';
+// HOOFDDOMEIN (mymmo.com, waar de medewerkers in Odoo mee staan) komt uit
+// src/lib/medewerkers.js.
 
 /**
  * Het domein van het bedrijf op de offerte: uit `bedrijf.email`
