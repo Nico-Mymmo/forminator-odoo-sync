@@ -1,7 +1,6 @@
 /**
  * Public routes — geen sessie vereist.
  *
- * - /favicon.ico
  * - /webgedrag -> /dashboards?tab=marketing (enkel doorsturen; de module Webgedrag
  *   is sinds 2026-10-09 het tabblad Marketing in Dashboards)
  * - /assets/* (R2 publieke bestanden)
@@ -242,11 +241,6 @@ async function dispatchMiniAppDiscovery(request, env, ctx, pathname) {
 export async function handlePublicRoutes(request, env, ctx) {
   const url = new URL(request.url);
   const pathname = url.pathname;
-
-  // Favicon
-  if (pathname === '/favicon.ico') {
-    return new Response(null, { status: 204 });
-  }
 
   // Webgedrag is sinds 2026-10-09 het tabblad Marketing in Dashboards. In Odoo
   // staan nog links naar /webgedrag?lead=<id> (de notitie in de chatter en het
