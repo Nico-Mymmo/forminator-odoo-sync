@@ -11,9 +11,11 @@
  *
  *   1. DE EDITOR BIEDT ALLEEN HET THEMA AAN. Geen eigen kleur, verloop of
  *      lettergrootte, geen regelhoogte, letterafstand of dikte, geen eigen
- *      rand of afronding, geen eigen opvullingsmaat -- alleen de presets van
- *      het thema. De standaardkleuren en -schaduwen van WordPress zelf vallen
- *      weg: die horen niet bij het merk. (`wp_theme_json_data_theme`)
+ *      rand, geen eigen opvullingsmaat -- alleen de presets van het thema.
+ *      Afronding kan wel, maar enkel met de maten van de huisstijl (Klein en
+ *      Groot, zie `afrondingen()`). De standaardkleuren en -schaduwen van
+ *      WordPress zelf vallen weg: die horen niet bij het merk.
+ *      (`wp_theme_json_data_theme`)
  *   2. GEEN NIEUWE LETTERTYPES. De Font Library staat uit, en het installeren
  *      van een lettertype via de REST-API wordt geweigerd.
  *   3. GEEN EXTRA CSS. Niemand krijgt nog `edit_css`. Wat er al in "Extra CSS"
@@ -178,6 +180,19 @@ final class Mymmo_Cards_Bewaking {
         }
 
         $slot = self::vergrendeling();
+
+        // Een vlak met afgeronde hoeken (een groep met een achtergrond) moet
+        // kunnen, anders zet niemand nog een kader op een pagina. Dus de
+        // afronding staat aan, met als keuzes enkel de maten van de huisstijl.
+        // Een eigen waarde typen kan de editor nog aanbieden; bewaren weigert
+        // die (zie 5). Zonder presets voor afronding (WordPress < 6.9) zou dat
+        // enkel een vrij veld zijn: dan blijft ze uit.
+        $afrondingen = self::afrondingen();
+        if ($afrondingen !== []) {
+            $slot['border']['radius'] = true;
+            $slot['border']['radiusSizes'] = $afrondingen;
+        }
+
         $settings = $slot;
 
         $huidig = $data->get_data();
@@ -193,6 +208,38 @@ final class Mymmo_Cards_Bewaking {
             'version'  => 2,
             'settings' => $settings,
         ]);
+    }
+
+    /**
+     * De afrondingen die een redacteur in de editor kiest: de maten van de
+     * huisstijl (`mymmo_cards_afrondingen()`), zonder "Recht" -- geen
+     * afronding is gewoon niets kiezen. Leeg als deze WordPress geen presets
+     * voor afronding kent.
+     *
+     * De waarden zijn de variabelen van de huisstijl; daarom laadt
+     * `Mymmo_Cards_Huisstijl` die stylesheet op elke pagina.
+     *
+     * @return array<int, array{name: string, slug: string, size: string}>
+     */
+    public static function afrondingen(): array {
+        if (!function_exists('mymmo_cards_afrondingen')
+            || version_compare((string) get_bloginfo('version'), '6.9-alpha', '<')) {
+            return [];
+        }
+
+        $uit = [];
+        foreach (mymmo_cards_afrondingen() as [$naam, $waarde]) {
+            if ($waarde === '0') {
+                continue;
+            }
+            $uit[] = [
+                'name' => $naam,
+                'slug' => sanitize_title($naam),
+                'size' => $waarde,
+            ];
+        }
+
+        return $uit;
     }
 
     /**
