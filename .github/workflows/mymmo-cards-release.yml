@@ -108,3 +108,39 @@ jobs:
             CODE=$(curl -s -o antwoord.txt -w '%{http_code}' -X POST --max-time 20 "$SITE/wp-json/mymmo-cards/v1/kijk" || echo 000)
             echo "$SITE: HTTP $CODE $(head -c 300 antwoord.txt 2>/dev/null || true)"
           done
+
+      # Pas als de site het nieuwe nummer ZEGT, staat het erop. Zichtbaar als
+      # annotatie (zonder aanmelding te lezen, ook voor Claude), en rood als
+      # een site na tien minuten nog niet mee is.
+      - name: Staat het op de sites?
+        run: |
+          V="${{ steps.versie.outputs.versie }}"
+          TE_DOEN="$SITES"
+          for poging in $(seq 1 40); do
+            NOG=""
+            for SITE in $TE_DOEN; do
+              HIER=$(curl -s --max-time 10 "$SITE/wp-json/mymmo-cards/v1/versie" | sed -n 's/.*"versie":"\([^"]*\)".*/\1/p')
+              if [ "$HIER" = "$V" ]; then
+                echo "::notice title=Op de site::$SITE draait $V."
+              else
+                NOG="$NOG $SITE"
+              fi
+            done
+            TE_DOEN="$NOG"
+            [ -z "$TE_DOEN" ] && exit 0
+            sleep 15
+          done
+          # Een site die geen versie noemt (de plugin staat er niet op, of de
+          # site is onbereikbaar), is een waarschuwing; een site met een
+          # OUDERE versie is rood.
+          FOUT=0
+          for SITE in $TE_DOEN; do
+            HIER=$(curl -s --max-time 10 "$SITE/wp-json/mymmo-cards/v1/versie" | sed -n 's/.*"versie":"\([^"]*\)".*/\1/p')
+            if [ -z "$HIER" ]; then
+              echo "::warning title=Geen antwoord::$SITE noemt geen versie van Mymmo Componenten (niet geinstalleerd, of niet bereikbaar)."
+            else
+              echo "::error title=Niet op de site::$SITE draait na 10 minuten nog $HIER in plaats van $V. In de editor staat een melding met de knop 'Nu binnenhalen'; anders werkt de site zich binnen het uur zelf bij."
+              FOUT=1
+            fi
+          done
+          exit $FOUT

@@ -1,8 +1,8 @@
 {
   "plugin": "mymmo-cards",
-  "versie": "1.10.1",
-  "hash": "8f69902305231309",
-  "datum": "2026-10-12T11:39:38.000Z",
+  "versie": "1.10.2",
+  "hash": "5988aca49a05959c",
+  "datum": "2026-10-12T11:53:27.000Z",
   "door": "Claude",
-  "samenvatting": "Bewaking: afronding terug in de editor, enkel Klein/Groot uit de huisstijl (1.10.1)"
+  "samenvatting": "Melding in de editor bij een nieuwe versie + knop Nu binnenhalen; release wacht tot de sites mee zijn (1.10.2)"
 }

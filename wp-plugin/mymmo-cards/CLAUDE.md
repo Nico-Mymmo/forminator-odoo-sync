@@ -105,6 +105,9 @@ toch Node, draai dan ook de controle zelf (stap 4): dat spaart een ronde.
    1.10.1). Twee plekken in `mymmo-cards.php` (docblock + `MYMMO_CARDS_VERSION`)
    en een `**X.Y.Z**`-sectie bovenaan "Versies" in `README.md`: wat er veranderde
    en waarom. Een nummer dat al op de site staat, krijgt nooit andere code.
+   Ziet een redacteur er iets van (een nieuw blok, een nieuwe keuze), zet dan
+   ook een zin in `NIEUWS` in `includes/class-nieuw.php`: wat het is en waar je
+   het vindt, in gewone taal. Die zin verschijnt een keer in de editor.
 4. **De review**: `/huisstijl-review`. Die eindigt met de stempel:
    `bash wp-plugin/huisstijl/stempel.sh "<samenvatting>"` (enkel git nodig). Heb je
    Node: eerst `node wp-plugin/huisstijl/controleer.mjs` tot er geen fouten meer
@@ -114,10 +117,17 @@ toch Node, draai dan ook de controle zelf (stap 4): dat spaart een ronde.
 6. **GitHub doet de rest** (`.github/workflows/huisstijl.yml`): de controle, dan de
    job "Naar de site" (pull request, samenvoegen, release), en daarna krijgen de
    sites een seintje en werken ze zich bij. Enkele minuten.
-7. **Nakijken of het erop staat**, om de 30 seconden, hoogstens 10 minuten:
-   `curl -s https://syndicoach.be/wp-json/mymmo-cards/v1/versie`. Staat het nieuwe
-   nummer er, zeg dan: "Het staat erop. Ververs je testpagina." (In de editor de
-   pagina opnieuw laden, anders kent ze het nieuwe blok nog niet.)
+7. **Nakijken of het erop staat.** De release wacht zelf tot elke site het
+   nieuwe nummer noemt (hoogstens 10 minuten) en zet dat op GitHub. Lees het
+   zonder aanmelding: de check-run "Uitbrengen" van de commit op master
+   (`.../commits/<sha>/check-runs`, dan `.../check-runs/<id>/annotations`):
+   "Op de site" = het staat erop; "Niet op de site" = de site liep niet mee.
+   Kan je de site zelf bereiken, dan mag ook
+   `curl -s https://syndicoach.be/wp-json/mymmo-cards/v1/versie`.
+   Staat het erop, zeg dan: "Het staat erop. Ververs je testpagina." (In de
+   editor de pagina opnieuw laden, anders kent ze het nieuwe blok nog niet.)
+   Staat het er niet op: in de editor staat een melding met de knop **Nu
+   binnenhalen**; zeg dat ze daarop klikken.
 8. **Staat het er na 10 minuten niet**, kijk dan op GitHub. Dat kan zonder
    aanmelding, maar hoogstens 60 keer per uur, dus zuinig:
    - `curl -s https://api.github.com/repos/Nico-Mymmo/forminator-odoo-sync/commits/$(git rev-parse HEAD)/check-runs`

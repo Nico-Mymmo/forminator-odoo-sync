@@ -79,7 +79,7 @@ final class Mymmo_Cards_Updates {
         return plugin_basename(MYMMO_CARDS_FILE);
     }
 
-    private static function uit(): bool {
+    public static function uit(): bool {
         return (defined('MYMMO_CARDS_GEEN_AUTO_UPDATE') && MYMMO_CARDS_GEEN_AUTO_UPDATE)
             || (defined('AUTOMATIC_UPDATER_DISABLED') && AUTOMATIC_UPDATER_DISABLED);
     }
@@ -394,5 +394,71 @@ final class Mymmo_Cards_Updates {
         }
 
         error_log('[mymmo-cards] bijgewerkt van ' . MYMMO_CARDS_VERSION . ' naar ' . $release['versie'] . '.');
+    }
+
+    /**
+     * NU bijwerken, op vraag van iemand in de editor (de knop "Nu binnenhalen",
+     * zie class-nieuw.php). Zelfde release, zelfde controles als het uurlijkse
+     * kijken; alleen het moment verschilt. Zo hangt het niet af van WP-cron,
+     * dat op een stille site of achter een cache soms pas veel later draait.
+     *
+     * bulk_upgrade() en niet upgrade(): buiten cron zet upgrade() een actieve
+     * plugin eerst uit, bulk_upgrade() (wat de knop "Nu bijwerken" in wp-admin
+     * gebruikt) laat ze aan en zet de site even in onderhoudsstand.
+     *
+     * @return array{gelukt: bool, versie: string, reden?: string}
+     */
+    public static function nu_bijwerken(): array {
+        $mislukt = static function (string $reden): array {
+            return ['gelukt' => false, 'versie' => MYMMO_CARDS_VERSION, 'reden' => $reden];
+        };
+
+        if (self::uit()) {
+            return $mislukt('automatisch bijwerken staat uit op deze site');
+        }
+        if (function_exists('wp_is_file_mod_allowed') && !wp_is_file_mod_allowed('automatic_updater')) {
+            return $mislukt('deze site laat geen updates toe');
+        }
+
+        $release = self::release(true);
+        if ($release === null) {
+            return $mislukt('GitHub was niet bereikbaar');
+        }
+        if (!version_compare($release['versie'], MYMMO_CARDS_VERSION, '>')) {
+            return ['gelukt' => true, 'versie' => MYMMO_CARDS_VERSION];
+        }
+
+        if (get_transient(self::SLOT)) {
+            return $mislukt('er wordt al bijgewerkt');
+        }
+        set_transient(self::SLOT, 1, 10 * MINUTE_IN_SECONDS);
+
+        require_once ABSPATH . 'wp-admin/includes/admin.php';
+        require_once ABSPATH . 'wp-admin/includes/class-wp-upgrader.php';
+
+        delete_site_transient('update_plugins');
+        wp_update_plugins();
+
+        $upgrader = new Plugin_Upgrader(new Automatic_Upgrader_Skin());
+        $resultaten = $upgrader->bulk_upgrade([self::basis()]);
+
+        delete_transient(self::SLOT);
+
+        $resultaat = is_array($resultaten) ? ($resultaten[self::basis()] ?? null) : null;
+        if (!$resultaat || is_wp_error($resultaat)) {
+            $reden = is_wp_error($resultaat) ? $resultaat->get_error_message() : 'onbekende fout';
+            error_log('[mymmo-cards] nu bijwerken naar ' . $release['versie'] . ' mislukt: ' . $reden);
+            return $mislukt($reden);
+        }
+
+        // Dit verzoek draait nog de OUDE code: de nieuwe versie staat in het
+        // bestand, niet in MYMMO_CARDS_VERSION.
+        wp_clean_plugins_cache();
+        $gegevens = get_plugin_data(MYMMO_CARDS_FILE, false, false);
+        $versie = (string) ($gegevens['Version'] ?? $release['versie']);
+
+        error_log('[mymmo-cards] op vraag bijgewerkt van ' . MYMMO_CARDS_VERSION . ' naar ' . $versie . '.');
+
+        return ['gelukt' => true, 'versie' => $versie];
     }
 }
