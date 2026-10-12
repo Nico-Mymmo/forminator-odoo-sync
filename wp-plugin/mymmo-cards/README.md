@@ -393,6 +393,14 @@ Uitzetten per site: `define('MYMMO_CARDS_GEEN_AUTO_UPDATE', true);` in
 
 ## Versies
 
+**1.10.1** — afgeronde hoeken op een gewoon blok, met de maten van de
+huisstijl. Sinds 1.9.1 stond afronding in de editor volledig uit, dus kon
+niemand nog een kader (een groep met een achtergrond) met ronde hoeken maken.
+Nu biedt "Randen en afronding" twee keuzes: **Klein** (`--mymmo-afronding-m`)
+en **Groot** (`--mymmo-afronding-l`). Een eigen waarde blijft geweigerd bij het
+bewaren. De huisstijl-stylesheet laadt daarom op elke pagina. Werkt vanaf
+WordPress 6.9 (presets voor afronding); daarvoor blijft afronding uit.
+
 **1.10.0** — de stappen. Een nieuw component voor "de werkwijze in vier
 stappen": blok **Stappen** (`mymmo/stappen`) met daarin een blok **Stap** per
 stap. De inhoud van een stap zijn gewone blokken (kop, alinea, lijst, knoppen,

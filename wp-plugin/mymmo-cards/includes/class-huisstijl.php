@@ -35,6 +35,16 @@ final class Mymmo_Cards_Huisstijl {
         // afhankelijkheden niet uit: die worden pas bij het afdrukken opgelost.
         add_action('init', [self::class, 'register'], 5);
         add_filter('block_categories_all', [self::class, 'categorie'], 10, 1);
+        add_action('enqueue_block_assets', [self::class, 'overal']);
+    }
+
+    /**
+     * Op elke pagina en in het canvas van de editor: de afrondingen die een
+     * redacteur op een gewoon blok kiest (zie Mymmo_Cards_Bewaking::afrondingen())
+     * verwijzen naar deze variabelen, ook op een pagina zonder Mymmo-component.
+     */
+    public static function overal(): void {
+        wp_enqueue_style(self::HANDLE);
     }
 
     public static function register(): void {
