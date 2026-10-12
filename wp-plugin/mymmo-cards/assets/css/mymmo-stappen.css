@@ -9,8 +9,8 @@
  *
  *   NAAST ELKAAR (`mymmo-stappen--naast`, gezet door mymmo-stappen.js op een
  *   computer): smalle panelen in een rij die blijft kleven terwijl je scrolt;
- *   het open paneel neemt de rest van de breedte. Het script zet die klasse
- *   enkel als elke stap in het scherm past -- zie class-stappen.php.
+ *   het open paneel neemt de rest van de breedte. De panelen zijn altijd even
+ *   hoog; een stap die niet past, krimpt (--mk-schaal) -- zie mymmo-stappen.js.
  *
  * Het nummer krijgt zijn maat en lettertype van het thema (klassen van
  * WordPress zelf), en enkel een kleur als de redacteur er een koos uit het
@@ -154,12 +154,20 @@
 
   /* De inhoud heeft ALTIJD de breedte van een open paneel (--mk-open, gemeten
      door het script). Zo loopt de tekst niet opnieuw in terwijl het paneel
-     openschuift, en kan het script vooraf meten of elke stap past. */
+     openschuift, en kan het script vooraf meten of elke stap past.
+
+     Past ze niet in de hoogte, dan krimpt het script ze met --mk-schaal: zo
+     zijn de panelen altijd even hoog, zonder schuifbalk. `zoom` en geen
+     `transform: scale()`: een transform maakt van de inhoud het
+     referentiekader voor `position: fixed`, en dan zit een venster van Mymmo
+     Forms erin gevangen. De breedte wordt door dezelfde schaal gedeeld, zodat
+     de gekrompen inhoud het paneel nog altijd vult. */
   .mymmo-stappen.mymmo-stappen--naast .mymmo-stap-inhoud {
     flex: 0 0 auto;
     align-self: flex-start;
     box-sizing: border-box;
-    width: var(--mk-open);
+    zoom: var(--mk-schaal, 1);
+    width: calc(var(--mk-open) / var(--mk-schaal, 1));
     padding-inline: var(--mk-pad);
     opacity: 0;
     visibility: hidden;
