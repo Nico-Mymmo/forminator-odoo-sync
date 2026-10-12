@@ -7,7 +7,7 @@
  *   een telefoon staat het nummer erboven. Dit is ook wat de editor toont en
  *   wat er staat zonder JavaScript.
  *
- *   NAAST ELKAAR (`mymmo-stappen--naast`, gezet door mymmo-stappen.js op een
+ *   NAAST ELKAAR (`mymmo-werkstappen--naast`, gezet door mymmo-stappen.js op een
  *   computer): smalle panelen in een rij die blijft kleven terwijl je scrolt;
  *   het open paneel neemt de rest van de breedte. De panelen zijn altijd even
  *   hoog; een stap die niet past, krimpt (--mk-schaal) -- zie mymmo-stappen.js.
@@ -18,31 +18,31 @@
  * venster van Mymmo Forms in een stap zou daar anders in gevangen zitten.
  */
 
-.mymmo-stappen {
+.mymmo-werkstappen {
   /* De opvulling van een stap: een van de drie van de huisstijl. */
   --mk-pad: var(--mymmo-ruimte-normaal);
   /* Hoe breed een dicht paneel is in de stand naast elkaar. */
   --mk-dicht: clamp(56px, 6vw, 88px);
 }
 
-.mymmo-stappen.mymmo-stappen--pad-krap { --mk-pad: var(--mymmo-ruimte-krap); }
-.mymmo-stappen.mymmo-stappen--pad-ruim { --mk-pad: var(--mymmo-ruimte-ruim); }
+.mymmo-werkstappen.mymmo-werkstappen--pad-krap { --mk-pad: var(--mymmo-ruimte-krap); }
+.mymmo-werkstappen.mymmo-werkstappen--pad-ruim { --mk-pad: var(--mymmo-ruimte-ruim); }
 
 @media (max-width: 781px) {
-  .mymmo-stappen.mymmo-stappen--pad-krap { --mk-pad: var(--mymmo-ruimte-krap-telefoon); }
-  .mymmo-stappen.mymmo-stappen--pad-normaal { --mk-pad: var(--mymmo-ruimte-normaal-telefoon); }
-  .mymmo-stappen.mymmo-stappen--pad-ruim { --mk-pad: var(--mymmo-ruimte-ruim-telefoon); }
+  .mymmo-werkstappen.mymmo-werkstappen--pad-krap { --mk-pad: var(--mymmo-ruimte-krap-telefoon); }
+  .mymmo-werkstappen.mymmo-werkstappen--pad-normaal { --mk-pad: var(--mymmo-ruimte-normaal-telefoon); }
+  .mymmo-werkstappen.mymmo-werkstappen--pad-ruim { --mk-pad: var(--mymmo-ruimte-ruim-telefoon); }
 }
 
 /* ── Onder elkaar ─────────────────────────────────────────────────────────── */
 
-.mymmo-stappen .mymmo-stappen-rij {
+.mymmo-werkstappen .mymmo-werkstappen-rij {
   display: flex;
   flex-direction: column;
   gap: var(--mymmo-ruimte-krap);
 }
 
-.mymmo-stappen .mymmo-stap {
+.mymmo-werkstappen .mymmo-werkstap {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   column-gap: var(--mk-pad);
@@ -55,48 +55,48 @@
 
 /* Zonder eigen kleur is het nummer de tekstkleur, zacht: het is versiering en
    mag niet harder roepen dan de kop ernaast. */
-.mymmo-stappen .mymmo-stap-nummer {
+.mymmo-werkstappen .mymmo-werkstap-nummer {
   display: block;
   color: var(--mk-nummer-kleur, currentColor);
   opacity: 0.4;
 }
 
-.mymmo-stappen.mymmo-stappen--nummer-kleur .mymmo-stap-nummer {
+.mymmo-werkstappen.mymmo-werkstappen--nummer-kleur .mymmo-werkstap-nummer {
   opacity: 1;
 }
 
-.mymmo-stap .mymmo-stap-inhoud > :first-child { margin-top: 0; }
-.mymmo-stap .mymmo-stap-inhoud > :last-child { margin-bottom: 0; }
+.mymmo-werkstap .mymmo-werkstap-inhoud > :first-child { margin-top: 0; }
+.mymmo-werkstap .mymmo-werkstap-inhoud > :last-child { margin-bottom: 0; }
 
 /* Beeld en video in een vlak: de kleine afronding van de huisstijl. */
-.mymmo-stap .wp-block-video video,
-.mymmo-stap .wp-block-image img {
+.mymmo-werkstap .wp-block-video video,
+.mymmo-werkstap .wp-block-image img {
   border-radius: var(--mymmo-afronding-m);
 }
 
 /* Een telefoon: het nummer BOVEN de stap. Ernaast kost het een kolom die de
    tekst op een smal scherm niet kan missen. */
 @media (max-width: 639.98px) {
-  .mymmo-stappen .mymmo-stap {
+  .mymmo-werkstappen .mymmo-werkstap {
     grid-template-columns: minmax(0, 1fr);
   }
 }
 
 /* ── Vinkjes: een kern-lijst met de stijl "Vinkjes (in een stap)" ──────────── */
 
-.mymmo-stap .is-style-mymmo-vinkjes {
+.mymmo-werkstap .is-style-mymmo-vinkjes {
   list-style: none;
   padding-left: 0;
 }
 
-.mymmo-stap .is-style-mymmo-vinkjes > li {
+.mymmo-werkstap .is-style-mymmo-vinkjes > li {
   position: relative;
   padding-left: 1.75em;
 }
 
 /* Het vinkje: twee randen van een gedraaid rechthoekje, in de kleur van het
    nummer -- zo heeft de reeks één accentkleur. */
-.mymmo-stap .is-style-mymmo-vinkjes > li::before {
+.mymmo-werkstap .is-style-mymmo-vinkjes > li::before {
   content: "";
   position: absolute;
   left: 0.4em;
@@ -111,18 +111,18 @@
 /* ── Naast elkaar (enkel met de klasse van het script, enkel op een computer) ─ */
 
 @media (min-width: 782px) {
-  .mymmo-stappen.mymmo-stappen--naast .mymmo-stappen-baan {
+  .mymmo-werkstappen.mymmo-werkstappen--naast .mymmo-werkstappen-baan {
     height: var(--mk-baan);
   }
 
-  .mymmo-stappen.mymmo-stappen--naast .mymmo-stappen-rij {
+  .mymmo-werkstappen.mymmo-werkstappen--naast .mymmo-werkstappen-rij {
     position: sticky;
     top: var(--mk-boven);
     height: var(--mk-paneel);
     flex-direction: row;
   }
 
-  .mymmo-stappen.mymmo-stappen--naast .mymmo-stap {
+  .mymmo-werkstappen.mymmo-werkstappen--naast .mymmo-werkstap {
     display: flex;
     flex-direction: column;
     flex: 0 0 var(--mk-dicht);
@@ -133,21 +133,21 @@
     transition: flex-grow 0.55s cubic-bezier(0.4, 0, 0.2, 1);
   }
 
-  .mymmo-stappen.mymmo-stappen--naast .mymmo-stap.is-open {
+  .mymmo-werkstappen.mymmo-werkstappen--naast .mymmo-werkstap.is-open {
     flex-grow: 1;
     cursor: auto;
   }
 
-  .mymmo-stappen.mymmo-stappen--naast .mymmo-stap:focus-visible {
+  .mymmo-werkstappen.mymmo-werkstappen--naast .mymmo-werkstap:focus-visible {
     outline: var(--mymmo-focus);
     outline-offset: var(--mymmo-focus-afstand);
   }
 
-  .mymmo-stappen.mymmo-stappen--naast .mymmo-stap-nummer {
+  .mymmo-werkstappen.mymmo-werkstappen--naast .mymmo-werkstap-nummer {
     align-self: center;
   }
 
-  .mymmo-stappen.mymmo-stappen--naast .mymmo-stap.is-open .mymmo-stap-nummer {
+  .mymmo-werkstappen.mymmo-werkstappen--naast .mymmo-werkstap.is-open .mymmo-werkstap-nummer {
     align-self: flex-start;
     padding-inline: var(--mk-pad);
   }
@@ -162,7 +162,7 @@
      referentiekader voor `position: fixed`, en dan zit een venster van Mymmo
      Forms erin gevangen. De breedte wordt door dezelfde schaal gedeeld, zodat
      de gekrompen inhoud het paneel nog altijd vult. */
-  .mymmo-stappen.mymmo-stappen--naast .mymmo-stap-inhoud {
+  .mymmo-werkstappen.mymmo-werkstappen--naast .mymmo-werkstap-inhoud {
     flex: 0 0 auto;
     align-self: flex-start;
     box-sizing: border-box;
@@ -174,7 +174,7 @@
     transition: opacity 0.2s ease, visibility 0s linear 0.2s;
   }
 
-  .mymmo-stappen.mymmo-stappen--naast .mymmo-stap.is-open .mymmo-stap-inhoud {
+  .mymmo-werkstappen.mymmo-werkstappen--naast .mymmo-werkstap.is-open .mymmo-werkstap-inhoud {
     opacity: 1;
     visibility: visible;
     transition: opacity 0.35s ease 0.3s, visibility 0s;
@@ -182,9 +182,9 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .mymmo-stappen.mymmo-stappen--naast .mymmo-stap,
-  .mymmo-stappen.mymmo-stappen--naast .mymmo-stap-inhoud,
-  .mymmo-stappen.mymmo-stappen--naast .mymmo-stap.is-open .mymmo-stap-inhoud {
+  .mymmo-werkstappen.mymmo-werkstappen--naast .mymmo-werkstap,
+  .mymmo-werkstappen.mymmo-werkstappen--naast .mymmo-werkstap-inhoud,
+  .mymmo-werkstappen.mymmo-werkstappen--naast .mymmo-werkstap.is-open .mymmo-werkstap-inhoud {
     transition: none;
   }
 }

@@ -394,6 +394,14 @@ Uitzetten per site: `define('MYMMO_CARDS_GEEN_AUTO_UPDATE', true);` in
 
 ## Versies
 
+**1.11.2** — de stappen schuiven weer naast elkaar open. Op een pagina met
+het offertevenster bleven ze onder elkaar staan: Mymmo Forms gebruikt voor de
+stappen van een formulier dezelfde namen (`mymmo-stappen`, `mymmo-stap`,
+`data-mymmo-stappen`), dus het script van het formulier nam het blok over en
+zijn stylesheet zette de stappen onder elkaar. Het blok heeft nu eigen namen
+(`mymmo-werkstappen`, `mymmo-werkstap`). De bloknamen in de editor blijven
+dezelfde, dus pagina's met het blok hoeven niet aangepast te worden.
+
 **1.11.1** — de stappen zijn altijd even hoog. Op een computer staan de
 panelen nu altijd naast elkaar, op de hoogte van het scherm onder de vaste kop.
 Tot nu viel de hele reeks terug naar onder elkaar zodra één stap niet in het

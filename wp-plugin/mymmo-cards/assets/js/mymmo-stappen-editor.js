@@ -11,7 +11,7 @@
  * kolommen, video). Het nummer zet de plugin zelf; dat typ je niet.
  *
  * De gesloten lijsten (opvullingen, de lettergroottes en lettertypes van het
- * thema) komen uit class-stappen.php via window.MymmoStappen -- er staat hier
+ * thema) komen uit class-stappen.php via window.MymmoWerkstappen -- er staat hier
  * geen tweede kopie van.
  */
 
@@ -23,7 +23,7 @@
   }
 
   var el = element.createElement;
-  var S = window.MymmoStappen || { opvullingen: [], groottes: [], lettertypes: [] };
+  var S = window.MymmoWerkstappen || { opvullingen: [], groottes: [], lettertypes: [] };
 
   var InnerBlocks = blockEditor.InnerBlocks;
   var InspectorControls = blockEditor.InspectorControls;
@@ -123,7 +123,7 @@
 
   /** Dezelfde klassen als nummer_klassen() in class-stappen.php. */
   function nummerKlassen(a) {
-    var klassen = ['mymmo-stap-nummer'];
+    var klassen = ['mymmo-werkstap-nummer'];
     var groottes = slugs(S.groottes);
     var grootte = groottes.indexOf(a.nummerGrootte) !== -1 ? a.nummerGrootte : groottes[groottes.length - 1];
     if (grootte) {
@@ -179,9 +179,9 @@
       var zet = props.setAttributes;
       var palet = themaPalet();
 
-      var klassen = ['mymmo-stappen', 'mymmo-stappen--pad-' + (a.opvulling || 'normaal')];
+      var klassen = ['mymmo-werkstappen', 'mymmo-werkstappen--pad-' + (a.opvulling || 'normaal')];
       if (a.nummerKleur) {
-        klassen.push('mymmo-stappen--nummer-kleur');
+        klassen.push('mymmo-werkstappen--nummer-kleur');
       }
 
       var blockProps = useBlockProps({
@@ -192,7 +192,7 @@
         }
       });
 
-      var rij = binnenProps({ className: 'mymmo-stappen-rij' }, {
+      var rij = binnenProps({ className: 'mymmo-werkstappen-rij' }, {
         allowedBlocks: [STAP],
         template: [[STAP], [STAP], [STAP]],
         orientation: 'vertical',
@@ -278,7 +278,7 @@
         'div',
         blockProps,
         zijbalk,
-        el('div', { className: 'mymmo-stappen-baan' }, el('div', rij.props, rij.kinderen))
+        el('div', { className: 'mymmo-werkstappen-baan' }, el('div', rij.props, rij.kinderen))
       );
     },
 
@@ -322,11 +322,11 @@
       }, [props.clientId]);
 
       var blockProps = useBlockProps({
-        className: 'mymmo-stap',
+        className: 'mymmo-werkstap',
         style: { '--mk-stap-bg': kleurCss(a.achtergrond) }
       });
 
-      var inhoud = binnenProps({ className: 'mymmo-stap-inhoud' }, {
+      var inhoud = binnenProps({ className: 'mymmo-werkstap-inhoud' }, {
         template: STAP_SJABLOON,
         templateLock: false
       });
