@@ -7,12 +7,11 @@
  * Layout: container-gebaseerd, consistent met overige modules (Signature Designer).
  * Geen full-height overrides, geen drawer-app-in-app gevoel.
  *
- * Categorieën (prefix-based, uitbreidbaar):
- *   Alles → ''        (alle assets)
- *   Banners → 'banners/'
- *   Events  → 'events/'
- *   Logos   → 'logos/'
- *   Overige → 'uploads/'
+ * Mappen: zelfde opzet als de mappen in Koppelingen -- links een vaste
+ * zijbalk "Mappen" met de volledige boom (Alle bestanden, dan de top-level
+ * mappen Banners/Events/Logos/Overige/+ zelf aangemaakte, met hun submappen),
+ * rechts enkel de bestanden van de gekozen map. De boom komt client-side uit
+ * GET /api/assets/folders (zie renderFolderSidebar() in asset-manager-client.js).
  *
  * Regels:
  *  - Exact één return `...` template literal
@@ -24,16 +23,7 @@
 
 import { navbar } from '../../lib/components/navbar.js';
 
-function escapeHtml(str) {
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
-export function assetManagerUI(user, env, dynamicCategories = []) {
+export function assetManagerUI(user, env) {
   const isAdminOrManager = user?.role === 'admin' || user?.role === 'asset_manager';
   const isAdmin = user?.role === 'admin';
   // Vaste basis-URL voor asset-links (env.APP_BASE_URL), i.p.v. window.location.origin
@@ -48,38 +38,6 @@ export function assetManagerUI(user, env, dynamicCategories = []) {
   // reeds gedeelde /assets/-links blijven zo werken; link.openvme.be/assets/... is
   // een extra, kortere/gebrande ALIAS erbovenop, geen vervanging.
   const assetBaseUrl = env?.APP_BASE_URL || '';
-  const isAdminForFolders = user?.role === 'admin';
-
-  // Extra, door gebruikers aangemaakte categorieën (Supabase), naast de 5
-  // hardcoded hierboven -- zie routes.js getDynamicCategories().
-  // Elke door de gebruiker aangemaakte top-level categorie krijgt een lege
-  // "dynamic-cat-actions"-placeholder (data-prefix/data-label) waar client.js
-  // na het laden een kebab-menu (link-domein + verwijderen) in inject --
-  // dezelfde dropdown-logica als op een submap-tegel (renderFolderKebabMenu).
-  // De 5 hardcoded categorieën hierboven krijgen bewust geen kebab: die kan
-  // je niet verwijderen (zie ASSET_CATEGORY_PREFIXES in routes.js).
-
-  // Data voor de client-side categorieboom in de zijbalk (zie
-  // renderCategoryTree() in asset-manager-client.js) -- vervangt de losse
-  // hardcoded <li>'s die voorheen per categorie in de sidebar stonden.
-  const sidebarCategories = [
-    { prefix: 'banners/', label: 'Banners', icon: 'image', removable: false },
-    { prefix: 'events/', label: 'Events', icon: 'calendar', removable: false },
-    { prefix: 'logos/', label: 'Logos', icon: 'star', removable: false },
-    { prefix: 'uploads/', label: 'Overige', icon: 'folder', removable: false },
-    ...dynamicCategories.map(cat => ({ prefix: cat.prefix, label: cat.label, icon: 'folder', removable: true })),
-  ];
-
-  const dynamicCategoryTabs = dynamicCategories.map(cat =>
-    `<span class="inline-flex items-center gap-0.5 shrink-0">
-      <button data-prefix="${escapeHtml(cat.prefix)}" class="btn btn-sm btn-ghost cat-tab">${escapeHtml(cat.label)}</button>
-      <span class="dynamic-cat-actions" data-prefix="${escapeHtml(cat.prefix)}" data-label="${escapeHtml(cat.label)}"></span>
-    </span>`
-  ).join('');
-
-  const dynamicCategoryOptions = dynamicCategories.map(cat =>
-    `<option value="${escapeHtml(cat.prefix)}">${escapeHtml(cat.label)}</option>`
-  ).join('');
 
   return `<!DOCTYPE html>
 <html lang="nl">
@@ -128,7 +86,6 @@ export function assetManagerUI(user, env, dynamicCategories = []) {
       canUpload:    isAdminOrManager,
       canAdmin:     isAdmin,
       assetBaseUrl: assetBaseUrl,
-      categories:   sidebarCategories,
     })};
   </script>
 
@@ -151,63 +108,50 @@ export function assetManagerUI(user, env, dynamicCategories = []) {
       <!-- ── ALERT ─────────────────────────────────────────────────────── -->
       <div id="asset-alert" class="mb-4" style="display:none;"></div>
 
-      <!-- ── BREADCRUMB (submap-navigatie) ────────────────────────────── -->
-      <div id="asset-breadcrumb" class="text-sm breadcrumbs mb-3 px-0 py-0 min-h-0" style="display:none;">
-        <ul id="asset-breadcrumb-list"></ul>
-      </div>
+      <!-- ── HOOFD LAYOUT: mappen-zijbalk + content (zelfde opzet als Koppelingen) -->
+      <div class="flex flex-col lg:flex-row gap-6 items-start">
 
-      <!-- ── HOOFD LAYOUT: sidebar + content ───────────────────────────── -->
-      <div class="flex gap-6 items-start">
-
-        <!-- ─ Categorie-menu ──────────────────────────────────────────── -->
-        <aside class="w-44 shrink-0 hidden sm:block">
-          <ul id="category-menu" class="menu bg-base-100 rounded-box shadow-sm p-2 gap-0.5">
-            <li class="menu-title text-xs">Categorieën</li>
-            <li>
-              <a data-prefix="" class="gap-2 active" id="cat-alles">
-                <i data-lucide="layout-grid" class="w-4 h-4"></i> Alles
-              </a>
-            </li>
-            <!-- Categorieboom (submappen inbegrepen) + "Nieuwe hoofdmap"
-                 worden client-side toegevoegd door renderCategoryTree() in
-                 asset-manager-client.js -- zie window.__ASSET_STATE__.categories. -->
-          </ul>
+        <!-- ── Mappen-zijbalk ─────────────────────────────────────────── -->
+        <aside class="w-full lg:w-60 shrink-0">
+          <div class="flex items-center justify-between mb-2 px-1">
+            <p class="text-xs font-semibold text-base-content/50 uppercase tracking-wide">Mappen</p>
+            ${isAdmin ? `<button id="asset-add-root-folder-btn" class="btn btn-ghost btn-xs" title="Nieuwe map">
+              <i data-lucide="folder-plus" class="w-3.5 h-3.5"></i>
+            </button>` : ''}
+          </div>
+          <!-- Gevuld door renderFolderSidebar() -->
+          <div id="asset-folder-tree" class="space-y-0.5 text-sm">
+            <div class="flex justify-center py-4"><span class="loading loading-spinner loading-sm text-base-content/30"></span></div>
+          </div>
         </aside>
 
-        <!-- ─ Content zone ────────────────────────────────────────────── -->
-        <section id="asset-content-section" class="flex-1 min-w-0">
+        <!-- ── Content zone ───────────────────────────────────────────── -->
+        <section id="asset-content-section" class="flex-1 min-w-0 w-full">
 
-          <!-- Mobile: categorie tabs -->
-          <div id="mobile-category-tabs" class="flex gap-1 overflow-x-auto pb-1 sm:hidden mb-3">
-            <button data-prefix="" class="btn btn-sm btn-primary cat-tab">Alles</button>
-            <button data-prefix="banners/" class="btn btn-sm btn-ghost cat-tab">Banners</button>
-            <button data-prefix="events/" class="btn btn-sm btn-ghost cat-tab">Events</button>
-            <button data-prefix="logos/" class="btn btn-sm btn-ghost cat-tab">Logos</button>
-            <button data-prefix="uploads/" class="btn btn-sm btn-ghost cat-tab">Overige</button>${dynamicCategoryTabs}
-            ${isAdminForFolders ? `<button id="add-folder-btn-mobile" class="btn btn-sm btn-outline btn-primary gap-1">
-              <i data-lucide="folder-plus" class="w-3.5 h-3.5"></i> Nieuwe map
-            </button>` : ''}
+          <!-- Huidige map: pad + link-domein -->
+          <div class="flex flex-wrap items-center gap-x-3 gap-y-1 mb-3 min-h-[1.75rem]">
+            <div class="text-sm breadcrumbs p-0 min-w-0 max-w-full">
+              <ul id="asset-breadcrumb-list"></ul>
+            </div>
+            <span id="asset-brand-info" class="badge badge-ghost badge-sm gap-1 text-base-content/60" style="display:none;"></span>
           </div>
 
           <!-- Toolbar: zoek + sort + view toggle + count -->
           <div class="flex flex-wrap items-center gap-2 mb-4">
-            <!-- Zoekbalk -->
             <div class="flex items-center gap-2 input input-sm input-bordered flex-1 min-w-[160px] max-w-xs px-3">
               <i data-lucide="search" class="w-3.5 h-3.5 opacity-50 shrink-0"></i>
-              <input id="asset-search" type="text" placeholder="Zoeken..." class="grow bg-transparent outline-none text-sm min-w-0" />
+              <input id="asset-search" type="text" placeholder="Zoeken op naam..." class="grow bg-transparent outline-none text-sm min-w-0" />
             </div>
 
-            <!-- Sort select -->
             <select id="sort-select" class="select select-sm select-bordered">
-              <option value="name-asc">Naam A–Z</option>
-              <option value="name-desc">Naam Z–A</option>
               <option value="date-desc" selected>Nieuwste eerst</option>
               <option value="date-asc">Oudste eerst</option>
+              <option value="name-asc">Naam A–Z</option>
+              <option value="name-desc">Naam Z–A</option>
               <option value="size-desc">Grootst eerst</option>
               <option value="size-asc">Kleinst eerst</option>
             </select>
 
-            <!-- View toggle -->
             <div class="join">
               <button id="view-grid-btn" class="join-item btn btn-sm btn-ghost btn-active" title="Grid weergave">
                 <i data-lucide="layout-grid" class="w-4 h-4"></i>
@@ -217,22 +161,6 @@ export function assetManagerUI(user, env, dynamicCategories = []) {
               </button>
             </div>
 
-            <!-- Nieuwe submap in de huidig geopende map (enkel zichtbaar buiten "Alles") -->
-            <button id="asset-new-subfolder-btn" class="btn btn-sm btn-ghost gap-1" style="display:none;">
-              <i data-lucide="folder-plus" class="w-3.5 h-3.5"></i> Nieuwe map hier
-            </button>
-
-            <!-- Link-domein van de huidig geopende map (enkel zichtbaar buiten "Alles") -->
-            <div id="asset-brand-control" class="flex items-center gap-1.5" style="display:none;">
-              <i data-lucide="link" class="w-3.5 h-3.5 opacity-40"></i>
-              <select id="asset-brand-select" class="select select-xs select-bordered">
-                <option value="">Overerven</option>
-                <option value="openvme">OpenVME</option>
-                <option value="syndicoach">Syndicoach</option>
-              </select>
-            </div>
-
-            <!-- Bestandsteller -->
             <span id="asset-count" class="badge badge-ghost text-xs ml-auto"></span>
           </div>
 
@@ -242,7 +170,7 @@ export function assetManagerUI(user, env, dynamicCategories = []) {
           </div>
           <div id="asset-list-empty" class="flex flex-col items-center justify-center py-20 text-base-content/30 gap-3" style="display:none;">
             <i data-lucide="inbox" class="w-12 h-12 opacity-40"></i>
-            <p class="text-sm">Geen bestanden in deze categorie.</p>
+            <p id="asset-list-empty-text" class="text-sm text-center">Geen bestanden in deze map.</p>
           </div>
 
           <!-- ─ Grid view (default) ───────────────────────────────────── -->
@@ -302,22 +230,9 @@ export function assetManagerUI(user, env, dynamicCategories = []) {
                  class="file-input file-input-bordered file-input-sm w-full" />
         </label>
         <label class="form-control">
-          <div class="label"><span class="label-text">Categorie</span></div>
-          <select id="upload-category-select" class="select select-bordered select-sm w-full">
-            <option value="banners/">Banners</option>
-            <option value="events/">Events</option>
-            <option value="logos/">Logos</option>
-            <option value="uploads/" selected>Overige</option>${dynamicCategoryOptions}
-            <option value="_custom">Aangepast pad...</option>
-          </select>
-        </label>
-        <label id="upload-custom-wrap" class="form-control" style="display:none;">
-          <div class="label"><span class="label-text">Aangepast pad (prefix)</span></div>
-          <input id="upload-prefix-input" type="text" placeholder="mijn-map/"
-                 class="input input-bordered input-sm w-full font-mono" />
-          <div class="label">
-            <span class="label-text-alt text-base-content/40">Eindig altijd op /</span>
-          </div>
+          <div class="label"><span class="label-text">Map</span></div>
+          <!-- Opties (mappenboom, ingesprongen) gevuld door fillFolderSelect() -->
+          <select id="upload-folder-select" class="select select-bordered select-sm w-full"></select>
         </label>
         <label class="label cursor-pointer justify-start gap-3 py-0">
           <input id="upload-overwrite-input" type="checkbox" class="checkbox checkbox-sm" />
@@ -383,18 +298,9 @@ export function assetManagerUI(user, env, dynamicCategories = []) {
       <p id="move-modal-filename"
          class="text-xs font-mono text-base-content/50 mb-3 break-all"></p>
       <label class="form-control">
-        <div class="label"><span class="label-text">Doelcategorie</span></div>
-        <select id="move-category-select" class="select select-bordered select-sm w-full">
-          <option value="banners/">Banners</option>
-          <option value="events/">Events</option>
-          <option value="logos/">Logos</option>
-          <option value="uploads/">Overige</option>${dynamicCategoryOptions}
-          <option value="_custom">Aangepast pad...</option>
-        </select>
-      </label>
-      <label id="move-custom-wrap" class="form-control mt-2" style="display:none;">
-        <input id="move-prefix-input" type="text" placeholder="mijn-map/"
-               class="input input-bordered input-sm w-full font-mono" />
+        <div class="label"><span class="label-text">Naar map</span></div>
+        <!-- Opties (mappenboom, ingesprongen) gevuld door fillFolderSelect() -->
+        <select id="move-folder-select" class="select select-bordered select-sm w-full"></select>
       </label>
       <div class="modal-action">
         <button id="move-confirm-btn" class="btn btn-primary btn-sm">Verplaatsen</button>
@@ -410,7 +316,7 @@ export function assetManagerUI(user, env, dynamicCategories = []) {
       <h3 id="folder-modal-title" class="font-bold text-lg mb-1 flex items-center gap-2">
         <i data-lucide="folder-plus" class="w-5 h-5"></i> Nieuwe map
       </h3>
-      <p id="folder-modal-location" class="text-xs text-base-content/50 mb-3 font-mono" style="display:none;"></p>
+      <p id="folder-modal-location" class="text-xs text-base-content/50 mb-3" style="display:none;"></p>
       <label class="form-control">
         <div class="label"><span class="label-text">Naam</span></div>
         <input id="folder-label-input" type="text" placeholder="Contracten"

@@ -7,7 +7,9 @@
  *    GET  /                           → Full-page UI (authenticated)
  *
  *  Asset API  (authenticated)
- *    GET  /api/assets/list            → Lijst bestanden + submappen op prefix (delimiter-scoped, paginering)
+ *    GET  /api/assets/list            → Lijst bestanden + submappen op prefix (delimiter-scoped, paginering);
+ *                                         leeg prefix ("Alles") = alle bestanden recursief, nieuwste eerst
+ *    GET  /api/assets/folders         → Volledige mappenboom (plat) voor de zijbalk, met aantallen + rechten
  *    POST /api/assets/upload          → Upload bestand (role-gated)
  *    DELETE /api/assets/delete        → Verwijder bestand (role-gated)
  *    POST /api/assets/rename          → Hernoem bestand (admin only)
@@ -87,6 +89,20 @@ function buildFolderList(delimitedPrefixes, parentPrefix) {
     name:   p.slice(parentPrefix.length).replace(/\/$/, ''),
   }));
 }
+
+// Vaste top-level mappen zoals ze in de zijbalk staan. 'public/' hoort wel bij
+// de namespace (ASSET_CATEGORY_PREFIXES) maar verschijnt enkel als er echt iets
+// in staat -- zie GET /api/assets/folders.
+const FIXED_FOLDERS = [
+  { prefix: 'banners/', name: 'Banners' },
+  { prefix: 'events/',  name: 'Events' },
+  { prefix: 'logos/',   name: 'Logos' },
+  { prefix: 'uploads/', name: 'Overige' },
+  { prefix: 'public/',  name: 'Publiek', hideWhenEmpty: true },
+];
+
+// Bovengrens voor de recursieve scan van één top-level map (x 1000 objecten).
+const FOLDER_SCAN_MAX_PAGES = 20;
 
 // ─── Publieke links (brand-per-map, Supabase) ──────────────────────────────
 // asset_manager_folder_brands (supabase/migrations/20260828120000_...sql) legt
@@ -215,8 +231,7 @@ export const routes = {
 
   // ── UI ──────────────────────────────────────────────────────────────────────
   'GET /': async (context) => {
-    const dynamicCategories = await getDynamicCategories(context.env);
-    return new Response(assetManagerUI(context.user, context.env, dynamicCategories), {
+    return new Response(assetManagerUI(context.user, context.env), {
       headers: { 'Content-Type': 'text/html' }
     });
   },
@@ -265,38 +280,117 @@ export const routes = {
 
       // Leeg prefix ("Alles"): NOOIT meer 1-op-1 naar R2 doorgeven.
       if (!isAdmin(user) && user?.role !== 'asset_manager') {
-        // Gewone user: "Alles" betekent gewoon zijn eigen prefix (ook delimiter-scoped,
-        // zodat gewone users hun eigen submappen kunnen aanmaken/inzien).
+        // Gewone user: "Alles" betekent alle eigen bestanden van die gebruiker, recursief
+        // (submappen inbegrepen) -- de mappen zelf staan in de zijbalk
+        // (GET /api/assets/folders), niet tussen de bestanden.
         const ownPrefix = buildUserPrefix(user.id);
-        const result = await listObjects(env, { prefix: ownPrefix, cursor, limit, delimiter: '/' });
+        const result = await listObjects(env, { prefix: ownPrefix, cursor, limit });
         const objects = withPublicUrl(result.objects.filter(o => !isKeepPlaceholder(o.key)));
-        const folders = withBrand(buildFolderList(result.delimitedPrefixes, ownPrefix));
-        console.log(`${LOG_PREFIX} LIST prefix=${ownPrefix} (eigen, "alles") count=${objects.length} folders=${folders.length} truncated=${result.truncated}`);
-        return jsonOk({ objects, folders, truncated: result.truncated, cursor: result.cursor });
+        console.log(`${LOG_PREFIX} LIST prefix=${ownPrefix} (eigen, "alles") count=${objects.length} truncated=${result.truncated}`);
+        return jsonOk({ objects, folders: [], truncated: result.truncated, cursor: result.cursor });
       }
 
       // Admin/asset_manager: som van de gekende, eigen categorieën --
       // begrensd aantal (ASSET_CATEGORY_PREFIXES), dus een vaste, kleine set
-      // parallelle R2-calls, nooit een blinde bucket-brede list(). Ook hier
-      // delimiter-scoped per categorie (top-level bestanden + submappen);
-      // dieper genestte bestanden zie je door een categorie/map te openen.
+      // parallelle R2-calls, nooit een blinde bucket-brede list(). Recursief
+      // per categorie (submappen inbegrepen): "Alles" toont alle bestanden,
+      // de mappen zelf staan in de zijbalk (GET /api/assets/folders).
       // Geen cross-prefix cursor-paginering (elke categorie afzonderlijk heeft
       // dat wel) -- voor de "Alles"-tab volstaat gesorteerd + afgekapt tot limit.
       const dynamicCategories = await getDynamicCategories(env);
       const allCategoryPrefixes = ASSET_CATEGORY_PREFIXES.concat(dynamicCategories.map(cat => cat.prefix));
       const perCategory = await Promise.all(
-        allCategoryPrefixes.map(p => listObjects(env, { prefix: p, limit, delimiter: '/' }))
+        allCategoryPrefixes.map(p => listObjects(env, { prefix: p, limit }))
       );
       const merged = perCategory.flatMap(r => r.objects.filter(o => !isKeepPlaceholder(o.key)));
       merged.sort((a, b) => new Date(b.uploaded || 0) - new Date(a.uploaded || 0));
       const truncated = perCategory.some(r => r.truncated) || merged.length > limit;
       const objects = withPublicUrl(merged.slice(0, limit));
-      const folders = withBrand(perCategory.flatMap((r, i) => buildFolderList(r.delimitedPrefixes, allCategoryPrefixes[i])));
-      console.log(`${LOG_PREFIX} LIST prefix=/ (alle categorieën) count=${objects.length} folders=${folders.length} truncated=${truncated}`);
-      return jsonOk({ objects, folders, truncated, cursor: null });
+      console.log(`${LOG_PREFIX} LIST prefix=/ (alle categorieën) count=${objects.length} truncated=${truncated}`);
+      return jsonOk({ objects, folders: [], truncated, cursor: null });
     } catch (err) {
       console.error(`${LOG_PREFIX} list error:`, err.message);
       return jsonError('Lijst ophalen mislukt.', 500);
+    }
+  },
+
+  // Volledige mappenboom voor de zijbalk, in één keer -- zelfde opzet als de
+  // mappen in Koppelingen: een platte lijst { prefix, name, parent, count }
+  // waar de client zelf de boom uit bouwt. Submappen bestaan enkel als
+  // R2-prefix (zie het doc-blok bovenaan), dus de boom wordt afgeleid uit een
+  // recursieve list() per top-level map. `count` = aantal bestanden direct in
+  // die map (zoals de lijst toont als je de map opent), `canWrite` spiegelt
+  // canWritePrefix zodat de UI geen eigen rechtenregels hoeft na te bootsen.
+  'GET /api/assets/folders': async (context) => {
+    const { env, user } = context;
+
+    try {
+      const brandRows = await getFolderBrandRows(env);
+      const explicitBrandFor = (p) => (brandRows.find(r => r.prefix === p)?.brand) || null;
+
+      let roots;
+      if (isAdmin(user) || user?.role === 'asset_manager') {
+        const dynamicCategories = await getDynamicCategories(env);
+        roots = FIXED_FOLDERS.map(f => ({ ...f, kind: 'fixed' }))
+          .concat(dynamicCategories.map(cat => ({ prefix: cat.prefix, name: cat.label, kind: 'category' })));
+      } else {
+        roots = [{ prefix: buildUserPrefix(user.id), name: 'Mijn bestanden', kind: 'own' }];
+      }
+
+      const nodes = new Map();
+      const addNode = (prefix, name, parent, kind) => {
+        if (!nodes.has(prefix)) nodes.set(prefix, { prefix, name, parent, kind, count: 0 });
+        return nodes.get(prefix);
+      };
+
+      let truncated = false;
+      const scans = await Promise.all(roots.map(async (root) => {
+        const objects = [];
+        let cursor;
+        let pages = 0;
+        do {
+          const result = await listObjects(env, { prefix: root.prefix, cursor, limit: 1000 });
+          objects.push(...result.objects);
+          cursor = result.cursor;
+          pages++;
+        } while (cursor && pages < FOLDER_SCAN_MAX_PAGES);
+        if (cursor) truncated = true;
+        return objects;
+      }));
+
+      let total = 0;
+      roots.forEach((root, i) => {
+        const objects = scans[i];
+        if (root.hideWhenEmpty && objects.length === 0) return;
+        addNode(root.prefix, root.name, null, root.kind);
+        objects.forEach((obj) => {
+          const dir = obj.key.slice(0, obj.key.lastIndexOf('/') + 1);
+          // Tussenliggende mappen aanmaken, ook als ze zelf geen bestanden bevatten.
+          let parent = root.prefix;
+          dir.slice(root.prefix.length).split('/').filter(Boolean).forEach((seg) => {
+            const prefix = `${parent}${seg}/`;
+            addNode(prefix, seg, parent, 'sub');
+            parent = prefix;
+          });
+          if (!isKeepPlaceholder(obj.key)) {
+            nodes.get(dir).count++;
+            total++;
+          }
+        });
+      });
+
+      const folders = Array.from(nodes.values()).map(n => ({
+        ...n,
+        brand:         resolveBrand(n.prefix, brandRows),
+        brandExplicit: explicitBrandFor(n.prefix),
+        canWrite:      canWritePrefix(user, n.prefix),
+      }));
+
+      console.log(`${LOG_PREFIX} FOLDERS count=${folders.length} files=${total} truncated=${truncated}`);
+      return jsonOk({ folders, total, truncated });
+    } catch (err) {
+      console.error(`${LOG_PREFIX} folders error:`, err.message);
+      return jsonError('Mappen ophalen mislukt.', 500);
     }
   },
 
