@@ -24,9 +24,11 @@
  * WAAROM HET SCRIPT BESLIST EN NIET EEN MEDIA QUERY: de naast-elkaarstand heeft
  * een vaste hoogte (het scherm), en een stap die daar niet in past zou een
  * schuifbalk nodig hebben -- en schuifbalken in een component staan er niet in.
- * Het script MEET dus eerst of elke stap past; past er één niet, dan blijven ze
- * onder elkaar staan. Een media query kan dat niet weten. De breedte waarop het
- * omslaat is wel gewoon een van de vier breekpunten (782px).
+ * Het script MEET dus eerst of elke stap past; past er één niet, dan krimpt
+ * het de inhoud van die stap tot ze past, zodat de panelen altijd even hoog
+ * zijn (sinds 1.11.1). Enkel als dat onleesbaar klein zou worden, blijven ze
+ * onder elkaar staan. Een media query kan dat niet weten. De breedte waarop
+ * het omslaat is wel gewoon een van de vier breekpunten (782px).
  *
  * HET NUMMER IS GEEN KOP en geen eigen typografie. Het is versiering
  * (aria-hidden; de volgorde staat al in de koppen) met de lettergrootte en het

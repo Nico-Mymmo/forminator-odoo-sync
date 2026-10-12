@@ -394,6 +394,20 @@ Uitzetten per site: `define('MYMMO_CARDS_GEEN_AUTO_UPDATE', true);` in
 
 ## Versies
 
+**1.11.1** — de stappen zijn altijd even hoog. Op een computer staan de
+panelen nu altijd naast elkaar, op de hoogte van het scherm onder de vaste kop.
+Tot nu viel de hele reeks terug naar onder elkaar zodra één stap niet in het
+scherm paste (op een laptop vaak stap 4, met video en vier regels), en kreeg
+elke stap een eigen hoogte.
+
+- Past de inhoud van een stap niet, dan toont het script die inhoud kleiner
+  (`--mk-schaal`, met `zoom`) tot ze past. Enkel die stap; de andere blijven op
+  ware grootte.
+- `zoom` en geen `transform`: een transform zou een venster van Mymmo Forms in
+  de stap vangen.
+- Moet het kleiner dan 70%, dan blijven de stappen onder elkaar staan: kleinere
+  tekst is niet meer te lezen. Op een telefoon en in de editor verandert niets.
+
 **1.11.0** — de getuigenissen. Een nieuw component om klanten aan het woord
 te laten: drie (of twee, of vier) citaten met foto naast elkaar. Tot nu moest
 dat met kolommen en groepen met de hand, met per kaart een eigen opvulling.
