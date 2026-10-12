@@ -209,7 +209,7 @@
             label: 'Op een computer naast elkaar openschuiven',
             checked: !!a.horizontaal,
             help: a.horizontaal
-              ? 'Vanaf 782px breed staan de stappen als panelen naast elkaar, en terwijl je scrolt opent de ene na de andere. Past een stap niet in het scherm, dan blijven ze onder elkaar staan. Hier in de editor staan ze altijd onder elkaar.'
+              ? 'Vanaf 782px breed staan de stappen als panelen naast elkaar, en terwijl je scrolt opent de ene na de andere. De panelen zijn altijd even hoog: een stap met veel inhoud wordt iets kleiner getoond. Hier in de editor staan ze altijd onder elkaar.'
               : 'De stappen staan overal onder elkaar.',
             onChange: function (w) { zet({ horizontaal: w }); },
             __nextHasNoMarginBottom: true

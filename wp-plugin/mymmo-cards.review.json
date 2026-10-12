@@ -1,8 +1,8 @@
 {
   "plugin": "mymmo-cards",
-  "versie": "1.11.0",
-  "hash": "0a8f1121a0447f23",
-  "datum": "2026-10-12T12:05:59.000Z",
+  "versie": "1.11.1",
+  "hash": "4002bfb345a73a2e",
+  "datum": "2026-10-12T12:21:38.000Z",
   "door": "Claude",
-  "samenvatting": "Nieuw component Getuigenissen (1.11.0) nagekeken naast de stappen en de kaartenstapel: zelfde opvullingen, afronding-l per vlak, afronding-m/rond voor de foto, geen schaduw of rand, een accentkleur via het palet. Grid met door de server getelde kolommen, onder 782px onder elkaar, eigen fotoverhouding op tablet en telefoon; proef op 375/768/1280 zonder horizontale schuifbalk. Geen koppen of typografie in het component; aanhalingstekens en zachte 'wie'-regel met CSS."
+  "samenvatting": "Stappen 1.11.1: in de stand naast elkaar zijn de panelen altijd even hoog; een stap die niet past krimpt met zoom (geen transform, zodat een venster van Mymmo Forms niet gevangen zit), minimaal 70%, anders onder elkaar. Telefoon, editor en huisstijlwaarden ongewijzigd; getest op 1366x650, 1440x800, 1920x1000 en 1280x520."
 }
