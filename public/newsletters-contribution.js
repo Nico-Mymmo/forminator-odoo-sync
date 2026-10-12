@@ -110,6 +110,21 @@
       + '</select></label>' + (t ? '<img class="nb-tekening" src="' + e(t.svg) + '" alt="">' : '') + '</div>';
   }
 
+  /** Wie het woordje vooraf ondertekent: foto, voornaam en functie komen uit Odoo. */
+  function ondertekenaarKeuze() {
+    var s = NB.state.stukje;
+    var gekozen = lees('content.signer_user_id') || '';
+    var schrijver = s.item.owner_name ? s.item.owner_name.split(' ')[0] : 'wie het schrijft';
+    var users = (NB.state.boot && NB.state.boot.users) || [];
+    return '<label class="form-control w-full"><span class="label-text mb-1">Wie ondertekent?</span>'
+      + '<select class="select select-bordered w-full" data-veld="content.signer_user_id"' + (s.can_edit ? '' : ' disabled') + '>'
+      + '<option value="">' + e(schrijver) + ' (schrijft dit)</option>'
+      + users.filter(function (u) { return u.id !== s.item.owner_user_id; }).map(function (u) {
+        return '<option value="' + e(u.id) + '"' + (u.id === gekozen ? ' selected' : '') + '>' + e(u.name) + '</option>';
+      }).join('')
+      + '</select><span class="label-text-alt opacity-60 mt-1">Onder de tekst komen de foto, de voornaam en de functie uit Odoo.</span></label>';
+  }
+
   function beeldKeuze(pad, label) {
     var url = lees(pad) || '';
     return '<div class="flex flex-col gap-1"><span class="label-text">' + e(label) + '</span>'
@@ -169,13 +184,8 @@
     switch (kind) {
       case 'intro':
         return veld('Titel', 'content.title', { hint: 'Bv. Een nieuw jasje voor je vertrouwde info' })
-          + veld('Tekst', 'content.text', { rijen: 7, uitleg: 'Een paar zinnen: wat staat er deze keer in, waarom is het de moeite. Geen groet of naam: die komen er hieronder vanzelf bij.' })
-          + '<div class="border border-base-content/10 rounded-xl p-3 flex flex-col gap-3"><span class="font-semibold text-sm">Ondertekening</span>'
-          + veld('Groet', 'content.signoff', { hint: 'Veel leesplezier,', klein: true })
-          + '<div class="grid sm:grid-cols-2 gap-3">' + veld('Naam', 'content.sign_name', { hint: (NB.state.stukje.item.owner_name || 'Wie schrijft'), klein: true })
-          + veld('Functie', 'content.sign_role', { hint: 'Bv. zaakvoerder', klein: true }) + '</div>'
-          + beeldKeuze('content.sign_photo_url', 'Foto (leeg = de foto uit Odoo)')
-          + '<p class="text-xs opacity-60">Leeg laten = de naam, functie en foto van wie het schrijft. Vul ze in als je het namens iemand anders schrijft.</p></div>'
+          + veld('Tekst', 'content.text', { rijen: 8, uitleg: 'Een paar zinnen: wat staat er deze keer in, waarom is het de moeite. Sluit af met je groet (bv. "Veel leesplezier,"); je handtekening met foto komt er vanzelf onder.' })
+          + ondertekenaarKeuze()
           + tekeningKeuze();
       case 'article':
         return veld('Titel', 'content.title')
