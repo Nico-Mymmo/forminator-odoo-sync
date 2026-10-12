@@ -71,7 +71,7 @@ Cloudflare Worker (`src/`) met enkel API-routes en server-logica; statische fron
 `src/index.js` is een dunne entry. Volgorde per request:
 
 1. `src/router/cors.js` — OPTIONS preflight + `addCorsHeaders()`
-2. `src/router/public-routes.js` — auth-vrije routes: `/favicon.ico`, R2-assets (`/assets/*`), `/api/auth/login|logout|me`, forminator-v2 webhooks (token-auth)
+2. `src/router/public-routes.js` — auth-vrije routes: R2-assets (`/assets/*`), `/api/auth/login|logout|me`, forminator-v2 webhooks (token-auth)
 3. `src/router/module-router.js` — `getModuleByRoute()` → `authGate()` → handler → `trackEndpoint()` (fire-and-forget)
 4. `src/router/auth-gate.js` — token-extractie → `validateSession()` → requiresAuth/requiresAdmin/user_modules check
 

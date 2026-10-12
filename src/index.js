@@ -31,7 +31,7 @@ export default {
         return handlePreflight();
       }
 
-      // 2. Publieke routes (favicon, R2-assets, /api/auth/*, v2-webhooks)
+      // 2. Publieke routes (R2-assets, /api/auth/*, v2-webhooks)
       const publicResponse = await handlePublicRoutes(request, env, ctx);
       if (publicResponse) {
         return publicResponse;

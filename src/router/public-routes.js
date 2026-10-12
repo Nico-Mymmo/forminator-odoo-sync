@@ -1,7 +1,6 @@
 /**
  * Public routes — geen sessie vereist.
  *
- * - /favicon.ico
  * - /assets/* (R2 publieke bestanden)
  * - /api/auth/login | logout | me
  * - Forminator Sync V2 webhooks (token-auth)
@@ -237,11 +236,6 @@ async function dispatchMiniAppDiscovery(request, env, ctx, pathname) {
 export async function handlePublicRoutes(request, env, ctx) {
   const url = new URL(request.url);
   const pathname = url.pathname;
-
-  // Favicon
-  if (pathname === '/favicon.ico') {
-    return new Response(null, { status: 204 });
-  }
 
   // Website-tracker, FIRST-PARTY via link.openvme.be / link.syndicoach.be.
   //
