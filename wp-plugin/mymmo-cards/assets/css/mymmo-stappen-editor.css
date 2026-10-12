@@ -8,6 +8,6 @@
 
 /* Het nummer zet de plugin; het hoort niet mee geselecteerd te worden als je
    de tekst van een stap selecteert. */
-.mymmo-stap .mymmo-stap-nummer {
+.mymmo-werkstap .mymmo-werkstap-nummer {
   user-select: none;
 }

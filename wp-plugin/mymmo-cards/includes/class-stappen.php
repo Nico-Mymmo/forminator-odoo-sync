@@ -19,7 +19,7 @@
  *   - Naast elkaar (op een computer, als `horizontaal` aan staat): de stappen
  *     staan als smalle panelen naast elkaar en terwijl je scrolt, schuift de
  *     ene na de andere open. mymmo-stappen.js zet die stand AAN; de CSS kent
- *     ze enkel als klasse (`mymmo-stappen--naast`).
+ *     ze enkel als klasse (`mymmo-werkstappen--naast`).
  *
  * WAAROM HET SCRIPT BESLIST EN NIET EEN MEDIA QUERY: de naast-elkaarstand heeft
  * een vaste hoogte (het scherm), en een stap die daar niet in past zou een
@@ -29,6 +29,14 @@
  * zijn (sinds 1.11.1). Enkel als dat onleesbaar klein zou worden, blijven ze
  * onder elkaar staan. Een media query kan dat niet weten. De breedte waarop
  * het omslaat is wel gewoon een van de vier breekpunten (782px).
+ *
+ * EIGEN NAMEN: `mymmo-werkstappen`, `mymmo-werkstap`, `data-mymmo-werkstappen`
+ * (sinds 1.11.2). Mymmo Forms gebruikt `mymmo-stappen`, `mymmo-stap`,
+ * `data-mymmo-stappen` en `window.MymmoStappen` voor de stappen van een
+ * formulier, en dat formulier staat op bijna elke pagina (het offertevenster).
+ * Met dezelfde namen nam het script van het formulier dit blok over en zette
+ * zijn stylesheet de stappen onder elkaar. De bloknamen (`mymmo/stappen`,
+ * `mymmo/stap`) blijven: die staan in de opgeslagen pagina's.
  *
  * HET NUMMER IS GEEN KOP en geen eigen typografie. Het is versiering
  * (aria-hidden; de volgorde staat al in de koppen) met de lettergrootte en het
@@ -72,15 +80,15 @@ final class Mymmo_Cards_Stappen {
             return;
         }
 
-        wp_register_style('mymmo-stappen', MYMMO_CARDS_URL . 'assets/css/mymmo-stappen.css', [Mymmo_Cards_Huisstijl::HANDLE], MYMMO_CARDS_VERSION);
-        wp_register_style('mymmo-stappen-editor', MYMMO_CARDS_URL . 'assets/css/mymmo-stappen-editor.css', ['mymmo-stappen'], MYMMO_CARDS_VERSION);
+        wp_register_style('mymmo-werkstappen', MYMMO_CARDS_URL . 'assets/css/mymmo-stappen.css', [Mymmo_Cards_Huisstijl::HANDLE], MYMMO_CARDS_VERSION);
+        wp_register_style('mymmo-werkstappen-editor', MYMMO_CARDS_URL . 'assets/css/mymmo-stappen-editor.css', ['mymmo-werkstappen'], MYMMO_CARDS_VERSION);
 
         // Enkel op de PAGINA: in de editor staan de stappen altijd onder elkaar,
         // want een paneel dat dichtklapt terwijl je erin typt, is niet te bewerken.
-        wp_register_script('mymmo-stappen', MYMMO_CARDS_URL . 'assets/js/mymmo-stappen.js', [], MYMMO_CARDS_VERSION, true);
+        wp_register_script('mymmo-werkstappen', MYMMO_CARDS_URL . 'assets/js/mymmo-stappen.js', [], MYMMO_CARDS_VERSION, true);
 
         wp_register_script(
-            'mymmo-stappen-editor',
+            'mymmo-werkstappen-editor',
             MYMMO_CARDS_URL . 'assets/js/mymmo-stappen-editor.js',
             ['wp-blocks', 'wp-element', 'wp-block-editor', 'wp-components', 'wp-data'],
             MYMMO_CARDS_VERSION,
@@ -92,7 +100,7 @@ final class Mymmo_Cards_Stappen {
             $opvullingen[] = ['value' => $sleutel, 'label' => $label];
         }
 
-        wp_localize_script('mymmo-stappen-editor', 'MymmoStappen', [
+        wp_localize_script('mymmo-werkstappen-editor', 'MymmoWerkstappen', [
             'opvullingen'  => $opvullingen,
             'groottes'     => self::lettergroottes(),
             'lettertypes'  => self::lettertypes(),
@@ -100,10 +108,10 @@ final class Mymmo_Cards_Stappen {
 
         register_block_type(self::REEKS, [
             'api_version'     => 2,
-            'editor_script'   => 'mymmo-stappen-editor',
-            'editor_style'    => 'mymmo-stappen-editor',
-            'style'           => 'mymmo-stappen',
-            'view_script'     => 'mymmo-stappen',
+            'editor_script'   => 'mymmo-werkstappen-editor',
+            'editor_style'    => 'mymmo-werkstappen-editor',
+            'style'           => 'mymmo-werkstappen',
+            'view_script'     => 'mymmo-werkstappen',
             'attributes'      => self::attributen_reeks(),
             'render_callback' => [self::class, 'render_reeks'],
         ]);
@@ -120,14 +128,14 @@ final class Mymmo_Cards_Stappen {
          * verwachten"). Een stijl van de KERN-lijst en geen eigen blok: de
          * inhoud blijft een gewone lijst die het thema opmaakt; enkel het
          * opsommingsteken wordt een vinkje, getekend met CSS. Enkel BINNEN een
-         * stap: de regel hangt aan .mymmo-stap (een selector zonder .mymmo-
+         * stap: de regel hangt aan .mymmo-werkstap (een selector zonder .mymmo-
          * klasse laat de controle niet door), dus elders blijft het een lijst.
          */
         if (function_exists('register_block_style')) {
             register_block_style('core/list', [
                 'name'         => 'mymmo-vinkjes',
                 'label'        => 'Vinkjes (in een stap)',
-                'style_handle' => 'mymmo-stappen',
+                'style_handle' => 'mymmo-werkstappen',
             ]);
         }
     }
@@ -203,7 +211,7 @@ final class Mymmo_Cards_Stappen {
 
         $opvulling = mymmo_cards_keuze((string) ($attrs['opvulling'] ?? ''), mymmo_cards_opvullingen(), 'normaal');
 
-        $klassen = ['mymmo-stappen', 'mymmo-stappen--pad-' . $opvulling];
+        $klassen = ['mymmo-werkstappen', 'mymmo-werkstappen--pad-' . $opvulling];
         $uitlijning = (string) ($attrs['align'] ?? '');
         if (in_array($uitlijning, ['full', 'wide'], true)) {
             // Een dynamisch blok moet zijn uitlijnklasse zelf zetten -- zie
@@ -223,18 +231,18 @@ final class Mymmo_Cards_Stappen {
         $nummer = mymmo_cards_color((string) ($attrs['nummerKleur'] ?? ''));
         if ($nummer !== '') {
             $stijl[]   = '--mk-nummer-kleur:' . $nummer;
-            $klassen[] = 'mymmo-stappen--nummer-kleur';
+            $klassen[] = 'mymmo-werkstappen--nummer-kleur';
         }
 
         $data = '';
         if (self::vlag($attrs, 'horizontaal', true)) {
-            $data = ' data-mymmo-stappen data-scroll="' . mymmo_cards_px($attrs['scroll'] ?? null, 55, 25, 120) . '"';
+            $data = ' data-mymmo-werkstappen data-scroll="' . mymmo_cards_px($attrs['scroll'] ?? null, 55, 25, 120) . '"';
         }
 
         return '<div ' . self::wikkel(['class' => implode(' ', $klassen), 'style' => implode(';', $stijl)]) . $data . '>'
             // De BAAN is zo hoog als er te scrollen valt; de RIJ kleeft erin.
             // Onder elkaar doen ze allebei niets.
-            . '<div class="mymmo-stappen-baan"><div class="mymmo-stappen-rij">' . implode('', $kinderen) . '</div></div>'
+            . '<div class="mymmo-werkstappen-baan"><div class="mymmo-werkstappen-rij">' . implode('', $kinderen) . '</div></div>'
             . '</div>';
     }
 
@@ -256,11 +264,11 @@ final class Mymmo_Cards_Stappen {
             $stijl[] = '--mk-stap-bg:' . $bg;
         }
 
-        $nummer_klassen = trim('mymmo-stap-nummer ' . self::$nummer_klassen);
+        $nummer_klassen = trim('mymmo-werkstap-nummer ' . self::$nummer_klassen);
 
-        return '<div ' . self::wikkel(['class' => 'mymmo-stap', 'style' => implode(';', $stijl)]) . ' data-mymmo-stap="' . ($index + 1) . '">'
+        return '<div ' . self::wikkel(['class' => 'mymmo-werkstap', 'style' => implode(';', $stijl)]) . ' data-mymmo-werkstap="' . ($index + 1) . '">'
             . '<span class="' . esc_attr($nummer_klassen) . '" aria-hidden="true">' . ($index + 1) . '</span>'
-            . '<div class="mymmo-stap-inhoud">' . $content . '</div>'
+            . '<div class="mymmo-werkstap-inhoud">' . $content . '</div>'
             . '</div>';
     }
 
@@ -382,7 +390,7 @@ final class Mymmo_Cards_Stappen {
             return;
         }
 
-        wp_enqueue_style('mymmo-stappen');
-        wp_enqueue_style('mymmo-stappen-editor');
+        wp_enqueue_style('mymmo-werkstappen');
+        wp_enqueue_style('mymmo-werkstappen-editor');
     }
 }

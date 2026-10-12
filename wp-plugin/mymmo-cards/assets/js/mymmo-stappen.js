@@ -2,7 +2,7 @@
  * De stappen op de pagina: naast elkaar openschuiven tijdens het scrollen.
  *
  * Enkel op een computer (vanaf 782px, het breekpunt van WordPress en van de
- * rest van deze plugin) en enkel als de reeks het wil (`data-mymmo-stappen`).
+ * rest van deze plugin) en enkel als de reeks het wil (`data-mymmo-werkstappen`).
  *
  * DE PANELEN ZIJN ALTIJD EVEN HOOG: de hoogte van het scherm onder de vaste
  * kop. Is de inhoud van een stap hoger, dan krimpt het script die inhoud (en
@@ -42,9 +42,9 @@
 
   function Reeks(el) {
     this.el = el;
-    this.baan = el.querySelector('.mymmo-stappen-baan');
-    this.rij = el.querySelector('.mymmo-stappen-rij');
-    this.stappen = [].slice.call(el.querySelectorAll('.mymmo-stappen-rij > .mymmo-stap'));
+    this.baan = el.querySelector('.mymmo-werkstappen-baan');
+    this.rij = el.querySelector('.mymmo-werkstappen-rij');
+    this.stappen = [].slice.call(el.querySelectorAll('.mymmo-werkstappen-rij > .mymmo-werkstap'));
     this.breed = window.matchMedia(BREED);
     this.rustig = window.matchMedia(RUSTIG);
     this.actief = -1;
@@ -119,7 +119,7 @@
       return;
     }
 
-    el.classList.add('mymmo-stappen--naast');
+    el.classList.add('mymmo-werkstappen--naast');
     el.style.setProperty('--mk-paneel', paneel + 'px');
 
     // Alles dicht: zo is de breedte van een dicht paneel te meten.
@@ -152,7 +152,7 @@
     var el = this.el;
     this.aan = false;
     this.actief = -1;
-    el.classList.remove('mymmo-stappen--naast');
+    el.classList.remove('mymmo-werkstappen--naast');
     ['--mk-paneel', '--mk-open', '--mk-baan'].forEach(function (naam) {
       el.style.removeProperty(naam);
     });
@@ -173,8 +173,8 @@
    */
   Reeks.pas = function (stap, paneel) {
     var s = window.getComputedStyle(stap);
-    var nummer = stap.querySelector('.mymmo-stap-nummer');
-    var inhoud = stap.querySelector('.mymmo-stap-inhoud');
+    var nummer = stap.querySelector('.mymmo-werkstap-nummer');
+    var inhoud = stap.querySelector('.mymmo-werkstap-inhoud');
     if (!inhoud) {
       return true;
     }
@@ -235,7 +235,7 @@
   };
 
   function init() {
-    [].slice.call(document.querySelectorAll('[data-mymmo-stappen]')).forEach(function (el) {
+    [].slice.call(document.querySelectorAll('[data-mymmo-werkstappen]')).forEach(function (el) {
       new Reeks(el).start();
     });
   }

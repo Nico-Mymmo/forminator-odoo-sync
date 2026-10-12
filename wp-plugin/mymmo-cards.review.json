@@ -1,8 +1,8 @@
 {
   "plugin": "mymmo-cards",
-  "versie": "1.11.1",
-  "hash": "4002bfb345a73a2e",
-  "datum": "2026-10-12T12:21:38.000Z",
+  "versie": "1.11.2",
+  "hash": "1a5d8d8d796dd69d",
+  "datum": "2026-10-12T13:07:57.000Z",
   "door": "Claude",
-  "samenvatting": "Stappen 1.11.1: in de stand naast elkaar zijn de panelen altijd even hoog; een stap die niet past krimpt met zoom (geen transform, zodat een venster van Mymmo Forms niet gevangen zit), minimaal 70%, anders onder elkaar. Telefoon, editor en huisstijlwaarden ongewijzigd; getest op 1366x650, 1440x800, 1920x1000 en 1280x520."
+  "samenvatting": "Stappen 1.11.2: enkel eigen klassen- en attribuutnamen (mymmo-werkstappen/-werkstap, data-mymmo-werkstappen, window.MymmoWerkstappen) zodat Mymmo Forms (offertevenster op dezelfde pagina) het blok niet meer overneemt. Geen wijziging aan uitzicht, huisstijlwaarden, telefoon of editor; getest met het script en de stylesheet van Mymmo Forms ernaast: naast elkaar, panelen even hoog."
 }
