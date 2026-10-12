@@ -165,6 +165,11 @@ final class Mymmo_Cards_Stappen {
             'boven'         => ['type' => 'number', 'default' => 96],
             // Hoeveel je scrolt per stap, in % van de schermhoogte.
             'scroll'        => ['type' => 'number', 'default' => 55],
+            // Hoe hoog de panelen naast elkaar zijn, in px. Zonder grens worden
+            // ze zo hoog als het scherm, en dan staat er op een groot scherm
+            // een leeg vlak onder de tekst. 640 = een gewone laptop van 15"
+            // (1536 x 864, min de balken van de browser en de vaste kop).
+            'hoogte'        => ['type' => 'number', 'default' => 640],
         ];
     }
 
@@ -236,7 +241,8 @@ final class Mymmo_Cards_Stappen {
 
         $data = '';
         if (self::vlag($attrs, 'horizontaal', true)) {
-            $data = ' data-mymmo-werkstappen data-scroll="' . mymmo_cards_px($attrs['scroll'] ?? null, 55, 25, 120) . '"';
+            $data = ' data-mymmo-werkstappen data-scroll="' . mymmo_cards_px($attrs['scroll'] ?? null, 55, 25, 120) . '"'
+                . ' data-hoogte="' . mymmo_cards_px($attrs['hoogte'] ?? null, 640, 400, 1000) . '"';
         }
 
         return '<div ' . self::wikkel(['class' => implode(' ', $klassen), 'style' => implode(';', $stijl)]) . $data . '>'

@@ -4,8 +4,9 @@
  * Enkel op een computer (vanaf 782px, het breekpunt van WordPress en van de
  * rest van deze plugin) en enkel als de reeks het wil (`data-mymmo-werkstappen`).
  *
- * DE PANELEN ZIJN ALTIJD EVEN HOOG: de hoogte van het scherm onder de vaste
- * kop. Is de inhoud van een stap hoger, dan krimpt het script die inhoud (en
+ * DE PANELEN ZIJN ALTIJD EVEN HOOG: de ingestelde hoogte (`data-hoogte`,
+ * standaard 640px, een gewone laptop), of meer als een stap dat nodig heeft,
+ * maar nooit hoger dan het scherm onder de vaste kop. Is de inhoud van een stap hoger, dan krimpt het script die inhoud (en
  * enkel die) tot ze past (`--mk-schaal`, zie mymmo-stappen.css). Tot 1.11.0
  * vielen alle stappen in dat geval terug naar onder elkaar, elk met een eigen
  * hoogte. Een schuifbalk in een paneel is geen uitweg: die hoort niet in een
@@ -114,10 +115,12 @@
     var stijl = window.getComputedStyle(el);
     this.boven = px(stijl.getPropertyValue('--mk-boven'));
 
-    var paneel = window.innerHeight - this.boven - MARGE;
-    if (paneel < MIN_PANEEL) {
+    // Wat er op het scherm past, onder de vaste kop.
+    var ruimte = window.innerHeight - this.boven - MARGE;
+    if (ruimte < MIN_PANEEL) {
       return;
     }
+    var paneel = ruimte;
 
     el.classList.add('mymmo-werkstappen--naast');
     el.style.setProperty('--mk-paneel', paneel + 'px');
@@ -127,6 +130,20 @@
     var tussen = px(window.getComputedStyle(this.rij).columnGap);
     var open = this.rij.clientWidth - (this.stappen.length - 1) * (dicht + tussen);
     el.style.setProperty('--mk-open', Math.floor(open) + 'px');
+
+    // Hoe hoog de panelen worden: de ingestelde hoogte (standaard die van
+    // een gewone laptop), zodat een groot scherm geen leeg vlak onder de
+    // tekst krijgt. Heeft een stap meer nodig, dan groeit het paneel mee tot
+    // het scherm vol is; pas daarna krimpt de inhoud. Altijd een hoogte voor
+    // alle stappen samen: zo blijven ze even hoog.
+    var gewenst = px(el.getAttribute('data-hoogte') || 0);
+    if (gewenst > 0) {
+      var nodig = this.stappen.reduce(function (max, stap) {
+        return Math.max(max, Reeks.nodig(stap));
+      }, 0);
+      paneel = Math.min(ruimte, Math.max(gewenst, Math.ceil(nodig)));
+      el.style.setProperty('--mk-paneel', paneel + 'px');
+    }
 
     // Past elke stap? De inhoud staat al op de breedte van een open paneel,
     // ook als het paneel dicht is, dus dit kan zonder iets te openen. Wat niet
@@ -163,6 +180,16 @@
       stap.removeAttribute('role');
       stap.removeAttribute('aria-label');
     });
+  };
+
+  /** Hoe hoog een stap moet zijn om haar inhoud op ware grootte te tonen. */
+  Reeks.nodig = function (stap) {
+    var s = window.getComputedStyle(stap);
+    var nummer = stap.querySelector('.mymmo-werkstap-nummer');
+    var inhoud = stap.querySelector('.mymmo-werkstap-inhoud');
+    return px(s.paddingTop) + px(s.paddingBottom)
+      + (nummer ? nummer.getBoundingClientRect().height : 0)
+      + (inhoud ? inhoud.getBoundingClientRect().height : 0);
   };
 
   /**
