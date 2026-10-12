@@ -1,7 +1,9 @@
 /**
- * Nieuwsbrieven -- het schrijfscherm van één stukje: links het formulier,
- * rechts het stukje zoals het in de mail komt (dezelfde renderer als de mail),
- * met AI-hulp en opmerkingen. Bewaart vanzelf.
+ * Nieuwsbrieven -- het schrijfformulier van één stukje, met AI-hulp en
+ * opmerkingen. Bewaart vanzelf. Twee plekken (NB.state.stukjeHost):
+ *   'paneel'  naast de brief op de redactietafel (newsletters-edition.js):
+ *             wat je typt, staat meteen op zijn plek in de hele brief
+ *   'pagina'  een eigen scherm, voor een idee in de voorraad (nog geen editie)
  */
 (function () {
   'use strict';
@@ -55,6 +57,7 @@
       });
       NB.state.vuil = false;
       s.item = Object.assign({}, s.item, bij);
+      if (NB.state.stukjeHost === 'paneel' && NB.stukjeBijgewerkt) NB.stukjeBijgewerkt(s.item);
       zetBewaarStand('Bewaard om ' + NB.datum(new Date().toISOString(), { hour: '2-digit', minute: '2-digit' }));
       var badge = document.getElementById('stStatus');
       if (badge) badge.innerHTML = NB.statusBadge(s.item.status);
@@ -63,6 +66,7 @@
   NB.bewaarStukje = bewaar;
 
   async function laadVoorbeeld() {
+    if (NB.state.stukjeHost === 'paneel') { if (NB.vernieuwBrief) NB.vernieuwBrief(); return; }
     var frame = document.getElementById('stVoorbeeld');
     if (!frame) return;
     try {
@@ -213,15 +217,16 @@
     }).join('') + '</div>';
   }
 
-  function aiBlok() {
+  function aiBlok(paneel) {
     var kind = c().kind;
     if (!NB.state.stukje.can_edit || NB.isAuto(kind) || ['news', 'link', 'linkedin'].indexOf(kind) >= 0) return '';
-    return '<div class="card bg-base-100 border border-base-content/10"><div class="card-body p-5 gap-3">'
-      + '<label class="form-control"><span class="label-text mb-1 font-semibold">Wat wil je kwijt? <span class="font-normal opacity-60">Steekwoorden mogen, de AI maakt er een stukje van.</span></span>'
+    var kern = '<label class="form-control"><span class="label-text mb-1 font-semibold">Wat wil je kwijt? <span class="font-normal opacity-60">Steekwoorden mogen, de AI maakt er een stukje van.</span></span>'
       + '<textarea class="textarea textarea-bordered" rows="3" data-veld="raw_notes">' + e(c().raw_notes || '') + '</textarea></label>'
       + '<div class="flex flex-wrap gap-2"><button class="btn btn-sm btn-primary" data-action="ai" data-ai="write"><i data-lucide="sparkles" class="w-4 h-4"></i> Schrijf het voor me</button>'
       + '<button class="btn btn-sm btn-ghost" data-action="ai" data-ai="shorter">Korter</button><button class="btn btn-sm btn-ghost" data-action="ai" data-ai="warmer">Warmer</button><button class="btn btn-sm btn-ghost" data-action="ai" data-ai="spelling">Spelling nakijken</button></div>'
-      + '<div id="stVoorstel"></div></div></div>';
+      + '<div id="stVoorstel"></div>';
+    if (paneel) return '<div class="bg-base-200 rounded-xl p-3 flex flex-col gap-2">' + kern + '</div>';
+    return '<div class="card bg-base-100 border border-base-content/10"><div class="card-body p-5 gap-3">' + kern + '</div></div>';
   }
 
   function reeksKeuze() {
@@ -233,19 +238,28 @@
       }).join('') + '</div><p class="text-xs opacity-60">Dit staat in de voorraad. De hoofdredactie neemt het op in een editie.</p></div></div>';
   }
 
-  function knoppenBalk() {
+  function statusKnoppen(paneel) {
     var s = NB.state.stukje;
     var st = s.item.status;
     var editor = s.series && s.series.is_editor;
+    var auto = NB.isAuto(s.item.kind);
     var k = [];
-    if (s.can_edit && (st === 'open' || st === 'draft') && s.item.edition_id) k.push('<button class="btn btn-primary" data-action="zet-status" data-status="submitted">Inleveren bij de redactie</button>');
+    if (s.can_edit && (st === 'open' || st === 'draft') && s.item.edition_id && !auto) {
+      k.push('<button class="btn btn-primary' + (paneel ? ' flex-1' : '') + '" data-action="zet-status" data-status="submitted">' + (paneel ? 'Klaar, geef door aan marketing' : 'Inleveren bij de redactie') + '</button>');
+    }
     if (editor && st === 'submitted') {
       k.push('<button class="btn btn-ghost" data-action="zet-status" data-status="draft">Terug naar de schrijver</button>');
-      k.push('<button class="btn btn-success" data-action="zet-status" data-status="approved">Goedkeuren</button>');
+      k.push('<button class="btn btn-success' + (paneel ? ' flex-1' : '') + '" data-action="zet-status" data-status="approved">Bevestigen</button>');
     }
-    if (s.can_edit && st === 'approved' && !NB.isAuto(s.item.kind)) k.push('<button class="btn btn-ghost" data-action="zet-status" data-status="draft">Terug naar concept</button>');
+    if (paneel && editor && st === 'draft' && !auto) k.push('<button class="btn btn-success btn-outline" data-action="zet-status" data-status="approved">Meteen bevestigen</button>');
+    if (s.can_edit && st === 'approved' && !auto) k.push('<button class="btn btn-ghost" data-action="zet-status" data-status="draft">Terug naar concept</button>');
+    return k;
+  }
+
+  function knoppenBalk() {
+    var s = NB.state.stukje;
     return '<div class="card bg-base-100 border border-base-content/10 mt-5"><div class="card-body p-4 flex-row flex-wrap items-center gap-3">'
-      + '<span id="stBewaard" class="text-sm opacity-60 mr-auto">' + (s.can_edit ? 'Bewaart vanzelf' : 'Alleen lezen') + '</span>' + k.join('') + '</div></div>';
+      + '<span id="stBewaard" class="text-sm opacity-60 mr-auto">' + (s.can_edit ? 'Bewaart vanzelf' : 'Alleen lezen') + '</span>' + statusKnoppen(false).join('') + '</div></div>';
   }
 
   function opmerkingen() {
@@ -258,7 +272,67 @@
       + '<button class="btn btn-sm self-end" data-action="plaats-opmerking">Plaatsen</button></div></div>';
   }
 
+  // ─── In het paneel naast de brief ─────────────────────────────────────────
+
+  var STAND_ZIN = {
+    open: 'Nog in te vullen',
+    draft: 'Bezig, nog niet doorgegeven',
+    submitted: 'Doorgegeven, wacht op bevestiging van marketing',
+    approved: 'Bevestigd, gaat zo mee',
+  };
+
+  function renderPaneel() {
+    var bak = document.getElementById('nbPaneel');
+    if (!bak) return;
+    var s = NB.state.stukje;
+    var it = s.item;
+    var ed = s.edition;
+    var editor = s.series && s.series.is_editor;
+    var auto = NB.isAuto(c().kind);
+    var actiefEd = ed && ['collecting', 'review'].indexOf(ed.status) >= 0;
+    var mijn = it.owner_user_id === NB.state.boot.me.id;
+    var wie = it.owner_name ? (mijn ? 'Voor jou' : 'Van ' + it.owner_name) : 'Nog aan niemand toegewezen';
+    var tegen = actiefEd && !auto && (it.status === 'open' || it.status === 'draft')
+      ? '<div class="text-xs opacity-70">Inleveren tegen ' + e(NB.datum(ed.deadline_at, { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })) + ' · ' + e(NB.tellerTekst(ed.deadline_at)) + '</div>' : '';
+    var stand = auto ? 'Vult zichzelf' : (STAND_ZIN[it.status] || '');
+    var hint = s.hint ? '<div class="flex gap-2 text-sm bg-primary/5 border border-primary/20 rounded-xl p-3"><i data-lucide="lightbulb" class="w-4 h-4 shrink-0 mt-0.5 text-primary"></i><span>' + e(s.hint) + '</span></div>' : '';
+    var knoppen = s.can_edit || editor ? statusKnoppen(true) : [];
+    var beheer = editor && actiefEd
+      ? '<details class="collapse collapse-arrow bg-base-100 border border-base-content/10"><summary class="collapse-title font-semibold text-sm min-h-0 py-3">Hoofdredactie</summary><div class="collapse-content flex flex-col gap-3">'
+        + (auto ? '' : '<label class="form-control"><span class="label-text text-xs mb-1">Wie schrijft het?</span><select class="select select-bordered select-sm" data-change="eigenaar" data-id="' + e(it.id) + '">' + NB.gebruikersOpties(it.owner_user_id, true) + '</select></label>')
+        + '<div class="flex flex-wrap gap-1"><button class="btn btn-sm btn-ghost" data-action="verplaats" data-id="' + e(it.id) + '" data-richting="-1"><i data-lucide="arrow-up" class="w-4 h-4"></i> Hoger</button>'
+        + '<button class="btn btn-sm btn-ghost" data-action="verplaats" data-id="' + e(it.id) + '" data-richting="1"><i data-lucide="arrow-down" class="w-4 h-4"></i> Lager</button>'
+        + '<button class="btn btn-sm btn-ghost text-error ml-auto" data-action="blok-weg" data-id="' + e(it.id) + '"><i data-lucide="trash-2" class="w-4 h-4"></i> Uit de brief</button></div>'
+        + (auto ? '' : '<div><span class="label-text text-xs">Soort blok</span><div class="mt-1">' + soortKeuze() + '</div></div>')
+        + '</div></details>'
+      : '';
+    var n = s.comments.length;
+    var praat = '<details class="collapse collapse-arrow bg-base-100 border border-base-content/10"' + (n ? ' open' : '') + '><summary class="collapse-title font-semibold text-sm min-h-0 py-3">Opmerkingen' + (n ? ' (' + n + ')' : '') + '</summary><div class="collapse-content flex flex-col gap-3">'
+      + s.comments.map(function (m) {
+        return '<div class="flex gap-2">' + NB.gezicht(m.user_name) + '<div class="bg-base-200 rounded-xl px-3 py-2 text-sm flex-1"><strong>' + e((m.user_name || '').split(' ')[0]) + '</strong> <span class="opacity-50 text-xs">' + e(NB.datum(m.created_at, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })) + '</span><div class="whitespace-pre-line">' + e(m.body) + '</div></div></div>';
+      }).join('')
+      + '<textarea id="stOpmerking" class="textarea textarea-bordered textarea-sm" rows="2" placeholder="Vraag of reageer…"></textarea>'
+      + '<button class="btn btn-sm self-end" data-action="plaats-opmerking">Plaatsen</button></div></details>';
+
+    bak.innerHTML = '<div class="flex flex-col gap-3">'
+      + '<div class="card bg-base-100 border border-primary/40"><div class="card-body p-4 gap-3">'
+      + '<div class="flex items-center gap-2"><button class="btn btn-ghost btn-sm px-2" data-action="paneel-sluit"><i data-lucide="arrow-left" class="w-4 h-4"></i> Overzicht</button>'
+      + '<span id="stBewaard" class="text-xs opacity-60 ml-auto">' + (s.can_edit ? 'Bewaart vanzelf' : 'Alleen lezen') + '</span></div>'
+      + '<div><input class="input input-ghost input-sm text-lg font-bold px-1 w-full" data-veld="title" value="' + e(c().title) + '" aria-label="Naam boven het blok" title="Het labeltje boven het blok in de mail"' + (s.can_edit ? '' : ' disabled') + '>'
+      + '<div class="flex flex-wrap items-center gap-2 text-sm mt-1 px-1"><span id="stStatus">' + (auto ? '<span class="badge badge-sm badge-ghost">Automatisch</span>' : NB.statusBadge(it.status)) + '</span><span class="opacity-70">' + e(stand) + '</span></div>'
+      + '<div class="text-xs opacity-70 px-1 mt-1">' + e(wie) + '</div>' + (tegen ? '<div class="px-1">' + tegen + '</div>' : '') + '</div>'
+      + hint
+      + aiBlok(true)
+      + '<div class="flex flex-col gap-4">' + velden(c().kind) + '</div>'
+      + '</div></div>'
+      + (knoppen.length ? '<div class="sticky bottom-0 z-10 bg-base-100 border border-base-content/10 rounded-xl p-3 flex flex-wrap gap-2 shadow-sm">' + knoppen.join('') + '</div>' : '')
+      + beheer + praat
+      + '</div>';
+    NB.ikons();
+  }
+
   function render() {
+    if (NB.state.stukjeHost === 'paneel') { renderPaneel(); return; }
     var s = NB.state.stukje;
     var app = document.getElementById('app');
     var ed = s.edition;
@@ -285,19 +359,37 @@
     laadVoorbeeld();
   }
 
-  NB.views.stukje = async function (params) {
-    var d = await NB.api('/api/contributions/' + params.id);
+  function zetStukje(d) {
     NB.state.stukje = d;
     NB.state.vuil = false;
     NB.state.concept = {
       kind: d.item.kind, title: d.item.title, content: JSON.parse(JSON.stringify(d.item.content || {})),
       raw_notes: d.item.raw_notes || '', series_ids: (d.item.series_ids || []).slice(),
     };
+  }
+
+  function laadExtra(d) {
     var wacht = [NB.laadTekeningen()];
     if (d.item.kind === 'events' && d.edition) {
       wacht.push(NB.api('/api/editions/' + d.edition.id + '/suggestions').then(function (r) { NB.state.stukjeEvents = r.events || []; }).catch(function () { NB.state.stukjeEvents = []; }));
     }
-    await Promise.all(wacht);
+    return Promise.all(wacht);
+  }
+
+  /** Een stukje van een editie opent op de redactietafel, naast de brief. */
+  NB.views.stukje = async function (params) {
+    var d = await NB.api('/api/contributions/' + params.id);
+    if (d.edition && NB.views.editie) { await NB.views.editie({ id: d.edition.id, stukje: d }); return; }
+    NB.state.stukjeHost = 'pagina';
+    zetStukje(d);
+    await laadExtra(d);
+    render();
+  };
+
+  NB.stukjeInPaneel = async function (d) {
+    zetStukje(d);
+    NB.state.stukjeHost = 'paneel';
+    await laadExtra(d);
     render();
   };
 
@@ -309,6 +401,7 @@
     zet(pad, waarde);
     if (pad === 'content.thingie' && waarde) {
       NB.zorgVoorPng(waarde).catch(function (err) { NB.toast('PNG van de tekening maken mislukt: ' + err.message, 'warning'); });
+      gewijzigd();
       render();
       return;
     }
@@ -470,7 +563,8 @@
     try {
       var bij = await NB.api('/api/contributions/' + NB.state.stukje.item.id + '/status', { method: 'POST', body: { status: el.dataset.status } });
       NB.state.stukje.item = Object.assign({}, NB.state.stukje.item, bij);
-      NB.toast(el.dataset.status === 'submitted' ? 'Ingeleverd. Dank je!' : el.dataset.status === 'approved' ? 'Goedgekeurd.' : 'Terug naar concept.');
+      NB.toast(el.dataset.status === 'submitted' ? 'Doorgegeven aan marketing. Dank je!' : el.dataset.status === 'approved' ? 'Bevestigd.' : 'Terug naar concept.');
+      if (NB.state.stukjeHost === 'paneel' && NB.stukjeBijgewerkt) NB.stukjeBijgewerkt(NB.state.stukje.item);
       render();
     } catch (err) { NB.fout(err); }
   };
