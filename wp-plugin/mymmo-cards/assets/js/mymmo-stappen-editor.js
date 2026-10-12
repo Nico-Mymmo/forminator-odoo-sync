@@ -36,6 +36,10 @@
   var RangeControl = components.RangeControl;
   var ColorPalette = components.ColorPalette;
   var BaseControl = components.BaseControl;
+  var TextControl = components.TextControl;
+  var Button = components.Button;
+  var MediaUpload = blockEditor.MediaUpload;
+  var MediaUploadCheck = blockEditor.MediaUploadCheck;
 
   var useSelect = data.useSelect;
 
@@ -301,6 +305,88 @@
   });
 
   // ───────────────────────────────────────────────────────────────────────────
+  // De illustratie van een stap (zelfde instellingen als de vorm op een kaart)
+  // ───────────────────────────────────────────────────────────────────────────
+
+  function getal(w, terugval) {
+    return w === undefined || w === null || w === '' ? terugval : Number(w);
+  }
+
+  /** Dezelfde variabelen als sier_stijl() in class-stappen.php. */
+  function sierStijl(a, stand) {
+    var m = stand ? '-m' : '';
+    var uit = {};
+    uit['--mk-sier-b' + m] = getal(a['sierBreedte' + stand], 70) / 100;
+    uit['--mk-sier-x' + m] = getal(a['sierX' + stand], 50) / 100;
+    uit['--mk-sier-y' + m] = getal(a['sierY' + stand], 50) + '%';
+    uit['--mk-sier-draai' + m] = getal(a['sierDraai' + stand], 0) + 'deg';
+    uit['--mk-sier-dekking' + m] = getal(a['sierDekking' + stand], 100) / 100;
+    return uit;
+  }
+
+  function sierSchuiven(a, zet, stand, achter) {
+    function schuif(label, naam, min, max, help) {
+      return el(RangeControl, {
+        label: label + achter,
+        value: a[naam + stand],
+        min: min,
+        max: max,
+        help: help,
+        onChange: function (w) { var o = {}; o[naam + stand] = w; zet(o); },
+        __nextHasNoMarginBottom: true
+      });
+    }
+    return [
+      schuif('Grootte (% van de breedte van de stap)', 'sierBreedte', 5, 1000, stand ? undefined : '100% = zo breed als de stap. De vorm houdt haar eigen verhouding.'),
+      schuif('Horizontaal (%)', 'sierX', -300, 400, stand ? undefined : '50 = gecentreerd, 0 = linkerrand, 100 = rechterrand. Wat buiten de stap valt, wordt afgesneden.'),
+      schuif('Verticaal (%)', 'sierY', -300, 400),
+      schuif('Draaiing (graden)', 'sierDraai', -180, 180),
+      schuif('Dekking (%)', 'sierDekking', 0, 100)
+    ];
+  }
+
+  function sierPaneel(a, zet) {
+    return el(
+      PanelBody,
+      { title: 'Illustratie op de achtergrond', initialOpen: false },
+      el('p', { style: { margin: '0 0 8px' } },
+        'Een swirl of een blob achter de inhoud van deze stap. Op een computer verschijnt ze wanneer de stap openschuift.'),
+      MediaUpload && MediaUploadCheck
+        ? el(MediaUploadCheck, null, el(MediaUpload, {
+            allowedTypes: ['image'],
+            onSelect: function (media) { zet({ sier: media && media.url ? media.url : '' }); },
+            render: function (obj) {
+              return el(Button, { variant: 'secondary', onClick: obj.open }, a.sier ? 'Andere illustratie kiezen' : 'Illustratie uit de mediabibliotheek');
+            }
+          }))
+        : null,
+      el(TextControl, {
+        label: 'of een URL',
+        value: a.sier || '',
+        onChange: function (w) { zet({ sier: w }); },
+        placeholder: 'https://link.openvme.be/assets/brand/…',
+        help: 'Een SVG of PNG. Leeg = geen illustratie.'
+      }),
+      a.sier
+        ? el(
+            element.Fragment,
+            null,
+            sierSchuiven(a, zet, '', ''),
+            el(ToggleControl, {
+              label: 'Eigen instellingen op een telefoon',
+              checked: !!a.sierMobiel,
+              onChange: function (w) { zet({ sierMobiel: w }); },
+              help: 'Onder 640px heeft de stap een heel andere vorm. Uit = dezelfde instellingen als op een computer.',
+              __nextHasNoMarginBottom: true
+            }),
+            a.sierMobiel ? sierSchuiven(a, zet, 'Mobiel', ' op een telefoon') : null,
+            el(Button, { variant: 'link', isDestructive: true, onClick: function () { zet({ sier: '' }); } }, 'Illustratie verwijderen')
+          )
+        : null
+    );
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────
   // Een stap
   // ───────────────────────────────────────────────────────────────────────────
 
@@ -317,7 +403,19 @@
       anchor: true
     },
     attributes: {
-      achtergrond: { type: 'string', default: '' }
+      achtergrond: { type: 'string', default: '' },
+      sier: { type: 'string', default: '' },
+      sierBreedte: { type: 'number', default: 70 },
+      sierX: { type: 'number', default: 50 },
+      sierY: { type: 'number', default: 50 },
+      sierDraai: { type: 'number', default: 0 },
+      sierDekking: { type: 'number', default: 100 },
+      sierMobiel: { type: 'boolean', default: false },
+      sierBreedteMobiel: { type: 'number', default: 70 },
+      sierXMobiel: { type: 'number', default: 50 },
+      sierYMobiel: { type: 'number', default: 50 },
+      sierDraaiMobiel: { type: 'number', default: 0 },
+      sierDekkingMobiel: { type: 'number', default: 100 }
     },
 
     edit: function (props) {
@@ -334,9 +432,21 @@
         };
       }, [props.clientId]);
 
+      // Zelfde klassen en variabelen als render_stap() en sier_stijl().
+      var klassen = ['mymmo-werkstap'];
+      var stijl = { '--mk-stap-bg': kleurCss(a.achtergrond) };
+      if (a.sier) {
+        klassen.push('mymmo-werkstap--sier');
+        Object.assign(stijl, sierStijl(a, ''));
+        if (a.sierMobiel) {
+          klassen.push('mymmo-werkstap--sier-m');
+          Object.assign(stijl, sierStijl(a, 'Mobiel'));
+        }
+      }
+
       var blockProps = useBlockProps({
-        className: 'mymmo-werkstap',
-        style: { '--mk-stap-bg': kleurCss(a.achtergrond) }
+        className: klassen.join(' '),
+        style: stijl
       });
 
       var inhoud = binnenProps({ className: 'mymmo-werkstap-inhoud' }, {
@@ -352,13 +462,15 @@
           { title: 'Uitzicht', initialOpen: true },
           kleurkiezer('Achtergrond van deze stap', palet, a.achtergrond, function (w) { zet({ achtergrond: w }); },
             'Leeg = de achtergrond van de reeks.')
-        )
+        ),
+        sierPaneel(a, zet)
       );
 
       return el(
         'div',
         blockProps,
         zijbalk,
+        a.sier ? el('span', { className: 'mymmo-werkstap-sier', 'aria-hidden': 'true', style: { backgroundImage: 'url(' + a.sier + ')' } }) : null,
         el('span', { className: nummerKlassen(gegevens.reeks), 'aria-hidden': 'true' }, String(gegevens.index + 1)),
         el('div', inhoud.props, inhoud.kinderen)
       );
