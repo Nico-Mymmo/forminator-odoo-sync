@@ -37,7 +37,7 @@ import { sendSystemChannelPayload } from '../../mini-apps/lib/chat.js';
 import { fetchArticle } from './article-fetch.js';
 import { analyseerArtikel } from './article-ai.js';
 import { createSnippet, listTaxonomy } from './content-service.js';
-import { chatKanaal } from './chat-melding.js';
+import { chatKanaal, bouwKaart, publiekBeeld } from './chat-melding.js';
 import { medewerkerVoorGebruiker } from '../../../lib/medewerkers.js';
 import { LOG_PREFIX } from '../constants.js';
 
@@ -99,8 +99,12 @@ async function odooGebruikerVan(env, lezer, sender, memo) {
 }
 
 async function antwoord(env, draad, tekst) {
+  return antwoordMet(env, draad, { text: tekst });
+}
+
+async function antwoordMet(env, draad, bericht) {
   try {
-    await sendSystemChannelPayload(env, chatKanaal(env), { text: tekst }, { bron: 'Nieuws & updates', threadName: draad });
+    await sendSystemChannelPayload(env, chatKanaal(env), bericht, { bron: 'Nieuws & updates', threadName: draad });
   } catch (error) {
     console.warn(`${LOG_PREFIX} antwoord in Google Chat mislukt:`, error?.message);
   }
@@ -136,7 +140,19 @@ async function verwerkLink(env, { url, draad, gebruiker, eigenaar }) {
   });
   const om = String(env?.APP_BASE_URL || '').replace(/\/+$/, '');
   const laag = voorstel.relevance === 'laag' ? '\nLet op: dit artikel lijkt weinig op te leveren voor onze doelgroep.' : '';
-  await antwoord(env, draad, `✅ Staat klaar in Nieuws & updates: *${item?.summaryTitle || item?.title || voorstel.title}*\nKijk het na en publiceer het: ${om}/content-feed${laag}`);
+  const titel = item?.summaryTitle || item?.title || voorstel.title;
+  const tekst = `✅ Nieuwsbericht staat klaar: *${titel}*\nKijk het na en publiceer het: ${om}/content-feed${laag}`;
+  if (!item) { await antwoord(env, draad, tekst); return; }
+  // De herwerkte versie als kaart, in dezelfde draad als de link.
+  const kaart = bouwKaart(item, {
+    beeldUrl: await publiekBeeld(env, item),
+    omUrl: om ? `${om}/content-feed` : '',
+    kop: '✅ Nieuwsbericht staat klaar',
+    ondertitel: laag ? 'Concept · lijkt weinig op te leveren voor onze doelgroep' : 'Concept · kijk het na en publiceer het',
+    omLabel: 'Nakijken en publiceren',
+    tekst,
+  });
+  await antwoordMet(env, draad, kaart);
 }
 
 export async function runChatInbox(env) {

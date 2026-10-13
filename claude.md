@@ -3818,8 +3818,9 @@ bleken drie dingen niet te kloppen. Alle drie zijn gefixt in `lib/sync.js`,
   de OM leest het kanaal via de Chat API namens `NEWS_CHAT_READER`
   (domeinbrede delegatie, scope `chat.messages.readonly`), haalt elk nieuw
   artikel op, laat de AI het voorstel maken (dezelfde weg als "Artikel
-  analyseren"), bewaart het als CONCEPT en antwoordt in dezelfde draad dat het
-  klaarstaat (of waarom niet). Nooit automatisch publiceren: een mens kijkt
+  analyseren"), bewaart het als CONCEPT en antwoordt in dezelfde draad met de
+  herwerkte versie als kaart ("Nieuwsbericht staat klaar", knop "Nakijken en
+  publiceren"), of met een ⚠️ en de reden. Nooit automatisch publiceren: een mens kijkt
   na. Bots (ook onze kaarten) en oude berichten worden overgeslagen; hoogstens
   drie links per ronde; elke link één keer (KV).
 - **Het kanaal staat in het kanaalregister** (Mini-apps -> Chat-kanalen) op
