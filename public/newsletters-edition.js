@@ -33,6 +33,7 @@
     { key: 'tekst', kind: 'article', titel: 'Uit het team', icoon: 'file-text', uitleg: 'Een kort verhaal, met foto of tekening.' },
     { key: 'tip', kind: 'article', titel: 'Tip', icoon: 'lightbulb', uitleg: 'Eén tip die tijd bespaart.' },
     { key: 'citaat', kind: 'quote', titel: 'Uit de praktijk', icoon: 'quote', uitleg: 'Wat een klant of collega zei.' },
+    { key: 'afbeelding', kind: 'image', titel: 'Afbeelding', icoon: 'image', uitleg: 'Een beeld over de hele breedte van de mail.' },
     { key: 'video', kind: 'video', titel: 'Video', icoon: 'circle-play', uitleg: 'Een filmpje, met een stilstaand beeld.' },
   ];
   var SJ = {};
@@ -492,9 +493,15 @@
     doc.querySelectorAll('[data-nb-beeld][data-nb-knop]').forEach(function (x) { x.removeAttribute('data-nb-knop'); });
     var s = NB.state.stukje;
     if (!s || NB.state.stukjeHost !== 'paneel' || !s.can_edit || NB.state.voorbeeldStand === 'test' || opmaak()) return;
-    if (!NB.state.concept || NB.state.concept.kind !== 'intro') return;
+    var soort = NB.state.concept && NB.state.concept.kind;
+    if (soort !== 'intro' && soort !== 'image') return;
     var rij = doc.querySelector('[data-nb-id="' + s.item.id + '"]');
     if (!rij) return;
+    if (soort === 'image') {
+      // Een afbeelding: op het beeld klikken opent het beeldvenster.
+      rij.querySelectorAll('[data-nb-beeld]').forEach(function (x) { x.setAttribute('data-nb-knop', 'beeld'); x.title = 'Klik om het beeld aan te passen'; });
+      return;
+    }
     try { doc.execCommand('defaultParagraphSeparator', false, 'p'); } catch (err) { /* oude browsers */ }
     rij.querySelectorAll('[data-nb-veld]').forEach(function (x) { x.setAttribute('contenteditable', 'true'); x.setAttribute('spellcheck', 'true'); });
     var cel = rij.firstElementChild;
@@ -589,6 +596,14 @@
   function openBeeld() {
     var c = NB.state.concept;
     if (!c) return;
+    if (c.kind === 'image') {
+      NB.beeld.open({
+        beeld: NB.beeldVan(c.content, 'image_url', 'vol'),
+        vast: 'vol',
+        opslaan: function (b) { NB.stukjeZet('content.beeld', b); },
+      });
+      return;
+    }
     NB.beeld.open({
       beeld: NB.beeldVan(c.content, 'image_url', 'rechts'),
       plaatsen: true,

@@ -5302,7 +5302,9 @@ Afspraken die bewust zo zijn:
   het beeld; in de mail met `align` op het `<img>`, dat volgen ook Outlook en
   Gmail), halve blok tot de rand (`kolom-rechts`/`kolom-links`), tussen de
   alinea's (`tekst`). `na_alinea` = het aantal alinea's ervoor (0 = bij de
-  eerste); video en link hebben een vaste plek. Breedte en verhouding per plek staan EEN keer in `BEELD_KADERS`
+  eerste); video en link hebben een vaste plek. Het blok "Afbeelding" (`image`)
+  is één beeld over de volle breedte, rand tot rand (`vol`), met een
+  bijschrift en een link; het staat niet in de inhoudstafel. Breedte en verhouding per plek staan EEN keer in `BEELD_KADERS`
   (lib/constants.js); de renderer schikt ermee en het scherm snijdt ermee bij.
   **Een mail kan niet zelf bijsnijden** (geen object-fit in Gmail/Outlook):
   "kader vullen" = het scherm maakt rond het focuspunt een eigen JPEG

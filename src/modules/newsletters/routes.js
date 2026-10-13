@@ -170,6 +170,8 @@ export function normaliseerInhoud(kind, c = {}) {
       };
     case 'quote':
       return { quote: kort(c.quote, 600), person: kort(c.person, 100), role: kort(c.role, 120) };
+    case 'image':
+      return { beeld: normaliseerBeeld(c.beeld, 'vol'), bijschrift: kort(c.bijschrift, 200), link_url: url(c.link_url) };
     case 'statement':
     case 'question':
     case 'poll':
@@ -763,7 +765,7 @@ export const routes = {
       // Het woordje vooraf zegt wat er in de editie staat: geef de titels mee.
       const inhoud = kind === 'intro' && item.edition_id
         ? (await listContributions(env, item.edition_id))
-          .filter((i) => i.id !== item.id && !['toc', 'closing', 'intro'].includes(i.kind) && heeftInhoud(i, { events: [{ id: 0 }] }))
+          .filter((i) => i.id !== item.id && !['toc', 'closing', 'intro', 'image'].includes(i.kind) && heeftInhoud(i, { events: [{ id: 0 }] }))
           .map(kopVan).filter(Boolean)
         : [];
       const voorstel = await stelStukjeVoor(env, user, {

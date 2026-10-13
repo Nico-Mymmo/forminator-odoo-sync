@@ -247,6 +247,10 @@ export function heeftInhoud(item, ctx = {}) {
       return Boolean(safeUrl(c.url));
     case 'quote':
       return Boolean(String(c.quote || '').trim());
+    case 'image': {
+      const b = beeldVan(c);
+      return Boolean(b && (b.thingie || safeUrl(b.url)));
+    }
     case 'statement':
     case 'question':
     case 'poll':
@@ -490,6 +494,20 @@ ${tekstNaarHtml(c.text || 'Een vraag, of een idee voor de volgende editie? Antwo
 ${samen}${knopHtml ? `<div style="margin-top:22px">${knopHtml}</div>` : ''}`, { padding: '44px 40px 44px', id });
 }
 
+/** Een beeld over de hele breedte van de mail, van rand tot rand. */
+function blokImage(item, ctx, id) {
+  const c = item.content || {};
+  const b = beeldVan(c, { plaats: 'vol' });
+  const k = BEELD_KADERS.vol;
+  const tag = beeldTag(b, ctx, k.breedte, { radius: 0, href: c.link_url, alt: c.bijschrift || '' });
+  if (!tag) return '';
+  const bijschrift = String(c.bijschrift || '').trim()
+    ? `<tr><td style="padding:10px 40px 0;font-family:${S.fontBody};font-size:13px;line-height:1.5;color:${S.muted};text-align:center">${esc(c.bijschrift)}</td></tr>`
+    : '';
+  const bAttr = id ? ' data-nb-beeld="1"' : '';
+  return `<tr${id ? ` data-nb-id="${esc(id)}"` : ''}><td style="padding:36px 0 0"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td${bAttr} style="padding:0">${tag}</td></tr>${bijschrift}</table></td></tr>`;
+}
+
 function blokPlaatshouder(item, id) {
   const wie = item.author?.name ? ` · ${esc(item.author.name)}` : '';
   const stand = item.status === CONTRIBUTION_STATUS.DRAFT ? 'wordt geschreven' : 'nog niet ingeleverd';
@@ -503,6 +521,7 @@ const BLOKKEN = {
   link: (item, ctx, id) => blokLink(item, ctx, id),
   linkedin: (item, ctx, id) => blokLink(item, ctx, id, { linkedin: true }),
   quote: blokQuote,
+  image: blokImage,
   statement: blokStatement,
   question: blokQuestion,
   poll: blokPoll,
@@ -570,7 +589,7 @@ export function renderEdition({ series, edition, items, mode = 'preview', ctx = 
   const meeIds = new Set(mee.map((it) => it.id));
 
   // Inhoudstafel en afsluiting kijken naar wat ECHT meegaat.
-  const toc = mee.filter((it) => !['toc', 'closing', 'intro'].includes(it.kind)).map(kopVan).filter(Boolean);
+  const toc = mee.filter((it) => !['toc', 'closing', 'intro', 'image'].includes(it.kind)).map(kopVan).filter(Boolean);
   const authors = [];
   const gezien = new Set();
   for (const it of mee) {

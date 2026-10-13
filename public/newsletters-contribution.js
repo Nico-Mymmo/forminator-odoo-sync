@@ -217,6 +217,10 @@
         return '<div class="flex gap-2 items-end">' + veld('Link', 'content.url', { hint: 'https://' }) + (NB.state.stukje.can_edit ? '<button class="btn" data-action="link-ophalen">Ophalen</button>' : '') + '</div>'
           + veld('Titel', 'content.title') + veld('Tekst', 'content.text', { rijen: 4 }) + beeldRij({ vast: 'link', fotoVeld: 'image_url', label: 'Beeld' })
           + (kind === 'linkedin' ? veld('Van wie is de post?', 'content.author_name') : veld('Naam van de site', 'content.site_name'));
+      case 'image':
+        return beeldRij({ vast: 'vol', fotoVeld: 'image_url', label: 'Afbeelding (over de hele breedte)' })
+          + veld('Bijschrift (optioneel)', 'content.bijschrift', { hint: 'Klein onder het beeld' })
+          + veld('Link bij een klik (optioneel)', 'content.link_url', { hint: 'https://' });
       case 'quote':
         return veld('Citaat', 'content.quote', { rijen: 4 }) + '<div class="grid sm:grid-cols-2 gap-3">' + veld('Wie', 'content.person') + veld('Functie of gebouw', 'content.role') + '</div>';
       case 'statement':
@@ -254,7 +258,7 @@
 
   function aiBlok(paneel) {
     var kind = c().kind;
-    if (!NB.state.stukje.can_edit || NB.isAuto(kind) || ['news', 'link', 'linkedin'].indexOf(kind) >= 0) return '';
+    if (!NB.state.stukje.can_edit || NB.isAuto(kind) || ['news', 'link', 'linkedin', 'image'].indexOf(kind) >= 0) return '';
     var kern = '<label class="form-control"><span class="label-text mb-1 font-semibold">Wat wil je kwijt? <span class="font-normal opacity-60">Steekwoorden mogen, de AI maakt er een stukje van.</span></span>'
       + '<textarea class="textarea textarea-bordered" rows="3" data-veld="raw_notes">' + e(c().raw_notes || '') + '</textarea></label>'
       + '<div class="flex flex-wrap gap-2"><button class="btn btn-sm btn-primary" data-action="ai" data-ai="write"><i data-lucide="sparkles" class="w-4 h-4"></i> Schrijf het voor me</button>'

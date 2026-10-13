@@ -45,6 +45,7 @@ export const KINDS = {
   link:      { label: 'Link met voorbeeld' },
   linkedin:  { label: 'LinkedIn-post' },
   quote:     { label: 'Citaat of klantverhaal' },
+  image:     { label: 'Afbeelding' },
   statement: { label: 'Stelling', interactive: true },
   question:  { label: 'Korte vraag', interactive: true },
   poll:      { label: 'Peiling', interactive: true },
@@ -147,6 +148,7 @@ export const STYLE = {
  *   kolom-rechts / kolom-links  een tweede kolom over het hele blok, tot de rand
  *   tekst                      tussen de alinea's, over de hele breedte
  *   video / link               vaste plek in dat soort blok
+ *   vol                        een blok "Afbeelding": de hele breedte, rand tot rand
  */
 export const BEELD_KADERS = {
   rechts: { breedte: 180, verhouding: 1 },
@@ -156,6 +158,7 @@ export const BEELD_KADERS = {
   tekst: { breedte: 560, verhouding: 16 / 9 },
   video: { breedte: 560, verhouding: 16 / 9 },
   link: { breedte: 558, verhouding: 1.91 },
+  vol: { breedte: 640, verhouding: 16 / 9 },
 };
 
 /** De plekken die je zelf kiest (video en link hebben een vaste plek). */
