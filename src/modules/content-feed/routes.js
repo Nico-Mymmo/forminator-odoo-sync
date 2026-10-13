@@ -179,9 +179,10 @@ export const routes = {
   },
 
   /** "Chat nu ophalen": dezelfde ronde als de 5-minuten-cron, meteen. */
-  'POST /api/chat-ophalen': async ({ env }) => {
+  'POST /api/chat-ophalen': async ({ env, request }) => {
     try {
-      const r = await runChatInbox(env);
+      const body = await leesBody(request);
+      const r = await runChatInbox(env, { terugMinuten: Number(body?.terugMinuten) || 0 });
       return json({ success: true, ...r });
     } catch (error) {
       console.error(`${LOG_PREFIX} Chat ophalen mislukt:`, error?.message);

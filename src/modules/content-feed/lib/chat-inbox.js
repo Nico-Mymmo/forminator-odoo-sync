@@ -156,19 +156,29 @@ async function verwerkLink(env, { url, draad, gebruiker, eigenaar }) {
 }
 
 /**
- * Eén ronde. Geeft { status, gedaan }: 'uit' (niet ingesteld), 'start' (de
- * eerste ronde: vanaf nu wordt gelezen) of 'ok'. De 5-minuten-cron roept dit
- * aan, en de knop "Chat nu ophalen" in Nieuws & updates ook.
+ * Eén ronde. Geeft { status, gedaan, sinds, gelezen, metLinks }: status 'uit'
+ * (niet ingesteld), 'start' (de eerste ronde: vanaf nu wordt gelezen) of 'ok';
+ * `gelezen` = berichten van mensen sinds `sinds`, `metLinks` = waarvan met een
+ * link. De 5-minuten-cron roept dit aan, en de knop "Chat nu ophalen" in
+ * Nieuws & updates ook.
+ *
+ * `terugMinuten` (enkel de knop): lees opnieuw vanaf zoveel minuten geleden.
+ * Veilig: een link die al verwerkt is, heeft een vlag en komt er niet twee keer in.
  */
-export async function runChatInbox(env) {
+export async function runChatInbox(env, { terugMinuten = 0 } = {}) {
   const space = String(env?.NEWS_CHAT_SPACE || '').trim();
   const lezer = String(env?.NEWS_CHAT_READER || '').trim();
   const kv = env?.MAPPINGS_KV || null;
   if (!space || !lezer || !kv) return { status: 'uit', gedaan: 0 };
 
-  const sinds = await kv.get(SINDS);
   const nu = new Date().toISOString();
-  if (!sinds) { await kv.put(SINDS, nu); return { status: 'start', gedaan: 0 }; }
+  const terug = Math.min(Math.max(Number(terugMinuten) || 0, 0), 24 * 60);
+  let sinds = await kv.get(SINDS);
+  if (terug) {
+    const vanaf = new Date(Date.now() - terug * 60000).toISOString();
+    if (!sinds || vanaf < sinds) sinds = vanaf;
+  }
+  if (!sinds) { await kv.put(SINDS, nu); return { status: 'start', gedaan: 0, sinds: nu, gelezen: 0, metLinks: 0 }; }
 
   const token = await getGoogleAccessToken(env, lezer, SCOPE);
   const params = new URLSearchParams({ filter: `createTime > "${sinds}"`, orderBy: 'createTime asc', pageSize: '50' });
@@ -179,10 +189,14 @@ export async function runChatInbox(env) {
   const gebruiker = await omGebruiker(env, lezer);
   const wie = new Map();
   let gedaan = 0;
+  let gelezen = 0;
+  let metLinks = 0;
   let laatst = sinds;
   for (const b of berichten) {
     if (b.sender?.type === 'BOT') { laatst = b.createTime || laatst; continue; }
     const links = linksIn(b);
+    gelezen += 1;
+    if (links.length) metLinks += 1;
     let gestopt = false;
     for (const url of links) {
       const vlag = `content-feed:chatinbox:link:${await hash(url)}`;
@@ -203,6 +217,9 @@ export async function runChatInbox(env) {
     if (gestopt) break;
     laatst = b.createTime || laatst;
   }
-  if (laatst !== sinds) await kv.put(SINDS, laatst);
-  return { status: 'ok', gedaan };
+  // Nooit terug in de tijd: na "het laatste uur opnieuw" blijft de stand waar ze was.
+  const opgeslagen = await kv.get(SINDS);
+  if (laatst !== sinds && (!opgeslagen || laatst > opgeslagen)) await kv.put(SINDS, laatst);
+  console.log(`${LOG_PREFIX} Chat-inbox: ${gelezen} bericht(en) sinds ${sinds}, ${metLinks} met een link, ${gedaan} verwerkt`);
+  return { status: 'ok', gedaan, sinds, gelezen, metLinks };
 }
