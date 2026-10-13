@@ -155,15 +155,20 @@ async function verwerkLink(env, { url, draad, gebruiker, eigenaar }) {
   await antwoordMet(env, draad, kaart);
 }
 
+/**
+ * Eén ronde. Geeft { status, gedaan }: 'uit' (niet ingesteld), 'start' (de
+ * eerste ronde: vanaf nu wordt gelezen) of 'ok'. De 5-minuten-cron roept dit
+ * aan, en de knop "Chat nu ophalen" in Nieuws & updates ook.
+ */
 export async function runChatInbox(env) {
   const space = String(env?.NEWS_CHAT_SPACE || '').trim();
   const lezer = String(env?.NEWS_CHAT_READER || '').trim();
   const kv = env?.MAPPINGS_KV || null;
-  if (!space || !lezer || !kv) return 0;
+  if (!space || !lezer || !kv) return { status: 'uit', gedaan: 0 };
 
   const sinds = await kv.get(SINDS);
   const nu = new Date().toISOString();
-  if (!sinds) { await kv.put(SINDS, nu); return 0; }
+  if (!sinds) { await kv.put(SINDS, nu); return { status: 'start', gedaan: 0 }; }
 
   const token = await getGoogleAccessToken(env, lezer, SCOPE);
   const params = new URLSearchParams({ filter: `createTime > "${sinds}"`, orderBy: 'createTime asc', pageSize: '50' });
@@ -199,5 +204,5 @@ export async function runChatInbox(env) {
     laatst = b.createTime || laatst;
   }
   if (laatst !== sinds) await kv.put(SINDS, laatst);
-  return gedaan;
+  return { status: 'ok', gedaan };
 }
