@@ -15,7 +15,7 @@ import {
 } from './lib/store.js';
 import {
   KINDS, isKind, DEFAULT_OPTIONS, EDITION_STATUS, CONTRIBUTION_STATUS, LOG_PREFIX, ASSET_ORIGIN,
-  sendMode, testEmails, BRAND, BEELD_KADERS, BEELD_PLAATSEN, MERKKLEUREN, merkkleur,
+  sendMode, testEmails, BRAND, BEELD_KADERS, BEELD_PLAATSEN, MERKKLEUREN, merkkleur, BERICHT_VORMEN,
 } from './lib/constants.js';
 import { renderEdition, renderContribution, heeftInhoud, kopVan } from './lib/render.js';
 import { verzamel, maakEditieOp, vernieuwNieuws, ondertekenaarId, metOndertekening } from './lib/editions.js';
@@ -25,11 +25,12 @@ import { stelStukjeVoor, stelOnderwerpVoor } from './lib/ai.js';
 import { linkVoorbeeld, eventsVoorEditie, auteurs, tekeningen } from './lib/sources.js';
 import { stuurHerinnering } from './lib/cron.js';
 import { hostBeelden, BEELDEN_MAP } from './lib/beelden-hosten.js';
-import { naamVoor } from '../../lib/medewerkers.js';
+import { naamVoor, medewerkerVoorOdooGebruiker } from '../../lib/medewerkers.js';
 import { lijstTekeningen, pngSleutel, vergeetTekeningen } from '../av-slides/lib/thingies.js';
 import { listIntegrations } from '../forminator-sync-v2/database.js';
 import { ArticleFetchError } from '../content-feed/lib/article-fetch.js';
-import { listSnippets, getSnippet, getSnippetImage } from '../content-feed/lib/content-service.js';
+import { listSnippets, getSnippet, getSnippetImage, listTaxonomy } from '../content-feed/lib/content-service.js';
+import { bedenkLabel } from '../content-feed/lib/article-ai.js';
 import { serializeAiError, httpStatusForAiError } from '../mini-apps/lib/ai-errors.js';
 import { sendSystemChannelMessage } from '../mini-apps/lib/chat.js';
 
@@ -149,6 +150,60 @@ export function normaliseerInhoud(kind, c = {}) {
   return uit;
 }
 
+/**
+ * Label en "gedeeld door" van een bericht uit Nieuws & updates. EEN plek voor
+ * het overnemen van een bericht en voor het aanvullen van oudere blokken.
+ */
+async function berichtExtra(env, user, x, vermijd = []) {
+  const [taxonomy, eigenaar] = await Promise.all([
+    listTaxonomy(env).catch(() => ({ tags: [] })),
+    x.owner?.id ? medewerkerVoorOdooGebruiker(env, x.owner.id) : null,
+  ]);
+  const tags = (x.tagIds || []).map((id) => (taxonomy.tags || []).find((t) => t.id === id)).filter(Boolean);
+  const tag = await bedenkLabel(env, user, { ...x, tags }, { vermijd });
+  const doorNaam = eigenaar?.naam || x.owner?.name || '';
+  // "Administrator" en co. zijn geen collega: dan liever niemand.
+  const door = doorNaam && !/^(administrator|admin|odoobot)$/i.test(doorNaam.trim())
+    ? { name: doorNaam, job_title: eigenaar?.functie || '', avatar_url: eigenaar?.foto_url || '' }
+    : null;
+  return { tag, door };
+}
+
+/**
+ * Blokken met een bericht van vóór het label en "gedeeld door": één keer
+ * aanvullen en bewaren (`door` staat daarna altijd in de inhoud, ook als
+ * null). Hoogstens vier per keer, zodat een editie altijd vlot opent.
+ */
+async function vulBerichtenAan(env, user, items) {
+  const oud = items.filter((i) => i.kind === 'snippet' && i.content?.snippet_id
+    && (i.content.door === undefined || !String(i.content.tag || '').trim())).slice(0, 4);
+  for (const it of oud) {
+    try {
+      const x = await getSnippet(env, it.content.snippet_id);
+      if (!x) continue;
+      const vermijd = items.filter((i) => i.kind === 'snippet' && i.id !== it.id).map((i) => i.content?.tag).filter(Boolean);
+      const extra = await berichtExtra(env, user, x, vermijd);
+      const content = {
+        ...it.content,
+        tag: String(it.content.tag || '').trim() || extra.tag,
+        door: it.content.door === undefined ? extra.door : it.content.door,
+        quote: it.content.quote || x.quote || '',
+        source: it.content.source || x.source || '',
+      };
+      await updateContribution(env, it.id, { content: normaliseerInhoud('snippet', content) });
+      it.content = normaliseerInhoud('snippet', content);
+    } catch (error) {
+      console.warn(`${LOG_PREFIX} bericht ${it.id} niet aangevuld:`, error?.message);
+    }
+  }
+}
+
+/** Wie een bericht deelde: enkel naam, functie en de publieke pasfoto. */
+function normaliseerDoor(d) {
+  if (!d || typeof d !== 'object' || !String(d.name || '').trim()) return null;
+  return { name: kort(d.name, 100), job_title: kort(d.job_title, 120), avatar_url: url(d.avatar_url) };
+}
+
 function inhoudPerSoort(kind, c = {}) {
   switch (kind) {
     case 'intro':
@@ -171,9 +226,15 @@ function inhoudPerSoort(kind, c = {}) {
     case 'snippet':
       return {
         snippet_id: Number.isInteger(Number(c.snippet_id)) && Number(c.snippet_id) > 0 ? Number(c.snippet_id) : null,
+        // Het pilletje boven het bericht (Nieuws & updates stelt het voor).
+        tag: kort(c.tag, 40),
+        vorm: BERICHT_VORMEN.some((v) => v.key === c.vorm) ? c.vorm : 'klassiek',
         title: kort(c.title, 160), text: kort(c.text, 4000),
+        quote: kort(c.quote, 400), source: kort(c.source, 80),
         link_url: url(c.link_url), link_label: kort(c.link_label, 60),
         beeld: normaliseerBeeld(c.beeld),
+        // Wie het bericht in Nieuws & updates zette (de eigenaar in Odoo).
+        door: normaliseerDoor(c.door),
       };
     case 'video':
       return {
@@ -276,6 +337,7 @@ export const routes = {
           brands: BRAND,
           beeld_kaders: BEELD_KADERS,
           merkkleuren: MERKKLEUREN,
+          bericht_vormen: BERICHT_VORMEN,
           asset_origin: ASSET_ORIGIN,
           series: series.map((s) => ({ ...s, is_editor: isEditorVan(user, s) })),
           users: users.map((u) => ({ id: u.id, name: naamVoor(null, u), email: u.email })),
@@ -353,6 +415,7 @@ export const routes = {
       const [items, users, activity] = await Promise.all([
         listContributions(env, edition.id), listUsers(env), listActivity(env, edition.id),
       ]);
+      await vulBerichtenAan(env, user, items);
       const [opmerkingen, perUser] = await Promise.all([
         countComments(env, items.map((i) => i.id)),
         auteurs(env, users.filter((u) => items.some((i) => i.owner_user_id === u.id))),
@@ -943,17 +1006,25 @@ export const routes = {
    * niet omzetten: dat geeft de route als data-URI terug, het scherm zet het om
    * naar JPEG en laadt het op.
    */
-  'POST /api/snippets/:id/overnemen': async ({ env, params }) => {
+  'POST /api/snippets/:id/overnemen': async ({ env, request, params, user }) => {
     try {
+      const body = await leesBody(request);
       const x = await getSnippet(env, params.id);
       if (!x) throw new NewsletterError('Dat bericht bestaat niet (meer).', 404);
+      // De labels die al in de brief staan: het nieuwe moet anders klinken.
+      const vermijd = (Array.isArray(body.vermijd) ? body.vermijd : []).map((v) => kort(v, 40)).filter(Boolean).slice(0, 12);
+      const { tag, door } = await berichtExtra(env, user, x, vermijd);
       const inhoud = {
         snippet_id: x.id,
+        tag,
         title: x.summaryTitle || x.title || '',
         text: x.summary || x.curatorNote || '',
+        quote: x.quote || '',
+        source: x.source || '',
         link_url: x.url || '',
         link_label: x.cta || 'Lees verder',
         beeld: null,
+        door,
       };
       let beeld_data = null;
       if (x.hasImage) {
@@ -970,6 +1041,19 @@ export const routes = {
         }
       }
       return json({ success: true, data: { inhoud, beeld_data } });
+    } catch (err) { return fout(err); }
+  },
+
+  /** Een ander label voor een bericht (de knop naast het label in het scherm). */
+  'POST /api/snippets/:id/label': async ({ env, request, params, user }) => {
+    try {
+      const body = await leesBody(request);
+      const x = await getSnippet(env, params.id);
+      if (!x) throw new NewsletterError('Dat bericht bestaat niet (meer).', 404);
+      const vermijd = (Array.isArray(body.vermijd) ? body.vermijd : []).map((v) => kort(v, 40)).filter(Boolean).slice(0, 12);
+      const taxonomy = await listTaxonomy(env).catch(() => ({ tags: [] }));
+      const tags = (x.tagIds || []).map((id) => (taxonomy.tags || []).find((t) => t.id === id)).filter(Boolean);
+      return json({ success: true, data: { tag: await bedenkLabel(env, user, { ...x, tags }, { vermijd }) } });
     } catch (err) { return fout(err); }
   },
 

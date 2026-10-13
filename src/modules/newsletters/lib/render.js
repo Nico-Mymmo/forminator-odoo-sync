@@ -70,7 +70,8 @@ function avatar(author, size = 32, { onDark = false } = {}) {
 }
 
 function byline(author, { onDark = false, prefix = '' } = {}) {
-  if (!author?.name) return '';
+  // Een technisch account is geen collega: dan liever geen naam.
+  if (!author?.name || /^(administrator|admin|odoobot)$/i.test(String(author.name).trim())) return '';
   const kleur = onDark ? S.sky100 : S.muted;
   const naamKleur = onDark ? '#ffffff' : S.headingSoft;
   const functie = author.job_title ? ` · ${esc(author.job_title)}` : '';
@@ -360,6 +361,72 @@ function blokArticle(item, ctx, id) {
   return schikBeeld({ b, ctx, id, inhoud: `${pil(item.title, S.pink50, S.pink700)}${tekst}${byline(item.author)}`, padding: '44px 40px 4px' });
 }
 
+/**
+ * Een bericht uit Nieuws & updates, in een van de vormen uit BERICHT_VORMEN.
+ * Het label (het pilletje) komt uit het bericht zelf (`content.tag`, door
+ * Nieuws & updates voorgesteld), anders de naam van het blok. Onder het
+ * artikel staat wie het DEELDE (`content.door`, de eigenaar in Nieuws &
+ * updates), niet wie het blok in de brief zette.
+ */
+function blokSnippet(item, ctx, id) {
+  const c = item.content || {};
+  const tag = String(c.tag || '').trim() || item.title;
+  const door = byline(c.door, { prefix: 'Gedeeld door' });
+  const b = beeldVan(c, { plaats: 'tekst' });
+  const bron = esc(c.source || '');
+  switch (c.vorm) {
+    case 'kaart': {
+      const foto = beeldTag(b, ctx, BEELD_KADERS.link.breedte, { radius: 0, href: c.link_url, alt: c.title || '' });
+      const kaart = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border:1px solid ${S.border};border-radius:14px;border-collapse:separate;overflow:hidden">
+${foto ? `<tr><td style="border-radius:14px 14px 0 0;overflow:hidden">${foto}</td></tr>` : ''}
+<tr><td style="padding:22px 24px 24px">
+${pil(tag, S.pink50, S.pink700)}${bron ? `<span style="font-family:${S.fontBody};font-size:12px;font-weight:700;color:${S.muted};margin-left:8px">${bron}</span>` : ''}
+<div style="font-family:${S.fontHead};font-size:24px;line-height:1.2;color:${S.heading};margin:12px 0 10px">${esc(c.title)}</div>
+${alineas(c.text, { size: 15, lineHeight: 1.55 }).join('')}
+<div style="margin-top:14px">${leesLink(c.link_label, c.link_url)}</div>
+</td></tr></table>`;
+      return rij(`${kaart}${door}`, { padding: '44px 40px 4px', id });
+    }
+    case 'uitgelicht': {
+      const foto = beeldTag(b, ctx, 528, { href: c.link_url, alt: c.title || '' });
+      return paneel(`${pil(tag, S.mint, S.primary)}
+${kop(c.title, { size: 32, color: '#ffffff', margin: '16px 0 12px' })}
+${foto ? `<div style="margin:6px 0 18px">${foto}</div>` : ''}
+${alineas(c.text, { size: 16, color: S.sky100, linkColor: '#ffffff' }).join('')}
+<div style="margin-top:20px">${knop(c.link_label || 'Lees verder', c.link_url)}</div>
+${byline(c.door, { onDark: true, prefix: 'Gedeeld door' })}`, S.primary, { padding: '36px 32px 30px', id });
+    }
+    case 'compact': {
+      const k = BEELD_KADERS.compact;
+      const foto = beeldTag(b, ctx, k.breedte, { radius: 12, href: c.link_url, alt: c.title || '' });
+      const eerste = alineas(c.text, { size: 15, lineHeight: 1.5 })[0] || '';
+      const tekst = `${pil(tag, S.sky100, S.primary)}
+<div style="font-family:${S.fontBody};font-size:18px;font-weight:700;line-height:1.3;color:${S.headingSoft};margin:10px 0 8px">${esc(c.title)}</div>
+${eerste}<div style="margin-top:10px">${leesLink(c.link_label, c.link_url)}</div>`;
+      const inhoud = foto
+        ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+<td width="${k.breedte}" valign="top" style="width:${k.breedte}px;padding:4px 20px 0 0">${foto}</td>
+<td valign="top">${tekst}</td></tr></table>`
+        : tekst;
+      return rij(`${inhoud}${door}`, { padding: '40px 40px 4px', id });
+    }
+    case 'citaat':
+      if (String(c.quote || '').trim()) {
+        return paneel(`${pil(tag, '#ffffff', S.teal700)}
+<div style="font-family:${S.fontHead};font-size:56px;line-height:0.6;color:${S.teal700};margin:26px 0 4px">&ldquo;</div>
+<div style="font-family:${S.fontHead};font-size:24px;line-height:1.35;color:${S.heading}">${esc(c.quote)}</div>
+${bron ? `<div style="font-family:${S.fontBody};font-size:14px;color:${S.muted};margin-top:12px">${bron}</div>` : ''}
+<div style="font-family:${S.fontBody};font-size:16px;font-weight:700;line-height:1.4;color:${S.headingSoft};margin:20px 0 10px">${esc(c.title)}</div>
+${leesLink(c.link_label, c.link_url)}${door}`, S.teal50, { id });
+      }
+      break;
+    default:
+      break;
+  }
+  const tekst = `${kop(c.title)}${tekstMetBeeld(alineas(c.text), b, ctx, id)}${c.link_url ? `<div style="margin-top:18px">${leesLink(c.link_label, c.link_url)}</div>` : ''}`;
+  return schikBeeld({ b, ctx, id, inhoud: `${pil(tag, S.pink50, S.pink700)}${tekst}${door}`, padding: '44px 40px 4px' });
+}
+
 function blokVideo(item, ctx, id) {
   const c = item.content || {};
   const b = beeldVan(c, { fotoVeld: 'thumbnail_url', plaats: 'video' });
@@ -518,8 +585,8 @@ function blokPlaatshouder(item, id) {
 const BLOKKEN = {
   intro: blokIntro,
   article: blokArticle,
-  // Een bericht uit Nieuws & updates staat in de mail als tekst en foto.
-  snippet: blokArticle,
+  // Een bericht uit Nieuws & updates: in een van de BERICHT_VORMEN.
+  snippet: blokSnippet,
   video: blokVideo,
   link: (item, ctx, id) => blokLink(item, ctx, id),
   linkedin: (item, ctx, id) => blokLink(item, ctx, id, { linkedin: true }),

@@ -3786,6 +3786,54 @@ bleken drie dingen niet te kloppen. Alle drie zijn gefixt in `lib/sync.js`,
   eerder bericht in die draad op. Zonder die aanpassing zou een antwoord op een mail die
   destijds naar twee leads ging, alsnog maar bij één van de twee terechtkomen.
 
+## Nieuwsbrief: berichten uit Nieuws & updates (2026-10-13)
+
+- **Label**: het pilletje boven een bericht is `content.tag`, voorgesteld door
+  `bedenkLabel()` in `content-feed/lib/article-ai.js` (Haiku, faalt zacht naar
+  etiket/type). Het scherm stuurt de labels van de andere berichten in de
+  editie mee (`vermijd`), zodat ze niet herhalen. Aanpasbaar in het formulier;
+  knop "Ander" = `POST /api/snippets/:id/label`. Zonder tag valt het terug op
+  de naam van het blok (oude blokken).
+- **Vorm**: `content.vorm` uit `BERICHT_VORMEN` (constants.js, via bootstrap):
+  klassiek, kaart, uitgelicht, compact, citaat (enkel met een citaat uit het
+  artikel). Een nieuw bericht krijgt een vorm die nog niet in de editie staat.
+  Renderer: `blokSnippet()` in render.js.
+- **Gedeeld door**: onder een bericht staat de EIGENAAR uit Nieuws & updates
+  (`content.door`, uit Odoo via medewerkers.js bij het overnemen), niet wie
+  het blok in de brief zette. "Administrator" telt niet als collega. Een nieuw
+  bericht in Nieuws & updates krijgt als eigenaar wie het aanmaakt (tenzij
+  gekozen); een link uit Google Chat krijgt wie ze plaatste (Directory,
+  viewType=domain_public).
+
+## Nieuws & updates <-> Google Chat (2026-10-13)
+
+- **Gepubliceerd = een kaart in het kanaal** (`lib/chat-melding.js`): de eerste
+  keer dat een bericht in de OM op "gepubliceerd" komt (aanmaken of bewaren),
+  stuurt de OM een kaart met beeld, titel, samenvatting, "Waarom we dit delen",
+  "Toegevoegd door <wie bewaarde>" en knoppen naar het artikel en de OM. Een
+  vlag in KV (`content-feed:chat:gemeld:<id>`) = nooit twee keer. Het beeld
+  komt in `public/nieuws-en-updates/` (Chat haalt het zelf op; de beeldroute
+  van de module vraagt een sitesleutel).
+- **Een link in het kanaal = een concept** (`lib/chat-inbox.js`, 5-minuten-cron):
+  de OM leest het kanaal via de Chat API namens `NEWS_CHAT_READER`
+  (domeinbrede delegatie, scope `chat.messages.readonly`), haalt elk nieuw
+  artikel op, laat de AI het voorstel maken (dezelfde weg als "Artikel
+  analyseren"), bewaart het als CONCEPT en antwoordt in dezelfde draad dat het
+  klaarstaat (of waarom niet). Nooit automatisch publiceren: een mens kijkt
+  na. Bots (ook onze kaarten) en oude berichten worden overgeslagen; hoogstens
+  drie links per ronde; elke link één keer (KV).
+- **Het kanaal staat in het kanaalregister** (Mini-apps -> Chat-kanalen) op
+  naam `CONTENT_FEED_CHAT_CHANNEL` ("Media insights"). De webhook-URL bevat
+  een sleutel en hoort NOOIT in de code of in wrangler.jsonc.
+- **Uit tot het ingesteld is**: zonder geregistreerd kanaal geen kaart (enkel
+  een logregel); zolang `NEWS_CHAT_SPACE` of `NEWS_CHAT_READER` leeg is, wordt
+  het kanaal niet gelezen. De Chat API werkt pas als in Google Cloud de Google
+  Chat API aanstaat en er een Chat-app geconfigureerd is (naam en icoon
+  volstaan; ze hoeft niets interactiefs te doen).
+- Gedeelde verzendfunctie: `sendSystemChannelPayload()` in
+  `mini-apps/lib/chat.js` (kaart en/of antwoord in een draad, zelfde audit-log
+  als `sendSystemChannelMessage()`).
+
 ## Nieuws & updates — content-feed (2026-09)
 
 **Regel: `x_content_snippet` wordt beheerd in de OM en de WordPress-plugin HAALT

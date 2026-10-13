@@ -9,6 +9,8 @@ import { LOG_PREFIX, CACHE_TTL, STATUSES, TIMELINE_COLORS } from './constants.js
 import { serveSnippetImage } from './lib/image.js';
 import { fetchArticle, ArticleFetchError } from './lib/article-fetch.js';
 import { analyseerArtikel } from './lib/article-ai.js';
+import { meldGepubliceerd } from './lib/chat-melding.js';
+import { naamVoor, medewerkerVoorGebruiker } from '../../lib/medewerkers.js';
 import { serializeAiError, httpStatusForAiError } from '../mini-apps/lib/ai-errors.js';
 import {
   listSnippets,
@@ -47,6 +49,32 @@ async function leesBody(request) {
  * belandt anders als onbekende waarde in Odoo en die leest dan overal terug
  * als de standaardwaarde, zonder dat iemand ziet dat er iets fout ging.
  */
+/**
+ * Een bericht dat (voor het eerst) gepubliceerd is: een kaart in het
+ * Chat-kanaal (lib/chat-melding.js). Na het antwoord, zodat wie bewaart niet
+ * op Google Chat wacht.
+ */
+function meldInChat(env, ctx, item, user) {
+  if (!item || item.status !== 'published') return;
+  // Wie het bericht toevoegde (de eigenaar in Odoo), anders wie het bewaarde.
+  const eigenaar = /^(administrator|admin|odoobot)$/i.test(String(item.owner?.name || '').trim()) ? '' : item.owner?.name;
+  const door = eigenaar || (user ? naamVoor(null, user) : '');
+  const werk = meldGepubliceerd(env, item, { door });
+  if (ctx && typeof ctx.waitUntil === 'function') ctx.waitUntil(werk); else werk.catch(() => {});
+}
+
+/**
+ * De Odoo-gebruiker van wie een bericht toevoegt. Zonder gekozen eigenaar
+ * wordt dat de eigenaar: anders staat er in Odoo niemand (of "Administrator")
+ * en weet de nieuwsbrief niet wie het deelde.
+ */
+async function eigenaarVan(env, user) {
+  if (!user) return 0;
+  if (Number.isInteger(user.odoo_uid) && user.odoo_uid > 0) return user.odoo_uid;
+  const p = await medewerkerVoorGebruiker(env, user);
+  return p?.user_id || 0;
+}
+
 function valideer(payload, { isNieuw }) {
   if (!payload || typeof payload !== 'object') return 'Geen geldige gegevens ontvangen';
 
@@ -149,12 +177,17 @@ export const routes = {
     }
   },
 
-  'POST /api/items': async ({ env, request }) => {
+  'POST /api/items': async ({ env, ctx, request, user }) => {
     const payload = await leesBody(request);
     const melding = valideer(payload, { isNieuw: true });
     if (melding) return fout(melding, 422);
     try {
+      if (!(Number(payload.ownerId) > 0)) {
+        const eigenaar = await eigenaarVan(env, user);
+        if (eigenaar) payload.ownerId = eigenaar;
+      }
       const item = await createSnippet(env, payload);
+      meldInChat(env, ctx, item, user);
       return json({ success: true, item }, 201);
     } catch (error) {
       console.error(`${LOG_PREFIX} aanmaken mislukt:`, error?.message);
@@ -162,13 +195,14 @@ export const routes = {
     }
   },
 
-  'PUT /api/items/:id': async ({ env, request, params }) => {
+  'PUT /api/items/:id': async ({ env, ctx, request, params, user }) => {
     const payload = await leesBody(request);
     const melding = valideer(payload, { isNieuw: false });
     if (melding) return fout(melding, 422);
     try {
       const item = await updateSnippet(env, params.id, payload);
       if (!item) return fout('Niet gevonden', 404);
+      meldInChat(env, ctx, item, user);
       return json({ success: true, item });
     } catch (error) {
       console.error(`${LOG_PREFIX} bijwerken mislukt:`, error?.message);

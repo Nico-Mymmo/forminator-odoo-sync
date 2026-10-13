@@ -162,6 +162,15 @@
 		// geslaagde test EN na het beantwoorden van de open vragen over de
 		// doelgroepen (docs/ontwerp-om-nieuwsbrieven.md, §12).
 		"NEWSLETTER_SEND_MODE": "test",
+		// Nieuws & updates <-> Google Chat (src/modules/content-feed/lib/chat-*.js).
+		// Het kanaal staat in het kanaalregister (Mini-apps -> Chat-kanalen), op
+		// naam; de webhook-URL bevat een sleutel en staat daarom NIET hier.
+		"CONTENT_FEED_CHAT_CHANNEL": "Media insights",
+		// Links uit dat kanaal oppikken: het kanaal, en het @mymmo.com-adres
+		// waarnamens de OM het leest (lid van het kanaal; scope
+		// chat.messages.readonly bij de domeinbrede delegatie). Leeg = uit.
+		"NEWS_CHAT_SPACE": "spaces/AAAA9V4bj9g",
+		"NEWS_CHAT_READER": "",
 		"NEWSLETTER_TEST_EMAILS": "nico@mymmo.com",
 		// Event Operations v2 -- communicatie-studio. Bepaalt voor WELKE
 		// event-types de OM de mails (bevestiging/reminder/recap) overneemt van

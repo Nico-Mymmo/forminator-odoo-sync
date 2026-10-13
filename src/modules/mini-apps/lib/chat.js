@@ -243,6 +243,47 @@ export async function sendSystemChannelMessage(env, channelId, message, opties =
 }
 
 /**
+ * Zelfde als sendSystemChannelMessage, maar met een volledig bericht: een
+ * kaart (`cardsV2`) en/of een antwoord in een bestaande draad. Zelfde
+ * kanaalregister, zelfde audit-regel -- de webhook-URL blijft in de database.
+ *
+ * @param {Object} env
+ * @param {string} channelRef  id of naam van het kanaal
+ * @param {{ text?: string, cardsV2?: Array }} body  het Chat-bericht
+ * @param {{ bron?: string, threadName?: string }} [opties]
+ *   threadName: `spaces/.../threads/...` -- dan komt het als antwoord in die
+ *   draad (of, bestaat ze niet meer, als nieuw bericht).
+ */
+export async function sendSystemChannelPayload(env, channelRef, body, opties = {}) {
+  const channel = await resolveChannelRef(env, channelRef);
+  const bericht = { ...(body || {}) };
+  if (typeof bericht.text === 'string' && bericht.text.length > MAX_MESSAGE_LENGTH) {
+    bericht.text = bericht.text.slice(0, MAX_MESSAGE_LENGTH - 1) + '…';
+  }
+  let url = channel.webhook_url;
+  if (opties.threadName) {
+    bericht.thread = { name: String(opties.threadName) };
+    url += `${url.includes('?') ? '&' : '?'}messageReplyOption=REPLY_MESSAGE_FALLBACK_TO_NEW_THREAD`;
+  }
+  try {
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json; charset=UTF-8' },
+      body: JSON.stringify(bericht)
+    });
+    if (!resp.ok) {
+      const tekst = await resp.text();
+      throw new Error(`Chat webhook failed (${resp.status}): ${tekst}`);
+    }
+  } catch (err) {
+    await logMessage(env, { appId: null, channelId: channel.id, senderUserId: null, status: 'failed', errorMessage: err.message });
+    throw err;
+  }
+  await logMessage(env, { appId: null, channelId: channel.id, senderUserId: null, status: 'sent' });
+  return { channelName: channel.name };
+}
+
+/**
  * Verstuurt een bericht naar een geregistreerd kanaal.
  *
  * @param {Object} env

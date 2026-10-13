@@ -358,3 +358,62 @@ export async function analyseerArtikel(env, user, artikel, tags = [], opties = {
     imageSourceUrl: artikel.imageUrl || null
   };
 }
+
+/**
+ * Een kort LABEL voor een bericht (het pilletje boven een artikel in de
+ * nieuwsbrief, bv. "Nieuwe regels", "Goed om te weten", "Uit de praktijk").
+ *
+ * Waarom hier en niet in de nieuwsbrief: het label zegt iets over het BERICHT,
+ * en wie later nog een plek bedenkt waar een bericht staat, wil hetzelfde.
+ * `vermijd` = de labels die er al staan (bv. in dezelfde editie): drie keer
+ * "Interessant gelezen" onder elkaar is wat we hiermee voorkomen.
+ *
+ * Klein en goedkoop: Haiku, een gesloten antwoord van een paar woorden.
+ * Faalt ZACHT: geen AI = een terugval op het type of het eerste etiket.
+ */
+const LABEL_MODEL = 'claude-haiku-4-5';
+
+export async function bedenkLabel(env, user, snippet, { vermijd = [] } = {}) {
+  const terugval = () => {
+    const tag = (snippet?.tags || []).map((t) => t?.name).find(Boolean);
+    const kandidaten = [tag, snippet?.type?.name, 'Goed om te weten', 'Om te lezen', 'Uit het nieuws'].filter(Boolean);
+    const al = new Set(vermijd.map((v) => String(v).toLowerCase()));
+    return kandidaten.find((k) => !al.has(k.toLowerCase())) || kandidaten[0];
+  };
+  if (!snippet) return terugval();
+  const prompt = [
+    'Bedenk één kort label (2 tot 4 woorden, hoogstens 28 tekens) dat boven dit',
+    'bericht staat in onze nieuwsbrief, als een pilletje. Het zegt in een oogopslag',
+    'waar het over gaat of waarom het de lezer aangaat, bv. "Nieuwe regels",',
+    '"Goed om te weten", "Uit de praktijk", "Energie & renovatie", "Let op".',
+    'Geen punt, geen emoji, geen dubbele punt, hoofdletter enkel vooraan.',
+    vermijd.length ? `Kies iets ANDERS dan wat er al in de brief staat: ${vermijd.map((v) => `"${v}"`).join(', ')}.` : null,
+    '',
+    `TITEL: ${snippet.summaryTitle || snippet.title || ''}`,
+    snippet.type?.name ? `SOORT: ${snippet.type.name}` : null,
+    (snippet.tags || []).length ? `ETIKETTEN: ${snippet.tags.map((t) => t.name).filter(Boolean).join(', ')}` : null,
+    snippet.curatorNote ? `WAAROM WE HET DELEN: ${snippet.curatorNote}` : null,
+    `SAMENVATTING: ${String(snippet.summary || '').slice(0, 1200)}`,
+  ].filter((r) => r !== null).join('\n');
+  try {
+    const result = await askAI(env, { id: null, source: AI_SOURCE }, user, {
+      model: LABEL_MODEL,
+      system: SYSTEM,
+      prompt,
+      maxOutputTokens: 200,
+      schema: {
+        type: 'object',
+        properties: { label: { type: 'string', description: 'Het label, 2 tot 4 woorden.' } },
+        required: ['label'],
+        additionalProperties: false,
+      },
+    });
+    let json = result.json;
+    if (!json || typeof json !== 'object') json = JSON.parse(result.text);
+    const label = knip(String(json.label || '').replace(/[.:!]+$/, ''), 32);
+    return label || terugval();
+  } catch (error) {
+    console.warn(`${LOG_PREFIX} label bedenken mislukt:`, error?.code || error?.message);
+    return terugval();
+  }
+}

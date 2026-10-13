@@ -246,7 +246,7 @@
     try {
       var data = await api('/api/owners');
       state.owners = data.owners || [];
-      $('fOwner').innerHTML = '<option value="">—</option>'
+      $('fOwner').innerHTML = '<option value="">— (een nieuw bericht: jij)</option>'
         + state.owners.map(function (o) {
           return '<option value="' + o.id + '">' + esc(o.name) + '</option>';
         }).join('');
