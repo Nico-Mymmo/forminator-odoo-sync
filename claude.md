@@ -445,6 +445,25 @@ De volgende bestanden zijn nog legacy (string-concatenatie). **Niet aanraken ten
 - `public/forminator-sync-v2-flow-builder.js`
 - `public/forminator-sync-v2-wizard.js`
 
+## Koppelingen — het overzicht: tabs, meest gebruikt, favorieten (2026-10-13)
+
+- **Drie tabs** boven de lijst (`S.lijstTab`, onthouden in localStorage
+  `fsv2Tab`): "Koppelingen" (alles BEHALVE de nieuwsbriefantwoorden),
+  "Favorieten" (van de ingelogde gebruiker) en "Nieuwsbrief-antwoorden" (één
+  koppeling per nieuwsbrief, `bron_module = 'nieuwsbrief'`, herkend aan
+  `newsletter_series.answers_integration_id` of de naam "Nieuwsbrief-antwoorden
+  …"; `listIntegrationSummaries()` in services/integration-service.js).
+- **Standaard sortering = meest gebruikt**: `stats_30d.total` (inzendingen of
+  scans in de laatste 30 dagen, dezelfde cijfers als het grafiekje op de
+  kaart), dan laatst gebruikt, dan naam. De keuze wordt onthouden (`fsv2Sort`).
+- **Favorieten** zijn per gebruiker: tabel `fs_v2_favorites` (migratie
+  20261013120000), ster op de kaart, `POST /api/integrations/:id/favoriet
+  { aan }`. Zonder de tabel valt het zacht weg (niemand heeft favorieten).
+- **Velden van een generieke webhook** komen uit de bewaarde inzendingen, en
+  wel uit hetzelfde omhulsel als `normalizeFormValues()` (form_fields,
+  form_data, data, submission): vroeger kon je enkel "form_data" kiezen terwijl
+  de pipeline met de velden daarbinnen werkt (`extractGenericWebhookFields()`).
+
 ## Koppelingen — formulieren in de OM zelf (Forminator uitfaseren, 2026-09)
 
 **Regel: een koppeling kan haar eigen formulier definiëren. Dat formulier is voor
@@ -5348,6 +5367,10 @@ Afspraken die bewust zo zijn:
   weigert dan. Uploads gaan sinds dan ook naar `public/nieuwsbrieven/`: een eigen
   map in Assetbeheer (categorie public). **Gevolg: wie daar iets wist, breekt
   het beeld in een al verstuurde mail.**
+- **Een interessant artikel komt ALTIJD uit Nieuws & updates.** Er is geen blokje
+  meer om zelf een link te plakken ("Interessant gelezen" is weg); bestaande
+  link-blokken werken nog. Laden de berichten niet, dan toont het paneel de
+  fout met "Opnieuw proberen" (nooit "geen berichten" als het ophalen mislukte).
 - **Een bericht uit Nieuws & updates als blok** (`snippet`, blokje "Interessant
   voor jou", 2026-10-13). In het paneel kies je een gepubliceerd bericht
   (`GET /api/snippets`, via `listSnippets()` van die module, geen eigen query);

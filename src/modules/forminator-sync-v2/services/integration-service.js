@@ -14,9 +14,44 @@ import {
   validateIntegrationUpdatePayload,
   validateActivationReadiness
 } from '../validation.js';
+import { getSupabaseClient } from '../../../lib/database.js';
 
-export async function listIntegrationSummaries(env) {
-  return listIntegrations(env);
+/**
+ * De lijst voor het overzicht. Per koppeling ook:
+ *   is_favoriet  staat bij deze gebruiker bij de favorieten (fs_v2_favorites)
+ *   bron_module  'nieuwsbrief' voor de antwoorden op een nieuwsbriefvraag
+ *                (newsletter_series.answers_integration_id): die staan in een
+ *                eigen tab, anders verdrinkt de lijst erin.
+ * Beide vallen ZACHT weg als de tabel (nog) niet bestaat.
+ */
+export async function listIntegrationSummaries(env, { userId = null } = {}) {
+  const rows = await listIntegrations(env);
+  const supabase = getSupabaseClient(env);
+  const [fav, reeksen] = await Promise.all([
+    userId ? supabase.from('fs_v2_favorites').select('integration_id').eq('user_id', userId) : Promise.resolve({ data: [] }),
+    supabase.from('newsletter_series').select('answers_integration_id').not('answers_integration_id', 'is', null),
+  ]).catch(() => [{ data: [] }, { data: [] }]);
+  const favorieten = new Set((fav?.data || []).map((r) => r.integration_id));
+  const nieuwsbrief = new Set((reeksen?.data || []).map((r) => r.answers_integration_id));
+  for (const row of rows) {
+    row.is_favoriet = favorieten.has(row.id);
+    row.bron_module = nieuwsbrief.has(row.id) || /^Nieuwsbrief-antwoorden /.test(String(row.name || '')) ? 'nieuwsbrief' : null;
+  }
+  return rows;
+}
+
+/** Een koppeling bij de favorieten van een gebruiker zetten of weghalen. */
+export async function setFavoriet(env, { userId, integrationId, aan }) {
+  const supabase = getSupabaseClient(env);
+  if (aan) {
+    const { error } = await supabase.from('fs_v2_favorites')
+      .upsert({ user_id: userId, integration_id: integrationId }, { onConflict: 'user_id,integration_id', ignoreDuplicates: true });
+    if (error) throw new Error(`Favoriet bewaren mislukt: ${error.message}`);
+  } else {
+    const { error } = await supabase.from('fs_v2_favorites').delete().eq('user_id', userId).eq('integration_id', integrationId);
+    if (error) throw new Error(`Favoriet weghalen mislukt: ${error.message}`);
+  }
+  return { is_favoriet: Boolean(aan) };
 }
 
 export async function createIntegrationRecord(env, payload) {

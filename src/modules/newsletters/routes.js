@@ -926,6 +926,7 @@ export const routes = {
   'GET /api/snippets': async ({ env }) => {
     try {
       const { items } = await listSnippets(env, { statuses: ['published'], limit: 60, offset: 0 });
+      console.log(`${LOG_PREFIX} berichten uit Nieuws & updates: ${(items || []).length}`);
       return json({
         success: true,
         data: (items || []).map((x) => ({
