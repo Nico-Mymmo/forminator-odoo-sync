@@ -10,6 +10,7 @@ import { serveSnippetImage } from './lib/image.js';
 import { fetchArticle, ArticleFetchError } from './lib/article-fetch.js';
 import { analyseerArtikel } from './lib/article-ai.js';
 import { meldGepubliceerd } from './lib/chat-melding.js';
+import { runChatInbox } from './lib/chat-inbox.js';
 import { naamVoor, medewerkerVoorGebruiker } from '../../lib/medewerkers.js';
 import { serializeAiError, httpStatusForAiError } from '../mini-apps/lib/ai-errors.js';
 import {
@@ -174,6 +175,17 @@ export const routes = {
     } catch (error) {
       console.error(`${LOG_PREFIX} beeld ophalen mislukt:`, error?.message);
       return fout('Kon de afbeelding niet ophalen', 502);
+    }
+  },
+
+  /** "Chat nu ophalen": dezelfde ronde als de 5-minuten-cron, meteen. */
+  'POST /api/chat-ophalen': async ({ env }) => {
+    try {
+      const r = await runChatInbox(env);
+      return json({ success: true, ...r });
+    } catch (error) {
+      console.error(`${LOG_PREFIX} Chat ophalen mislukt:`, error?.message);
+      return fout(`Media insights lezen mislukte: ${error?.message || 'onbekende fout'}`, 502);
     }
   },
 

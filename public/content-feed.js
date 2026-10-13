@@ -257,6 +257,29 @@
     }
   }
 
+  /** De links uit Media insights nu ophalen (anders doet de cron het binnen 5 minuten). */
+  async function chatOphalen(knop) {
+    knop.disabled = true;
+    var oud = knop.innerHTML;
+    knop.innerHTML = '<span class="loading loading-spinner loading-xs"></span> Ophalen…';
+    try {
+      var r = await api('/api/chat-ophalen', { method: 'POST' });
+      if (r.status === 'uit') toast('Media insights lezen staat niet aan (NEWS_CHAT_READER).', 'error');
+      else if (r.status === 'start') toast('Gestart: vanaf nu worden nieuwe links in Media insights opgepikt.');
+      else if (!r.gedaan) toast('Geen nieuwe links in Media insights.');
+      else {
+        toast(r.gedaan === 1 ? '1 link opgehaald: staat bij Concept.' : r.gedaan + ' links opgehaald: staan bij Concept.');
+        await laadItems();
+      }
+    } catch (e) {
+      toast(e.message, 'error');
+    } finally {
+      knop.disabled = false;
+      knop.innerHTML = oud;
+      icons();
+    }
+  }
+
   async function laadItems() {
     $('loadingState').classList.remove('hidden');
     var params = new URLSearchParams();
@@ -488,6 +511,7 @@
     var id = el.dataset.id;
 
     if (actie === 'refresh') { laadItems(); return; }
+    if (actie === 'chat-ophalen') { chatOphalen(el); return; }
     if (actie === 'close-dialog') { $('itemDialog').close(); return; }
     if (actie === 'save-item') { bewaar(); return; }
 
