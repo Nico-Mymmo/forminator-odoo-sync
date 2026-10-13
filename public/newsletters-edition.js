@@ -192,6 +192,7 @@
       + (auto ? '<p class="text-sm opacity-70">Dit blok vult zichzelf.</p>'
         : '<label class="form-control"><span class="label-text text-xs mb-1">Wie schrijft het?</span><select class="select select-bordered select-sm" data-change="eigenaar" data-id="' + e(it.id) + '">' + NB.gebruikersOpties(it.owner_user_id, true) + '</select></label>'
           + '<div class="flex items-center gap-2 text-sm">' + NB.statusBadge(it.status) + '</div>')
+      + '<div class="flex items-center gap-3"><span class="label-text text-xs">Achtergrond</span><button type="button" class="btn btn-sm btn-ghost gap-2 px-2" data-action="kleur-blok" data-id="' + e(it.id) + '">' + NB.kleurBol(it.content && it.content.achtergrond) + '<span>' + ((it.content && it.content.achtergrond) ? e(it.content.achtergrond.toUpperCase()) : 'Standaard') + '</span></button></div>'
       + '<div class="flex flex-wrap gap-2 mt-1">'
       + (auto ? '' : '<button class="btn btn-sm" data-action="opmaak-inhoud" data-id="' + e(it.id) + '"><i data-lucide="pen-line" class="w-4 h-4"></i> Inhoud bewerken</button>')
       + '<button class="btn btn-sm btn-ghost text-error ml-auto" data-action="blok-weg" data-id="' + e(it.id) + '"><i data-lucide="trash-2" class="w-4 h-4"></i> Uit de brief</button></div>',
@@ -284,7 +285,10 @@
     + '[data-nb-eiland]{user-select:none}'
     // Opmaakstand
     + '.nb-opmaak [data-nb-id]>td{box-shadow:inset 0 0 0 1px rgba(2,132,199,.22)}'
-    + '.nb-greep{position:absolute;left:10px;top:8px;z-index:4;max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:600 12px/1 system-ui,-apple-system,"Segoe UI",sans-serif;background:#0369a1;color:#fff;border-radius:8px;padding:7px 10px;cursor:grab;touch-action:none;user-select:none;box-shadow:0 1px 3px rgba(0,0,0,.25)}'
+    + '.nb-greep-rij{position:absolute;left:10px;top:8px;z-index:4;display:flex;align-items:center;gap:6px;max-width:70%}'
+    + '.nb-kleurbol{width:26px;height:26px;flex:none;border-radius:50%;border:2px solid #fff;box-shadow:0 0 0 1px rgba(3,105,161,.5),0 1px 3px rgba(0,0,0,.25);cursor:pointer;padding:0}'
+    + '.nb-kleurbol-leeg{background-image:linear-gradient(135deg,transparent 45%,#ef4444 45%,#ef4444 55%,transparent 55%)}'
+    + '.nb-greep{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:600 12px/1 system-ui,-apple-system,"Segoe UI",sans-serif;background:#0369a1;color:#fff;border-radius:8px;padding:7px 10px;cursor:grab;touch-action:none;user-select:none;box-shadow:0 1px 3px rgba(0,0,0,.25)}'
     + '.nb-greep:active{cursor:grabbing}'
     + '.nb-sleept>td{opacity:.3}'
     + '.nb-lijn>td{padding:0 24px}.nb-lijn div{height:5px;border-radius:3px;background:#0284c7;box-shadow:0 0 0 4px rgba(2,132,199,.18)}';
@@ -309,6 +313,9 @@
       (doc.head || doc.documentElement).appendChild(stijl);
       doc.addEventListener('click', function (ev) {
         ev.preventDefault();
+        var bol = ev.target.closest('[data-nb-kleur]');
+        if (bol) { kiesBlokKleur(bol.getAttribute('data-nb-kleur'), bol); return; }
+        if (NB.kleur) NB.kleur.sluit();
         var knop = ev.target.closest('[data-nb-knop]');
         if (knop) { blokKnop(knop.getAttribute('data-nb-knop')); return; }
         var plek = ev.target.closest('.nb-plek');
@@ -400,20 +407,30 @@
 
   /** Elk blok een handvat met zijn naam; enkel in de opmaakstand. */
   function handvatten(doc) {
-    doc.querySelectorAll('.nb-greep').forEach(function (x) { x.remove(); });
+    doc.querySelectorAll('.nb-greep-rij').forEach(function (x) { x.remove(); });
     if (doc.body) doc.body.classList.toggle('nb-opmaak', Boolean(opmaak()));
     if (!opmaak() || NB.state.voorbeeldStand === 'test') return;
     doc.querySelectorAll('[data-nb-id]').forEach(function (rij) {
       var it = itemVan(rij.getAttribute('data-nb-id'));
       var cel = rij.firstElementChild;
       if (!it || !cel) return;
+      var balk = doc.createElement('div');
+      balk.className = 'nb-greep-rij';
       var g = doc.createElement('div');
       g.className = 'nb-greep';
       g.setAttribute('data-nb-greep', it.id);
       g.title = 'Sleep om te verplaatsen';
       var wie = !NB.isAuto(it.kind) && it.owner_name ? ' \u00b7 ' + voornaam(it.owner_name) : '';
       g.textContent = '\u283F  ' + it.title + wie;
-      cel.appendChild(g);
+      var bol = doc.createElement('button');
+      bol.type = 'button';
+      bol.className = 'nb-kleurbol' + ((it.content && it.content.achtergrond) ? '' : ' nb-kleurbol-leeg');
+      bol.setAttribute('data-nb-kleur', it.id);
+      bol.title = 'Achtergrondkleur van dit blok';
+      bol.style.backgroundColor = (it.content && it.content.achtergrond) || '#ffffff';
+      balk.appendChild(g);
+      balk.appendChild(bol);
+      cel.appendChild(balk);
     });
   }
 
@@ -568,6 +585,37 @@
       if (NB.state.concept === c) NB.stukjeZet('content.beeld.uitsnede', url);
     } catch (err) { /* stil: dan blijft de vorige uitsnede staan */ }
     kolomBezig = false;
+  }
+
+  // ─── Kleuren (opmaakstand) ───────────────────────────────────────────────
+
+  /** Waar een element in de brief op het scherm staat (de brief is een iframe). */
+  function opScherm(el) {
+    var f = document.getElementById('edVoorbeeld').getBoundingClientRect();
+    var r = el.getBoundingClientRect();
+    return { x: f.left + r.left, y: f.top + r.bottom };
+  }
+
+  function kiesBlokKleur(id, anker) {
+    var it = itemVan(id);
+    if (!it) return;
+    var p = anker.ownerDocument === document ? (function () { var r = anker.getBoundingClientRect(); return { x: r.left, y: r.bottom }; })() : opScherm(anker);
+    NB.kleur.open({
+      x: p.x, y: p.y, huidige: it.content && it.content.achtergrond,
+      opKies: async function (kleur) {
+        try {
+          var bij = await NB.api('/api/contributions/' + id + '/achtergrond', { method: 'POST', body: { kleur: kleur } });
+          it.content = bij.content;
+          laadBrief();
+          if (NB.state.opmaakId === id) toonPaneel();
+        } catch (err) { NB.fout(err); }
+      },
+    });
+  }
+
+  function mailKleur() {
+    var b = NB.state.boot.brands && NB.state.boot.brands[d().series.brand];
+    return d().series.tint || (b && b.tint) || '#f0f9ff';
   }
 
   function blokKnop(wat) {
@@ -747,6 +795,7 @@
     return '<div class="grid gap-5 lg:grid-cols-[minmax(0,1fr)_400px] items-start">'
       + '<div class="min-w-0">'
       + '<div class="flex flex-wrap items-center gap-3 mb-3">' + modi
+      + (opmaak() ? '<button type="button" id="edMailKleur" class="btn btn-sm btn-ghost gap-2 px-2" data-action="kleur-mail" title="Achtergrond rond de mail, voor alle edities van deze nieuwsbrief">' + NB.kleurBol(mailKleur()) + '<span>Achtergrond van de mail</span></button>' : '')
       + '<div role="tablist" class="tabs tabs-boxed tabs-sm w-fit">'
       + '<button role="tab" class="tab' + (stand === 'preview' ? ' tab-active' : '') + '" data-action="voorbeeld-stand" data-stand="preview">Werkblad</button>'
       + '<button role="tab" class="tab' + (stand === 'test' ? ' tab-active' : '') + '" data-action="voorbeeld-stand" data-stand="test">Zoals de lezer het ziet</button>'
@@ -895,6 +944,25 @@
     return herlaad({ open: null });
   };
 
+  NB.actions['kleur-blok'] = function (el) { kiesBlokKleur(el.dataset.id, el); };
+
+  NB.actions['kleur-mail'] = function (el) {
+    var r = el.getBoundingClientRect();
+    NB.kleur.open({
+      x: r.left, y: r.bottom, huidige: d().series.tint,
+      opKies: async function (kleur) {
+        try {
+          var bij = await NB.api('/api/series/' + d().series.id, { method: 'PUT', body: { tint: kleur || '' } });
+          d().series.tint = bij.tint;
+          var knop = document.getElementById('edMailKleur');
+          if (knop) knop.innerHTML = NB.kleurBol(mailKleur()) + '<span>Achtergrond van de mail</span>';
+          laadBrief();
+          NB.toast('Geldt voor alle edities van ' + d().series.name + '.', 'info');
+        } catch (err) { NB.fout(err); }
+      },
+    });
+  };
+
   NB.actions['opmaak-terug'] = function () { NB.state.opmaakId = null; labels(); toonPaneel(); };
 
   /** Van de opmaak naar het schrijven van één blok. */
@@ -944,6 +1012,7 @@
       var r = await NB.api('/api/editions/' + d().edition.id + '/test', { method: 'POST' });
       NB.toast('Testmail ' + (r.queued ? 'in de wachtrij van Odoo' : 'verstuurd') + ' naar ' + r.to.join(', ') + '.');
       if (!r.token_field) NB.toast('Het Studio-veld x_studio_om_token ontbreekt: antwoorden op vragen tellen als anoniem.', 'warning');
+      if (r.beeld_problemen && r.beeld_problemen.length) NB.toast(r.beeld_problemen.length + ' beeld(en) konden niet klaargezet worden en staan misschien gebroken in de mail. Laad ze opnieuw op als PNG of JPEG.', 'warning');
       herlaad();
     } catch (err) { NB.fout(err); el.disabled = false; }
   };

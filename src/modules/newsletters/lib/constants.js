@@ -161,6 +161,36 @@ export const BEELD_KADERS = {
   vol: { breedte: 640, verhouding: 16 / 9 },
 };
 
+/**
+ * De merkkleuren (palet van de huisstijl, aangeleverd door marketing op
+ * 2026-10-13), per kleurfamilie van licht naar donker. EEN bron: de
+ * kleurkiezer in het scherm krijgt ze via /api/bootstrap, en de server
+ * aanvaardt enkel deze kleuren als achtergrond van een blok of van de mail.
+ */
+export const MERKKLEUREN = [
+  { familie: 'Grijs', kleuren: ['#FFFFFF', '#F9FAFB', '#F3F4F6', '#E5E7EB', '#4B5563', '#1F2937'] },
+  { familie: 'Blauw', kleuren: ['#F0F9FF', '#E0F2FE', '#BAE6FD', '#0EA5E9', '#0369A1'] },
+  { familie: 'Mint', kleuren: ['#F0FDFA', '#99F6E4', '#14B8A6'] },
+  { familie: 'Oranje', kleuren: ['#FFF7ED', '#FED7AA', '#F97316'] },
+  { familie: 'Roze', kleuren: ['#FDF2F8', '#FBCFE8', '#EC4899'] },
+];
+
+const ALLE_MERKKLEUREN = new Set(MERKKLEUREN.flatMap((f) => f.kleuren.map((k) => k.toLowerCase())));
+
+/** Een merkkleur (kleine letters), of '' als het er geen is. */
+export function merkkleur(waarde) {
+  const k = String(waarde || '').trim().toLowerCase();
+  return ALLE_MERKKLEUREN.has(k) ? k : '';
+}
+
+/** Donker genoeg om er witte tekst op te zetten? (relatieve helderheid) */
+export function isDonker(hex) {
+  const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(String(hex || ''));
+  if (!m) return false;
+  const lin = (v) => { const c = parseInt(v, 16) / 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
+  return 0.2126 * lin(m[1]) + 0.7152 * lin(m[2]) + 0.0722 * lin(m[3]) < 0.3;
+}
+
 /** De plekken die je zelf kiest (video en link hebben een vaste plek). */
 export const BEELD_PLAATSEN = ['rechts', 'links', 'kolom-rechts', 'kolom-links', 'tekst'];
 

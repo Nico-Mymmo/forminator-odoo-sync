@@ -20,7 +20,7 @@
  */
 
 import { esc, safeUrl } from '../../../lib/mail/render-blocks.js';
-import { STYLE as S, BRAND, KINDS, CONTRIBUTION_STATUS, BEELD_KADERS } from './constants.js';
+import { STYLE as S, BRAND, KINDS, CONTRIBUTION_STATUS, BEELD_KADERS, merkkleur, isDonker } from './constants.js';
 
 const WIDTH = 640;
 
@@ -325,7 +325,7 @@ function handtekening(item) {
   const functie = String(a.job_title || '').trim();
   const foto = safeUrl(a.avatar_url);
   const beeld = foto
-    ? `<img src="${foto}" width="68" height="68" alt="${esc(voornaam)}" style="display:block;width:68px;height:68px;border-radius:50%;object-fit:cover;border:3px solid ${S.mint}">`
+    ? `<img src="${foto}" width="68" height="68" alt="${esc(voornaam)}" style="display:block;width:68px;height:68px;border-radius:50%;object-fit:cover">`
     : avatar({ name: voornaam }, 68, { onDark: true });
   return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin-top:22px"><tr>
 <td valign="middle" style="padding-right:16px">${beeld}</td>
@@ -531,6 +531,41 @@ const BLOKKEN = {
   closing: blokClosing,
 };
 
+// ─── Achtergrondkleuren ─────────────────────────────────────────────────────
+
+/**
+ * Op een donkere achtergrond wordt de tekst licht. De blokken zetten hun
+ * kleuren inline (een mail kent geen erfenis via klassen), dus vervangen we de
+ * tekstkleuren van de huisstijl in de HTML van dat blok -- maar enkel in een
+ * style ZONDER eigen achtergrond: een knop, label, gezichtje of kader houdt
+ * zijn kleuren.
+ */
+const OP_DONKER = [
+  [S.heading, '#ffffff'], [S.headingSoft, '#f9fafb'], [S.text, '#e5e7eb'], [S.muted, '#d1d5db'], [S.primary, '#bae6fd'],
+];
+
+function lichteTekst(html) {
+  return html.replace(/style="([^"]*)"/g, (heel, stijl) => {
+    if (/background(-color)?\s*:/i.test(stijl)) return heel;
+    let uit = stijl;
+    for (const [van, naar] of OP_DONKER) uit = uit.replace(new RegExp(`(^|;)\\s*color:${van}`, 'gi'), `$1color:${naar}`);
+    return `style="${uit}"`;
+  });
+}
+
+/** Blokken met een eigen gekleurd kader: daar blijft de tekst zoals ze is. */
+const MET_KADER = new Set(['quote', 'statement', 'question', 'poll', 'events']);
+
+/** Een blok met een eigen achtergrond: over de hele breedte van het blok. */
+function metAchtergrond(html, kleur, kind) {
+  const k = merkkleur(kleur);
+  if (!k || !html) return html;
+  const gekleurd = html.replace(/<td style="([^"]*)"/, (_, stijl) => `<td style="${stijl};background-color:${k}"`);
+  if (!isDonker(k) || MET_KADER.has(kind)) return gekleurd;
+  // De eerste td (net gekleurd) niet nog eens: die heeft nu een achtergrond.
+  return lichteTekst(gekleurd);
+}
+
 // ─── Het geheel ─────────────────────────────────────────────────────────────
 
 function kopRij(series, edition) {
@@ -604,11 +639,11 @@ export function renderEdition({ series, edition, items, mode = 'preview', ctx = 
     const id = mode === 'preview' ? it.id : null;
     if (meeIds.has(it.id)) {
       const maak = BLOKKEN[it.kind];
-      if (maak) rijen.push(maak(it, blokCtx, id));
+      if (maak) rijen.push(metAchtergrond(maak(it, blokCtx, id), it.content?.achtergrond, it.kind));
     } else if (mode === 'preview' && it.kind === 'intro') {
       // Het woordje vooraf vul je IN de brief: ook leeg staat het er.
       open.push(it);
-      rijen.push(blokIntro(it, blokCtx, id));
+      rijen.push(metAchtergrond(blokIntro(it, blokCtx, id), it.content?.achtergrond, it.kind));
     } else if (mode === 'preview' && !KINDS[it.kind]?.auto) {
       open.push(it);
       rijen.push(blokPlaatshouder(it, id));
@@ -616,7 +651,7 @@ export function renderEdition({ series, edition, items, mode = 'preview', ctx = 
   }
 
   return {
-    html: huls(rijen.filter(Boolean), { tint, preheader: edition.preheader, voetRij: voet(series, ctx, mode) }),
+    html: huls(rijen.filter(Boolean), { tint, preheader: edition.preheader, voetRij: isDonker(tint) ? lichteTekst(voet(series, ctx, mode)) : voet(series, ctx, mode) }),
     included: [...meeIds],
     open,
   };

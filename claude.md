@@ -5325,6 +5325,29 @@ Afspraken die bewust zo zijn:
   lijn waar het blok landt en meescrollen aan de rand; loslaten bewaart via
   `/order`. Een schrijver ziet geen standen en voegt zelf iets toe vanuit zijn
   overzicht.
+- **Merkkleuren** (2026-10-13): `MERKKLEUREN` in lib/constants.js (het palet van
+  marketing) is de enige bron; de server aanvaardt enkel die kleuren als
+  achtergrond (`merkkleur()`). In de opmaakstand heeft elk blok naast zijn
+  handvat een kleurbolletje (`newsletters-kleur.js`, rooster zoals in
+  WordPress, met "Wissen"); dat bewaart `content.achtergrond` via `POST
+  /api/contributions/:id/achtergrond` (verandert de stand van het stukje niet,
+  en een schrijver die bewaart, wist het niet). "Achtergrond van de mail" =
+  `series.tint`, dus voor ALLE edities van die nieuwsbrief. Op een donkere kleur
+  wordt gewone tekst licht (`lichteTekst`: enkel styles zonder eigen
+  achtergrond, dus knoppen, labels en gezichtjes blijven); blokken met een eigen
+  kader (citaat, vragen, agenda) houden hun tekstkleuren.
+- **Elk beeld in een verstuurde mail staat bij ons** (`lib/beelden-hosten.js`,
+  2026-10-13). Vlak voor een test of een echte verzending kopieert de OM elk
+  `<img>` naar `public/nieuwsbrieven/mail/<hash>` en zet het adres op
+  `link.<merk>/assets/...`: een beeld van een andere site, een logo op
+  WordPress, een Odoo-foto (via de API, dus ook als de bijlage niet publiek
+  staat), en eigen R2-bestanden buiten `public/` (die krijgen `Cache-Control:
+  private, no-store`, wat mailprogramma's slecht verdragen; `public/` krijgt
+  een vaste, publieke cache). Zelfde bron = zelfde sleutel, dus niets dubbel.
+  Enkel PNG/JPEG/GIF; wat niet lukt, meldt de test, en een echte verzending
+  weigert dan. Uploads gaan sinds dan ook naar `public/nieuwsbrieven/`: een eigen
+  map in Assetbeheer (categorie public). **Gevolg: wie daar iets wist, breekt
+  het beeld in een al verstuurde mail.**
 - **Iedereen kiest zelf de plek van een blok dat hij toevoegt**; de
   hoofdredactie kan het nadien verschuiven, toewijzen of weghalen (paneel,
   "Hoofdredactie"). "Bevestigen" in het scherm = de stand `approved`.
