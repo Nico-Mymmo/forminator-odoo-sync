@@ -245,16 +245,31 @@ function handtekening(item) {
 </tr></table>`;
 }
 
+/**
+ * In het voorbeeld (`id` gezet) zijn titel en tekst aanwijsbaar met
+ * `data-nb-veld`: het scherm maakt ze daar bewerkbaar, en een lege titel of
+ * tekst staat er dan toch (het scherm toont een plaatshouder). In een test of
+ * echte mail staat er niets van.
+ */
 function blokIntro(item, ctx, id) {
   const c = item.content || {};
   const tekening = c.thingie && ctx.thingieUrl ? ctx.thingieUrl(c.thingie) : null;
+  const foto = !tekening ? safeUrl(c.image_url) : '';
+  const beeldAttr = id ? ' data-nb-beeld="1"' : '';
   const rechts = tekening
-    ? `<td width="150" valign="top" style="padding-left:20px"><img src="${esc(tekening)}" width="150" height="150" alt="" style="display:block;width:150px;height:150px"></td>`
-    : '';
+    ? `<td width="150" valign="top" style="padding-left:20px"${beeldAttr}><img src="${esc(tekening)}" width="150" height="150" alt="" style="display:block;width:150px;height:150px"></td>`
+    : foto
+      ? `<td width="150" valign="top" style="padding-left:20px"${beeldAttr}><img src="${foto}" width="150" alt="" style="display:block;width:150px;height:auto;border-radius:14px"></td>`
+      : '';
+  const titel = id
+    ? `<h1 data-nb-veld="title" data-placeholder="Typ hier een titel" style="margin:0 0 16px;font-family:${S.fontHead};font-weight:400;font-size:38px;line-height:1.15;color:${S.heading}">${esc(c.title || '')}</h1>`
+    : kop(c.title, { size: 38, tag: 'h1', margin: '0 0 16px' });
+  const tekst = id
+    ? `<div data-nb-veld="text" data-placeholder="Typ hier je inleiding. Sluit af met je groet, bv. Veel leesplezier," style="font-family:${S.fontBody};font-size:17px;line-height:1.6;color:${S.text}">${tekstNaarHtml(c.text, { size: 17 })}</div>`
+    : tekstNaarHtml(c.text, { size: 17 });
   const inhoud = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
-<td valign="top">${pil(item.title, '#ffffff', S.primary)}
-${kop(c.title, { size: 38, tag: 'h1', margin: '18px 0 16px' })}
-${tekstNaarHtml(c.text, { size: 17 })}
+<td valign="top">${titel}
+${tekst}
 ${handtekening(item)}</td>${rechts}</tr></table>`;
   return `<tr${id ? ` data-nb-id="${esc(id)}"` : ''}><td style="padding:44px 40px 40px;background-color:${S.teal50}">${inhoud}</td></tr>`;
 }
@@ -501,6 +516,10 @@ export function renderEdition({ series, edition, items, mode = 'preview', ctx = 
     if (meeIds.has(it.id)) {
       const maak = BLOKKEN[it.kind];
       if (maak) rijen.push(maak(it, blokCtx, id));
+    } else if (mode === 'preview' && it.kind === 'intro') {
+      // Het woordje vooraf vul je IN de brief: ook leeg staat het er.
+      open.push(it);
+      rijen.push(blokIntro(it, blokCtx, id));
     } else if (mode === 'preview' && !KINDS[it.kind]?.auto) {
       open.push(it);
       rijen.push(blokPlaatshouder(it, id));

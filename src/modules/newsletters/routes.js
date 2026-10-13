@@ -123,7 +123,9 @@ export function normaliseerInhoud(kind, c = {}) {
     case 'intro':
       return {
         title: kort(c.title, 160), text: kort(c.text, 4000),
+        // Rechts naast de tekst: een tekening OF een foto.
         thingie: /^[a-z0-9-]{1,60}$/.test(String(c.thingie || '')) ? c.thingie : '',
+        image_url: url(c.image_url),
         // Wie ondertekent (een OM-gebruiker); leeg = de schrijver.
         signer_user_id: /^[0-9a-f-]{36}$/i.test(String(c.signer_user_id || '')) ? c.signer_user_id : '',
       };
