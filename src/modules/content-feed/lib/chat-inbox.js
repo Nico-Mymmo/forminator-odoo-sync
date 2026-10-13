@@ -115,8 +115,9 @@ async function verwerkLink(env, { url, draad, gebruiker, eigenaar }) {
   try {
     artikel = await fetchArticle(url);
   } catch (error) {
-    await antwoord(env, draad, `⚠️ Ik kon dit artikel niet lezen, dus het staat NIET in Nieuws & updates: ${error?.message || 'onbekende fout'}`);
-    return;
+    const fout = `Ik kon dit artikel niet lezen: ${error?.message || 'onbekende fout'}`;
+    await antwoord(env, draad, `⚠️ ${fout} Het staat dus NIET in Nieuws & updates.`);
+    return { ok: false, fout };
   }
   const taxonomy = await listTaxonomy(env);
   const voorstel = await analyseerArtikel(env, gebruiker, artikel, taxonomy.tags || []);
@@ -142,7 +143,7 @@ async function verwerkLink(env, { url, draad, gebruiker, eigenaar }) {
   const laag = voorstel.relevance === 'laag' ? '\nLet op: dit artikel lijkt weinig op te leveren voor onze doelgroep.' : '';
   const titel = item?.summaryTitle || item?.title || voorstel.title;
   const tekst = `✅ Nieuwsbericht staat klaar: *${titel}*\nKijk het na en publiceer het: ${om}/content-feed${laag}`;
-  if (!item) { await antwoord(env, draad, tekst); return; }
+  if (!item) { await antwoord(env, draad, tekst); return { ok: true, titel }; }
   // De herwerkte versie als kaart, in dezelfde draad als de link.
   const kaart = bouwKaart(item, {
     beeldUrl: await publiekBeeld(env, item),
@@ -153,6 +154,7 @@ async function verwerkLink(env, { url, draad, gebruiker, eigenaar }) {
     tekst,
   });
   await antwoordMet(env, draad, kaart);
+  return { ok: true, titel, id: item.id };
 }
 
 /**
@@ -189,6 +191,7 @@ export async function runChatInbox(env, { terugMinuten = 0 } = {}) {
   const gebruiker = await omGebruiker(env, lezer);
   const wie = new Map();
   let gedaan = 0;
+  const resultaten = [];
   let gelezen = 0;
   let metLinks = 0;
   let laatst = sinds;
@@ -200,18 +203,26 @@ export async function runChatInbox(env, { terugMinuten = 0 } = {}) {
     let gestopt = false;
     for (const url of links) {
       const vlag = `content-feed:chatinbox:link:${await hash(url)}`;
-      if (await kv.get(vlag)) continue;
+      const stand = await kv.get(vlag);
+      // Gelukt = nooit opnieuw. Mislukt (of van vóór deze vlaggen) = enkel opnieuw via de knop (`terug`),
+      // niet elke 5 minuten (dat zou de draad volzetten met dezelfde fout).
+      if (stand && !(terug && !String(stand).startsWith('ok:'))) continue;
       if (gedaan >= PER_RONDE) { gestopt = true; break; }
-      await kv.put(vlag, nu);
+      await kv.put(vlag, `bezig:${nu}`);
       gedaan += 1;
+      let r;
       try {
         if (!gebruiker) throw new Error(`${lezer} heeft geen account in de OM`);
         const eigenaar = await odooGebruikerVan(env, lezer, b.sender, wie);
-        await verwerkLink(env, { url, draad: b.thread?.name, gebruiker, eigenaar });
+        r = await verwerkLink(env, { url, draad: b.thread?.name, gebruiker, eigenaar });
       } catch (error) {
-        console.error(`${LOG_PREFIX} link uit Chat niet verwerkt (${url}):`, error?.message);
-        await antwoord(env, b.thread?.name, `⚠️ Er liep iets mis, dus dit artikel staat NIET in Nieuws & updates: ${error?.message || 'onbekende fout'}`);
+        const reden = [error?.code, error?.message].filter(Boolean).join(': ') || 'onbekende fout';
+        console.error(`${LOG_PREFIX} link uit Chat niet verwerkt (${url}):`, reden);
+        await antwoord(env, b.thread?.name, `⚠️ Er liep iets mis, dus dit artikel staat NIET in Nieuws & updates: ${reden}`);
+        r = { ok: false, fout: reden };
       }
+      await kv.put(vlag, r?.ok ? `ok:${nu}` : `fout:${nu}`);
+      resultaten.push({ url, ...r });
     }
     // Een bericht met links die nog moeten wachten, lezen we volgende ronde opnieuw.
     if (gestopt) break;
@@ -221,5 +232,5 @@ export async function runChatInbox(env, { terugMinuten = 0 } = {}) {
   const opgeslagen = await kv.get(SINDS);
   if (laatst !== sinds && (!opgeslagen || laatst > opgeslagen)) await kv.put(SINDS, laatst);
   console.log(`${LOG_PREFIX} Chat-inbox: ${gelezen} bericht(en) sinds ${sinds}, ${metLinks} met een link, ${gedaan} verwerkt`);
-  return { status: 'ok', gedaan, sinds, gelezen, metLinks };
+  return { status: 'ok', gedaan, sinds, gelezen, metLinks, resultaten };
 }
