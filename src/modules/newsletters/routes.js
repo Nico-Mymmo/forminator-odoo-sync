@@ -15,7 +15,7 @@ import {
 } from './lib/store.js';
 import {
   KINDS, isKind, DEFAULT_OPTIONS, EDITION_STATUS, CONTRIBUTION_STATUS, LOG_PREFIX, ASSET_ORIGIN,
-  sendMode, testEmails, BRAND, BEELD_KADERS, BEELD_PLAATSEN,
+  sendMode, testEmails, BRAND, BEELD_KADERS, BEELD_PLAATSEN, MERKKLEUREN, merkkleur,
 } from './lib/constants.js';
 import { renderEdition, renderContribution, heeftInhoud, kopVan } from './lib/render.js';
 import { verzamel, maakEditieOp, vernieuwNieuws, ondertekenaarId, metOndertekening } from './lib/editions.js';
@@ -24,6 +24,7 @@ import { tokenVeldBestaat, verstuurTest, planEchteMailing, leesCijfers } from '.
 import { stelStukjeVoor, stelOnderwerpVoor } from './lib/ai.js';
 import { linkVoorbeeld, eventsVoorEditie, auteurs, tekeningen } from './lib/sources.js';
 import { stuurHerinnering } from './lib/cron.js';
+import { hostBeelden, BEELDEN_MAP } from './lib/beelden-hosten.js';
 import { naamVoor } from '../../lib/medewerkers.js';
 import { lijstTekeningen, pngSleutel, vergeetTekeningen } from '../av-slides/lib/thingies.js';
 import { listIntegrations } from '../forminator-sync-v2/database.js';
@@ -136,7 +137,18 @@ function normaliseerBeeld(b, vastePlaats = null) {
   };
 }
 
+/**
+ * De inhoud van een stukje, per soort. Daarbij voor elke soort: een eigen
+ * achtergrond, enkel uit de merkkleuren (MERKKLEUREN).
+ */
 export function normaliseerInhoud(kind, c = {}) {
+  const uit = inhoudPerSoort(kind, c);
+  const bg = merkkleur(c?.achtergrond);
+  if (bg) uit.achtergrond = bg;
+  return uit;
+}
+
+function inhoudPerSoort(kind, c = {}) {
   switch (kind) {
     case 'intro':
       return {
@@ -255,6 +267,7 @@ export const routes = {
           kinds: KINDS,
           brands: BRAND,
           beeld_kaders: BEELD_KADERS,
+          merkkleuren: MERKKLEUREN,
           asset_origin: ASSET_ORIGIN,
           series: series.map((s) => ({ ...s, is_editor: isEditorVan(user, s) })),
           users: users.map((u) => ({ id: u.id, name: naamVoor(null, u), email: u.email })),
@@ -568,13 +581,15 @@ export const routes = {
         ctx: { ...v.ctx, answerLink: antwoordLinks(series, 'test', tokenVeld) },
       });
       const subject = edition.subject || `${series.name} ${edition.title}`;
-      const r = await verstuurTest(env, { series, edition, html, subject, preheader: edition.preheader });
+      // Elk beeld op onze eigen, publieke opslag (lib/beelden-hosten.js).
+      const gehost = await hostBeelden(env, html, { series });
+      const r = await verstuurTest(env, { series, edition, html: gehost.html, subject, preheader: edition.preheader });
       await updateEdition(env, edition.id, {
         test_mailing_ids: [...(edition.test_mailing_ids || []), r.mailingId],
         last_test_at: new Date().toISOString(),
       });
       await logActivity(env, { editionId: edition.id, userId: user.id, kind: 'test', text: `Testmail naar ${r.to.join(', ')}` });
-      return json({ success: true, data: { ...r, token_field: tokenVeld } });
+      return json({ success: true, data: { ...r, token_field: tokenVeld, beeld_problemen: gehost.problemen } });
     } catch (err) { return fout(err); }
   },
 
@@ -598,7 +613,13 @@ export const routes = {
         series, edition, items: v.items, mode: 'live',
         ctx: { ...v.ctx, answerLink: antwoordLinks(series, 'live', await tokenVeldBestaat(env)) },
       });
-      const r = await planEchteMailing(env, { series, edition, html, subject: edition.subject, preheader: edition.preheader });
+      // Een beeld dat niet op onze opslag kan, zou bij de lezer gebroken zijn:
+      // dan niet inplannen.
+      const gehost = await hostBeelden(env, html, { series });
+      if (gehost.problemen.length) {
+        throw new NewsletterError(`Deze beelden konden niet klaargezet worden voor de mail: ${gehost.problemen.join(', ')}. Laad ze opnieuw op als PNG of JPEG.`, 409);
+      }
+      const r = await planEchteMailing(env, { series, edition, html: gehost.html, subject: edition.subject, preheader: edition.preheader });
       await updateEdition(env, edition.id, { status: EDITION_STATUS.SCHEDULED, odoo_mailing_id: r.mailingId });
       await logActivity(env, { editionId: edition.id, userId: user.id, kind: 'scheduled', text: 'Ingepland in Odoo' });
       return json({ success: true, data: r });
@@ -666,7 +687,12 @@ export const routes = {
       const kind = b.kind !== undefined && isKind(b.kind) ? b.kind : item.kind;
       if (kind !== item.kind) w.kind = kind;
       if (b.title !== undefined) w.title = kort(b.title, 120);
-      if (b.content !== undefined) w.content = normaliseerInhoud(kind, b.content);
+      if (b.content !== undefined) {
+        w.content = normaliseerInhoud(kind, b.content);
+        // De achtergrond zet de hoofdredactie in de opmaakstand; een schrijver
+        // die zijn tekst bewaart, wist ze niet.
+        if (b.content.achtergrond === undefined && item.content?.achtergrond) w.content.achtergrond = item.content.achtergrond;
+      }
       if (b.raw_notes !== undefined) w.raw_notes = kort(b.raw_notes, 6000);
       if (b.owner_user_id !== undefined && editor) w.owner_user_id = b.owner_user_id || null;
       if (b.series_ids !== undefined && !item.edition_id) w.series_ids = (b.series_ids || []).filter((x) => typeof x === 'string');
@@ -708,6 +734,22 @@ export const routes = {
         if (doel === CONTRIBUTION_STATUS.SUBMITTED) await meldInChat(env, series, `${series.name} ${edition.title}: ${tekst}.`);
       }
       return json({ success: true, data: bij });
+    } catch (err) { return fout(err); }
+  },
+
+  /**
+   * De achtergrondkleur van één blok (opmaakstand). Apart van het bewaren van
+   * de inhoud: het verandert de stand van het stukje niet.
+   */
+  'POST /api/contributions/:id/achtergrond': async ({ env, user, params, request }) => {
+    try {
+      const { item, edition, series } = await stukjeMetContext(env, params.id);
+      eisEditor(user, series);
+      if (edition && !isActiveEdition(edition)) throw new NewsletterError('Deze editie is al verstuurd.', 409);
+      const kleur = merkkleur((await leesBody(request)).kleur);
+      const content = { ...(item.content || {}) };
+      if (kleur) content.achtergrond = kleur; else delete content.achtergrond;
+      return json({ success: true, data: await updateContribution(env, item.id, { content }) });
     } catch (err) { return fout(err); }
   },
 
@@ -842,7 +884,7 @@ export const routes = {
       if (!ext) throw new NewsletterError('Enkel PNG, JPEG of GIF. Andere beelden zet het scherm eerst om.');
       const bytes = await request.arrayBuffer();
       if (!bytes.byteLength || bytes.byteLength > MAX_BEELD) throw new NewsletterError('Het beeld is leeg of groter dan 3 MB.');
-      const key = `newsletters/${crypto.randomUUID()}.${ext}`;
+      const key = `${BEELDEN_MAP}${crypto.randomUUID()}.${ext}`;
       await env.R2_ASSETS.put(key, bytes, { httpMetadata: { contentType: type } });
       return json({ success: true, data: { url: `${ASSET_ORIGIN}/assets/${key}` } }, 201);
     } catch (err) { return fout(err); }
@@ -864,7 +906,7 @@ export const routes = {
       if (!res.ok || !ext) throw new NewsletterError('Dit beeld kan niet in een mail. Laad het zelf op als PNG of JPEG.');
       const bytes = await res.arrayBuffer();
       if (!bytes.byteLength || bytes.byteLength > MAX_BEELD) throw new NewsletterError('Het beeld is leeg of groter dan 3 MB.');
-      const key = `newsletters/${crypto.randomUUID()}.${ext}`;
+      const key = `${BEELDEN_MAP}${crypto.randomUUID()}.${ext}`;
       await env.R2_ASSETS.put(key, bytes, { httpMetadata: { contentType: type } });
       return json({ success: true, data: { url: `${ASSET_ORIGIN}/assets/${key}` } }, 201);
     } catch (err) { return fout(err); }
