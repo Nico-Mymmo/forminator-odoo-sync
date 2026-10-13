@@ -41,6 +41,27 @@
     voorbeeldTimer = setTimeout(laadVoorbeeld, 500);
   }
 
+  /** Bewaren zonder de brief opnieuw te tekenen (typen IN de brief, notities). */
+  function gewijzigdStil() {
+    NB.state.vuil = true;
+    zetBewaarStand('Niet bewaard');
+    clearTimeout(bewaarTimer);
+    bewaarTimer = setTimeout(bewaar, 1200);
+  }
+
+  /**
+   * Voor de redactietafel: een veld wijzigen van buiten het formulier. `stil`
+   * = de brief niet opnieuw tekenen (wie IN de brief typt, houdt zijn cursor).
+   */
+  NB.stukjeZet = function (pad, waarde, opties) {
+    if (!NB.state.stukje || !NB.state.concept) return;
+    zet(pad, waarde);
+    if (opties && opties.stil) { gewijzigdStil(); return; }
+    gewijzigd();
+    render();
+  };
+  NB.stukjeLees = function (pad) { return NB.state.concept ? lees(pad) : undefined; };
+
   function zetBewaarStand(tekst) {
     var el = document.getElementById('stBewaard');
     if (el) el.textContent = tekst;
@@ -300,6 +321,18 @@
     approved: 'Bevestigd, gaat zo mee',
   };
 
+  /**
+   * Het woordje vooraf schrijf je IN de brief (newsletters-edition.js maakt
+   * titel en tekst daar bewerkbaar, met bovenaan het blok AI en een beeld).
+   * Het paneel houdt enkel de instellingen.
+   */
+  function introInstellingen() {
+    var uitleg = NB.state.stukje.can_edit
+      ? '<div class="flex gap-2 text-sm bg-base-200 rounded-xl p-3"><i data-lucide="mouse-pointer-click" class="w-4 h-4 shrink-0 mt-0.5"></i><span>Typ de titel en de tekst <strong>rechtstreeks in de brief</strong>. Bovenaan het blok staan <strong>Schrijf met AI</strong> en <strong>+ Tekening of foto</strong>.</span></div>'
+      : '';
+    return uitleg + ondertekenaarKeuze();
+  }
+
   function renderPaneel() {
     var bak = document.getElementById('nbPaneel');
     if (!bak) return;
@@ -337,12 +370,15 @@
       + '<div class="card bg-base-100 border border-primary/40"><div class="card-body p-4 gap-3">'
       + '<div class="flex items-center gap-2"><button class="btn btn-ghost btn-sm px-2" data-action="paneel-sluit"><i data-lucide="arrow-left" class="w-4 h-4"></i> Overzicht</button>'
       + '<span id="stBewaard" class="text-xs opacity-60 ml-auto">' + (s.can_edit ? 'Bewaart vanzelf' : 'Alleen lezen') + '</span></div>'
-      + '<div><input class="input input-ghost input-sm text-lg font-bold px-1 w-full" data-veld="title" value="' + e(c().title) + '" aria-label="Naam boven het blok" title="Het labeltje boven het blok in de mail"' + (s.can_edit ? '' : ' disabled') + '>'
+      + '<div>' + (c().kind === 'intro'
+        ? '<div class="text-lg font-bold px-1">' + e(NB.soort('intro')) + '</div>'
+        : '<input class="input input-ghost input-sm text-lg font-bold px-1 w-full" data-veld="title" value="' + e(c().title) + '" aria-label="Naam boven het blok" title="Het labeltje boven het blok in de mail"' + (s.can_edit ? '' : ' disabled') + '>')
       + '<div class="flex flex-wrap items-center gap-2 text-sm mt-1 px-1"><span id="stStatus">' + (auto ? '<span class="badge badge-sm badge-ghost">Automatisch</span>' : NB.statusBadge(it.status)) + '</span><span class="opacity-70">' + e(stand) + '</span></div>'
       + '<div class="text-xs opacity-70 px-1 mt-1">' + e(wie) + '</div>' + (tegen ? '<div class="px-1">' + tegen + '</div>' : '') + '</div>'
       + hint
-      + aiBlok(true)
-      + '<div class="flex flex-col gap-4">' + velden(c().kind) + '</div>'
+      + (c().kind === 'intro'
+        ? introInstellingen()
+        : aiBlok(true) + '<div class="flex flex-col gap-4">' + velden(c().kind) + '</div>')
       + '</div></div>'
       + (knoppen.length ? '<div class="sticky bottom-0 z-10 bg-base-100 border border-base-content/10 rounded-xl p-3 flex flex-wrap gap-2 shadow-sm">' + knoppen.join('') + '</div>' : '')
       + beheer + praat
@@ -385,6 +421,13 @@
       kind: d.item.kind, title: d.item.title, content: JSON.parse(JSON.stringify(d.item.content || {})),
       raw_notes: d.item.raw_notes || '', series_ids: (d.item.series_ids || []).slice(),
     };
+    // Een inleiding heeft geen rubrieknaam (er staat geen label boven in de
+    // mail). Een blok dat er een werd, draagt nog de oude naam: rechtzetten.
+    if (d.item.kind === 'intro' && d.item.title !== NB.soort('intro') && d.can_edit) {
+      NB.state.concept.title = NB.soort('intro');
+      NB.state.vuil = true;
+      setTimeout(bewaar, 0);
+    }
   }
 
   function laadExtra(d) {
@@ -418,6 +461,8 @@
     var pad = el.dataset.veld;
     var waarde = el.type === 'checkbox' ? el.checked : el.value;
     zet(pad, waarde);
+    // Notities voor de AI staan niet in de mail: de brief hoeft niet opnieuw.
+    if (pad === 'raw_notes') { gewijzigdStil(); return; }
     if (pad === 'content.thingie' && waarde) {
       NB.zorgVoorPng(waarde).catch(function (err) { NB.toast('PNG van de tekening maken mislukt: ' + err.message, 'warning'); });
       gewijzigd();
@@ -445,6 +490,7 @@
     var oud = c();
     var behoud = { title: oud.content.title, text: oud.content.text };
     oud.kind = nieuw;
+    if (nieuw === 'intro') oud.title = NB.soort('intro');
     if (NB.isVraag(nieuw)) {
       oud.content = { question: oud.content.question || behoud.title || '', intro: oud.content.intro || '', options: oud.content.options || [], ask_comment: true, show_results: true };
     } else if (nieuw === 'quote') {
@@ -574,6 +620,8 @@
       zet('content.text', v.text);
     }
     NB.state.aiVoorstel = null;
+    var dlg = document.getElementById('dlgAI');
+    if (dlg && dlg.open) dlg.close();
     gewijzigd(); render();
   };
 

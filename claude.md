@@ -5282,6 +5282,18 @@ Afspraken die bewust zo zijn:
   `src/lib/medewerkers.js` (zie "Medewerkers"). Geen publieke pasfoto in Odoo =
   de eerste letter van de voornaam. Het woordje vooraf staat NOOIT in de
   inhoudstafel.
+- **Het woordje vooraf schrijf je IN de brief** (2026-10-13). Titel en tekst zijn
+  daar bewerkbaar (`data-nb-veld` uit de renderer, enkel in het voorbeeld;
+  `bewerkbaar()` in `newsletters-edition.js` zet `contenteditable`). Typen
+  bewaart zonder de brief te hertekenen (`NB.stukjeZet(..., { stil: true })`),
+  anders valt de cursor weg; de brief tekent opnieuw bij wisselen of sluiten.
+  Bovenaan het blok: "Schrijf met AI" (venster `dlgAI`) en "+ Tekening of foto"
+  (venster `dlgBeeld`, ook via het plusje rechts of door op het beeld te
+  klikken). Rechts naast de tekst: een tekening OF een foto. Het paneel houdt
+  enkel instellingen (wie ondertekent, status, hoofdredactie). Een inleiding
+  heeft GEEN label boven zich en heet altijd "Woordje vooraf"; een blok dat er
+  een werd, krijgt die naam zodra het geopend wordt. Plakken = gewone tekst.
+  Volgende blokken volgen hetzelfde patroon.
 - **Iedereen kiest zelf de plek van een blok dat hij toevoegt**; de
   hoofdredactie kan het nadien verschuiven, toewijzen of weghalen (paneel,
   "Hoofdredactie"). "Bevestigen" in het scherm = de stand `approved`.

@@ -229,7 +229,21 @@
     + '.nb-plekken-aan [data-nb-id]{opacity:.55}'
     + '.nb-plek>td{padding:6px 24px}'
     + '.nb-plek div{border:2px dashed #38bdf8;border-radius:10px;padding:9px;text-align:center;font:600 13px system-ui,-apple-system,"Segoe UI",sans-serif;color:#0369a1;background:#f0f9ff;cursor:pointer}'
-    + '.nb-plek:hover div,.nb-plek.nb-over div{background:#0284c7;border-color:#0284c7;color:#fff}';
+    + '.nb-plek:hover div,.nb-plek.nb-over div{background:#0284c7;border-color:#0284c7;color:#fff}'
+    // Typen in de brief (het woordje vooraf)
+    + '[data-nb-veld]:empty::before{content:attr(data-placeholder);color:#9ca3af;font-style:italic}'
+    + '[data-nb-veld][contenteditable]{outline:none;border-radius:6px;cursor:text;transition:box-shadow .15s}'
+    + '[data-nb-veld][contenteditable]:hover{box-shadow:0 0 0 2px rgba(56,189,248,.35)}'
+    + '[data-nb-veld][contenteditable]:focus{box-shadow:0 0 0 2px #38bdf8;background:rgba(255,255,255,.55)}'
+    + '[data-nb-veld="text"] p{margin:0 0 14px!important}[data-nb-veld="text"] p:last-child{margin-bottom:0!important}'
+    + '.nb-gereedschap{position:absolute;top:8px;left:10px;z-index:3;display:flex;gap:6px}'
+    + '.nb-gereedschap button,.nb-plus{font:600 12px/1 system-ui,-apple-system,"Segoe UI",sans-serif;border-radius:999px;padding:7px 11px;cursor:pointer;border:1px solid #bae6fd;background:#fff;color:#0369a1;box-shadow:0 1px 2px rgba(0,0,0,.06)}'
+    + '.nb-gereedschap button:hover{background:#0284c7;border-color:#0284c7;color:#fff}'
+    + '.nb-plus-cel{padding-left:20px;vertical-align:top}'
+    + '.nb-plus{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;width:150px;height:150px;box-sizing:border-box;border:2px dashed #7dd3fc;border-radius:14px;background:rgba(255,255,255,.6);font-size:12px;padding:0}'
+    + '.nb-plus span{font-size:30px;line-height:1;font-weight:400}'
+    + '.nb-plus:hover{background:#e0f2fe;border-color:#0284c7}'
+    + '[data-nb-beeld][data-nb-knop]{cursor:pointer}[data-nb-beeld][data-nb-knop]:hover img{outline:3px solid #38bdf8;outline-offset:2px}';
 
   /** Wat er op een blok in de brief staat, naast de inhoud. */
   function labelVan(it) {
@@ -251,11 +265,34 @@
       (doc.head || doc.documentElement).appendChild(stijl);
       doc.addEventListener('click', function (ev) {
         ev.preventDefault();
+        var knop = ev.target.closest('[data-nb-knop]');
+        if (knop) { blokKnop(knop.getAttribute('data-nb-knop')); return; }
         var plek = ev.target.closest('.nb-plek');
         if (plek) { plaats(plek.getAttribute('data-na')); return; }
         if (NB.state.plaatsen) return;
         var blok = ev.target.closest('[data-nb-id]');
         if (blok) selecteer(blok.getAttribute('data-nb-id')).catch(NB.fout);
+      });
+      doc.addEventListener('input', function (ev) {
+        var el = ev.target.closest && ev.target.closest('[data-nb-veld][contenteditable]');
+        if (!el || !NB.stukjeZet) return;
+        var veld = el.getAttribute('data-nb-veld');
+        var waarde = veld === 'title' ? el.textContent.replace(/\s+/g, ' ').trim() : htmlNaarTekst(el);
+        NB.state.inlineVuil = true;
+        NB.stukjeZet('content.' + veld, waarde, { stil: true });
+        hoogteBij();
+      });
+      // Plakken = gewone tekst: geen opmaak van een andere site in de mail.
+      doc.addEventListener('paste', function (ev) {
+        if (!ev.target.closest || !ev.target.closest('[data-nb-veld][contenteditable]')) return;
+        ev.preventDefault();
+        var tekst = (ev.clipboardData && ev.clipboardData.getData('text/plain')) || '';
+        doc.execCommand('insertText', false, tekst);
+      });
+      // De titel is één regel.
+      doc.addEventListener('keydown', function (ev) {
+        var el = ev.target.closest && ev.target.closest('[data-nb-veld="title"][contenteditable]');
+        if (el && ev.key === 'Enter') ev.preventDefault();
       });
       doc.addEventListener('dragover', function (ev) {
         var plek = ev.target.closest && ev.target.closest('.nb-plek');
@@ -298,7 +335,137 @@
         cel.appendChild(el);
       }
     });
+    // Niet opnieuw opbouwen terwijl iemand in de brief typt: dan valt de cursor weg.
+    var actief = doc.activeElement;
+    if (!(actief && actief.hasAttribute && actief.hasAttribute('contenteditable'))) bewerkbaar(doc);
   }
+
+  /**
+   * Het gekozen woordje vooraf bewerkbaar maken IN de brief: titel en tekst
+   * (contenteditable op `data-nb-veld` uit de renderer), bovenaan het blok
+   * "Schrijf met AI" en "+ Tekening of foto", en een plusje waar het beeld komt.
+   */
+  function bewerkbaar(doc) {
+    doc.querySelectorAll('[contenteditable]').forEach(function (x) { x.removeAttribute('contenteditable'); });
+    doc.querySelectorAll('.nb-gereedschap,.nb-plus-cel').forEach(function (x) { x.remove(); });
+    doc.querySelectorAll('[data-nb-beeld][data-nb-knop]').forEach(function (x) { x.removeAttribute('data-nb-knop'); });
+    var s = NB.state.stukje;
+    if (!s || NB.state.stukjeHost !== 'paneel' || !s.can_edit || NB.state.voorbeeldStand === 'test') return;
+    if (!NB.state.concept || NB.state.concept.kind !== 'intro') return;
+    var rij = doc.querySelector('[data-nb-id="' + s.item.id + '"]');
+    if (!rij) return;
+    try { doc.execCommand('defaultParagraphSeparator', false, 'p'); } catch (err) { /* oude browsers */ }
+    rij.querySelectorAll('[data-nb-veld]').forEach(function (x) { x.setAttribute('contenteditable', 'true'); x.setAttribute('spellcheck', 'true'); });
+    var cel = rij.firstElementChild;
+    var bar = doc.createElement('div');
+    bar.className = 'nb-gereedschap';
+    bar.innerHTML = '<button type="button" data-nb-knop="ai">\u2728 Schrijf met AI</button><button type="button" data-nb-knop="beeld">+ Tekening of foto</button>';
+    cel.appendChild(bar);
+    var beeld = rij.querySelector('[data-nb-beeld]');
+    if (beeld) {
+      beeld.setAttribute('data-nb-knop', 'beeld');
+      beeld.title = 'Ander beeld kiezen';
+    } else {
+      var tr = rij.querySelector('table tr');
+      if (tr) {
+        var td = doc.createElement('td');
+        td.className = 'nb-plus-cel';
+        td.innerHTML = '<button type="button" class="nb-plus" data-nb-knop="beeld"><span>+</span>Tekening of foto</button>';
+        tr.appendChild(td);
+      }
+    }
+  }
+
+  /** Van bewerkte HTML terug naar de tekst met **vet** en [link](https://...). */
+  function inlineTekst(node) {
+    var uit = '';
+    node.childNodes.forEach(function (n) {
+      if (n.nodeType === 3) { uit += n.nodeValue.replace(/\u00a0/g, ' '); return; }
+      if (n.nodeType !== 1) return;
+      var t = n.tagName;
+      if (t === 'BR') uit += '\n';
+      else if (t === 'STRONG' || t === 'B') { var v = inlineTekst(n); uit += v.trim() ? '**' + v + '**' : v; }
+      else if (t === 'A') { var h = n.getAttribute('href') || ''; var l = inlineTekst(n); uit += /^https?:\/\//.test(h) ? '[' + l + '](' + h + ')' : l; }
+      else if (t === 'P' || t === 'DIV') uit += '\n\n' + inlineTekst(n) + '\n\n';
+      else uit += inlineTekst(n);
+    });
+    return uit;
+  }
+
+  function htmlNaarTekst(el) {
+    return inlineTekst(el).replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+  }
+
+  function blokKnop(wat) {
+    if (wat === 'ai') openAI();
+    else if (wat === 'beeld') openBeeld();
+  }
+
+  // ─── Schrijf met AI (venster) ─────────────────────────────────────────────
+
+  function openAI() {
+    var c = NB.state.concept;
+    if (!c) return;
+    document.getElementById('dlgAIInhoud').innerHTML = '<h3 class="font-bold text-lg mb-1 flex items-center gap-2"><i data-lucide="sparkles" class="w-5 h-5 text-primary"></i> Schrijf met AI</h3>'
+      + '<p class="text-sm opacity-70 mb-3">Zet in steekwoorden wat je kwijt wil. Je krijgt een voorstel; jij kiest of je het overneemt.</p>'
+      + '<textarea class="textarea textarea-bordered w-full" rows="5" data-veld="raw_notes" placeholder="Bv. nieuwe vormgeving, zelfde info, elke maand, veel leesplezier">' + e(c.raw_notes || '') + '</textarea>'
+      + '<div class="flex flex-wrap gap-2 mt-3"><button class="btn btn-sm btn-primary" data-action="ai" data-ai="write"><i data-lucide="sparkles" class="w-4 h-4"></i> Schrijf het voor me</button>'
+      + '<button class="btn btn-sm btn-ghost" data-action="ai" data-ai="shorter">Korter</button><button class="btn btn-sm btn-ghost" data-action="ai" data-ai="warmer">Warmer</button><button class="btn btn-sm btn-ghost" data-action="ai" data-ai="spelling">Spelling nakijken</button></div>'
+      + '<div id="stVoorstel" class="mt-3"></div>'
+      + '<div class="modal-action mt-3"><button class="btn btn-ghost btn-sm" data-action="sluit-dialoog" data-dialoog="dlgAI">Sluiten</button></div>';
+    NB.ikons();
+    NB.dialoog('dlgAI').showModal();
+  }
+
+  // ─── Tekening of foto (venster) ───────────────────────────────────────────
+
+  async function openBeeld() {
+    var bak = document.getElementById('dlgBeeldInhoud');
+    bak.innerHTML = '<div class="flex justify-center py-10"><span class="loading loading-spinner"></span></div>';
+    NB.dialoog('dlgBeeld').showModal();
+    var lijst = await NB.laadTekeningen();
+    var gekozen = NB.stukjeLees('content.thingie') || '';
+    var foto = NB.stukjeLees('content.image_url') || '';
+    bak.innerHTML = '<h3 class="font-bold text-lg mb-1">Tekening of foto</h3>'
+      + '<p class="text-sm opacity-70 mb-3">Komt rechts naast de tekst.</p>'
+      + '<div class="flex flex-wrap gap-2 mb-4"><label class="btn btn-sm btn-primary"><i data-lucide="upload" class="w-4 h-4"></i> Foto opladen<input type="file" accept="image/*" class="hidden" data-change="beeld-foto"></label>'
+      + ((gekozen || foto) ? '<button class="btn btn-sm btn-ghost" data-action="beeld-weg"><i data-lucide="trash-2" class="w-4 h-4"></i> Geen beeld</button>' : '') + '</div>'
+      + (lijst.length
+        ? '<div class="text-sm font-semibold mb-2">Of een tekening</div><div class="grid grid-cols-4 sm:grid-cols-6 gap-2 max-h-[50vh] overflow-y-auto">'
+          + lijst.map(function (t) {
+            return '<button class="rounded-xl border p-2 hover:border-primary ' + (t.name === gekozen ? 'border-primary bg-primary/10' : 'border-base-content/10') + '" data-action="beeld-tekening" data-naam="' + e(t.name) + '" title="' + e(t.label) + '"><img src="' + e(t.svg) + '" alt="' + e(t.label) + '" class="w-full aspect-square object-contain"></button>';
+          }).join('') + '</div>'
+        : '<p class="text-sm opacity-60">Geen tekeningen gevonden.</p>')
+      + '<div class="modal-action"><button class="btn btn-ghost btn-sm" data-action="sluit-dialoog" data-dialoog="dlgBeeld">Sluiten</button></div>';
+    NB.ikons();
+  }
+
+  NB.actions['beeld-tekening'] = function (el) {
+    var naam = el.dataset.naam;
+    NB.zorgVoorPng(naam).catch(function (err) { NB.toast('PNG van de tekening maken mislukt: ' + err.message, 'warning'); });
+    NB.stukjeZet('content.image_url', '', { stil: true });
+    NB.stukjeZet('content.thingie', naam);
+    NB.dialoog('dlgBeeld').close();
+  };
+
+  NB.actions['beeld-weg'] = function () {
+    NB.stukjeZet('content.thingie', '', { stil: true });
+    NB.stukjeZet('content.image_url', '');
+    NB.dialoog('dlgBeeld').close();
+  };
+
+  NB.changes['beeld-foto'] = async function (el) {
+    var bestand = el.files && el.files[0];
+    if (!bestand) return;
+    try {
+      NB.toast('Foto opladen…', 'info');
+      var blob = await NB.naarMailbeeld(bestand);
+      var r = await NB.upload('/api/upload', blob);
+      NB.stukjeZet('content.thingie', '', { stil: true });
+      NB.stukjeZet('content.image_url', r.url);
+      NB.dialoog('dlgBeeld').close();
+    } catch (err) { NB.fout(err); }
+  };
 
   function briefDoc() {
     var frame = document.getElementById('edVoorbeeld');
@@ -355,6 +522,7 @@
 
   async function bewaarOpen() {
     if (NB.state.vuil && NB.bewaarStukje) await NB.bewaarStukje();
+    if (NB.state.inlineVuil) { NB.state.inlineVuil = false; laadBrief(); }
   }
 
   async function selecteer(id, vooraf) {
