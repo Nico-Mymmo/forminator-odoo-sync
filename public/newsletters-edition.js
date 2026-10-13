@@ -6,6 +6,11 @@
  * gekozen blok toont het paneel wat er voor jou klaarstaat en de blokjes die
  * je kan toevoegen (slepen naar de brief, of klikken en de plek kiezen).
  * Alles wat de hoofdredactie nog niet bevestigde, is in de brief gemarkeerd.
+ *
+ * Twee standen (NB.state.modus):
+ *   'inhoud'  schrijven: een blok kiezen en het invullen (iedereen)
+ *   'opmaak'  de hoofdredactie: blokken toevoegen, verslepen om te herordenen,
+ *             toewijzen, hernoemen, weghalen. Geen tekst bewerken.
  */
 (function () {
   'use strict';
@@ -33,11 +38,14 @@
   var SJ = {};
   SJABLONEN.forEach(function (s) { SJ[s.key] = s; });
 
+  try { NB.state.modus = NB.state.modus || localStorage.getItem('nbModus') || 'inhoud'; } catch (err) { NB.state.modus = NB.state.modus || 'inhoud'; }
+
   function d() { return NB.state.editie; }
   function ik() { return NB.state.boot.me.id; }
   function actief() { return ['collecting', 'review'].indexOf(d().edition.status) >= 0; }
   function itemVan(id) { return d().items.find(function (i) { return i.id === id; }) || null; }
   function voornaam(naam) { return String(naam || '').split(' ')[0]; }
+  function opmaak() { return NB.state.modus === 'opmaak' && d() && d().series.is_editor; }
 
   // ─── Bovenaan: stand van de editie ────────────────────────────────────────
 
@@ -156,11 +164,37 @@
 
   function paneelOverzicht() {
     var editor = d().series.is_editor;
-    return '<div class="flex flex-col gap-4">' + voorJou() + toevoegen()
-      + (editor ? teBevestigen() + onderwerp() + voorraad() + datums() : '')
-      + activiteit()
-      + (editor && actief() ? '<button class="btn btn-xs btn-ghost self-start opacity-60" data-action="annuleer-editie">Editie annuleren</button>' : '')
+    if (opmaak()) {
+      return '<div class="flex flex-col gap-4">' + toevoegen()
+        + kaart('<h3 class="font-semibold flex items-center gap-2"><i data-lucide="grip-vertical" class="w-4 h-4"></i> Volgorde</h3><p class="text-sm opacity-70">Sleep een blok aan zijn handvat in de brief naar een andere plek. Klik op een blok om het toe te wijzen, te hernoemen of weg te halen.</p>')
+        + onderwerp() + voorraad() + datums() + activiteit()
+        + (actief() ? '<button class="btn btn-xs btn-ghost self-start opacity-60" data-action="annuleer-editie">Editie annuleren</button>' : '')
+        + '</div>';
+    }
+    // Schrijven: wat er voor jou klaarstaat. Een schrijver kan ook zelf iets
+    // toevoegen; de hoofdredactie doet dat in de opmaakstand.
+    return '<div class="flex flex-col gap-4">' + voorJou() + (editor ? teBevestigen() : toevoegen())
+      + (editor ? '' : activiteit())
       + '</div>';
+  }
+
+  /** Opmaakstand, een blok gekozen: wie, hoe het heet, weghalen. */
+  function paneelBlok(it) {
+    var auto = NB.isAuto(it.kind);
+    var vasteNaam = auto || it.kind === 'intro';
+    return '<div class="flex flex-col gap-3">' + kaart(
+      '<div class="flex items-center gap-2"><button class="btn btn-ghost btn-sm px-2" data-action="opmaak-terug"><i data-lucide="arrow-left" class="w-4 h-4"></i> Overzicht</button></div>'
+      + '<div class="text-xs font-semibold uppercase tracking-wide opacity-60">' + e(NB.soort(it.kind)) + '</div>'
+      + (vasteNaam
+        ? '<div class="text-lg font-bold">' + e(it.title) + '</div>'
+        : '<label class="form-control"><span class="label-text text-xs mb-1">Naam boven het blok</span><input class="input input-bordered input-sm" maxlength="120" data-change="blok-naam" data-id="' + e(it.id) + '" value="' + e(it.title) + '"></label>')
+      + (auto ? '<p class="text-sm opacity-70">Dit blok vult zichzelf.</p>'
+        : '<label class="form-control"><span class="label-text text-xs mb-1">Wie schrijft het?</span><select class="select select-bordered select-sm" data-change="eigenaar" data-id="' + e(it.id) + '">' + NB.gebruikersOpties(it.owner_user_id, true) + '</select></label>'
+          + '<div class="flex items-center gap-2 text-sm">' + NB.statusBadge(it.status) + '</div>')
+      + '<div class="flex flex-wrap gap-2 mt-1">'
+      + (auto ? '' : '<button class="btn btn-sm" data-action="opmaak-inhoud" data-id="' + e(it.id) + '"><i data-lucide="pen-line" class="w-4 h-4"></i> Inhoud bewerken</button>')
+      + '<button class="btn btn-sm btn-ghost text-error ml-auto" data-action="blok-weg" data-id="' + e(it.id) + '"><i data-lucide="trash-2" class="w-4 h-4"></i> Uit de brief</button></div>',
+      ' border-primary/40') + '</div>';
   }
 
   function paneelPlaatsen() {
@@ -174,7 +208,8 @@
   function toonPaneel() {
     var bak = document.getElementById('nbPaneel');
     if (!bak) return;
-    bak.innerHTML = NB.state.plaatsen ? paneelPlaatsen() : paneelOverzicht();
+    var gekozen = opmaak() && NB.state.opmaakId ? itemVan(NB.state.opmaakId) : null;
+    bak.innerHTML = NB.state.plaatsen ? paneelPlaatsen() : gekozen ? paneelBlok(gekozen) : paneelOverzicht();
     NB.ikons();
   }
 
@@ -245,7 +280,13 @@
     + '.nb-plus span{font-size:30px;line-height:1;font-weight:400}'
     + '.nb-plus:hover{background:#e0f2fe;border-color:#0284c7}'
     + '[data-nb-beeld][data-nb-knop]{cursor:pointer}[data-nb-beeld][data-nb-knop]:hover img{outline:3px solid #38bdf8;outline-offset:-3px}'
-    + '[data-nb-eiland]{user-select:none}';
+    + '[data-nb-eiland]{user-select:none}'
+    // Opmaakstand
+    + '.nb-opmaak [data-nb-id]>td{box-shadow:inset 0 0 0 1px rgba(2,132,199,.22)}'
+    + '.nb-greep{position:absolute;left:10px;top:8px;z-index:4;max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:600 12px/1 system-ui,-apple-system,"Segoe UI",sans-serif;background:#0369a1;color:#fff;border-radius:8px;padding:7px 10px;cursor:grab;touch-action:none;user-select:none;box-shadow:0 1px 3px rgba(0,0,0,.25)}'
+    + '.nb-greep:active{cursor:grabbing}'
+    + '.nb-sleept>td{opacity:.3}'
+    + '.nb-lijn>td{padding:0 24px}.nb-lijn div{height:5px;border-radius:3px;background:#0284c7;box-shadow:0 0 0 4px rgba(2,132,199,.18)}';
 
   /** Wat er op een blok in de brief staat, naast de inhoud. */
   function labelVan(it) {
@@ -273,6 +314,7 @@
         if (plek) { plaats(plek.getAttribute('data-na')); return; }
         if (NB.state.plaatsen) return;
         var blok = ev.target.closest('[data-nb-id]');
+        if (blok && opmaak()) { NB.state.opmaakId = blok.getAttribute('data-nb-id'); labels(); toonPaneel(); return; }
         if (blok) selecteer(blok.getAttribute('data-nb-id')).catch(NB.fout);
       });
       doc.addEventListener('input', function (ev) {
@@ -305,6 +347,7 @@
         var el = ev.target.closest && ev.target.closest('[data-nb-veld="title"][contenteditable]');
         if (el && ev.key === 'Enter') ev.preventDefault();
       });
+      koppelHerordenen(doc);
       doc.addEventListener('dragover', function (ev) {
         var plek = ev.target.closest && ev.target.closest('.nb-plek');
         doc.querySelectorAll('.nb-over').forEach(function (x) { if (x !== plek) x.classList.remove('nb-over'); });
@@ -336,7 +379,7 @@
       var l = labelVan(it);
       if (!NB.isAuto(it.kind) && it.status !== 'approved') rij.classList.add('nb-onbevestigd');
       if (l && l.soort === 'mijn') rij.classList.add('nb-mijn');
-      if (id === NB.state.paneelId) rij.classList.add('nb-gekozen');
+      if (id === (opmaak() ? NB.state.opmaakId : NB.state.paneelId)) rij.classList.add('nb-gekozen');
       rij.title = NB.isAuto(it.kind) ? 'Vult zichzelf' : '';
       var cel = rij.firstElementChild;
       if (l && cel) {
@@ -349,6 +392,93 @@
     // Niet opnieuw opbouwen terwijl iemand in de brief typt: dan valt de cursor weg.
     var actief = doc.activeElement;
     if (!(actief && actief.hasAttribute && actief.hasAttribute('contenteditable'))) bewerkbaar(doc);
+    handvatten(doc);
+  }
+
+  // ─── Opmaakstand: verslepen om te herordenen ─────────────────────────────
+
+  /** Elk blok een handvat met zijn naam; enkel in de opmaakstand. */
+  function handvatten(doc) {
+    doc.querySelectorAll('.nb-greep').forEach(function (x) { x.remove(); });
+    if (doc.body) doc.body.classList.toggle('nb-opmaak', Boolean(opmaak()));
+    if (!opmaak() || NB.state.voorbeeldStand === 'test') return;
+    doc.querySelectorAll('[data-nb-id]').forEach(function (rij) {
+      var it = itemVan(rij.getAttribute('data-nb-id'));
+      var cel = rij.firstElementChild;
+      if (!it || !cel) return;
+      var g = doc.createElement('div');
+      g.className = 'nb-greep';
+      g.setAttribute('data-nb-greep', it.id);
+      g.title = 'Sleep om te verplaatsen';
+      var wie = !NB.isAuto(it.kind) && it.owner_name ? ' \u00b7 ' + voornaam(it.owner_name) : '';
+      g.textContent = '\u283F  ' + it.title + wie;
+      cel.appendChild(g);
+    });
+  }
+
+  /**
+   * Slepen met de muis (of een vinger) aan een handvat. Een blauwe lijn toont
+   * waar het blok terechtkomt; loslaten bewaart de nieuwe volgorde. Aan de rand
+   * van het venster scrolt de pagina mee.
+   */
+  function koppelHerordenen(doc) {
+    var sleep = null;
+    var frame = function () { return document.getElementById('edVoorbeeld'); };
+    var rol = function () {
+      if (!sleep) return;
+      var top = frame().getBoundingClientRect().top + sleep.y;
+      if (top < 90) window.scrollBy(0, -16);
+      else if (top > window.innerHeight - 70) window.scrollBy(0, 16);
+      sleep.raf = requestAnimationFrame(rol);
+    };
+    doc.addEventListener('pointerdown', function (ev) {
+      var g = ev.target.closest && ev.target.closest('[data-nb-greep]');
+      if (!g || !opmaak()) return;
+      ev.preventDefault();
+      var rij = g.closest('[data-nb-id]');
+      var lijn = doc.createElement('tr');
+      lijn.className = 'nb-lijn';
+      lijn.innerHTML = '<td><div></div></td>';
+      sleep = { id: rij.getAttribute('data-nb-id'), rij: rij, lijn: lijn, voor: undefined, y: ev.clientY };
+      rij.classList.add('nb-sleept');
+      try { g.setPointerCapture(ev.pointerId); } catch (err) { /* niet erg */ }
+      sleep.raf = requestAnimationFrame(rol);
+    });
+    doc.addEventListener('pointermove', function (ev) {
+      if (!sleep) return;
+      sleep.y = ev.clientY;
+      var rijen = Array.prototype.filter.call(doc.querySelectorAll('[data-nb-id]'), function (r) { return r !== sleep.rij; });
+      var doel = null;
+      for (var i = 0; i < rijen.length; i++) {
+        var r = rijen[i].getBoundingClientRect();
+        if (ev.clientY < r.top + r.height / 2) { doel = rijen[i]; break; }
+      }
+      if (doel) doel.parentNode.insertBefore(sleep.lijn, doel);
+      else if (rijen.length) rijen[rijen.length - 1].parentNode.insertBefore(sleep.lijn, rijen[rijen.length - 1].nextSibling);
+      sleep.voor = doel ? doel.getAttribute('data-nb-id') : null;
+      hoogteBij();
+    });
+    var los = async function () {
+      if (!sleep) return;
+      var s = sleep;
+      sleep = null;
+      cancelAnimationFrame(s.raf);
+      s.rij.classList.remove('nb-sleept');
+      s.lijn.remove();
+      if (s.voor === undefined) return;
+      var oud = d().items.map(function (i) { return i.id; });
+      var ids = oud.filter(function (id) { return id !== s.id; });
+      var plek = s.voor ? ids.indexOf(s.voor) : ids.length;
+      ids.splice(plek < 0 ? ids.length : plek, 0, s.id);
+      if (ids.join() === oud.join()) return;
+      try {
+        await NB.api('/api/editions/' + d().edition.id + '/order', { method: 'POST', body: { ids: ids } });
+        NB.state.opmaakId = s.id;
+        herlaad({ open: null });
+      } catch (err) { NB.fout(err); }
+    };
+    doc.addEventListener('pointerup', los);
+    doc.addEventListener('pointercancel', los);
   }
 
   /**
@@ -361,7 +491,7 @@
     doc.querySelectorAll('.nb-gereedschap,.nb-plus-cel').forEach(function (x) { x.remove(); });
     doc.querySelectorAll('[data-nb-beeld][data-nb-knop]').forEach(function (x) { x.removeAttribute('data-nb-knop'); });
     var s = NB.state.stukje;
-    if (!s || NB.state.stukjeHost !== 'paneel' || !s.can_edit || NB.state.voorbeeldStand === 'test') return;
+    if (!s || NB.state.stukjeHost !== 'paneel' || !s.can_edit || NB.state.voorbeeldStand === 'test' || opmaak()) return;
     if (!NB.state.concept || NB.state.concept.kind !== 'intro') return;
     var rij = doc.querySelector('[data-nb-id="' + s.item.id + '"]');
     if (!rij) return;
@@ -564,8 +694,14 @@
       var rij = await NB.api('/api/editions/' + d().edition.id + '/contributions', {
         method: 'POST', body: { kind: sj.kind, title: sj.titel, after_id: na || '' },
       });
-      NB.toast('Toegevoegd. Vul het in; marketing bevestigt het nog.', 'info');
       NB.state.scrolNa = rij.id;
+      if (opmaak()) {
+        NB.toast('Toegevoegd. Wijs het toe aan wie het schrijft.', 'info');
+        NB.state.opmaakId = rij.id;
+        await herlaad({ open: null });
+        return;
+      }
+      NB.toast('Toegevoegd. Vul het in; marketing bevestigt het nog.', 'info');
       await herlaad({ open: rij.id });
     } catch (err) { NB.fout(err); toonPaneel(); }
   }
@@ -588,13 +724,19 @@
 
   function werkblad() {
     var stand = NB.state.voorbeeldStand === 'test' ? 'test' : 'preview';
+    var modi = d().series.is_editor
+      ? '<div role="tablist" class="tabs tabs-boxed tabs-sm w-fit">'
+        + '<button role="tab" class="tab gap-1' + (!opmaak() ? ' tab-active' : '') + '" data-action="modus" data-modus="inhoud"><i data-lucide="pen-line" class="w-3.5 h-3.5"></i> Inhoud</button>'
+        + '<button role="tab" class="tab gap-1' + (opmaak() ? ' tab-active' : '') + '" data-action="modus" data-modus="opmaak"><i data-lucide="layout-template" class="w-3.5 h-3.5"></i> Opmaak</button></div>'
+      : '';
     return '<div class="grid gap-5 lg:grid-cols-[minmax(0,1fr)_400px] items-start">'
       + '<div class="min-w-0">'
-      + '<div class="flex flex-wrap items-center gap-3 mb-3">'
+      + '<div class="flex flex-wrap items-center gap-3 mb-3">' + modi
       + '<div role="tablist" class="tabs tabs-boxed tabs-sm w-fit">'
       + '<button role="tab" class="tab' + (stand === 'preview' ? ' tab-active' : '') + '" data-action="voorbeeld-stand" data-stand="preview">Werkblad</button>'
       + '<button role="tab" class="tab' + (stand === 'test' ? ' tab-active' : '') + '" data-action="voorbeeld-stand" data-stand="test">Zoals de lezer het ziet</button>'
-      + '</div><span class="text-xs opacity-60">' + (stand === 'preview' ? 'Klik op een blok om het in te vullen.' : 'Enkel kijken; ga terug naar het werkblad om iets te wijzigen.') + '</span></div>'
+      + '</div><span class="text-xs opacity-60">' + (stand !== 'preview' ? 'Enkel kijken; ga terug naar het werkblad om iets te wijzigen.'
+        : opmaak() ? 'Sleep blokken aan hun handvat; klik op een blok voor de instellingen.' : 'Klik op een blok om het in te vullen.') + '</span></div>'
       + '<div class="max-w-[700px] mx-auto"><iframe id="edVoorbeeld" class="nb-voorbeeld" title="De nieuwsbrief"></iframe></div>'
       + '</div>'
       + '<aside id="nbPaneel" class="min-w-0 lg:sticky lg:top-16 lg:max-h-[calc(100vh-5rem)] lg:overflow-y-auto nb-paneel"></aside>'
@@ -650,7 +792,9 @@
     if (data.series.is_editor) {
       try { data.suggesties = await NB.api('/api/editions/' + params.id + '/suggestions'); } catch (err) { data.suggesties = null; }
     }
-    if (NB.state.paneelEditie !== params.id) NB.state.paneelId = null;
+    if (NB.state.paneelEditie !== params.id) { NB.state.paneelId = null; NB.state.opmaakId = null; }
+    if (params.stukje) NB.state.modus = 'inhoud';
+    if (NB.state.opmaakId && !itemVan(NB.state.opmaakId)) NB.state.opmaakId = null;
     NB.state.paneelEditie = params.id;
     NB.state.plaatsen = null;
     NB.state.sleep = null;
@@ -673,7 +817,7 @@
       + (tab === 'antwoorden' ? '<div id="edAntwoorden"><span class="loading loading-spinner"></span></div>' : werkblad());
     NB.ikons();
     if (tab === 'antwoorden') { antwoorden(); return; }
-    if (open) {
+    if (open && !opmaak()) {
       await selecteer(open, params.stukje || null).catch(function (err) { NB.fout(err); toonPaneel(); });
     } else {
       toonPaneel();
@@ -723,6 +867,35 @@
   NB.actions['voorbeeld-stand'] = function (el) {
     NB.state.voorbeeldStand = el.dataset.stand;
     return herlaad();
+  };
+
+  NB.actions['modus'] = async function (el) {
+    var nieuw = el.dataset.modus === 'opmaak' ? 'opmaak' : 'inhoud';
+    if (nieuw === NB.state.modus || (nieuw === 'inhoud' && !NB.state.modus)) return;
+    if (NB.state.paneelId) await sluitPaneel();
+    NB.state.modus = nieuw;
+    NB.state.opmaakId = null;
+    NB.state.voorbeeldStand = 'preview';
+    try { localStorage.setItem('nbModus', nieuw); } catch (err) { /* geen opslag */ }
+    return herlaad({ open: null });
+  };
+
+  NB.actions['opmaak-terug'] = function () { NB.state.opmaakId = null; labels(); toonPaneel(); };
+
+  /** Van de opmaak naar het schrijven van één blok. */
+  NB.actions['opmaak-inhoud'] = function (el) {
+    NB.state.modus = 'inhoud';
+    NB.state.opmaakId = null;
+    try { localStorage.setItem('nbModus', 'inhoud'); } catch (err) { /* geen opslag */ }
+    return herlaad({ open: el.dataset.id });
+  };
+
+  NB.changes['blok-naam'] = async function (el) {
+    try {
+      var bij = await NB.api('/api/contributions/' + el.dataset.id, { method: 'PUT', body: { title: el.value } });
+      NB.stukjeBijgewerkt(bij);
+      laadBrief();
+    } catch (err) { NB.fout(err); }
   };
 
   NB.actions['kies-blok'] = function (el) {
@@ -837,6 +1010,7 @@
       NB.state.vuil = false;
       await NB.api('/api/contributions/' + el.dataset.id, { method: 'DELETE' });
       NB.state.paneelId = null;
+      NB.state.opmaakId = null;
       NB.state.stukjeHost = null;
       NB.state.stukje = null;
       history.replaceState(null, '', '#/editie/' + d().edition.id);
@@ -887,6 +1061,7 @@
       if (NB.state.stukje && NB.state.stukje.item.id === bij.id) NB.state.stukje.item.owner_user_id = bij.owner_user_id;
       if (NB.state.stukje && NB.state.stukje.item.id === bij.id) NB.state.stukje.item.owner_name = bij.owner_name;
       NB.stukjeBijgewerkt(bij);
+      if (opmaak()) toonPaneel();
       NB.toast(bij.owner_name ? 'Toegewezen aan ' + voornaam(bij.owner_name) + '.' : 'Aan niemand toegewezen.');
       // De naam onder het blok in de brief komt van de schrijver.
       laadBrief();

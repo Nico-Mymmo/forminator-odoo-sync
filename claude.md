@@ -5297,10 +5297,12 @@ Afspraken die bewust zo zijn:
 - **Beelden: één venster, één model, voor elke plek** (2026-10-13). Woordje vooraf,
   tekst en foto, video en link gebruiken `content.beeld` = `{ url | thingie,
   plaats, na_alinea, vulling, focus {x,y}, uitsnede }` en het venster in
-  `public/newsletters-beeld.js` (`NB.beeld.open`). Plekken: naast de tekst
-  (`rechts`/`links`), halve blok tot de rand (`kolom-rechts`/`kolom-links`),
-  tussen de alinea's (`tekst`, na `na_alinea`); video en link hebben een vaste
-  plek. Breedte en verhouding per plek staan EEN keer in `BEELD_KADERS`
+  `public/newsletters-beeld.js` (`NB.beeld.open`). Plekken: naast een ALINEA
+  (`rechts`/`links`; de titel blijft over de hele breedte en de tekst loopt rond
+  het beeld; in de mail met `align` op het `<img>`, dat volgen ook Outlook en
+  Gmail), halve blok tot de rand (`kolom-rechts`/`kolom-links`), tussen de
+  alinea's (`tekst`). `na_alinea` = het aantal alinea's ervoor (0 = bij de
+  eerste); video en link hebben een vaste plek. Breedte en verhouding per plek staan EEN keer in `BEELD_KADERS`
   (lib/constants.js); de renderer schikt ermee en het scherm snijdt ermee bij.
   **Een mail kan niet zelf bijsnijden** (geen object-fit in Gmail/Outlook):
   "kader vullen" = het scherm maakt rond het focuspunt een eigen JPEG
@@ -5312,6 +5314,15 @@ Afspraken die bewust zo zijn:
   (`kolomPassen`), zodat de foto het hele blok vult. Een tekening wordt nooit
   bijgesneden. Oude stukjes met enkel `image_url`/`thingie`/`thumbnail_url`
   tellen als "heel tonen" op hun oude plek (`beeldVan`, in renderer en scherm).
+- **Twee standen voor de hoofdredactie** (`NB.state.modus`, onthouden per
+  browser): "Inhoud" (een blok kiezen en invullen, zoals iedereen) en "Opmaak"
+  (blokken toevoegen met de blokjes, verslepen aan hun handvat om te
+  herordenen, en per blok: naam, wie schrijft het, weghalen). In de opmaakstand
+  kan je geen tekst bewerken; "Inhoud bewerken" springt naar de andere stand.
+  Verslepen = pointer events IN de brief (`koppelHerordenen`), met een blauwe
+  lijn waar het blok landt en meescrollen aan de rand; loslaten bewaart via
+  `/order`. Een schrijver ziet geen standen en voegt zelf iets toe vanuit zijn
+  overzicht.
 - **Iedereen kiest zelf de plek van een blok dat hij toevoegt**; de
   hoofdredactie kan het nadien verschuiven, toewijzen of weghalen (paneel,
   "Hoofdredactie"). "Bevestigen" in het scherm = de stand `approved`.

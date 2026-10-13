@@ -143,7 +143,7 @@ export const STYLE = {
  * /api/bootstrap). Een mailprogramma kan zelf niet bijsnijden (geen
  * object-fit in Gmail/Outlook), dus "vullen" = een eigen, bijgesneden kopie.
  *
- *   rechts / links             naast de tekst, klein
+ *   rechts / links             naast een alinea, de tekst loopt eromheen
  *   kolom-rechts / kolom-links  een tweede kolom over het hele blok, tot de rand
  *   tekst                      tussen de alinea's, over de hele breedte
  *   video / link               vaste plek in dat soort blok
