@@ -5348,6 +5348,16 @@ Afspraken die bewust zo zijn:
   weigert dan. Uploads gaan sinds dan ook naar `public/nieuwsbrieven/`: een eigen
   map in Assetbeheer (categorie public). **Gevolg: wie daar iets wist, breekt
   het beeld in een al verstuurde mail.**
+- **Een bericht uit Nieuws & updates als blok** (`snippet`, blokje "Interessant
+  voor jou", 2026-10-13). In het paneel kies je een gepubliceerd bericht
+  (`GET /api/snippets`, via `listSnippets()` van die module, geen eigen query);
+  `POST /api/snippets/:id/overnemen` vult titel (samenvattingstitel), tekst
+  (samenvatting), link, knoptekst en beeld in. Het beeld gaat meteen naar
+  `public/nieuwsbrieven/`; een WebP (kan geen mail tonen, kan de Worker niet
+  omzetten) komt als data-URI terug en het scherm zet het om naar JPEG. Daarna
+  is het een kopie: aanpassen in de nieuwsbrief verandert het bericht niet. In
+  de mail staat het als "Tekst en foto" (`blokArticle`). Los daarvan bestaat
+  nog het oudere blok "Uit het nieuws" (`news`, tot vier korte verwijzingen).
 - **Iedereen kiest zelf de plek van een blok dat hij toevoegt**; de
   hoofdredactie kan het nadien verschuiven, toewijzen of weghalen (paneel,
   "Hoofdredactie"). "Bevestigen" in het scherm = de stand `approved`.

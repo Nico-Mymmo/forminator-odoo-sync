@@ -46,6 +46,7 @@ export const KINDS = {
   linkedin:  { label: 'LinkedIn-post' },
   quote:     { label: 'Citaat of klantverhaal' },
   image:     { label: 'Afbeelding' },
+  snippet:   { label: 'Bericht uit Nieuws & updates' },
   statement: { label: 'Stelling', interactive: true },
   question:  { label: 'Korte vraag', interactive: true },
   poll:      { label: 'Peiling', interactive: true },

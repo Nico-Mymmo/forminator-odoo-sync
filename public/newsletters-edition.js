@@ -28,6 +28,7 @@
     { key: 'vraag', kind: 'question', titel: 'Korte vraag', icoon: 'circle-help', uitleg: 'Eén vraag, lezers antwoorden met een klik.' },
     { key: 'stelling', kind: 'statement', titel: 'Stelling', icoon: 'scale', uitleg: 'Eens of oneens? Eén klik volstaat.' },
     { key: 'peiling', kind: 'poll', titel: 'Jij beslist mee', icoon: 'list-checks', uitleg: 'Laat lezers kiezen tussen een paar opties.' },
+    { key: 'bericht', kind: 'snippet', titel: 'Interessant voor jou', icoon: 'rss', uitleg: 'Een bericht uit Nieuws & updates, meteen ingevuld.' },
     { key: 'artikel', kind: 'link', titel: 'Interessant gelezen', icoon: 'newspaper', uitleg: 'Plak een link, titel en beeld komen vanzelf.' },
     { key: 'linkedin', kind: 'linkedin', titel: 'Op LinkedIn', icoon: 'share-2', uitleg: 'Een post die het delen waard is.' },
     { key: 'tekst', kind: 'article', titel: 'Uit het team', icoon: 'file-text', uitleg: 'Een kort verhaal, met foto of tekening.' },

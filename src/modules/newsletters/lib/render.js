@@ -239,6 +239,7 @@ export function heeftInhoud(item, ctx = {}) {
   switch (item?.kind) {
     case 'intro':
     case 'article':
+    case 'snippet':
       return Boolean(String(c.title || '').trim() || String(c.text || '').trim());
     case 'video':
       return Boolean(safeUrl(c.video_url));
@@ -517,6 +518,8 @@ function blokPlaatshouder(item, id) {
 const BLOKKEN = {
   intro: blokIntro,
   article: blokArticle,
+  // Een bericht uit Nieuws & updates staat in de mail als tekst en foto.
+  snippet: blokArticle,
   video: blokVideo,
   link: (item, ctx, id) => blokLink(item, ctx, id),
   linkedin: (item, ctx, id) => blokLink(item, ctx, id, { linkedin: true }),
