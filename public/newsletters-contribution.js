@@ -136,6 +136,21 @@
       + '</select><span class="label-text-alt opacity-60 mt-1">Onder de tekst komen de foto, de voornaam en de functie uit Odoo.</span></label>';
   }
 
+  /** Welk bericht uit Nieuws & updates: kiezen = alles invullen. */
+  function berichtKeuze() {
+    var lijst = NB.state.berichten || [];
+    var gekozen = Number(lees('content.snippet_id')) || 0;
+    var mag = NB.state.stukje.can_edit;
+    var datum = function (d) { return d ? ' · ' + NB.datum(d, { day: 'numeric', month: 'short', year: 'numeric' }) : ''; };
+    return '<label class="form-control w-full"><span class="label-text mb-1 font-semibold">Bericht uit Nieuws &amp; updates</span>'
+      + '<select class="select select-bordered w-full" data-change="bericht-kies"' + (mag ? '' : ' disabled') + '>'
+      + '<option value="">' + (lijst.length ? 'Kies een bericht…' : 'Geen gepubliceerde berichten gevonden') + '</option>'
+      + lijst.map(function (b) {
+        return '<option value="' + b.id + '"' + (b.id === gekozen ? ' selected' : '') + '>' + e(b.title) + e(datum(b.published_on)) + '</option>';
+      }).join('')
+      + '</select><span class="label-text-alt opacity-60 mt-1">Titel, tekst, beeld en link worden ingevuld uit het bericht.</span></label>';
+  }
+
   /** Een beeld in het formulier: een miniatuur en EEN knop naar het beeldvenster. */
   function beeldRij(o) {
     var b = NB.beeldVan(c().content, o.fotoVeld, o.vast || 'tekst');
@@ -208,6 +223,12 @@
           + veld('Tekst', 'content.text', { rijen: 8, uitleg: 'Lege regel = nieuwe alinea. **vet** en [tekst](https://link) mogen.' })
           + beeldRij({ plaatsen: true, fotoVeld: 'image_url', label: 'Beeld (optioneel)' })
           + '<div class="grid sm:grid-cols-2 gap-3">' + veld('Link (optioneel)', 'content.link_url', { hint: 'https://' }) + veld('Tekst van de link', 'content.link_label', { hint: 'Lees verder' }) + '</div>';
+      case 'snippet':
+        return berichtKeuze()
+          + veld('Titel', 'content.title')
+          + veld('Tekst', 'content.text', { rijen: 8, uitleg: 'Overgenomen uit Nieuws & updates; je kan het hier inkorten of aanpassen. Het bericht zelf verandert niet.' })
+          + beeldRij({ plaatsen: true, fotoVeld: 'image_url', label: 'Beeld' })
+          + '<div class="grid sm:grid-cols-2 gap-3">' + veld('Link', 'content.link_url', { hint: 'https://' }) + veld('Tekst van de link', 'content.link_label', { hint: 'Lees verder' }) + '</div>';
       case 'video':
         return veld('Titel', 'content.title') + veld('Link naar de video', 'content.video_url', { hint: 'https://vimeo.com/… of YouTube' })
           + beeldRij({ vast: 'video', fotoVeld: 'thumbnail_url', label: 'Stilstaand beeld (een mail kan geen video afspelen)' })
@@ -258,7 +279,7 @@
 
   function aiBlok(paneel) {
     var kind = c().kind;
-    if (!NB.state.stukje.can_edit || NB.isAuto(kind) || ['news', 'link', 'linkedin', 'image'].indexOf(kind) >= 0) return '';
+    if (!NB.state.stukje.can_edit || NB.isAuto(kind) || ['news', 'link', 'linkedin', 'image', 'snippet'].indexOf(kind) >= 0) return '';
     var kern = '<label class="form-control"><span class="label-text mb-1 font-semibold">Wat wil je kwijt? <span class="font-normal opacity-60">Steekwoorden mogen, de AI maakt er een stukje van.</span></span>'
       + '<textarea class="textarea textarea-bordered" rows="3" data-veld="raw_notes">' + e(c().raw_notes || '') + '</textarea></label>'
       + '<div class="flex flex-wrap gap-2"><button class="btn btn-sm btn-primary" data-action="ai" data-ai="write"><i data-lucide="sparkles" class="w-4 h-4"></i> Schrijf het voor me</button>'
@@ -431,6 +452,9 @@
 
   function laadExtra(d) {
     var wacht = [NB.laadTekeningen()];
+    if (d.item.kind === 'snippet' && !NB.state.berichten) {
+      wacht.push(NB.api('/api/snippets').then(function (r) { NB.state.berichten = r || []; }).catch(function () { NB.state.berichten = []; }));
+    }
     if (d.item.kind === 'events' && d.edition) {
       wacht.push(NB.api('/api/editions/' + d.edition.id + '/suggestions').then(function (r) { NB.state.stukjeEvents = r.events || []; }).catch(function () { NB.state.stukjeEvents = []; }));
     }
@@ -469,6 +493,35 @@
       return;
     }
     gewijzigd();
+  };
+
+  NB.changes['bericht-kies'] = async function (el) {
+    var id = el.value;
+    if (!id) return;
+    var heeftTekst = String(lees('content.title') || lees('content.text') || '').trim();
+    if (heeftTekst && Number(lees('content.snippet_id')) !== Number(id) && !window.confirm('De titel, tekst, link en het beeld worden vervangen door die van het gekozen bericht. Doorgaan?')) {
+      el.value = lees('content.snippet_id') || '';
+      return;
+    }
+    el.disabled = true;
+    try {
+      var r = await NB.api('/api/snippets/' + id + '/overnemen', { method: 'POST' });
+      var inhoud = r.inhoud;
+      // Een WebP-beeld: hier omzetten naar JPEG en opladen (mail kent geen WebP).
+      if (!inhoud.beeld && r.beeld_data) {
+        try {
+          var blob = await (await fetch(r.beeld_data)).blob();
+          var jpg = await NB.naarMailbeeld(new File([blob], 'bericht.webp', { type: 'image/webp' }));
+          var up = await NB.upload('/api/upload', jpg);
+          inhoud.beeld = { url: up.url, plaats: 'tekst', na_alinea: 0, vulling: 'heel' };
+        } catch (err) { NB.toast('Het beeld van het bericht kon niet omgezet worden; kies er zelf een.', 'warning'); }
+      }
+      ['snippet_id', 'title', 'text', 'link_url', 'link_label', 'beeld'].forEach(function (k) { zet('content.' + k, inhoud[k]); });
+      zet('content.image_url', '');
+      gewijzigd();
+      render();
+      NB.toast('Ingevuld uit Nieuws & updates.');
+    } catch (err) { NB.fout(err); el.disabled = false; }
   };
 
   NB.actions['beeld-paneel'] = function (el) {

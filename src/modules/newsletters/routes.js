@@ -29,6 +29,7 @@ import { naamVoor } from '../../lib/medewerkers.js';
 import { lijstTekeningen, pngSleutel, vergeetTekeningen } from '../av-slides/lib/thingies.js';
 import { listIntegrations } from '../forminator-sync-v2/database.js';
 import { ArticleFetchError } from '../content-feed/lib/article-fetch.js';
+import { listSnippets, getSnippet, getSnippetImage } from '../content-feed/lib/content-service.js';
 import { serializeAiError, httpStatusForAiError } from '../mini-apps/lib/ai-errors.js';
 import { sendSystemChannelMessage } from '../mini-apps/lib/chat.js';
 
@@ -164,6 +165,13 @@ function inhoudPerSoort(kind, c = {}) {
       return {
         title: kort(c.title, 160), text: kort(c.text, 4000), image_url: url(c.image_url), image_alt: kort(c.image_alt, 160),
         thingie: /^[a-z0-9-]{1,60}$/.test(String(c.thingie || '')) ? c.thingie : '',
+        link_url: url(c.link_url), link_label: kort(c.link_label, 60),
+        beeld: normaliseerBeeld(c.beeld),
+      };
+    case 'snippet':
+      return {
+        snippet_id: Number.isInteger(Number(c.snippet_id)) && Number(c.snippet_id) > 0 ? Number(c.snippet_id) : null,
+        title: kort(c.title, 160), text: kort(c.text, 4000),
         link_url: url(c.link_url), link_label: kort(c.link_label, 60),
         beeld: normaliseerBeeld(c.beeld),
       };
@@ -909,6 +917,58 @@ export const routes = {
       const key = `${BEELDEN_MAP}${crypto.randomUUID()}.${ext}`;
       await env.R2_ASSETS.put(key, bytes, { httpMetadata: { contentType: type } });
       return json({ success: true, data: { url: `${ASSET_ORIGIN}/assets/${key}` } }, 201);
+    } catch (err) { return fout(err); }
+  },
+
+  // ─── Berichten uit Nieuws & updates ──────────────────────────────────────
+
+  /** De gepubliceerde berichten, nieuwste eerst, voor de keuzelijst. */
+  'GET /api/snippets': async ({ env }) => {
+    try {
+      const { items } = await listSnippets(env, { statuses: ['published'], limit: 60, offset: 0 });
+      return json({
+        success: true,
+        data: (items || []).map((x) => ({
+          id: x.id, title: x.summaryTitle || x.title, published_on: x.publishedOn || '', type: x.type?.name || '',
+        })),
+      });
+    } catch (err) { return fout(err); }
+  },
+
+  /**
+   * Eén bericht als inhoud van een blok: titel, tekst, link en beeld. Het beeld
+   * gaat meteen naar onze eigen opslag (public/nieuwsbrieven/), zodat het in
+   * de mail zeker werkt. Een WebP kan een mail niet tonen en kan de server
+   * niet omzetten: dat geeft de route als data-URI terug, het scherm zet het om
+   * naar JPEG en laadt het op.
+   */
+  'POST /api/snippets/:id/overnemen': async ({ env, params }) => {
+    try {
+      const x = await getSnippet(env, params.id);
+      if (!x) throw new NewsletterError('Dat bericht bestaat niet (meer).', 404);
+      const inhoud = {
+        snippet_id: x.id,
+        title: x.summaryTitle || x.title || '',
+        text: x.summary || x.curatorNote || '',
+        link_url: x.url || '',
+        link_label: x.cta || 'Lees verder',
+        beeld: null,
+      };
+      let beeld_data = null;
+      if (x.hasImage) {
+        const img = await getSnippetImage(env, x.id);
+        const ext = img && BEELD_TYPES[img.contentType];
+        if (ext && img.bytes.byteLength <= MAX_BEELD) {
+          const key = `${BEELDEN_MAP}${crypto.randomUUID()}.${ext}`;
+          await env.R2_ASSETS.put(key, img.bytes, { httpMetadata: { contentType: img.contentType } });
+          inhoud.beeld = { url: `${ASSET_ORIGIN}/assets/${key}`, plaats: 'tekst', na_alinea: 0, vulling: 'heel' };
+        } else if (img && img.contentType === 'image/webp' && img.bytes.byteLength <= MAX_BEELD) {
+          let bin = '';
+          for (let i = 0; i < img.bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, img.bytes.subarray(i, i + 0x8000));
+          beeld_data = `data:image/webp;base64,${btoa(bin)}`;
+        }
+      }
+      return json({ success: true, data: { inhoud, beeld_data } });
     } catch (err) { return fout(err); }
   },
 
