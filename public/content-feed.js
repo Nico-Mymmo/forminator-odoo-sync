@@ -258,16 +258,23 @@
   }
 
   /** De links uit Media insights nu ophalen (anders doet de cron het binnen 5 minuten). */
-  async function chatOphalen(knop) {
+  async function chatOphalen(knop, terugMinuten) {
     knop.disabled = true;
     var oud = knop.innerHTML;
     knop.innerHTML = '<span class="loading loading-spinner loading-xs"></span> Ophalen…';
+    var opnieuw = false;
     try {
-      var r = await api('/api/chat-ophalen', { method: 'POST' });
+      var r = await api('/api/chat-ophalen', { method: 'POST', body: JSON.stringify({ terugMinuten: terugMinuten || 0 }) });
+      var vanaf = r.sinds ? new Date(r.sinds).toLocaleString('nl-BE', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '';
       if (r.status === 'uit') toast('Media insights lezen staat niet aan (NEWS_CHAT_READER).', 'error');
       else if (r.status === 'start') toast('Gestart: vanaf nu worden nieuwe links in Media insights opgepikt.');
-      else if (!r.gedaan) toast('Geen nieuwe links in Media insights.');
-      else {
+      else if (!r.gedaan) {
+        var wat = r.metLinks
+          ? r.metLinks + ' bericht(en) met een link sinds ' + vanaf + ', maar die stonden er al in.'
+          : r.gelezen + ' bericht(en) gelezen sinds ' + vanaf + ', zonder nieuwe link.';
+        toast('Geen nieuwe links in Media insights: ' + wat);
+        opnieuw = !terugMinuten;
+      } else {
         toast(r.gedaan === 1 ? '1 link opgehaald: staat bij Concept.' : r.gedaan + ' links opgehaald: staan bij Concept.');
         await laadItems();
       }
@@ -277,6 +284,10 @@
       knop.disabled = false;
       knop.innerHTML = oud;
       icons();
+    }
+    // Stond de link er van vóór het startmoment? Dan het laatste uur opnieuw.
+    if (opnieuw && window.confirm('Geen nieuwe link gevonden. Het laatste uur van Media insights opnieuw bekijken? (Wat er al in staat, komt er niet dubbel in.)')) {
+      chatOphalen(knop, 60);
     }
   }
 
