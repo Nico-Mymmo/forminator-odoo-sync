@@ -136,6 +136,31 @@ export const STYLE = {
   rethinkCss: 'https://fonts.googleapis.com/css2?family=Rethink+Sans:wght@400;600;700&display=swap',
 };
 
+/**
+ * Waar een beeld kan staan, en het kader (breedte in px in de mail, en de
+ * verhouding breedte/hoogte als het beeld het kader VULT). EEN bron: de
+ * renderer schikt ermee, en het scherm snijdt er de uitsnede mee bij (via
+ * /api/bootstrap). Een mailprogramma kan zelf niet bijsnijden (geen
+ * object-fit in Gmail/Outlook), dus "vullen" = een eigen, bijgesneden kopie.
+ *
+ *   rechts / links             naast de tekst, klein
+ *   kolom-rechts / kolom-links  een tweede kolom over het hele blok, tot de rand
+ *   tekst                      tussen de alinea's, over de hele breedte
+ *   video / link               vaste plek in dat soort blok
+ */
+export const BEELD_KADERS = {
+  rechts: { breedte: 180, verhouding: 1 },
+  links: { breedte: 180, verhouding: 1 },
+  'kolom-rechts': { breedte: 280, verhouding: 0.8 },
+  'kolom-links': { breedte: 280, verhouding: 0.8 },
+  tekst: { breedte: 560, verhouding: 16 / 9 },
+  video: { breedte: 560, verhouding: 16 / 9 },
+  link: { breedte: 558, verhouding: 1.91 },
+};
+
+/** De plekken die je zelf kiest (video en link hebben een vaste plek). */
+export const BEELD_PLAATSEN = ['rechts', 'links', 'kolom-rechts', 'kolom-links', 'tekst'];
+
 /** De merktekeningen ("thingies") in R2, via het publieke /assets/-pad. */
 export const ASSET_ORIGIN = 'https://link.openvme.be';
 

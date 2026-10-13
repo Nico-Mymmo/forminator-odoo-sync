@@ -20,7 +20,6 @@
     .nb-balk > span { flex: 1; height: 8px; border-radius: 3px; }
     .nb-voorbeeld { width: 100%; border: 0; border-radius: 12px; min-height: 600px; background: #fff; }
     .nb-kaart-actief { outline: 2px solid oklch(var(--p)); outline-offset: 1px; }
-    .nb-tekening { width: 56px; height: 56px; object-fit: contain; }
     .nb-sjabloon { cursor: grab; }
     .nb-sjabloon:active { cursor: grabbing; }
     .nb-toast { position: fixed; right: 1rem; bottom: 1rem; z-index: 1000; display: flex; flex-direction: column; gap: .5rem; }
@@ -106,7 +105,7 @@
 
   <!-- Tekening of foto bij een blok -->
   <dialog id="dlgBeeld" class="modal">
-    <div id="dlgBeeldInhoud" class="modal-box max-w-2xl"></div>
+    <div id="dlgBeeldInhoud" class="modal-box max-w-4xl"></div>
     <form method="dialog" class="modal-backdrop"><button>sluiten</button></form>
   </dialog>
 
@@ -116,6 +115,7 @@
   <script src="/newsletters-overview.js"></script>
   <script src="/newsletters-edition.js"></script>
   <script src="/newsletters-contribution.js"></script>
+  <script src="/newsletters-beeld.js"></script>
   <script src="/newsletters-series.js"></script>
   <script src="/newsletters-bootstrap.js"></script>
 </body>

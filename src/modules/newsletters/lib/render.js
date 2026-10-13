@@ -20,14 +20,19 @@
  */
 
 import { esc, safeUrl } from '../../../lib/mail/render-blocks.js';
-import { STYLE as S, BRAND, KINDS, CONTRIBUTION_STATUS } from './constants.js';
+import { STYLE as S, BRAND, KINDS, CONTRIBUTION_STATUS, BEELD_KADERS } from './constants.js';
 
 const WIDTH = 640;
 
 // ─── Kleine bouwstenen ──────────────────────────────────────────────────────
 
 /** Platte tekst naar alinea's. **vet** en [label](https://...) worden opmaak. */
-export function tekstNaarHtml(text, { size = 16, color = S.text, lineHeight = 1.6, gap = 14, linkColor = S.primary } = {}) {
+export function tekstNaarHtml(text, opties = {}) {
+  return alineas(text, opties).join('');
+}
+
+/** Dezelfde alinea's als losse stukken, om er een beeld tussen te zetten. */
+export function alineas(text, { size = 16, color = S.text, lineHeight = 1.6, gap = 14, linkColor = S.primary } = {}) {
   const blokken = String(text || '').replace(/\r\n?/g, '\n').split(/\n{2,}/).map((b) => b.trim()).filter(Boolean);
   return blokken.map((blok, i) => {
     let h = esc(blok)
@@ -36,7 +41,7 @@ export function tekstNaarHtml(text, { size = 16, color = S.text, lineHeight = 1.
       .replace(/\n/g, '<br>');
     const mb = i === blokken.length - 1 ? 0 : gap;
     return `<p style="margin:0 0 ${mb}px;font-family:${S.fontBody};font-size:${size}px;line-height:${lineHeight};color:${color}">${h}</p>`;
-  }).join('');
+  });
 }
 
 function initialen(naam) {
@@ -112,12 +117,78 @@ function paneel(inhoud, bg, { padding = '36px 32px 30px', margin = '32px 24px 0'
   return `<tr${attr}><td style="padding:${margin}"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:${bg};border-radius:18px"><tr><td style="padding:${padding}">${inhoud}</td></tr></table></td></tr>`;
 }
 
-function beeld(url, { width = 560, alt = '', radius = 14, href = '' } = {}) {
-  const src = safeUrl(url);
+// ─── Beelden: één manier voor elke plek ─────────────────────────────────────
+
+/**
+ * Het beeld van een stukje: `content.beeld` = { url | thingie, plaats,
+ * na_alinea, vulling ('vullen'|'heel'), focus {x,y}, uitsnede }. Oudere
+ * stukjes hebben enkel een losse URL of tekening: die tellen als "heel tonen"
+ * op de plek waar ze vroeger stonden.
+ */
+export function beeldVan(c = {}, { fotoVeld = 'image_url', plaats = 'rechts' } = {}) {
+  const b = c.beeld;
+  if (b && (b.url || b.thingie)) return b;
+  if (c.thingie) return { thingie: c.thingie, plaats: 'rechts', vulling: 'heel' };
+  if (safeUrl(c[fotoVeld])) return { url: c[fotoVeld], plaats, vulling: 'heel' };
+  return null;
+}
+
+/** Wat er in de mail komt: de uitsnede bij "vullen", anders het beeld zelf. */
+function beeldSrc(b, ctx) {
+  if (!b) return '';
+  if (b.thingie) return ctx.thingieUrl ? ctx.thingieUrl(b.thingie) || '' : '';
+  return safeUrl(b.vulling === 'vullen' && b.uitsnede ? b.uitsnede : b.url) || '';
+}
+
+function beeldTag(b, ctx, breedte, { radius = 14, href = '', alt = '' } = {}) {
+  const src = beeldSrc(b, ctx);
   if (!src) return '';
-  const img = `<img src="${src}" width="${width}" alt="${esc(alt)}" style="display:block;width:100%;max-width:${width}px;height:auto;border:0;border-radius:${radius}px">`;
+  const r = b.thingie ? 0 : radius;
+  const img = `<img src="${esc(src)}" width="${breedte}" alt="${esc(alt)}" style="display:block;width:100%;max-width:${breedte}px;height:auto;border:0;border-radius:${r}px">`;
   const link = safeUrl(href);
   return link ? `<a href="${link}" style="text-decoration:none">${img}</a>` : img;
+}
+
+/**
+ * Alinea's met het beeld ertussen (plaats 'tekst', na alinea `na_alinea`;
+ * 0 = boven de tekst). In het voorbeeld is dat beeld een eiland dat je niet
+ * kan bewerken (`data-nb-eiland`), zodat het tussen de tekst blijft staan
+ * terwijl je typt.
+ */
+function tekstMetBeeld(stukken, b, ctx, id) {
+  const lijst = stukken.slice();
+  if (b && b.plaats === 'tekst' && beeldSrc(b, ctx)) {
+    const n = Math.max(0, Math.min(lijst.length, Number.isInteger(b.na_alinea) ? b.na_alinea : 1));
+    const attr = id ? ' data-nb-eiland="1" data-nb-beeld="1" contenteditable="false"' : '';
+    const boven = n === 0 ? 0 : 6;
+    lijst.splice(n, 0, `<div${attr} style="margin:${boven}px 0 18px">${beeldTag(b, ctx, BEELD_KADERS.tekst.breedte)}</div>`);
+  }
+  return lijst.join('');
+}
+
+/**
+ * Een blok met zijn beeld naast de tekst ('rechts'/'links') of als tweede
+ * kolom over het hele blok ('kolom-…', tot de rand). 'tekst' staat al in de
+ * inhoud (tekstMetBeeld).
+ */
+function schikBeeld({ b, ctx, id, inhoud, padding, bg = '' }) {
+  const attr = id ? ` data-nb-id="${esc(id)}"` : '';
+  const bgStijl = bg ? `background-color:${bg};` : '';
+  const pl = b && b.plaats;
+  const k = BEELD_KADERS[pl];
+  if (!b || !k || pl === 'tekst' || !beeldSrc(b, ctx)) {
+    return `<tr${attr}><td style="padding:${padding};${bgStijl}">${inhoud}</td></tr>`;
+  }
+  const bAttr = id ? ' data-nb-beeld="1"' : '';
+  const tabel = (cellen) => `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>${cellen}</tr></table>`;
+  if (pl.startsWith('kolom')) {
+    const beeldCel = `<td width="${k.breedte}" valign="top" style="width:${k.breedte}px;padding:0"${bAttr}>${beeldTag(b, ctx, k.breedte, { radius: 0 })}</td>`;
+    const tekstCel = `<td valign="top" style="padding:${padding}">${inhoud}</td>`;
+    return `<tr${attr}><td style="padding:0;${bgStijl}">${tabel(pl === 'kolom-links' ? beeldCel + tekstCel : tekstCel + beeldCel)}</td></tr>`;
+  }
+  const beeldCel = `<td width="${k.breedte}" valign="top" style="width:${k.breedte}px;${pl === 'links' ? 'padding-right:24px' : 'padding-left:24px'}"${bAttr}>${beeldTag(b, ctx, k.breedte)}</td>`;
+  const tekstCel = `<td valign="top">${inhoud}</td>`;
+  return `<tr${attr}><td style="padding:${padding};${bgStijl}">${tabel(pl === 'links' ? beeldCel + tekstCel : tekstCel + beeldCel)}</td></tr>`;
 }
 
 // ─── Datums (Europe/Brussels) ───────────────────────────────────────────────
@@ -253,43 +324,29 @@ function handtekening(item) {
  */
 function blokIntro(item, ctx, id) {
   const c = item.content || {};
-  const tekening = c.thingie && ctx.thingieUrl ? ctx.thingieUrl(c.thingie) : null;
-  const foto = !tekening ? safeUrl(c.image_url) : '';
-  const beeldAttr = id ? ' data-nb-beeld="1"' : '';
-  const rechts = tekening
-    ? `<td width="150" valign="top" style="padding-left:20px"${beeldAttr}><img src="${esc(tekening)}" width="150" height="150" alt="" style="display:block;width:150px;height:150px"></td>`
-    : foto
-      ? `<td width="150" valign="top" style="padding-left:20px"${beeldAttr}><img src="${foto}" width="150" alt="" style="display:block;width:150px;height:auto;border-radius:14px"></td>`
-      : '';
+  const b = beeldVan(c);
   const titel = id
     ? `<h1 data-nb-veld="title" data-placeholder="Typ hier een titel" style="margin:0 0 16px;font-family:${S.fontHead};font-weight:400;font-size:38px;line-height:1.15;color:${S.heading}">${esc(c.title || '')}</h1>`
     : kop(c.title, { size: 38, tag: 'h1', margin: '0 0 16px' });
+  const tekstHtml = tekstMetBeeld(alineas(c.text, { size: 17 }), b, ctx, id);
   const tekst = id
-    ? `<div data-nb-veld="text" data-placeholder="Typ hier je inleiding. Sluit af met je groet, bv. Veel leesplezier," style="font-family:${S.fontBody};font-size:17px;line-height:1.6;color:${S.text}">${tekstNaarHtml(c.text, { size: 17 })}</div>`
-    : tekstNaarHtml(c.text, { size: 17 });
-  const inhoud = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
-<td valign="top">${titel}
-${tekst}
-${handtekening(item)}</td>${rechts}</tr></table>`;
-  return `<tr${id ? ` data-nb-id="${esc(id)}"` : ''}><td style="padding:44px 40px 40px;background-color:${S.teal50}">${inhoud}</td></tr>`;
+    ? `<div data-nb-veld="text" data-placeholder="Typ hier je inleiding. Sluit af met je groet, bv. Veel leesplezier," style="font-family:${S.fontBody};font-size:17px;line-height:1.6;color:${S.text}">${tekstHtml}</div>`
+    : tekstHtml;
+  return schikBeeld({ b, ctx, id, inhoud: `${titel}\n${tekst}\n${handtekening(item)}`, padding: '44px 40px 40px', bg: S.teal50 });
 }
 
 function blokArticle(item, ctx, id) {
   const c = item.content || {};
-  const tekening = c.thingie && ctx.thingieUrl ? ctx.thingieUrl(c.thingie) : null;
-  const foto = safeUrl(c.image_url) ? `<div style="margin:16px 0 4px">${beeld(c.image_url, { alt: c.image_alt || '' })}</div>` : '';
-  const tekst = `${kop(c.title)}${tekstNaarHtml(c.text)}${c.link_url ? `<div style="margin-top:18px">${leesLink(c.link_label, c.link_url)}</div>` : ''}`;
-  const kern = tekening
-    ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td valign="top">${tekst}</td><td width="128" valign="top" style="padding-left:20px"><img src="${esc(tekening)}" width="128" height="128" alt="" style="display:block;width:128px;height:128px"></td></tr></table>`
-    : tekst;
-  return rij(`${pil(item.title, S.pink50, S.pink700)}${foto}${kern}${byline(item.author)}`, { padding: '44px 40px 4px', id });
+  const b = beeldVan(c, { plaats: 'tekst' });
+  const tekst = `${kop(c.title)}${tekstMetBeeld(alineas(c.text), b && b.plaats === 'tekst' && !c.beeld ? { ...b, na_alinea: 0 } : b, ctx, id)}${c.link_url ? `<div style="margin-top:18px">${leesLink(c.link_label, c.link_url)}</div>` : ''}`;
+  return schikBeeld({ b, ctx, id, inhoud: `${pil(item.title, S.pink50, S.pink700)}${tekst}${byline(item.author)}`, padding: '44px 40px 4px' });
 }
 
 function blokVideo(item, ctx, id) {
   const c = item.content || {};
-  const thumb = safeUrl(c.thumbnail_url)
-    ? `<div style="margin:16px 0 16px">${beeld(c.thumbnail_url, { href: c.video_url, alt: c.title || 'Video' })}</div>`
-    : '';
+  const b = beeldVan(c, { fotoVeld: 'thumbnail_url', plaats: 'video' });
+  const thumbTag = beeldTag(b, ctx, BEELD_KADERS.video.breedte, { href: c.video_url, alt: c.title || 'Video' });
+  const thumb = thumbTag ? `<div style="margin:16px 0 16px">${thumbTag}</div>` : '';
   return rij(`${pil(item.title, S.sky50, S.primary)}${kop(c.title)}${thumb}${tekstNaarHtml(c.text)}
 <div style="margin-top:18px">${knop(c.button_label || 'Bekijk de video', c.video_url)}</div>${byline(item.author)}`, { padding: '44px 40px 4px', id });
 }
@@ -297,7 +354,7 @@ function blokVideo(item, ctx, id) {
 function blokLink(item, ctx, id, { linkedin = false } = {}) {
   const c = item.content || {};
   const bron = linkedin ? `Op LinkedIn${c.author_name ? ` · ${esc(c.author_name)}` : ''}` : esc(c.site_name || '');
-  const foto = safeUrl(c.image_url) ? beeld(c.image_url, { width: 558, radius: 0, href: c.url }) : '';
+  const foto = beeldTag(beeldVan(c, { plaats: 'link' }), ctx, BEELD_KADERS.link.breedte, { radius: 0, href: c.url });
   const kaart = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border:1px solid ${S.border};border-radius:14px;border-collapse:separate;overflow:hidden">
 ${foto ? `<tr><td style="border-radius:14px 14px 0 0;overflow:hidden">${foto}</td></tr>` : ''}
 <tr><td style="padding:20px 22px 22px">
