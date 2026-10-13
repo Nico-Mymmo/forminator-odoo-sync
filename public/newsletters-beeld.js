@@ -31,8 +31,8 @@
   var e = NB.esc;
 
   var PLAATSEN = [
-    { key: 'rechts', label: 'Naast de tekst, rechts' },
-    { key: 'links', label: 'Naast de tekst, links' },
+    { key: 'rechts', label: 'Naast de alinea, rechts' },
+    { key: 'links', label: 'Naast de alinea, links' },
     { key: 'kolom-rechts', label: 'Halve blok, rechts' },
     { key: 'kolom-links', label: 'Halve blok, links' },
     { key: 'tekst', label: 'Tussen de tekst' },
@@ -74,8 +74,12 @@
     var beeld = function (x, y, w, h) { return '<rect x="' + x + '" y="' + y + '" width="' + w + '" height="' + h + '" rx="2" fill="#2dd4bf"/>'; };
     var vak = '<rect x=".5" y=".5" width="63" height="43" rx="4" fill="none" stroke="currentColor" opacity=".25"/>';
     var inhoud = {
-      rechts: lijnen(6, 32) + beeld(44, 9, 14, 14),
-      links: beeld(6, 9, 14, 14) + lijnen(26, 32),
+      rechts: '<rect x="6" y="5" width="36" height="4" rx="2" fill="currentColor" opacity=".55"/>' + beeld(42, 12, 16, 16)
+        + [13, 18, 23].map(function (y) { return '<rect x="6" y="' + y + '" width="32" height="2.5" rx="1.2" fill="currentColor" opacity=".3"/>'; }).join('')
+        + [31, 36].map(function (y) { return '<rect x="6" y="' + y + '" width="52" height="2.5" rx="1.2" fill="currentColor" opacity=".3"/>'; }).join(''),
+      links: '<rect x="6" y="5" width="36" height="4" rx="2" fill="currentColor" opacity=".55"/>' + beeld(6, 12, 16, 16)
+        + [13, 18, 23].map(function (y) { return '<rect x="26" y="' + y + '" width="32" height="2.5" rx="1.2" fill="currentColor" opacity=".3"/>'; }).join('')
+        + [31, 36].map(function (y) { return '<rect x="6" y="' + y + '" width="52" height="2.5" rx="1.2" fill="currentColor" opacity=".3"/>'; }).join(''),
       'kolom-rechts': lijnen(6, 26) + beeld(38, 1, 25, 42),
       'kolom-links': beeld(1, 1, 25, 42) + lijnen(32, 26),
       tekst: '<rect x="6" y="5" width="36" height="4" rx="2" fill="currentColor" opacity=".55"/><rect x="6" y="12" width="52" height="2.5" rx="1.2" fill="currentColor" opacity=".3"/>' + beeld(6, 17, 52, 17) + '<rect x="6" y="37" width="52" height="2.5" rx="1.2" fill="currentColor" opacity=".3"/>',
@@ -116,6 +120,19 @@
       + '<button class="btn btn-ghost btn-sm" data-action="sluit-dialoog" data-dialoog="dlgBeeld">Annuleren</button></div>';
   }
 
+  /** Bij welke alinea: tussen de tekst = "na alinea n", naast = "naast alinea n+1". */
+  function alineaKiezer(b) {
+    var n = b.na_alinea || 0;
+    var naast = b.plaats !== 'tekst';
+    var getal = naast ? n + 1 : n;
+    var uitleg = naast ? 'de tekst loopt rond het beeld' : (n === 0 ? 'boven de tekst' : 'tussen de alinea\'s');
+    return '<div class="flex flex-wrap items-center gap-2 mt-2 text-sm"><span>' + (naast ? 'Naast alinea' : 'Na alinea') + '</span>'
+      + '<div class="join"><button class="btn btn-xs join-item" data-action="beeld-dlg-alinea" data-waarde="-1" aria-label="Eerder"' + (n <= 0 ? ' disabled' : '') + '>−</button>'
+      + '<span class="join-item px-3 flex items-center bg-base-200 font-semibold">' + getal + '</span>'
+      + '<button class="btn btn-xs join-item" data-action="beeld-dlg-alinea" data-waarde="1" aria-label="Later">+</button></div>'
+      + '<span class="opacity-60 text-xs">' + uitleg + '</span></div>';
+  }
+
   function stapOpmaak() {
     var b = st.beeld;
     var foto = !b.thingie;
@@ -142,9 +159,7 @@
       ? '<div><div class="text-sm font-semibold mb-1.5">Waar</div><div class="grid grid-cols-3 gap-2">'
         + PLAATSEN.map(function (p) { return keuzeKnop('beeld-dlg-plaats', p.key, b.plaats === p.key, pictogram(p.key), p.label); }).join('')
         + '</div>'
-        + (b.plaats === 'tekst'
-          ? '<div class="flex items-center gap-2 mt-2 text-sm"><span>Na alinea</span><div class="join"><button class="btn btn-xs join-item" data-action="beeld-dlg-alinea" data-waarde="-1" aria-label="Eerder">−</button><span class="join-item px-3 flex items-center bg-base-200 font-semibold">' + (b.na_alinea || 0) + '</span><button class="btn btn-xs join-item" data-action="beeld-dlg-alinea" data-waarde="1" aria-label="Later">+</button></div><span class="opacity-60 text-xs">' + ((b.na_alinea || 0) === 0 ? 'boven de tekst' : 'je kan het ook in de brief verslepen door tekst ervoor of erna te typen') + '</span></div>'
-          : '')
+        + (['tekst', 'rechts', 'links'].indexOf(b.plaats) >= 0 ? alineaKiezer(b) : '')
         + '</div>'
       : '';
 
@@ -278,7 +293,7 @@
   function nieuw(deel) {
     var oud = st.beeld || {};
     var plaats = st.opties.vast || oud.plaats || 'rechts';
-    st.beeld = Object.assign({ plaats: plaats, na_alinea: oud.na_alinea || 1, focus: { x: 0.5, y: 0.5 } }, deel);
+    st.beeld = Object.assign({ plaats: plaats, na_alinea: oud.na_alinea || 0, focus: { x: 0.5, y: 0.5 } }, deel);
     st.stap = 'opmaak';
     teken();
   }

@@ -150,45 +150,58 @@ function beeldTag(b, ctx, breedte, { radius = 14, href = '', alt = '' } = {}) {
 }
 
 /**
- * Alinea's met het beeld ertussen (plaats 'tekst', na alinea `na_alinea`;
- * 0 = boven de tekst). In het voorbeeld is dat beeld een eiland dat je niet
- * kan bewerken (`data-nb-eiland`), zodat het tussen de tekst blijft staan
- * terwijl je typt.
+ * Alinea's met het beeld erbij, op plek `na_alinea` (het aantal alinea's
+ * ervoor; 0 = bij de eerste):
+ *   'tekst'          tussen de alinea's, over de hele breedte
+ *   'rechts'/'links' naast die alinea; de tekst loopt eromheen (zoals in Word).
+ *                    In de mail met `align` op het beeld: dat volgen ook
+ *                    Outlook en Gmail, een CSS-float op een div niet.
+ * In het voorbeeld is het beeld een eiland dat je niet kan bewerken
+ * (`data-nb-eiland`), zodat het bij zijn alinea blijft terwijl je typt.
  */
 function tekstMetBeeld(stukken, b, ctx, id) {
   const lijst = stukken.slice();
-  if (b && b.plaats === 'tekst' && beeldSrc(b, ctx)) {
-    const n = Math.max(0, Math.min(lijst.length, Number.isInteger(b.na_alinea) ? b.na_alinea : 1));
-    const attr = id ? ' data-nb-eiland="1" data-nb-beeld="1" contenteditable="false"' : '';
-    const boven = n === 0 ? 0 : 6;
-    lijst.splice(n, 0, `<div${attr} style="margin:${boven}px 0 18px">${beeldTag(b, ctx, BEELD_KADERS.tekst.breedte)}</div>`);
+  const pl = b && b.plaats;
+  if (!b || !['tekst', 'rechts', 'links'].includes(pl) || !beeldSrc(b, ctx)) return lijst.join('');
+  const n = Math.max(0, Math.min(lijst.length, Number.isInteger(b.na_alinea) ? b.na_alinea : 0));
+  const eiland = id ? ' data-nb-eiland="1" data-nb-beeld="1" contenteditable="false"' : '';
+  if (pl === 'tekst') {
+    lijst.splice(n, 0, `<div${eiland} style="margin:${n === 0 ? 0 : 6}px 0 18px">${beeldTag(b, ctx, BEELD_KADERS.tekst.breedte)}</div>`);
+    return lijst.join('');
   }
-  return lijst.join('');
+  const k = BEELD_KADERS[pl];
+  const marge = pl === 'rechts' ? '4px 0 12px 24px' : '4px 24px 12px 0';
+  const src = beeldSrc(b, ctx);
+  const img = `<img src="${esc(src)}" width="${k.breedte}" align="${pl === 'rechts' ? 'right' : 'left'}" alt="" style="float:${pl === 'rechts' ? 'right' : 'left'};width:${k.breedte}px;max-width:42%;height:auto;margin:${marge};border:0;border-radius:${b.thingie ? 0 : 14}px">`;
+  if (id) {
+    // Voorbeeld: het eiland staat VOOR de alinea waar het naast hoort.
+    lijst.splice(Math.min(n, lijst.length), 0, `<div${eiland} style="float:${pl === 'rechts' ? 'right' : 'left'};width:${k.breedte}px;max-width:42%;margin:${marge}">${img.replace(/float:[a-z]+;/, '').replace(/margin:[^;]+;/, 'margin:0;')}</div>`);
+    return lijst.join('');
+  }
+  if (!lijst.length) return `<div>${img}</div>`;
+  const i = Math.min(n, lijst.length - 1);
+  lijst[i] = lijst[i].replace(/^(<p[^>]*>)/, `$1${img}`);
+  // Het beeld mag niet onder de volgende blokken doorlopen.
+  return `${lijst.join('')}<div style="clear:both;font-size:0;line-height:0">&nbsp;</div>`;
 }
 
 /**
- * Een blok met zijn beeld naast de tekst ('rechts'/'links') of als tweede
- * kolom over het hele blok ('kolom-…', tot de rand). 'tekst' staat al in de
- * inhoud (tekstMetBeeld).
+ * Een blok met zijn beeld als tweede kolom over het hele blok ('kolom-…', tot
+ * de rand). De andere plekken staan al in de tekst (tekstMetBeeld).
  */
 function schikBeeld({ b, ctx, id, inhoud, padding, bg = '' }) {
   const attr = id ? ` data-nb-id="${esc(id)}"` : '';
   const bgStijl = bg ? `background-color:${bg};` : '';
   const pl = b && b.plaats;
   const k = BEELD_KADERS[pl];
-  if (!b || !k || pl === 'tekst' || !beeldSrc(b, ctx)) {
+  if (!b || !k || !pl.startsWith('kolom') || !beeldSrc(b, ctx)) {
     return `<tr${attr}><td style="padding:${padding};${bgStijl}">${inhoud}</td></tr>`;
   }
   const bAttr = id ? ' data-nb-beeld="1"' : '';
   const tabel = (cellen) => `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>${cellen}</tr></table>`;
-  if (pl.startsWith('kolom')) {
-    const beeldCel = `<td width="${k.breedte}" valign="top" style="width:${k.breedte}px;padding:0"${bAttr}>${beeldTag(b, ctx, k.breedte, { radius: 0 })}</td>`;
-    const tekstCel = `<td valign="top" style="padding:${padding}">${inhoud}</td>`;
-    return `<tr${attr}><td style="padding:0;${bgStijl}">${tabel(pl === 'kolom-links' ? beeldCel + tekstCel : tekstCel + beeldCel)}</td></tr>`;
-  }
-  const beeldCel = `<td width="${k.breedte}" valign="top" style="width:${k.breedte}px;${pl === 'links' ? 'padding-right:24px' : 'padding-left:24px'}"${bAttr}>${beeldTag(b, ctx, k.breedte)}</td>`;
-  const tekstCel = `<td valign="top">${inhoud}</td>`;
-  return `<tr${attr}><td style="padding:${padding};${bgStijl}">${tabel(pl === 'links' ? beeldCel + tekstCel : tekstCel + beeldCel)}</td></tr>`;
+  const beeldCel = `<td width="${k.breedte}" valign="top" style="width:${k.breedte}px;padding:0"${bAttr}>${beeldTag(b, ctx, k.breedte, { radius: 0 })}</td>`;
+  const tekstCel = `<td valign="top" style="padding:${padding}">${inhoud}</td>`;
+  return `<tr${attr}><td style="padding:0;${bgStijl}">${tabel(pl === 'kolom-links' ? beeldCel + tekstCel : tekstCel + beeldCel)}</td></tr>`;
 }
 
 // ─── Datums (Europe/Brussels) ───────────────────────────────────────────────
@@ -234,6 +247,10 @@ export function heeftInhoud(item, ctx = {}) {
       return Boolean(safeUrl(c.url));
     case 'quote':
       return Boolean(String(c.quote || '').trim());
+    case 'image': {
+      const b = beeldVan(c);
+      return Boolean(b && (b.thingie || safeUrl(b.url)));
+    }
     case 'statement':
     case 'question':
     case 'poll':
@@ -477,6 +494,20 @@ ${tekstNaarHtml(c.text || 'Een vraag, of een idee voor de volgende editie? Antwo
 ${samen}${knopHtml ? `<div style="margin-top:22px">${knopHtml}</div>` : ''}`, { padding: '44px 40px 44px', id });
 }
 
+/** Een beeld over de hele breedte van de mail, van rand tot rand. */
+function blokImage(item, ctx, id) {
+  const c = item.content || {};
+  const b = beeldVan(c, { plaats: 'vol' });
+  const k = BEELD_KADERS.vol;
+  const tag = beeldTag(b, ctx, k.breedte, { radius: 0, href: c.link_url, alt: c.bijschrift || '' });
+  if (!tag) return '';
+  const bijschrift = String(c.bijschrift || '').trim()
+    ? `<tr><td style="padding:10px 40px 0;font-family:${S.fontBody};font-size:13px;line-height:1.5;color:${S.muted};text-align:center">${esc(c.bijschrift)}</td></tr>`
+    : '';
+  const bAttr = id ? ' data-nb-beeld="1"' : '';
+  return `<tr${id ? ` data-nb-id="${esc(id)}"` : ''}><td style="padding:36px 0 0"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td${bAttr} style="padding:0">${tag}</td></tr>${bijschrift}</table></td></tr>`;
+}
+
 function blokPlaatshouder(item, id) {
   const wie = item.author?.name ? ` · ${esc(item.author.name)}` : '';
   const stand = item.status === CONTRIBUTION_STATUS.DRAFT ? 'wordt geschreven' : 'nog niet ingeleverd';
@@ -490,6 +521,7 @@ const BLOKKEN = {
   link: (item, ctx, id) => blokLink(item, ctx, id),
   linkedin: (item, ctx, id) => blokLink(item, ctx, id, { linkedin: true }),
   quote: blokQuote,
+  image: blokImage,
   statement: blokStatement,
   question: blokQuestion,
   poll: blokPoll,
@@ -557,7 +589,7 @@ export function renderEdition({ series, edition, items, mode = 'preview', ctx = 
   const meeIds = new Set(mee.map((it) => it.id));
 
   // Inhoudstafel en afsluiting kijken naar wat ECHT meegaat.
-  const toc = mee.filter((it) => !['toc', 'closing', 'intro'].includes(it.kind)).map(kopVan).filter(Boolean);
+  const toc = mee.filter((it) => !['toc', 'closing', 'intro', 'image'].includes(it.kind)).map(kopVan).filter(Boolean);
   const authors = [];
   const gezien = new Set();
   for (const it of mee) {
