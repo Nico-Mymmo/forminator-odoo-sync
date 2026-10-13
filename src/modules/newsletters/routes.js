@@ -15,7 +15,7 @@ import {
 } from './lib/store.js';
 import {
   KINDS, isKind, DEFAULT_OPTIONS, EDITION_STATUS, CONTRIBUTION_STATUS, LOG_PREFIX, ASSET_ORIGIN,
-  sendMode, testEmails, BRAND,
+  sendMode, testEmails, BRAND, BEELD_KADERS, BEELD_PLAATSEN,
 } from './lib/constants.js';
 import { renderEdition, renderContribution, heeftInhoud, kopVan } from './lib/render.js';
 import { verzamel, maakEditieOp, vernieuwNieuws, ondertekenaarId, metOndertekening } from './lib/editions.js';
@@ -118,6 +118,24 @@ function normaliseerOpties(lijst, kind) {
   return uit;
 }
 
+/** Eén beeld, voor elke plek (zie BEELD_KADERS). Null = geen beeld. */
+function normaliseerBeeld(b, vastePlaats = null) {
+  if (!b || typeof b !== 'object') return null;
+  const thingie = /^[a-z0-9-]{1,60}$/.test(String(b.thingie || '')) ? b.thingie : '';
+  const adres = thingie ? '' : url(b.url);
+  if (!thingie && !adres) return null;
+  const getal = (v) => Math.max(0, Math.min(1, Number.isFinite(Number(v)) ? Number(v) : 0.5));
+  return {
+    url: adres,
+    thingie,
+    plaats: vastePlaats || (BEELD_PLAATSEN.includes(b.plaats) ? b.plaats : 'rechts'),
+    na_alinea: Math.max(0, Math.min(30, Number.parseInt(b.na_alinea, 10) || 0)),
+    vulling: !thingie && b.vulling === 'vullen' ? 'vullen' : 'heel',
+    focus: { x: getal(b.focus?.x), y: getal(b.focus?.y) },
+    uitsnede: thingie ? '' : url(b.uitsnede),
+  };
+}
+
 export function normaliseerInhoud(kind, c = {}) {
   switch (kind) {
     case 'intro':
@@ -126,6 +144,7 @@ export function normaliseerInhoud(kind, c = {}) {
         // Rechts naast de tekst: een tekening OF een foto.
         thingie: /^[a-z0-9-]{1,60}$/.test(String(c.thingie || '')) ? c.thingie : '',
         image_url: url(c.image_url),
+        beeld: normaliseerBeeld(c.beeld),
         // Wie ondertekent (een OM-gebruiker); leeg = de schrijver.
         signer_user_id: /^[0-9a-f-]{36}$/i.test(String(c.signer_user_id || '')) ? c.signer_user_id : '',
       };
@@ -134,17 +153,20 @@ export function normaliseerInhoud(kind, c = {}) {
         title: kort(c.title, 160), text: kort(c.text, 4000), image_url: url(c.image_url), image_alt: kort(c.image_alt, 160),
         thingie: /^[a-z0-9-]{1,60}$/.test(String(c.thingie || '')) ? c.thingie : '',
         link_url: url(c.link_url), link_label: kort(c.link_label, 60),
+        beeld: normaliseerBeeld(c.beeld),
       };
     case 'video':
       return {
         title: kort(c.title, 160), text: kort(c.text, 2000), video_url: url(c.video_url),
         thumbnail_url: url(c.thumbnail_url), button_label: kort(c.button_label, 60),
+        beeld: normaliseerBeeld(c.beeld, 'video'),
       };
     case 'link':
     case 'linkedin':
       return {
         title: kort(c.title, 200), text: kort(c.text, 1500), url: url(c.url), image_url: url(c.image_url),
         site_name: kort(c.site_name, 80), author_name: kort(c.author_name, 80), link_label: kort(c.link_label, 60),
+        beeld: normaliseerBeeld(c.beeld, 'link'),
       };
     case 'quote':
       return { quote: kort(c.quote, 600), person: kort(c.person, 100), role: kort(c.role, 120) };
@@ -230,6 +252,8 @@ export const routes = {
           token_field: tokenVeld,
           kinds: KINDS,
           brands: BRAND,
+          beeld_kaders: BEELD_KADERS,
+          asset_origin: ASSET_ORIGIN,
           series: series.map((s) => ({ ...s, is_editor: isEditorVan(user, s) })),
           users: users.map((u) => ({ id: u.id, name: naamVoor(null, u), email: u.email })),
         },
@@ -815,6 +839,28 @@ export const routes = {
       const ext = BEELD_TYPES[type];
       if (!ext) throw new NewsletterError('Enkel PNG, JPEG of GIF. Andere beelden zet het scherm eerst om.');
       const bytes = await request.arrayBuffer();
+      if (!bytes.byteLength || bytes.byteLength > MAX_BEELD) throw new NewsletterError('Het beeld is leeg of groter dan 3 MB.');
+      const key = `newsletters/${crypto.randomUUID()}.${ext}`;
+      await env.R2_ASSETS.put(key, bytes, { httpMetadata: { contentType: type } });
+      return json({ success: true, data: { url: `${ASSET_ORIGIN}/assets/${key}` } }, 201);
+    } catch (err) { return fout(err); }
+  },
+
+  /**
+   * Een beeld van elders (link-voorbeeld, Odoo) naar onze opslag, zodat het
+   * scherm er een uitsnede van kan maken (een canvas mag enkel beelden van de
+   * eigen site lezen) en de mail niet van een andere site afhangt.
+   */
+  'POST /api/beeld-importeer': async ({ env, request }) => {
+    try {
+      const adres = url((await leesBody(request)).url);
+      if (!adres) throw new NewsletterError('Geen geldige link naar een beeld.');
+      if (adres.startsWith(`${ASSET_ORIGIN}/assets/`)) return json({ success: true, data: { url: adres } });
+      const res = await fetch(adres, { redirect: 'follow', headers: { Accept: 'image/png,image/jpeg,image/gif' } });
+      const type = String(res.headers.get('Content-Type') || '').split(';')[0].trim().toLowerCase();
+      const ext = BEELD_TYPES[type];
+      if (!res.ok || !ext) throw new NewsletterError('Dit beeld kan niet in een mail. Laad het zelf op als PNG of JPEG.');
+      const bytes = await res.arrayBuffer();
       if (!bytes.byteLength || bytes.byteLength > MAX_BEELD) throw new NewsletterError('Het beeld is leeg of groter dan 3 MB.');
       const key = `newsletters/${crypto.randomUUID()}.${ext}`;
       await env.R2_ASSETS.put(key, bytes, { httpMetadata: { contentType: type } });

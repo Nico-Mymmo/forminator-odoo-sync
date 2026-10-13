@@ -121,16 +121,6 @@
     return '<label class="label cursor-pointer justify-start gap-3"><input type="checkbox" class="checkbox checkbox-sm" data-veld="' + pad + '"' + (aan ? ' checked' : '') + (NB.state.stukje.can_edit ? '' : ' disabled') + '><span class="label-text">' + e(label) + '</span></label>';
   }
 
-  function tekeningKeuze() {
-    var lijst = NB.state.tekeningen || [];
-    var gekozen = lees('content.thingie') || '';
-    var t = lijst.find(function (x) { return x.name === gekozen; });
-    return '<div class="flex items-end gap-3"><label class="form-control flex-1"><span class="label-text mb-1">Tekening (optioneel)</span>'
-      + '<select class="select select-bordered" data-veld="content.thingie"' + (NB.state.stukje.can_edit ? '' : ' disabled') + '><option value="">Geen</option>'
-      + lijst.map(function (x) { return '<option value="' + e(x.name) + '"' + (x.name === gekozen ? ' selected' : '') + '>' + e(x.label) + '</option>'; }).join('')
-      + '</select></label>' + (t ? '<img class="nb-tekening" src="' + e(t.svg) + '" alt="">' : '') + '</div>';
-  }
-
   /** Wie het woordje vooraf ondertekent: foto, voornaam en functie komen uit Odoo. */
   function ondertekenaarKeuze() {
     var s = NB.state.stukje;
@@ -146,12 +136,17 @@
       + '</select><span class="label-text-alt opacity-60 mt-1">Onder de tekst komen de foto, de voornaam en de functie uit Odoo.</span></label>';
   }
 
-  function beeldKeuze(pad, label) {
-    var url = lees(pad) || '';
-    return '<div class="flex flex-col gap-1"><span class="label-text">' + e(label) + '</span>'
-      + '<div class="flex gap-2 items-center"><input type="text" class="input input-bordered input-sm flex-1" data-veld="' + pad + '" placeholder="https://… of laad een beeld op" value="' + e(url) + '"' + (NB.state.stukje.can_edit ? '' : ' disabled') + '>'
-      + (NB.state.stukje.can_edit ? '<label class="btn btn-sm">Opladen<input type="file" accept="image/*" class="hidden" data-change="beeld-upload" data-pad="' + pad + '"></label>' : '') + '</div>'
-      + (url ? '<img src="' + e(url) + '" alt="" class="max-h-32 rounded-lg mt-1 object-contain self-start">' : '') + '</div>';
+  /** Een beeld in het formulier: een miniatuur en EEN knop naar het beeldvenster. */
+  function beeldRij(o) {
+    var b = NB.beeldVan(c().content, o.fotoVeld, o.vast || 'tekst');
+    var t = b && b.thingie ? (NB.state.tekeningen || []).find(function (x) { return x.name === b.thingie; }) : null;
+    var src = !b ? '' : b.thingie ? (t ? t.svg : '') : (b.vulling === 'vullen' && b.uitsnede ? b.uitsnede : b.url);
+    var mag = NB.state.stukje.can_edit;
+    return '<div class="flex flex-col gap-1"><span class="label-text">' + e(o.label) + '</span><div class="flex items-center gap-3">'
+      + (src ? '<img src="' + e(src) + '" alt="" class="w-24 h-16 rounded-lg border border-base-content/10 ' + (b.thingie ? 'object-contain' : 'object-cover') + '">'
+        : '<div class="w-24 h-16 rounded-lg border-2 border-dashed border-base-content/20 flex items-center justify-center text-xl opacity-50">+</div>')
+      + (mag ? '<button class="btn btn-sm" data-action="beeld-paneel" data-fotoveld="' + e(o.fotoVeld) + '" data-vast="' + e(o.vast || '') + '" data-plaatsen="' + (o.plaatsen ? '1' : '') + '">' + (b ? 'Aanpassen' : 'Beeld kiezen') + '</button>' : '')
+      + '</div></div>';
   }
 
   function opties() {
@@ -207,20 +202,20 @@
         return veld('Titel', 'content.title', { hint: 'Bv. Een nieuw jasje voor je vertrouwde info' })
           + veld('Tekst', 'content.text', { rijen: 8, uitleg: 'Een paar zinnen: wat staat er deze keer in, waarom is het de moeite. Sluit af met je groet (bv. "Veel leesplezier,"); je handtekening met foto komt er vanzelf onder.' })
           + ondertekenaarKeuze()
-          + tekeningKeuze();
+          + beeldRij({ plaatsen: true, fotoVeld: 'image_url', label: 'Beeld (optioneel)' });
       case 'article':
         return veld('Titel', 'content.title')
           + veld('Tekst', 'content.text', { rijen: 8, uitleg: 'Lege regel = nieuwe alinea. **vet** en [tekst](https://link) mogen.' })
-          + tekeningKeuze() + beeldKeuze('content.image_url', 'Foto (optioneel)')
+          + beeldRij({ plaatsen: true, fotoVeld: 'image_url', label: 'Beeld (optioneel)' })
           + '<div class="grid sm:grid-cols-2 gap-3">' + veld('Link (optioneel)', 'content.link_url', { hint: 'https://' }) + veld('Tekst van de link', 'content.link_label', { hint: 'Lees verder' }) + '</div>';
       case 'video':
         return veld('Titel', 'content.title') + veld('Link naar de video', 'content.video_url', { hint: 'https://vimeo.com/… of YouTube' })
-          + beeldKeuze('content.thumbnail_url', 'Stilstaand beeld (een mail kan geen video afspelen)')
+          + beeldRij({ vast: 'video', fotoVeld: 'thumbnail_url', label: 'Stilstaand beeld (een mail kan geen video afspelen)' })
           + veld('Tekst', 'content.text', { rijen: 4 }) + veld('Tekst op de knop', 'content.button_label', { hint: 'Bekijk de video' });
       case 'link':
       case 'linkedin':
         return '<div class="flex gap-2 items-end">' + veld('Link', 'content.url', { hint: 'https://' }) + (NB.state.stukje.can_edit ? '<button class="btn" data-action="link-ophalen">Ophalen</button>' : '') + '</div>'
-          + veld('Titel', 'content.title') + veld('Tekst', 'content.text', { rijen: 4 }) + beeldKeuze('content.image_url', 'Beeld')
+          + veld('Titel', 'content.title') + veld('Tekst', 'content.text', { rijen: 4 }) + beeldRij({ vast: 'link', fotoVeld: 'image_url', label: 'Beeld' })
           + (kind === 'linkedin' ? veld('Van wie is de post?', 'content.author_name') : veld('Naam van de site', 'content.site_name'));
       case 'quote':
         return veld('Citaat', 'content.quote', { rijen: 4 }) + '<div class="grid sm:grid-cols-2 gap-3">' + veld('Wie', 'content.person') + veld('Functie of gebouw', 'content.role') + '</div>';
@@ -472,17 +467,22 @@
     gewijzigd();
   };
 
-  NB.changes['beeld-upload'] = async function (el) {
-    var bestand = el.files && el.files[0];
-    if (!bestand) return;
-    try {
-      NB.toast('Beeld opladen…', 'info');
-      var blob = await NB.naarMailbeeld(bestand);
-      var r = await NB.upload('/api/upload', blob);
-      zet(el.dataset.pad, r.url);
-      gewijzigd();
-      render();
-    } catch (err) { NB.fout(err); }
+  NB.actions['beeld-paneel'] = function (el) {
+    var fotoVeld = el.dataset.fotoveld;
+    var vast = el.dataset.vast || null;
+    NB.beeld.open({
+      beeld: NB.beeldVan(c().content, fotoVeld, vast || 'tekst'),
+      plaatsen: el.dataset.plaatsen === '1',
+      vast: vast,
+      opslaan: function (b) {
+        // Het beeld-object neemt het over van de oude losse velden.
+        zet('content.beeld', b);
+        zet('content.' + fotoVeld, '');
+        zet('content.thingie', '');
+        gewijzigd();
+        render();
+      },
+    });
   };
 
   NB.actions['kies-soort'] = function (el) {
@@ -572,7 +572,8 @@
       zet('content.url', v.url);
       if (v.title) zet('content.title', v.title);
       if (v.text) zet('content.text', v.text);
-      if (v.image_url) zet('content.image_url', v.image_url);
+      // Een nieuwe link = een nieuw beeld: het oude (bijgesneden) beeld valt weg.
+      if (v.image_url) { zet('content.image_url', v.image_url); zet('content.beeld', null); }
       if (v.site_name) zet('content.site_name', v.site_name);
       if (v.author_name) zet('content.author_name', v.author_name);
       gewijzigd(); render();

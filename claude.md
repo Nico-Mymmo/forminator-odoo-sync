@@ -5294,6 +5294,24 @@ Afspraken die bewust zo zijn:
   heeft GEEN label boven zich en heet altijd "Woordje vooraf"; een blok dat er
   een werd, krijgt die naam zodra het geopend wordt. Plakken = gewone tekst.
   Volgende blokken volgen hetzelfde patroon.
+- **Beelden: één venster, één model, voor elke plek** (2026-10-13). Woordje vooraf,
+  tekst en foto, video en link gebruiken `content.beeld` = `{ url | thingie,
+  plaats, na_alinea, vulling, focus {x,y}, uitsnede }` en het venster in
+  `public/newsletters-beeld.js` (`NB.beeld.open`). Plekken: naast de tekst
+  (`rechts`/`links`), halve blok tot de rand (`kolom-rechts`/`kolom-links`),
+  tussen de alinea's (`tekst`, na `na_alinea`); video en link hebben een vaste
+  plek. Breedte en verhouding per plek staan EEN keer in `BEELD_KADERS`
+  (lib/constants.js); de renderer schikt ermee en het scherm snijdt ermee bij.
+  **Een mail kan niet zelf bijsnijden** (geen object-fit in Gmail/Outlook):
+  "kader vullen" = het scherm maakt rond het focuspunt een eigen JPEG
+  (`uitsnede`, canvas -> /api/upload); het origineel blijft in `url` voor een
+  later ander focuspunt. Een canvas leest enkel eigen beelden: een beeld van
+  elders gaat eerst via `POST /api/beeld-importeer` naar R2 (en wordt via het
+  eigen `/assets/`-pad gelezen). Bij een halve blok meet het scherm na elke
+  nieuwe brief de hoogte van de tekstkolom en snijdt opnieuw bij
+  (`kolomPassen`), zodat de foto het hele blok vult. Een tekening wordt nooit
+  bijgesneden. Oude stukjes met enkel `image_url`/`thingie`/`thumbnail_url`
+  tellen als "heel tonen" op hun oude plek (`beeldVan`, in renderer en scherm).
 - **Iedereen kiest zelf de plek van een blok dat hij toevoegt**; de
   hoofdredactie kan het nadien verschuiven, toewijzen of weghalen (paneel,
   "Hoofdredactie"). "Bevestigen" in het scherm = de stand `approved`.
