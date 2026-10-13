@@ -150,6 +150,54 @@ export function normaliseerInhoud(kind, c = {}) {
   return uit;
 }
 
+/**
+ * Label en "gedeeld door" van een bericht uit Nieuws & updates. EEN plek voor
+ * het overnemen van een bericht en voor het aanvullen van oudere blokken.
+ */
+async function berichtExtra(env, user, x, vermijd = []) {
+  const [taxonomy, eigenaar] = await Promise.all([
+    listTaxonomy(env).catch(() => ({ tags: [] })),
+    x.owner?.id ? medewerkerVoorOdooGebruiker(env, x.owner.id) : null,
+  ]);
+  const tags = (x.tagIds || []).map((id) => (taxonomy.tags || []).find((t) => t.id === id)).filter(Boolean);
+  const tag = await bedenkLabel(env, user, { ...x, tags }, { vermijd });
+  const doorNaam = eigenaar?.naam || x.owner?.name || '';
+  // "Administrator" en co. zijn geen collega: dan liever niemand.
+  const door = doorNaam && !/^(administrator|admin|odoobot)$/i.test(doorNaam.trim())
+    ? { name: doorNaam, job_title: eigenaar?.functie || '', avatar_url: eigenaar?.foto_url || '' }
+    : null;
+  return { tag, door };
+}
+
+/**
+ * Blokken met een bericht van vóór het label en "gedeeld door": één keer
+ * aanvullen en bewaren (`door` staat daarna altijd in de inhoud, ook als
+ * null). Hoogstens vier per keer, zodat een editie altijd vlot opent.
+ */
+async function vulBerichtenAan(env, user, items) {
+  const oud = items.filter((i) => i.kind === 'snippet' && i.content?.snippet_id
+    && (i.content.door === undefined || !String(i.content.tag || '').trim())).slice(0, 4);
+  for (const it of oud) {
+    try {
+      const x = await getSnippet(env, it.content.snippet_id);
+      if (!x) continue;
+      const vermijd = items.filter((i) => i.kind === 'snippet' && i.id !== it.id).map((i) => i.content?.tag).filter(Boolean);
+      const extra = await berichtExtra(env, user, x, vermijd);
+      const content = {
+        ...it.content,
+        tag: String(it.content.tag || '').trim() || extra.tag,
+        door: it.content.door === undefined ? extra.door : it.content.door,
+        quote: it.content.quote || x.quote || '',
+        source: it.content.source || x.source || '',
+      };
+      await updateContribution(env, it.id, { content: normaliseerInhoud('snippet', content) });
+      it.content = normaliseerInhoud('snippet', content);
+    } catch (error) {
+      console.warn(`${LOG_PREFIX} bericht ${it.id} niet aangevuld:`, error?.message);
+    }
+  }
+}
+
 /** Wie een bericht deelde: enkel naam, functie en de publieke pasfoto. */
 function normaliseerDoor(d) {
   if (!d || typeof d !== 'object' || !String(d.name || '').trim()) return null;
@@ -367,6 +415,7 @@ export const routes = {
       const [items, users, activity] = await Promise.all([
         listContributions(env, edition.id), listUsers(env), listActivity(env, edition.id),
       ]);
+      await vulBerichtenAan(env, user, items);
       const [opmerkingen, perUser] = await Promise.all([
         countComments(env, items.map((i) => i.id)),
         auteurs(env, users.filter((u) => items.some((i) => i.owner_user_id === u.id))),
@@ -964,13 +1013,7 @@ export const routes = {
       if (!x) throw new NewsletterError('Dat bericht bestaat niet (meer).', 404);
       // De labels die al in de brief staan: het nieuwe moet anders klinken.
       const vermijd = (Array.isArray(body.vermijd) ? body.vermijd : []).map((v) => kort(v, 40)).filter(Boolean).slice(0, 12);
-      const [taxonomy, eigenaar] = await Promise.all([
-        listTaxonomy(env).catch(() => ({ tags: [] })),
-        x.owner?.id ? medewerkerVoorOdooGebruiker(env, x.owner.id) : null,
-      ]);
-      const tags = (x.tagIds || []).map((id) => (taxonomy.tags || []).find((t) => t.id === id)).filter(Boolean);
-      const tag = await bedenkLabel(env, user, { ...x, tags }, { vermijd });
-      const doorNaam = eigenaar?.naam || x.owner?.name || '';
+      const { tag, door } = await berichtExtra(env, user, x, vermijd);
       const inhoud = {
         snippet_id: x.id,
         tag,
@@ -981,10 +1024,7 @@ export const routes = {
         link_url: x.url || '',
         link_label: x.cta || 'Lees verder',
         beeld: null,
-        // "Administrator" en co. zijn geen collega: dan liever niemand.
-        door: doorNaam && !/^(administrator|admin|odoobot)$/i.test(doorNaam.trim())
-          ? { name: doorNaam, job_title: eigenaar?.functie || '', avatar_url: eigenaar?.foto_url || '' }
-          : null,
+        door,
       };
       let beeld_data = null;
       if (x.hasImage) {

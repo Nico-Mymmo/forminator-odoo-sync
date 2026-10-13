@@ -70,7 +70,8 @@ function avatar(author, size = 32, { onDark = false } = {}) {
 }
 
 function byline(author, { onDark = false, prefix = '' } = {}) {
-  if (!author?.name) return '';
+  // Een technisch account is geen collega: dan liever geen naam.
+  if (!author?.name || /^(administrator|admin|odoobot)$/i.test(String(author.name).trim())) return '';
   const kleur = onDark ? S.sky100 : S.muted;
   const naamKleur = onDark ? '#ffffff' : S.headingSoft;
   const functie = author.job_title ? ` · ${esc(author.job_title)}` : '';
