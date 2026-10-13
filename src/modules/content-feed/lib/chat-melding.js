@@ -45,7 +45,7 @@ function kort(tekst, max) {
   return t.length <= max ? t : `${t.slice(0, max - 1).replace(/\s+\S*$/, '')}…`;
 }
 
-async function publiekBeeld(env, item) {
+export async function publiekBeeld(env, item) {
   if (!item.hasImage || !env?.R2_ASSETS) return null;
   try {
     const sleutelBasis = `${BEELD_MAP}${item.id}-${item.imageVersion || '0'}`;
@@ -64,7 +64,10 @@ async function publiekBeeld(env, item) {
 }
 
 /** De kaart zelf. Puur, zodat ze getest kan worden. */
-export function bouwKaart(item, { door = '', beeldUrl = null, omUrl = '' } = {}) {
+export function bouwKaart(item, {
+  door = '', beeldUrl = null, omUrl = '',
+  kop = 'Nieuw in Nieuws & updates', ondertitel = '', omLabel = 'Open in de OM', tekst = '',
+} = {}) {
   const titel = item.summaryTitle || item.title || 'Nieuw bericht';
   const label = [item.type?.name, item.source].filter(Boolean).join(' · ');
   const widgets = [];
@@ -74,14 +77,14 @@ export function bouwKaart(item, { door = '', beeldUrl = null, omUrl = '' } = {})
   if (item.curatorNote) widgets.push({ decoratedText: { topLabel: 'Waarom we dit delen', text: esc(kort(item.curatorNote, 200)), wrapText: true } });
   const knoppen = [];
   if (item.url) knoppen.push({ text: item.cta || 'Lees het artikel', onClick: { openLink: { url: item.url } } });
-  if (omUrl) knoppen.push({ text: 'Open in de OM', onClick: { openLink: { url: omUrl } } });
+  if (omUrl) knoppen.push({ text: omLabel, onClick: { openLink: { url: omUrl } } });
   if (knoppen.length) widgets.push({ buttonList: { buttons: knoppen } });
   return {
-    text: `Nieuw in Nieuws & updates: ${titel}`,
+    text: tekst || `${kop}: ${titel}`,
     cardsV2: [{
       cardId: `nieuws-${item.id}`,
       card: {
-        header: { title: 'Nieuw in Nieuws & updates', subtitle: door ? `Toegevoegd door ${door}` : 'Nieuws & updates' },
+        header: { title: kop, subtitle: ondertitel || (door ? `Toegevoegd door ${door}` : 'Nieuws & updates') },
         sections: [{ widgets }],
       },
     }],
