@@ -22,6 +22,13 @@
  * berichten. Bij de eerste ronde begint de OM bij "nu"; daarna onthoudt ze in
  * KV tot waar ze las. Elke link wordt hoogstens één keer verwerkt (KV), en
  * per ronde hoogstens drie, zodat een lange plak-sessie de cron niet opeet.
+ *
+ * WIE HET DEELDE wordt de eigenaar van het bericht (en staat zo onder het
+ * artikel in de nieuwsbrief). De Chat API geeft enkel "users/<id>"; het adres
+ * komt uit de Directory (viewType=domain_public, scope
+ * admin.directory.user.readonly -- al gedelegeerd voor de handtekeningen), de
+ * Odoo-gebruiker daarna uit src/lib/medewerkers.js. Lukt dat niet, dan blijft
+ * de eigenaar leeg: het bericht komt er wel.
  */
 
 import { getGoogleAccessToken } from '../../../lib/google-auth.js';
@@ -31,9 +38,11 @@ import { fetchArticle } from './article-fetch.js';
 import { analyseerArtikel } from './article-ai.js';
 import { createSnippet, listTaxonomy } from './content-service.js';
 import { chatKanaal } from './chat-melding.js';
+import { medewerkerVoorGebruiker } from '../../../lib/medewerkers.js';
 import { LOG_PREFIX } from '../constants.js';
 
 const SCOPE = 'https://www.googleapis.com/auth/chat.messages.readonly';
+const DIRECTORY_SCOPE = 'https://www.googleapis.com/auth/admin.directory.user.readonly';
 const SINDS = 'content-feed:chatinbox:sinds';
 const PER_RONDE = 3;
 
@@ -66,6 +75,29 @@ async function omGebruiker(env, email) {
   return data || null;
 }
 
+/** De Odoo-gebruiker (res.users-id) van wie het bericht in Chat zette, of 0. */
+async function odooGebruikerVan(env, lezer, sender, memo) {
+  const id = String(sender?.name || '').replace(/^users\//, '');
+  if (!/^\d+$/.test(id)) return 0;
+  if (memo.has(id)) return memo.get(id);
+  let uid = 0;
+  try {
+    const token = await getGoogleAccessToken(env, lezer, DIRECTORY_SCOPE);
+    const res = await fetch(`https://admin.googleapis.com/admin/directory/v1/users/${id}?viewType=domain_public`, { headers: { Authorization: `Bearer ${token}` } });
+    if (res.ok) {
+      const email = (await res.json()).primaryEmail;
+      const p = email ? await medewerkerVoorGebruiker(env, { email }) : null;
+      uid = p?.user_id || 0;
+    } else {
+      console.warn(`${LOG_PREFIX} wie in Chat deelde niet gevonden: Directory ${res.status}`);
+    }
+  } catch (error) {
+    console.warn(`${LOG_PREFIX} wie in Chat deelde niet gevonden:`, error?.message);
+  }
+  memo.set(id, uid);
+  return uid;
+}
+
 async function antwoord(env, draad, tekst) {
   try {
     await sendSystemChannelPayload(env, chatKanaal(env), { text: tekst }, { bron: 'Nieuws & updates', threadName: draad });
@@ -74,7 +106,7 @@ async function antwoord(env, draad, tekst) {
   }
 }
 
-async function verwerkLink(env, { url, draad, gebruiker }) {
+async function verwerkLink(env, { url, draad, gebruiker, eigenaar }) {
   let artikel;
   try {
     artikel = await fetchArticle(url);
@@ -99,6 +131,7 @@ async function verwerkLink(env, { url, draad, gebruiker }) {
     tagIds: voorstel.tagIds || [],
     typeId: type ? type.id : 0,
     status: 'concept',
+    ...(eigenaar ? { ownerId: eigenaar } : {}),
     imageSourceUrl: voorstel.imageSourceUrl || undefined,
   });
   const om = String(env?.APP_BASE_URL || '').replace(/\/+$/, '');
@@ -123,6 +156,7 @@ export async function runChatInbox(env) {
   const berichten = (await res.json()).messages || [];
 
   const gebruiker = await omGebruiker(env, lezer);
+  const wie = new Map();
   let gedaan = 0;
   let laatst = sinds;
   for (const b of berichten) {
@@ -137,7 +171,8 @@ export async function runChatInbox(env) {
       gedaan += 1;
       try {
         if (!gebruiker) throw new Error(`${lezer} heeft geen account in de OM`);
-        await verwerkLink(env, { url, draad: b.thread?.name, gebruiker });
+        const eigenaar = await odooGebruikerVan(env, lezer, b.sender, wie);
+        await verwerkLink(env, { url, draad: b.thread?.name, gebruiker, eigenaar });
       } catch (error) {
         console.error(`${LOG_PREFIX} link uit Chat niet verwerkt (${url}):`, error?.message);
         await antwoord(env, b.thread?.name, `⚠️ Er liep iets mis, dus dit artikel staat NIET in Nieuws & updates: ${error?.message || 'onbekende fout'}`);

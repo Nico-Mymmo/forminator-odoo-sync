@@ -171,6 +171,81 @@
       + '</select><span class="label-text-alt opacity-60 mt-1">Titel, tekst, beeld en link worden ingevuld uit het bericht.</span></label>';
   }
 
+  /**
+   * De labels van de ANDERE berichten in deze editie: een nieuw label moet
+   * daar niet op lijken (drie keer "Interessant gelezen" onder elkaar).
+   */
+  function labelsInEditie() {
+    var ed = NB.state.editie;
+    var mijn = NB.state.stukje && NB.state.stukje.item.id;
+    return ((ed && ed.items) || []).filter(function (i) { return i.kind === 'snippet' && i.id !== mijn; })
+      .map(function (i) { return (i.content && i.content.tag) || i.title; }).filter(Boolean);
+  }
+
+  /** Het label boven het bericht: voorgesteld door Nieuws & updates, aan te passen. */
+  function labelVeld() {
+    var mag = NB.state.stukje.can_edit;
+    return '<label class="form-control w-full"><span class="label-text mb-1">Label boven het bericht</span>'
+      + '<div class="flex gap-2"><input type="text" maxlength="40" class="input input-bordered w-full" data-veld="content.tag" value="' + e(lees('content.tag') || '') + '" placeholder="' + e(NB.state.stukje.item.title || 'bv. Goed om te weten') + '"' + (mag ? '' : ' disabled') + '>'
+      + (mag ? '<button type="button" class="btn btn-ghost gap-1" data-action="bericht-label" title="Laat Nieuws &amp; updates een ander label voorstellen"><i data-lucide="sparkles" class="w-4 h-4"></i> Ander</button>' : '')
+      + '</div><span class="label-text-alt opacity-60 mt-1">Voorgesteld door Nieuws &amp; updates, anders dan de andere berichten in deze brief.</span></label>';
+  }
+
+  /** Hoe het bericht in de brief staat (BERICHT_VORMEN, via /api/bootstrap). */
+  function vormKeuze() {
+    var vormen = (NB.state.boot && NB.state.boot.bericht_vormen) || [];
+    if (!vormen.length) return '';
+    var nu = lees('content.vorm') || 'klassiek';
+    var heeftCitaat = String(lees('content.quote') || '').trim();
+    var mag = NB.state.stukje.can_edit;
+    return '<div><span class="label-text">Vorm in de brief</span><div class="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-1">'
+      + vormen.map(function (v) {
+        var kan = v.key !== 'citaat' || heeftCitaat;
+        var aan = v.key === nu;
+        return '<button type="button" class="btn btn-sm h-auto min-h-0 py-2 flex-col items-start text-left gap-0 normal-case font-normal ' + (aan ? 'btn-primary' : 'btn-outline border-base-content/20') + '"'
+          + ' data-action="bericht-vorm" data-vorm="' + e(v.key) + '"' + (mag && kan ? '' : ' disabled')
+          + ' title="' + e(kan ? v.uitleg : 'Dit bericht heeft geen citaat uit het artikel.') + '">'
+          + '<span class="font-semibold">' + e(v.label) + '</span><span class="text-[11px] leading-tight opacity-70">' + e(v.uitleg) + '</span></button>';
+      }).join('')
+      + '</div><p class="text-xs opacity-60 mt-1">Wissel af: twee artikels na elkaar lezen beter in een andere vorm.</p></div>';
+  }
+
+  /** Wie het deelde: komt uit Nieuws & updates (de eigenaar van het bericht). */
+  function doorRegel() {
+    var door = lees('content.door');
+    return '<p class="text-sm opacity-70 flex items-center gap-2"><i data-lucide="user" class="w-4 h-4"></i>'
+      + (door && door.name ? 'In de brief: <strong>Gedeeld door ' + e(door.name) + '</strong>' : 'Geen eigenaar in Nieuws &amp; updates: er komt geen naam onder.')
+      + '</p>';
+  }
+
+  function volgendeVorm() {
+    var ed = NB.state.editie;
+    var mijn = NB.state.stukje && NB.state.stukje.item.id;
+    var gebruikt = ((ed && ed.items) || []).filter(function (i) { return i.kind === 'snippet' && i.id !== mijn && i.content && i.content.snippet_id; })
+      .map(function (i) { return i.content.vorm || 'klassiek'; });
+    var rij = ['klassiek', 'kaart', 'compact', 'uitgelicht'];
+    return rij.find(function (v) { return gebruikt.indexOf(v) < 0; }) || rij[gebruikt.length % rij.length];
+  }
+
+  NB.actions['bericht-vorm'] = function (el) {
+    zet('content.vorm', el.dataset.vorm);
+    gewijzigd();
+    render();
+  };
+
+  NB.actions['bericht-label'] = async function (el) {
+    var id = lees('content.snippet_id');
+    if (!id) return;
+    el.disabled = true;
+    try {
+      var huidig = lees('content.tag');
+      var r = await NB.api('/api/snippets/' + id + '/label', { method: 'POST', body: { vermijd: labelsInEditie().concat(huidig ? [huidig] : []) } });
+      zet('content.tag', r.tag);
+      gewijzigd();
+      render();
+    } catch (err) { NB.fout(err); el.disabled = false; }
+  };
+
   /** Een beeld in het formulier: een miniatuur en EEN knop naar het beeldvenster. */
   function beeldRij(o) {
     var b = NB.beeldVan(c().content, o.fotoVeld, o.vast || 'tekst');
@@ -245,6 +320,7 @@
           + '<div class="grid sm:grid-cols-2 gap-3">' + veld('Link (optioneel)', 'content.link_url', { hint: 'https://' }) + veld('Tekst van de link', 'content.link_label', { hint: 'Lees verder' }) + '</div>';
       case 'snippet':
         return berichtKeuze()
+          + (lees('content.snippet_id') ? labelVeld() + vormKeuze() + doorRegel() : '')
           + veld('Titel', 'content.title')
           + veld('Tekst', 'content.text', { rijen: 8, uitleg: 'Overgenomen uit Nieuws & updates; je kan het hier inkorten of aanpassen. Het bericht zelf verandert niet.' })
           + beeldRij({ plaatsen: true, fotoVeld: 'image_url', label: 'Beeld' })
@@ -523,7 +599,7 @@
     }
     el.disabled = true;
     try {
-      var r = await NB.api('/api/snippets/' + id + '/overnemen', { method: 'POST' });
+      var r = await NB.api('/api/snippets/' + id + '/overnemen', { method: 'POST', body: { vermijd: labelsInEditie() } });
       var inhoud = r.inhoud;
       // Een WebP-beeld: hier omzetten naar JPEG en opladen (mail kent geen WebP).
       if (!inhoud.beeld && r.beeld_data) {
@@ -534,7 +610,9 @@
           inhoud.beeld = { url: up.url, plaats: 'tekst', na_alinea: 0, vulling: 'heel' };
         } catch (err) { NB.toast('Het beeld van het bericht kon niet omgezet worden; kies er zelf een.', 'warning'); }
       }
-      ['snippet_id', 'title', 'text', 'link_url', 'link_label', 'beeld'].forEach(function (k) { zet('content.' + k, inhoud[k]); });
+      ['snippet_id', 'tag', 'title', 'text', 'quote', 'source', 'link_url', 'link_label', 'beeld', 'door'].forEach(function (k) { zet('content.' + k, inhoud[k]); });
+      // Een nieuwe brief krijgt afwisseling: de vorm na die van het vorige bericht.
+      if (!lees('content.vorm')) zet('content.vorm', volgendeVorm());
       zet('content.image_url', '');
       gewijzigd();
       render();

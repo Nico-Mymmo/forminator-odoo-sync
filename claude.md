@@ -3786,6 +3786,25 @@ bleken drie dingen niet te kloppen. Alle drie zijn gefixt in `lib/sync.js`,
   eerder bericht in die draad op. Zonder die aanpassing zou een antwoord op een mail die
   destijds naar twee leads ging, alsnog maar bij één van de twee terechtkomen.
 
+## Nieuwsbrief: berichten uit Nieuws & updates (2026-10-13)
+
+- **Label**: het pilletje boven een bericht is `content.tag`, voorgesteld door
+  `bedenkLabel()` in `content-feed/lib/article-ai.js` (Haiku, faalt zacht naar
+  etiket/type). Het scherm stuurt de labels van de andere berichten in de
+  editie mee (`vermijd`), zodat ze niet herhalen. Aanpasbaar in het formulier;
+  knop "Ander" = `POST /api/snippets/:id/label`. Zonder tag valt het terug op
+  de naam van het blok (oude blokken).
+- **Vorm**: `content.vorm` uit `BERICHT_VORMEN` (constants.js, via bootstrap):
+  klassiek, kaart, uitgelicht, compact, citaat (enkel met een citaat uit het
+  artikel). Een nieuw bericht krijgt een vorm die nog niet in de editie staat.
+  Renderer: `blokSnippet()` in render.js.
+- **Gedeeld door**: onder een bericht staat de EIGENAAR uit Nieuws & updates
+  (`content.door`, uit Odoo via medewerkers.js bij het overnemen), niet wie
+  het blok in de brief zette. "Administrator" telt niet als collega. Een nieuw
+  bericht in Nieuws & updates krijgt als eigenaar wie het aanmaakt (tenzij
+  gekozen); een link uit Google Chat krijgt wie ze plaatste (Directory,
+  viewType=domain_public).
+
 ## Nieuws & updates <-> Google Chat (2026-10-13)
 
 - **Gepubliceerd = een kaart in het kanaal** (`lib/chat-melding.js`): de eerste

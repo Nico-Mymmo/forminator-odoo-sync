@@ -151,6 +151,20 @@ export const STYLE = {
  *   video / link               vaste plek in dat soort blok
  *   vol                        een blok "Afbeelding": de hele breedte, rand tot rand
  */
+/**
+ * Hoe een bericht uit Nieuws & updates in de brief staat. Meerdere vormen,
+ * zodat drie artikels na elkaar niet drie keer hetzelfde blok zijn. EEN bron:
+ * de renderer kiest ermee, het scherm toont ze (via /api/bootstrap) en de
+ * server aanvaardt enkel deze sleutels.
+ */
+export const BERICHT_VORMEN = [
+  { key: 'klassiek', label: 'Klassiek', uitleg: 'Label, titel, tekst en het beeld waar je het zet.' },
+  { key: 'kaart', label: 'Kaart', uitleg: 'Een kader met het beeld bovenaan en de bron.' },
+  { key: 'uitgelicht', label: 'Uitgelicht', uitleg: 'Een gekleurd vlak met een grote titel en een knop.' },
+  { key: 'compact', label: 'Compact', uitleg: 'Een klein beeld naast een korte tekst.' },
+  { key: 'citaat', label: 'Citaat', uitleg: 'Een zin uit het artikel in het groot, dan de link.' },
+];
+
 export const BEELD_KADERS = {
   rechts: { breedte: 180, verhouding: 1 },
   links: { breedte: 180, verhouding: 1 },
@@ -159,6 +173,7 @@ export const BEELD_KADERS = {
   tekst: { breedte: 560, verhouding: 16 / 9 },
   video: { breedte: 560, verhouding: 16 / 9 },
   link: { breedte: 558, verhouding: 1.91 },
+  compact: { breedte: 150, verhouding: 1 },
   vol: { breedte: 640, verhouding: 16 / 9 },
 };
 
