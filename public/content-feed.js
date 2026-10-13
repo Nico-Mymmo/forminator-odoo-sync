@@ -60,7 +60,7 @@
     el.className = 'alert ' + (soort === 'error' ? 'alert-error' : 'alert-success');
     el.innerHTML = '<span>' + esc(bericht) + '</span>';
     host.appendChild(el);
-    setTimeout(function () { el.remove(); }, 4000);
+    setTimeout(function () { el.remove(); }, soort === 'error' ? 15000 : 5000);
   }
 
   function icons() {
@@ -275,8 +275,17 @@
         toast('Geen nieuwe links in Media insights: ' + wat);
         opnieuw = !terugMinuten;
       } else {
-        toast(r.gedaan === 1 ? '1 link opgehaald: staat bij Concept.' : r.gedaan + ' links opgehaald: staan bij Concept.');
-        await laadItems();
+        var res = r.resultaten || [];
+        var goed = res.filter(function (x) { return x.ok; });
+        var fout = res.filter(function (x) { return !x.ok; });
+        if (goed.length) toast(goed.length === 1 ? '1 link opgehaald: "' + goed[0].titel + '" staat bij Concept.' : goed.length + ' links opgehaald: ze staan bij Concept.');
+        fout.forEach(function (x) { toast('Niet gelukt voor ' + x.url + ': ' + x.fout, 'error'); });
+        opnieuw = !goed.length && !terugMinuten;
+        if (goed.length) {
+          var conceptTab = document.querySelector('[data-feed-tab="concept"]');
+          if (conceptTab) conceptTab.click();
+          await laadItems();
+        }
       }
     } catch (e) {
       toast(e.message, 'error');
@@ -286,7 +295,7 @@
       icons();
     }
     // Stond de link er van vóór het startmoment? Dan het laatste uur opnieuw.
-    if (opnieuw && window.confirm('Geen nieuwe link gevonden. Het laatste uur van Media insights opnieuw bekijken? (Wat er al in staat, komt er niet dubbel in.)')) {
+    if (opnieuw && window.confirm('Het laatste uur van Media insights opnieuw bekijken? Links die mislukten, worden opnieuw geprobeerd; wat er al in staat, komt er niet dubbel in.')) {
       chatOphalen(knop, 60);
     }
   }
