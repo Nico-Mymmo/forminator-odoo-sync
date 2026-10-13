@@ -63,6 +63,44 @@ export function linksIn(bericht) {
   return uit;
 }
 
+/** Bekende bronnen: de naam zoals een lezer ze kent. Anders de domeinnaam. */
+const BRONNEN = {
+  'hln.be': 'HLN', 'nieuwsblad.be': 'Het Nieuwsblad', 'standaard.be': 'De Standaard', 'demorgen.be': 'De Morgen',
+  'tijd.be': 'De Tijd', 'gva.be': 'Gazet van Antwerpen', 'hbvl.be': 'Het Belang van Limburg', 'vrt.be': 'VRT NWS',
+  'knack.be': 'Knack', 'trends.be': 'Trends', 'bruzz.be': 'BRUZZ', 'nieuws.vtm.be': 'VTM Nieuws',
+};
+
+/**
+ * Een RUW concept als de site ons het artikel niet laat lezen (betaalmuur,
+ * cookiemuur, botblokkering -- HLN en de andere DPG-titels geven een 403).
+ * Enkel wat we zeker weten: de link, de bron, een titel uit de URL en wat de
+ * deler er zelf bij schreef. Geen samenvatting: die verzinnen we niet.
+ * Puur, zodat het te testen is.
+ */
+export function ruwConcept(url, opmerking = '') {
+  let host = '';
+  let stuk = '';
+  try {
+    const u = new URL(url);
+    host = u.hostname.replace(/^www\./, '').toLowerCase();
+    stuk = decodeURIComponent(u.pathname.split('/').filter(Boolean).pop() || '');
+  } catch { /* geen geldige URL: dan blijft alles leeg */ }
+  const bron = BRONNEN[host] || Object.entries(BRONNEN).find(([d]) => host.endsWith(`.${d}`))?.[1] || host;
+  const woorden = stuk.replace(/~.*$/, '').replace(/\.(html?|php|aspx?)$/i, '').replace(/[-_]+/g, ' ').replace(/\s+/g, ' ').trim();
+  const titel = woorden && /[a-z]{3}/i.test(woorden) && !/^\d+$/.test(woorden)
+    ? woorden.charAt(0).toUpperCase() + woorden.slice(1)
+    : `Artikel van ${bron || 'het web'}`;
+  return {
+    title: titel.slice(0, 200),
+    summaryTitle: titel.slice(0, 120),
+    summary: '',
+    curatorNote: String(opmerking || '').replace(/https?:\/\/\S+/g, '').replace(/\s+/g, ' ').trim().slice(0, 200),
+    url,
+    source: bron,
+    cta: 'Lees het artikel',
+  };
+}
+
 async function hash(tekst) {
   const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(tekst));
   return [...new Uint8Array(d)].slice(0, 12).map((b) => b.toString(16).padStart(2, '0')).join('');
@@ -110,14 +148,18 @@ async function antwoordMet(env, draad, bericht) {
   }
 }
 
-async function verwerkLink(env, { url, draad, gebruiker, eigenaar }) {
+async function verwerkLink(env, { url, draad, gebruiker, eigenaar, opmerking }) {
   let artikel;
   try {
     artikel = await fetchArticle(url);
   } catch (error) {
-    const fout = `Ik kon dit artikel niet lezen: ${error?.message || 'onbekende fout'}`;
-    await antwoord(env, draad, `⚠️ ${fout} Het staat dus NIET in Nieuws & updates.`);
-    return { ok: false, fout };
+    // Een ongeldige link of geen webpagina: daar valt niets van te maken.
+    if (['INVALID_URL', 'NOT_HTML', 'BLOCKED_HOST'].includes(error?.code)) {
+      const fout = `Ik kon dit artikel niet lezen: ${error?.message || 'onbekende fout'}`;
+      await antwoord(env, draad, `⚠️ ${fout} Het staat dus NIET in Nieuws & updates.`);
+      return { ok: false, fout };
+    }
+    return ruwInNieuws(env, { url, draad, eigenaar, opmerking, reden: error?.message || 'onbekende fout' });
   }
   const taxonomy = await listTaxonomy(env);
   const voorstel = await analyseerArtikel(env, gebruiker, artikel, taxonomy.tags || []);
@@ -155,6 +197,34 @@ async function verwerkLink(env, { url, draad, gebruiker, eigenaar }) {
   });
   await antwoordMet(env, draad, kaart);
   return { ok: true, titel, id: item.id };
+}
+
+/** De site laat ons niet binnen: een ruw concept, en dat eerlijk zeggen. */
+async function ruwInNieuws(env, { url, draad, eigenaar, opmerking, reden }) {
+  const taxonomy = await listTaxonomy(env).catch(() => ({ types: [] }));
+  const type = (taxonomy.types || []).find((t) => t.name === 'Artikel');
+  const ruw = ruwConcept(url, opmerking);
+  const item = await createSnippet(env, {
+    ...ruw,
+    typeId: type ? type.id : 0,
+    status: 'concept',
+    ...(eigenaar ? { ownerId: eigenaar } : {}),
+  });
+  const om = String(env?.APP_BASE_URL || '').replace(/\/+$/, '');
+  const titel = item?.summaryTitle || ruw.summaryTitle;
+  const tekst = `📝 Ruw concept staat klaar: *${titel}*\n${ruw.source} liet ons het artikel niet lezen (${reden}). Vul de samenvatting zelf aan en publiceer het: ${om}/content-feed`;
+  if (item) {
+    await antwoordMet(env, draad, bouwKaart(item, {
+      omUrl: om ? `${om}/content-feed` : '',
+      kop: '📝 Ruw concept staat klaar',
+      ondertitel: `${ruw.source} liet ons het artikel niet lezen · vul de samenvatting zelf aan`,
+      omLabel: 'Aanvullen en publiceren',
+      tekst,
+    }));
+  } else {
+    await antwoord(env, draad, tekst);
+  }
+  return { ok: true, ruw: true, titel, id: item?.id };
 }
 
 /**
@@ -214,7 +284,7 @@ export async function runChatInbox(env, { terugMinuten = 0 } = {}) {
       try {
         if (!gebruiker) throw new Error(`${lezer} heeft geen account in de OM`);
         const eigenaar = await odooGebruikerVan(env, lezer, b.sender, wie);
-        r = await verwerkLink(env, { url, draad: b.thread?.name, gebruiker, eigenaar });
+        r = await verwerkLink(env, { url, draad: b.thread?.name, gebruiker, eigenaar, opmerking: b.text || '' });
       } catch (error) {
         const reden = [error?.code, error?.message].filter(Boolean).join(': ') || 'onbekende fout';
         console.error(`${LOG_PREFIX} link uit Chat niet verwerkt (${url}):`, reden);
