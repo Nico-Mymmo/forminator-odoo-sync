@@ -20,6 +20,7 @@ import { runWebStoryCron } from './modules/web-story/lib/push.js';
 import { runSalesCron } from './modules/dashboards/lib/sales/routes.js';
 import { purgeOldBotRejections } from './modules/forminator-sync-v2/forms/bot-rejections.js';
 import { runNewsletterCron } from './modules/newsletters/lib/cron.js';
+import { runChatInbox } from './modules/content-feed/lib/chat-inbox.js';
 import { runAuthCleanup } from './lib/auth/cleanup.js';
 
 // Durable Object-klassen moeten vanuit de entry geexporteerd worden (wrangler.jsonc -> durable_objects).
@@ -152,6 +153,13 @@ export default {
     }
 
     if (runFiveMinJobs) {
+      // Links in het Chat-kanaal "Media insights" -> een concept in Nieuws &
+      // updates. Doet NIETS zolang NEWS_CHAT_SPACE of NEWS_CHAT_READER leeg is.
+      ctx.waitUntil(
+        runChatInbox(env).catch(err =>
+          console.error('[scheduled][content-feed][chat-inbox] CRASH:', err?.message, err?.stack)
+        )
+      );
       ctx.waitUntil(
         runDueConditionTasks(env).catch(err =>
           console.error('[scheduled][mini_apps][condition-tasks] CRASH:', err?.message, err?.stack)

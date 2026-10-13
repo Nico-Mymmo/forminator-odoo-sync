@@ -9,6 +9,8 @@ import { LOG_PREFIX, CACHE_TTL, STATUSES, TIMELINE_COLORS } from './constants.js
 import { serveSnippetImage } from './lib/image.js';
 import { fetchArticle, ArticleFetchError } from './lib/article-fetch.js';
 import { analyseerArtikel } from './lib/article-ai.js';
+import { meldGepubliceerd } from './lib/chat-melding.js';
+import { naamVoor } from '../../lib/medewerkers.js';
 import { serializeAiError, httpStatusForAiError } from '../mini-apps/lib/ai-errors.js';
 import {
   listSnippets,
@@ -47,6 +49,17 @@ async function leesBody(request) {
  * belandt anders als onbekende waarde in Odoo en die leest dan overal terug
  * als de standaardwaarde, zonder dat iemand ziet dat er iets fout ging.
  */
+/**
+ * Een bericht dat (voor het eerst) gepubliceerd is: een kaart in het
+ * Chat-kanaal (lib/chat-melding.js). Na het antwoord, zodat wie bewaart niet
+ * op Google Chat wacht.
+ */
+function meldInChat(env, ctx, item, user) {
+  if (!item || item.status !== 'published') return;
+  const werk = meldGepubliceerd(env, item, { door: user ? naamVoor(null, user) : '' });
+  if (ctx && typeof ctx.waitUntil === 'function') ctx.waitUntil(werk); else werk.catch(() => {});
+}
+
 function valideer(payload, { isNieuw }) {
   if (!payload || typeof payload !== 'object') return 'Geen geldige gegevens ontvangen';
 
@@ -149,12 +162,13 @@ export const routes = {
     }
   },
 
-  'POST /api/items': async ({ env, request }) => {
+  'POST /api/items': async ({ env, ctx, request, user }) => {
     const payload = await leesBody(request);
     const melding = valideer(payload, { isNieuw: true });
     if (melding) return fout(melding, 422);
     try {
       const item = await createSnippet(env, payload);
+      meldInChat(env, ctx, item, user);
       return json({ success: true, item }, 201);
     } catch (error) {
       console.error(`${LOG_PREFIX} aanmaken mislukt:`, error?.message);
@@ -162,13 +176,14 @@ export const routes = {
     }
   },
 
-  'PUT /api/items/:id': async ({ env, request, params }) => {
+  'PUT /api/items/:id': async ({ env, ctx, request, params, user }) => {
     const payload = await leesBody(request);
     const melding = valideer(payload, { isNieuw: false });
     if (melding) return fout(melding, 422);
     try {
       const item = await updateSnippet(env, params.id, payload);
       if (!item) return fout('Niet gevonden', 404);
+      meldInChat(env, ctx, item, user);
       return json({ success: true, item });
     } catch (error) {
       console.error(`${LOG_PREFIX} bijwerken mislukt:`, error?.message);
