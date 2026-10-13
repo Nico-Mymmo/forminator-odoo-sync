@@ -170,7 +170,7 @@
 		// waarnamens de OM het leest (lid van het kanaal; scope
 		// chat.messages.readonly bij de domeinbrede delegatie). Leeg = uit.
 		"NEWS_CHAT_SPACE": "spaces/AAAA9V4bj9g",
-		"NEWS_CHAT_READER": "",
+		"NEWS_CHAT_READER": "nico@mymmo.com",
 		"NEWSLETTER_TEST_EMAILS": "nico@mymmo.com",
 		// Event Operations v2 -- communicatie-studio. Bepaalt voor WELKE
 		// event-types de OM de mails (bevestiging/reminder/recap) overneemt van
