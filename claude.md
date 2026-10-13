@@ -3820,7 +3820,11 @@ bleken drie dingen niet te kloppen. Alle drie zijn gefixt in `lib/sync.js`,
   artikel op, laat de AI het voorstel maken (dezelfde weg als "Artikel
   analyseren"), bewaart het als CONCEPT en antwoordt in dezelfde draad met de
   herwerkte versie als kaart ("Nieuwsbericht staat klaar", knop "Nakijken en
-  publiceren"), of met een ⚠️ en de reden. Nooit automatisch publiceren: een mens kijkt
+  publiceren"), of met een ⚠️ en de reden.
+  Laat de site ons niet binnen (HLN en andere DPG-titels: 403), dan komt er
+  een RUW concept (`ruwConcept()`: titel uit de URL, bron, wat de deler erbij
+  schreef als "waarom we dit delen", GEEN verzonnen samenvatting) en zegt de
+  kaart "Ruw concept staat klaar -- vul de samenvatting zelf aan". Nooit automatisch publiceren: een mens kijkt
   na. Bots (ook onze kaarten) en oude berichten worden overgeslagen; hoogstens
   drie links per ronde; elke link één keer (KV).
 - **Het kanaal staat in het kanaalregister** (Mini-apps -> Chat-kanalen) op

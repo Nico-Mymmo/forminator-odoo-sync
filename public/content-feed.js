@@ -279,6 +279,9 @@
         var goed = res.filter(function (x) { return x.ok; });
         var fout = res.filter(function (x) { return !x.ok; });
         if (goed.length) toast(goed.length === 1 ? '1 link opgehaald: "' + goed[0].titel + '" staat bij Concept.' : goed.length + ' links opgehaald: ze staan bij Concept.');
+        goed.filter(function (x) { return x.ruw; }).forEach(function (x) {
+          toast('"' + x.titel + '": de site liet ons het artikel niet lezen. Het staat als ruw concept klaar; vul de samenvatting zelf aan.', 'error');
+        });
         fout.forEach(function (x) { toast('Niet gelukt voor ' + x.url + ': ' + x.fout, 'error'); });
         opnieuw = !goed.length && !terugMinuten;
         if (goed.length) {
