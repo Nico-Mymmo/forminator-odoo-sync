@@ -582,6 +582,16 @@
         }
         return;
       }
+      if (action === 'toggle-favoriet') {
+        await window.FSV2.toggleFavoriet(btn.dataset.id, !btn.dataset.aan);
+        return;
+      }
+      if (action === 'lijst-tab') {
+        S.lijstTab = btn.dataset.tab || 'alle';
+        window.FSV2.bewaarVoorkeur('fsv2Tab', S.lijstTab);
+        window.FSV2.renderList();
+        return;
+      }
       if (action === 'move-to-folder') {
         var mtfId = btn.dataset.id;
         var mtfFolderId = btn.dataset.folderId || null;
@@ -2060,6 +2070,7 @@
     }
     if (inp && inp.id === 'listSortSelect') {
       S.filters.sort = inp.value;
+      window.FSV2.bewaarVoorkeur('fsv2Sort', inp.value);
       window.FSV2.renderList();
       return;
     }

@@ -16,6 +16,29 @@
   // ═══════════════════════════════════════════════════════════════════════════
   // STATE
   // ═══════════════════════════════════════════════════════════════════════════
+  /** Een voorkeur uit localStorage; zonder opslag de standaard. */
+  function leesVoorkeur(sleutel, standaard) {
+    try { return localStorage.getItem(sleutel) || standaard; } catch (e) { return standaard; }
+  }
+
+  function bewaarVoorkeur(sleutel, waarde) {
+    try { localStorage.setItem(sleutel, waarde); } catch (e) { /* geen opslag */ }
+  }
+
+  /** Favoriet aan/uit voor deze gebruiker, meteen zichtbaar. */
+  async function toggleFavoriet(id, aan) {
+    var row = (S.integrations || []).find(function (r) { return String(r.id) === String(id); });
+    if (row) row.is_favoriet = aan;
+    renderList();
+    try {
+      await api('/integrations/' + id + '/favoriet', { method: 'POST', body: JSON.stringify({ aan: aan }) });
+    } catch (err) {
+      if (row) row.is_favoriet = !aan;
+      renderList();
+      if (window.FSV2.showAlert) window.FSV2.showAlert(err.message, 'error');
+    }
+  }
+
   var S = {
     view: 'list',
     sites: [],
@@ -55,8 +78,14 @@
       status: 'all',           // all | active | inactive
       tagIds: [],               // OR-filter op tag-id's
       source: 'all',            // 'all' | 'generic_webhook' | 'tracker' | 'site:<site_key>' (koppelingtype)
-      sort: 'created_desc',    // created_desc | created_asc | name_asc | updated_desc | last_used_desc
+      // Standaard: meest gebruikt (inzendingen in de laatste 30 dagen). De
+      // keuze wordt per browser onthouden (localStorage 'fsv2Sort').
+      sort: leesVoorkeur('fsv2Sort', 'most_used'), // most_used | created_desc | created_asc | name_asc | updated_desc | last_used_desc
     },
+    // Welke tab van de lijst: 'alle' (zonder de nieuwsbriefantwoorden),
+    // 'favorieten' (van deze gebruiker) of 'nieuwsbrief' (antwoorden op een
+    // vraag in een nieuwsbrief, één koppeling per nieuwsbrief).
+    lijstTab: leesVoorkeur('fsv2Tab', 'alle'),
   };
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -500,6 +529,19 @@
     var el = document.getElementById('listToolbar');
     if (!el) return;
 
+    // Tabs: de eigen koppelingen, de favorieten van deze gebruiker, en de
+    // antwoorden op nieuwsbriefvragen (die zouden de lijst anders overspoelen).
+    var alle = S.integrations || [];
+    var tel = {
+      alle: alle.filter(function (r) { return r.bron_module !== 'nieuwsbrief'; }).length,
+      favorieten: alle.filter(function (r) { return r.is_favoriet; }).length,
+      nieuwsbrief: alle.filter(function (r) { return r.bron_module === 'nieuwsbrief'; }).length,
+    };
+    var tab = function (naam, label, icoon) {
+      return `<button role="tab" type="button" class="tab gap-1.5${S.lijstTab === naam ? ' tab-active' : ''}" data-action="lijst-tab" data-tab="${naam}"><i data-lucide="${icoon}" class="w-3.5 h-3.5"></i>${label}<span class="opacity-60">${tel[naam]}</span></button>`;
+    };
+    var tabsHtml = `<div role="tablist" class="tabs tabs-boxed w-fit">${tab('alle', 'Koppelingen', 'workflow')}${tab('favorieten', 'Favorieten', 'star')}${tel.nieuwsbrief ? tab('nieuwsbrief', 'Nieuwsbrief-antwoorden', 'mail-question') : ''}</div>`;
+
     var f = S.filters;
     var tags = S.tags || [];
     var hasActiveFilters = !!(f.search || f.status !== 'all' || f.tagIds.length || f.source !== 'all');
@@ -527,6 +569,7 @@
     }).join('');
 
     el.innerHTML = `
+      <div class="w-full">${tabsHtml}</div>
       <input id="listSearchInput" type="text" class="input input-bordered input-sm w-48" placeholder="Zoeken op naam..." value="${esc(f.search)}">
       <select id="listStatusFilter" class="select select-bordered select-sm">
         <option value="all"${f.status === 'all' ? ' selected' : ''}>Alle statussen</option>
@@ -546,6 +589,7 @@
         </ul>
       </div>
       <select id="listSortSelect" class="select select-bordered select-sm">
+        <option value="most_used"${f.sort === 'most_used' ? ' selected' : ''}>Meest gebruikt</option>
         <option value="created_desc"${f.sort === 'created_desc' ? ' selected' : ''}>Nieuwste eerst</option>
         <option value="created_asc"${f.sort === 'created_asc' ? ' selected' : ''}>Oudste eerst</option>
         <option value="name_asc"${f.sort === 'name_asc' ? ' selected' : ''}>Naam (A-Z)</option>
@@ -564,6 +608,11 @@
   function getVisibleIntegrations() {
     var f = S.filters;
     var list = (S.integrations || []).slice();
+
+    // Tab
+    if (S.lijstTab === 'favorieten') list = list.filter(function (r) { return r.is_favoriet; });
+    else if (S.lijstTab === 'nieuwsbrief') list = list.filter(function (r) { return r.bron_module === 'nieuwsbrief'; });
+    else list = list.filter(function (r) { return r.bron_module !== 'nieuwsbrief'; });
 
     // Map-scope
     if (S.activeFolderId === '__none__') {
@@ -598,8 +647,15 @@
       name_asc:       function (a, b) { return String(a.name || '').localeCompare(String(b.name || '')); },
       updated_desc:   function (a, b) { return new Date(b.updated_at || 0) - new Date(a.updated_at || 0); },
       last_used_desc: function (a, b) { return new Date(b.last_submission_at || 0) - new Date(a.last_submission_at || 0); },
+      // Meest gebruikt: inzendingen (of scans) in de laatste 30 dagen, dan de
+      // laatst gebruikte, dan de naam.
+      most_used: function (a, b) {
+        return ((b.stats_30d && b.stats_30d.total) || 0) - ((a.stats_30d && a.stats_30d.total) || 0)
+          || new Date(b.last_submission_at || 0) - new Date(a.last_submission_at || 0)
+          || String(a.name || '').localeCompare(String(b.name || ''));
+      },
     };
-    list.sort(sorters[f.sort] || sorters.created_desc);
+    list.sort(sorters[f.sort] || sorters.most_used);
 
     return list;
   }
@@ -864,7 +920,8 @@
       var _dotHtml = isActive
         ? '<span class="w-2 h-2 rounded-full bg-success shrink-0" title="Actief"></span>'
         : '<span class="w-2 h-2 rounded-full bg-base-300 shrink-0" title="Inactief"></span>';
-      var _headerHtml = `<div class="mb-2.5"><div class="flex items-start justify-between gap-2 mb-1.5"><div class="flex items-center gap-1.5 min-w-0">${_dotHtml}<h3 class="font-bold text-sm leading-snug text-base-content truncate" title="${esc(row.name || 'Koppeling')}">${esc(row.name || 'Koppeling')}</h3></div><div class="flex flex-wrap items-center justify-end gap-1 shrink-0">${_tagsHtml}</div></div>${_stepsHtml}${flowHtml ? '<div class="mb-1.5">' + flowHtml + '</div>' : ''}<div class="flex items-center gap-1.5">${row.source_type === 'tracker' ? '<i data-lucide="qr-code" class="w-3 h-3 text-info shrink-0"></i><p class="text-xs text-info font-mono truncate flex-1">' + esc((TRACKER_DOMAIN_BASE[row.tracker_domain] || TRACKER_DOMAIN_BASE.link) + '/t/' + (row.tracker_slug || '')) + '</p><button type="button" class="btn btn-ghost btn-xs px-1 shrink-0" data-action="copy-tracker-short-url" data-url="' + esc((TRACKER_DOMAIN_BASE[row.tracker_domain] || TRACKER_DOMAIN_BASE.link) + '/t/' + (row.tracker_slug || '')) + '" title="Link kopi\u00ebren"><i data-lucide="copy" class="w-3 h-3"></i></button>' : row.source_type === 'generic_webhook' ? '<i data-lucide="zap" class="w-3 h-3 text-warning shrink-0"></i><p class="text-xs text-warning font-semibold">Zapier / Generic webhook</p>' : row.source_type === 'calendly' ? '<i data-lucide="calendar-clock" class="w-3 h-3 text-secondary shrink-0"></i><p class="text-xs text-secondary font-semibold truncate">Calendly' + (row.calendly_event_type_name ? ' \u00b7 ' + esc(row.calendly_event_type_name) : ' \u00b7 vangnet') + '</p>' : '<i data-lucide="file-text" class="w-3 h-3 text-base-content/35 shrink-0"></i><p class="text-xs text-base-content/45 font-mono truncate">' + esc(row.forminator_form_id || '—') + '</p>'}</div></div>`;
+      var _sterHtml = `<button type="button" class="btn btn-ghost btn-xs btn-square shrink-0 -ml-1 ${row.is_favoriet ? 'text-warning' : 'text-base-content/30 hover:text-warning'}" data-action="toggle-favoriet" data-id="${esc(row.id)}" data-aan="${row.is_favoriet ? '1' : ''}" title="${row.is_favoriet ? 'Uit mijn favorieten' : 'Volgen: bij mijn favorieten'}"><i data-lucide="star" class="w-3.5 h-3.5${row.is_favoriet ? ' fill-current' : ''}"></i></button>`;
+      var _headerHtml = `<div class="mb-2.5"><div class="flex items-start justify-between gap-2 mb-1.5"><div class="flex items-center gap-1.5 min-w-0">${_sterHtml}${_dotHtml}<h3 class="font-bold text-sm leading-snug text-base-content truncate" title="${esc(row.name || 'Koppeling')}">${esc(row.name || 'Koppeling')}</h3></div><div class="flex flex-wrap items-center justify-end gap-1 shrink-0">${_tagsHtml}</div></div>${_stepsHtml}${flowHtml ? '<div class="mb-1.5">' + flowHtml + '</div>' : ''}<div class="flex items-center gap-1.5">${row.source_type === 'tracker' ? '<i data-lucide="qr-code" class="w-3 h-3 text-info shrink-0"></i><p class="text-xs text-info font-mono truncate flex-1">' + esc((TRACKER_DOMAIN_BASE[row.tracker_domain] || TRACKER_DOMAIN_BASE.link) + '/t/' + (row.tracker_slug || '')) + '</p><button type="button" class="btn btn-ghost btn-xs px-1 shrink-0" data-action="copy-tracker-short-url" data-url="' + esc((TRACKER_DOMAIN_BASE[row.tracker_domain] || TRACKER_DOMAIN_BASE.link) + '/t/' + (row.tracker_slug || '')) + '" title="Link kopi\u00ebren"><i data-lucide="copy" class="w-3 h-3"></i></button>' : row.source_type === 'generic_webhook' ? '<i data-lucide="zap" class="w-3 h-3 text-warning shrink-0"></i><p class="text-xs text-warning font-semibold">Zapier / Generic webhook</p>' : row.source_type === 'calendly' ? '<i data-lucide="calendar-clock" class="w-3 h-3 text-secondary shrink-0"></i><p class="text-xs text-secondary font-semibold truncate">Calendly' + (row.calendly_event_type_name ? ' \u00b7 ' + esc(row.calendly_event_type_name) : ' \u00b7 vangnet') + '</p>' : '<i data-lucide="file-text" class="w-3 h-3 text-base-content/35 shrink-0"></i><p class="text-xs text-base-content/45 font-mono truncate">' + esc(row.forminator_form_id || '—') + '</p>'}</div></div>`;
 
       var _bodyHtml = buildCardChartBlock(row);
 
@@ -1373,6 +1430,8 @@
     loadFolders: loadFolders,
     loadTags: loadTags,
     renderList: renderList,
+    toggleFavoriet: toggleFavoriet,
+    bewaarVoorkeur: bewaarVoorkeur,
     renderListCards: renderListCards,
     updateCardChart: updateCardChart,
     renderFolderSidebar: renderFolderSidebar,

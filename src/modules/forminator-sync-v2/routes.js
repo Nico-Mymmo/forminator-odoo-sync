@@ -17,6 +17,7 @@ import {
 } from '../asset-manager/lib/namespace.js';
 import {
   listIntegrationSummaries,
+  setFavoriet,
   createIntegrationRecord,
   getIntegrationDetails,
   updateIntegrationRecord,
@@ -840,8 +841,22 @@ export const routes = {
 
   'GET /api/integrations': async (context) => {
     try {
-      const rows = await listIntegrationSummaries(context.env);
+      const rows = await listIntegrationSummaries(context.env, { userId: context.user?.id || null });
       return jsonResponse({ success: true, data: rows });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
+    }
+  },
+
+  /** Favoriet van de ingelogde gebruiker: { aan: true | false }. */
+  'POST /api/integrations/:id/favoriet': async (context) => {
+    try {
+      const integrationId = context.params?.id;
+      assertIntegrationSelected(integrationId);
+      if (!context.user?.id) return jsonResponse({ success: false, error: 'Niet aangemeld' }, 401);
+      const body = await readJsonBody(context.request);
+      const data = await setFavoriet(context.env, { userId: context.user.id, integrationId, aan: Boolean(body && body.aan) });
+      return jsonResponse({ success: true, data });
     } catch (error) {
       return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
     }

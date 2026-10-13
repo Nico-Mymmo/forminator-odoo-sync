@@ -136,8 +136,28 @@
       + '</select><span class="label-text-alt opacity-60 mt-1">Onder de tekst komen de foto, de voornaam en de functie uit Odoo.</span></label>';
   }
 
+  /**
+   * De berichten uit Nieuws & updates. Een fout wordt GETOOND (en niet
+   * onthouden): "geen berichten" zeggen terwijl het ophalen mislukte, zette
+   * mensen op het verkeerde been.
+   */
+  function laadBerichten() {
+    NB.state.berichtenFout = null;
+    return NB.api('/api/snippets').then(function (r) { NB.state.berichten = r || []; })
+      .catch(function (err) { NB.state.berichten = null; NB.state.berichtenFout = err.message || String(err); });
+  }
+
+  NB.actions['berichten-opnieuw'] = async function () {
+    await laadBerichten();
+    render();
+  };
+
   /** Welk bericht uit Nieuws & updates: kiezen = alles invullen. */
   function berichtKeuze() {
+    if (NB.state.berichtenFout) {
+      return '<div class="alert alert-warning text-sm flex-col items-start gap-2"><span><strong>De berichten uit Nieuws &amp; updates konden niet geladen worden.</strong><br>' + e(NB.state.berichtenFout) + '</span>'
+        + '<button class="btn btn-sm" data-action="berichten-opnieuw">Opnieuw proberen</button></div>';
+    }
     var lijst = NB.state.berichten || [];
     var gekozen = Number(lees('content.snippet_id')) || 0;
     var mag = NB.state.stukje.can_edit;
@@ -452,9 +472,7 @@
 
   function laadExtra(d) {
     var wacht = [NB.laadTekeningen()];
-    if (d.item.kind === 'snippet' && !NB.state.berichten) {
-      wacht.push(NB.api('/api/snippets').then(function (r) { NB.state.berichten = r || []; }).catch(function () { NB.state.berichten = []; }));
-    }
+    if (d.item.kind === 'snippet' && !NB.state.berichten) wacht.push(laadBerichten());
     if (d.item.kind === 'events' && d.edition) {
       wacht.push(NB.api('/api/editions/' + d.edition.id + '/suggestions').then(function (r) { NB.state.stukjeEvents = r.events || []; }).catch(function () { NB.state.stukjeEvents = []; }));
     }

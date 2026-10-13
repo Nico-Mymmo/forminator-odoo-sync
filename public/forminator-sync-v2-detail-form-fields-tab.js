@@ -454,23 +454,32 @@
     await window.FSV2.fetchDetailFormFields(sk || null, fid);
   }
 
+  /**
+   * De velden van een generieke webhook, uit de bewaarde inzendingen. Zelfde
+   * regel als normalizeFormValues() in worker-handler.js: staan de velden in
+   * een omhulsel (form_fields, form_data, data of submission), dan zijn DIE de
+   * velden -- anders kon je enkel "form_data" kiezen, terwijl de pipeline met
+   * de velden daarbinnen werkt (bv. de antwoorden op een nieuwsbriefvraag).
+   * Over alle inzendingen heen, nieuwste eerst, zodat een veld dat maar in
+   * sommige inzendingen voorkomt ook kiesbaar is.
+   */
   function extractGenericWebhookFields() {
     var submissions = S().submissions || [];
-    var lastWithPayload = null;
+    var gezien = {};
+    var velden = [];
     for (var i = 0; i < submissions.length; i++) {
       var p = submissions[i].source_payload;
-      if (p && typeof p === 'object' && !Array.isArray(p) && Object.keys(p).length > 0) {
-        lastWithPayload = p;
-        break;
-      }
-    }
-    if (lastWithPayload) {
-      S().detailFormFields = Object.keys(lastWithPayload).map(function (key) {
-        return { field_id: key, label: key, type: 'text' };
+      if (typeof p === 'string') { try { p = JSON.parse(p); } catch (e) { p = null; } }
+      if (!p || typeof p !== 'object' || Array.isArray(p)) continue;
+      var data = p.form_fields || p.form_data || p.data || p.submission || p;
+      if (!data || typeof data !== 'object' || Array.isArray(data)) continue;
+      Object.keys(data).forEach(function (key) {
+        if (gezien[key]) return;
+        gezien[key] = true;
+        velden.push({ field_id: key, label: key, type: 'text' });
       });
-    } else {
-      S().detailFormFields = [];
     }
+    S().detailFormFields = velden;
     applyDefaultFieldMeta();
   }
 
