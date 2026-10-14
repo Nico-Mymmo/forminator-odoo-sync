@@ -1,0 +1,185 @@
+/**
+ * De kostencalculator -- geometrie, nooit typografie.
+ *
+ * OP EEN COMPUTER (vanaf 782px) staat de tekst links en de calculator rechts,
+ * elk de helft. Zonder tekst staat de calculator alleen, niet breder dan een
+ * leesbare kolom: een rij van 1200px met links "Mollie" en rechts "€9" leest
+ * niet meer als een lijn.
+ *
+ * SMALLER DAN 782PX staat de tekst boven de calculator: eerst waarom, dan de
+ * prijs. Op een telefoon breekt een lange naam af; het bedrag blijft rechts en
+ * breekt zelf nooit. Het totaal staat daar op een eigen regel.
+ *
+ * Het vak is een vlak zoals een kaart (zelfde opvulling, zelfde afronding),
+ * zonder schaduw: het staat op de pagina, het zweeft niet. De enige lijn
+ * scheidt het totaal van de lijnen erboven.
+ *
+ * De lettergrootte van het totaal komt uit het thema (`has-<slug>-font-size`,
+ * gezet in class-kostencalculator.php); hier staat geen enkele maat voor tekst.
+ */
+
+.mymmo-kosten {
+  /* De opvulling van het vak: een van de drie van de huisstijl. */
+  --mk-pad: var(--mymmo-ruimte-normaal);
+  /* De breedte van het vak als er geen tekst naast staat. */
+  --mk-kosten-breedte: 36rem;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--mymmo-ruimte-ruim);
+}
+
+.mymmo-kosten.mymmo-kosten--pad-krap { --mk-pad: var(--mymmo-ruimte-krap); }
+.mymmo-kosten.mymmo-kosten--pad-ruim { --mk-pad: var(--mymmo-ruimte-ruim); }
+
+.mymmo-kosten .mymmo-kosten-tekst,
+.mymmo-kosten .mymmo-kosten-vak {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.mymmo-kosten:not(.mymmo-kosten--met-tekst) .mymmo-kosten-vak {
+  max-width: var(--mk-kosten-breedte);
+  margin-inline: auto;
+}
+
+/* De eerste en de laatste marge van het thema vallen weg: anders staat de kop
+   lager dan de bovenrand van het vak ernaast. */
+.mymmo-kosten .mymmo-kosten-tekst > :first-child { margin-top: 0; }
+.mymmo-kosten .mymmo-kosten-tekst > :last-child { margin-bottom: 0; }
+
+/* ── Het vak ──────────────────────────────────────────────────────────────── */
+
+.mymmo-kosten .mymmo-kosten-vak {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mymmo-ruimte-krap);
+  padding: var(--mk-pad);
+  border-radius: var(--mymmo-afronding-l);
+  background-color: var(--mk-kosten-bg, var(--mymmo-kleur-vlak));
+}
+
+.mymmo-kosten .mymmo-kosten-rij {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--mymmo-ruimte-krap);
+}
+
+.mymmo-kosten .mymmo-kosten-bedrag {
+  margin-inline-start: auto;
+  white-space: nowrap;
+}
+
+/* ── De teller: min, het aantal, plus ─────────────────────────────────────── */
+
+.mymmo-kosten .mymmo-kosten-teller {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  border: var(--mymmo-rand) solid var(--mymmo-kleur-lijn);
+  border-radius: var(--mymmo-afronding-rond);
+  background-color: var(--mymmo-kleur-vlak-licht);
+}
+
+.mymmo-kosten .mymmo-kosten-knop {
+  position: relative;
+  width: 3rem;
+  height: 3rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--mymmo-afronding-rond);
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+.mymmo-kosten .mymmo-kosten-knop:focus-visible {
+  outline: var(--mymmo-focus);
+  outline-offset: var(--mymmo-focus-afstand);
+}
+
+.mymmo-kosten .mymmo-kosten-knop:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+/* Min en plus: twee streepjes in de tekstkleur, getekend met CSS. */
+.mymmo-kosten .mymmo-kosten-knop::before,
+.mymmo-kosten .mymmo-kosten-knop--plus::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0.875rem;
+  height: 2px;
+  background-color: currentColor;
+  transform: translate(-50%, -50%);
+}
+
+.mymmo-kosten .mymmo-kosten-knop--plus::after {
+  transform: translate(-50%, -50%) rotate(90deg);
+}
+
+.mymmo-kosten .mymmo-kosten-aantal {
+  min-width: 3ch;
+  text-align: center;
+}
+
+/* ── Het totaal ───────────────────────────────────────────────────────────── */
+
+.mymmo-kosten .mymmo-kosten-totaal {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mymmo-ruimte-krap);
+  padding-top: var(--mymmo-ruimte-krap);
+  border-top: var(--mymmo-rand) solid var(--mymmo-kleur-lijn);
+}
+
+.mymmo-kosten .mymmo-kosten-totaal > p {
+  margin: 0;
+}
+
+/* De bijzin bij het totaal: de tekstkleur, zacht, zodat het totaal het enige
+   blikvanger blijft. Haalt op het vlak nog 4,5:1. */
+.mymmo-kosten .mymmo-kosten-noot {
+  opacity: 0.75;
+}
+
+/* ── Smal en telefoon ─────────────────────────────────────────────────────── */
+
+@media (max-width: 781px) {
+  .mymmo-kosten {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--mymmo-ruimte-normaal-telefoon);
+  }
+
+  .mymmo-kosten .mymmo-kosten-tekst,
+  .mymmo-kosten .mymmo-kosten-vak {
+    flex: 0 0 auto;
+  }
+
+  .mymmo-kosten.mymmo-kosten--pad-krap { --mk-pad: var(--mymmo-ruimte-krap-telefoon); }
+  .mymmo-kosten.mymmo-kosten--pad-normaal { --mk-pad: var(--mymmo-ruimte-normaal-telefoon); }
+  .mymmo-kosten.mymmo-kosten--pad-ruim { --mk-pad: var(--mymmo-ruimte-ruim-telefoon); }
+}
+
+@media (max-width: 639.98px) {
+  /* Een lange naam ("Mollie · werk- en reserverekening") breekt af in haar
+     eigen kolom; het bedrag blijft rechts op de eerste regel staan. */
+  .mymmo-kosten .mymmo-kosten-rij {
+    align-items: flex-start;
+    gap: var(--mymmo-ruimte-krap-telefoon);
+  }
+
+  .mymmo-kosten .mymmo-kosten-rij--teller {
+    align-items: center;
+  }
+
+  /* Het totaal op een eigen regel, "per jaar voor het gebouw" eronder: zo
+     breekt die zin niet halverwege af naast het grote getal. */
+  .mymmo-kosten .mymmo-kosten-groot {
+    display: block;
+  }
+}

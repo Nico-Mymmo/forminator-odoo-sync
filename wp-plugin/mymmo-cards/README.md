@@ -8,6 +8,7 @@ regel CSS. Wat erin zit:
 | **Kaartenstapel** | vier blokken. Kaarten die tijdens het scrollen op elkaar blijven liggen, met een randje van de vorige zichtbaar. |
 | **Markeerstift** | een opmaakknop in de werkbalk van elke kop en alinea: een woord selecteren en er een streep achter zetten, in een kleur van het thema. |
 | **Getuigenissen** | twee blokken. Klanten aan het woord: citaat, naam en foto, naast elkaar op een computer, onder elkaar op een telefoon. |
+| **Kostencalculator** | wat het pakket per jaar kost voor een gebouw: de bezoeker zet het aantal kavels met min en plus. |
 | **Knop die een venster opent** | de gewone WordPress-knop, met één keuze erbij: welk tabblad van welke pop-up hij opent. |
 
 Elk component volgt dezelfde regel: **geometrie en gedrag, nooit typografie**. In
@@ -393,6 +394,22 @@ Uitzetten per site: `define('MYMMO_CARDS_GEEN_AUTO_UPDATE', true);` in
 `wp-config.php`. De nieuwe versie staat dan nog wel onder Updates.
 
 ## Versies
+
+**1.13.0** — nieuw blok: **Kostencalculator**, voor de pagina over de
+bankkosten van een VME. De bezoeker zet het aantal kavels met min en plus (2
+tot 200, standaard 4) en ziet per lijn wat het kost: OpenVME Basic aan 4 × €4 =
+€16 per maand, Mollie aan €9 per maand. Het totaal staat groot: €300 per jaar
+voor het gebouw, met daaronder €25 per maand en €75,00 per kavel per jaar.
+
+- De prijzen, de namen van de lijnen en het aantal bij het openen staan in de
+  zijbalk: een nieuwe prijs is een wijziging in de editor, geen nieuwe versie.
+- De server rekent de beginstand uit; zonder JavaScript staat er dus een
+  kloppende prijs. Het script rekent in centen.
+- Naast de calculator mag tekst staan (kop, alinea, knoppen). Op een computer
+  naast elkaar, smaller dan 782px de tekst erboven.
+- Het totaal krijgt een lettergrootte van het thema (standaard de grootste),
+  zoals het nummer van de stappen. Het vak is een vlak zoals een kaart, zonder
+  schaduw; de enige lijn scheidt het totaal van de lijnen erboven.
 
 **1.12.0** — een illustratie achter een stap. Elke **Stap** kan een vorm op
 de achtergrond krijgen (een swirl, een blob), met dezelfde instellingen als de

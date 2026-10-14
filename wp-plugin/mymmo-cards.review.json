@@ -1,8 +1,8 @@
 {
   "plugin": "mymmo-cards",
-  "versie": "1.12.0",
-  "hash": "634c6c32da361039",
-  "datum": "2026-10-12T14:04:43.000Z",
+  "versie": "1.13.0",
+  "hash": "3fdfc1b086dc1520",
+  "datum": "2026-10-14T10:07:36.000Z",
   "door": "Claude",
-  "samenvatting": "Stappen 1.12.0: illustratie op de achtergrond per stap, zelfde instellingen en opzet als de vorm op een kaart (vlak met achtergrond, aria-hidden, transform enkel op de vorm). Naast elkaar gerekend tegen de breedte van een open paneel en zichtbaar met de inhoud; eigen telefoonwaarden via schakelaar zonder standaard; reduced-motion zonder overgang. Getest op 1536x740 en 375 breed, geen horizontale overloop."
+  "samenvatting": "Nieuw blok Kostencalculator nagekeken op hiërarchie, zwaarte, kleur, mobiel, Gutenberg en toegankelijkheid. Vak is een vlak zoals een kaart zonder schaduw, een lijn scheidt het totaal; totaal in een lettergrootte van het thema zoals de stappen; telefoon: naam breekt af, bedrag blijft rechts, teller 48px, focusring op min en plus. Bekeken op 375, 768 en 1280 px zonder horizontale schuifbalk."
 }

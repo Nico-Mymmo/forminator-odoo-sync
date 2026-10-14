@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Mymmo Componenten
  * Description:       Bouwstenen voor de blok-editor: de kaartenstapel en de markeerstift. Elk component bezit geometrie en gedrag, nooit typografie -- de letter komt altijd uit het thema.
- * Version:           1.12.0
+ * Version:           1.13.0
  * Requires at least: 6.2
  * Requires PHP:      8.0
  * Author:            Mymmo
@@ -67,6 +67,8 @@
  *     een computer stap voor stap openschuift terwijl je scrolt
  *   - de GETUIGENISSEN (`includes/class-getuigenissen.php`) -- klanten aan het
  *     woord, met foto, naast elkaar
+ *   - de KOSTENCALCULATOR (`includes/class-kostencalculator.php`) -- wat het
+ *     pakket per jaar kost voor een gebouw, per aantal kavels
  *
  * DE HUISSTIJL (sinds 1.9.0)
  * --------------------------
@@ -96,7 +98,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('MYMMO_CARDS_VERSION', '1.12.0');
+define('MYMMO_CARDS_VERSION', '1.13.0');
 define('MYMMO_CARDS_FILE', __FILE__);
 define('MYMMO_CARDS_DIR', plugin_dir_path(__FILE__));
 define('MYMMO_CARDS_URL', plugin_dir_url(__FILE__));
@@ -112,6 +114,7 @@ require_once MYMMO_CARDS_DIR . 'includes/class-knop.php';
 require_once MYMMO_CARDS_DIR . 'includes/class-keien.php';
 require_once MYMMO_CARDS_DIR . 'includes/class-stappen.php';
 require_once MYMMO_CARDS_DIR . 'includes/class-getuigenissen.php';
+require_once MYMMO_CARDS_DIR . 'includes/class-kostencalculator.php';
 
 function mymmo_cards_bootstrap(): void {
     Mymmo_Cards_Huisstijl::init();
@@ -124,5 +127,6 @@ function mymmo_cards_bootstrap(): void {
     Mymmo_Cards_Keien::init();
     Mymmo_Cards_Stappen::init();
     Mymmo_Cards_Getuigenissen::init();
+    Mymmo_Cards_Kostencalculator::init();
 }
 add_action('plugins_loaded', 'mymmo_cards_bootstrap');
