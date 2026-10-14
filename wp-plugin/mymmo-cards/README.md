@@ -394,6 +394,13 @@ Uitzetten per site: `define('MYMMO_CARDS_GEEN_AUTO_UPDATE', true);` in
 
 ## Versies
 
+**1.12.1** — uitlijning blokkeert het opslaan niet meer. Sinds WordPress 6.6
+bewaart de knop "Uitlijning" (links, midden, rechts) van een kop of alinea zich
+als `typography.textAlign`. De bewaking las dat als een eigen typografie en
+weigerde het opslaan met "eigen typografie left in het blok Koptekst". Uitlijning
+is geen lettermaat of lettertype: die waarde telt nu niet meer mee. Een eigen
+lettergrootte, regelhoogte of lettertype wordt nog altijd tegengehouden.
+
 **1.12.0** — een illustratie achter een stap. Elke **Stap** kan een vorm op
 de achtergrond krijgen (een swirl, een blob), met dezelfde instellingen als de
 vorm op een kaart van de stapel: grootte, plaats, draaiing, dekking, en eigen

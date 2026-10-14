@@ -565,6 +565,12 @@ final class Mymmo_Cards_Bewaking {
         $pad = strtolower($pad);
 
         if (strpos($pad, 'typography.') === 0) {
+            // De knop "Uitlijning" (links, midden, rechts) bewaart WordPress
+            // sinds 6.6 als typography.textAlign. Dat is uitlijning, geen
+            // eigen lettermaat of -type.
+            if ($pad === 'typography.textalign') {
+                return null;
+            }
             return 'eigen typografie';
         }
         if (strpos($pad, 'border.') === 0 || strpos($pad, 'border') === 0) {
