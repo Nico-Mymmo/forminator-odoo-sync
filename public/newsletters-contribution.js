@@ -658,7 +658,7 @@
       + '<span id="stBewaard" class="text-xs opacity-60 ml-auto">' + (s.can_edit ? 'Bewaart vanzelf' : 'Alleen lezen') + '</span></div>'
       + '<div>' + (c().kind === 'intro' || c().kind === 'heading'
         ? '<div class="text-lg font-bold px-1">' + e(NB.soort(c().kind)) + '</div>'
-        : '<input class="input input-ghost input-sm text-lg font-bold px-1 w-full" data-veld="title" value="' + e(c().title) + '" aria-label="Naam boven het blok" title="Het labeltje boven het blok in de mail"' + (s.can_edit ? '' : ' disabled') + '>')
+        : '<input class="input input-ghost input-sm text-lg font-bold px-1 w-full" data-veld="title" value="' + e(c().title) + '" placeholder="' + e(NB.soort(c().kind)) + ' (zonder labeltje)" aria-label="Naam boven het blok" title="Het labeltje boven het blok in de mail"' + (s.can_edit ? '' : ' disabled') + '>')
       + '<div class="flex flex-wrap items-center gap-2 text-sm mt-1 px-1"><span id="stStatus">' + (auto ? '<span class="badge badge-sm badge-ghost">Automatisch</span>' : NB.statusBadge(it.status)) + '</span><span class="opacity-70">' + e(stand) + '</span></div>'
       + '<div class="text-xs opacity-70 px-1 mt-1">' + e(wie) + '</div>' + (tegen ? '<div class="px-1">' + tegen + '</div>' : '') + '</div>'
       + hint

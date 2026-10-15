@@ -3788,6 +3788,16 @@ bleken drie dingen niet te kloppen. Alle drie zijn gefixt in `lib/sync.js`,
 
 ## Nieuwsbrief: rechts enkel instellingen, titelblok, kort nieuws (2026-10-15)
 
+- **Tekstblok** = `article` (label in KINDS: "Tekstblok"): titel, optionele
+  subtitel (`content.subtitle`), alinea's (lege regel) en een beeld volgens de
+  gewone beeldregels. Het labeltje (`item.title`) mag leeg zijn en typ je in de
+  brief (`data-nb-veld="@title"`). "Uit het team" en "Tip" zijn tekstblokken
+  met een vast labeltje. Optionele velden (`data-nb-optioneel`) staan leeg
+  enkel zichtbaar in het gekozen blok. Lijsten tonen `NB.blokNaam(it)`.
+- De lijst "Iets toevoegen" is in groepen ingedeeld (GROEPEN in
+  newsletters-edition.js): opbouw, uit Nieuws & updates, de lezer laten
+  reageren, verhalen, beeld en media.
+
 - **Regel: tekst typ je IN de brief, rechts staat enkel wat geen tekst is**
   (opmaak, keuzes, wat je uit Nieuws & updates kiest). In de brief bewerkbaar:
   woordje vooraf, tekst en foto (`article`), titel (`heading`), vraag, en de

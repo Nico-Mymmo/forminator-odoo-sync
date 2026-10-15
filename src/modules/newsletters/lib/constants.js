@@ -41,7 +41,7 @@ export const CONTRIBUTION_STATUS = {
 export const KINDS = {
   intro:     { label: 'Woordje vooraf' },
   heading:   { label: 'Titel boven een reeks blokken' },
-  article:   { label: 'Tekst en foto' },
+  article:   { label: 'Tekstblok' },
   video:     { label: 'Video' },
   link:      { label: 'Link met voorbeeld' },
   linkedin:  { label: 'LinkedIn-post' },
