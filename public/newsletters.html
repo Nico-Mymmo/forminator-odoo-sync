@@ -159,6 +159,20 @@
     <form method="dialog" class="modal-backdrop"><button>sluiten</button></form>
   </dialog>
 
+  <!-- Testmail: aanvinken welke collega's ze krijgen -->
+  <dialog id="dlgTest" class="modal">
+    <div class="modal-box max-w-md">
+      <h3 class="font-bold text-lg mb-1">Testmail</h3>
+      <p class="text-sm opacity-70 mb-3">Gaat via Odoo, precies zoals de echte mail, maar enkel naar de collega's die je aanvinkt. Ook wat nog niet ingeleverd is, staat erin.</p>
+      <div id="testOntvangers" class="flex flex-col gap-1 max-h-[50vh] overflow-y-auto"></div>
+      <div class="modal-action">
+        <button id="testKnop" class="btn btn-sm btn-primary" data-action="test-bevestig"><i data-lucide="send" class="w-4 h-4"></i> Versturen</button>
+        <button class="btn btn-ghost btn-sm" data-action="sluit-dialoog" data-dialoog="dlgTest">Annuleren</button>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>sluiten</button></form>
+  </dialog>
+
   <!-- Een video kiezen: dezelfde Vimeo-lijst als bij de events, of een link plakken -->
   <dialog id="dlgVideo" class="modal">
     <div class="modal-box max-w-3xl">
