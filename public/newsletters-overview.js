@@ -105,7 +105,7 @@
       var s = serieVan(ed.series_id);
       var k = kleurVan(s);
       lijst.push({ id: 'v-' + ed.id, start: ed.send_at, title: ed.series_name + ' · ' + ed.title, editable: verplaatsbaar(ed), extendedProps: { soort: 'verzend', ed: ed, kleur: k } });
-      if (actief(ed)) lijst.push({ id: 'd-' + ed.id, start: ed.deadline_at, title: 'Inleveren · ' + ed.series_name, editable: false, classNames: ['nb-inlever'], extendedProps: { soort: 'inlever', ed: ed, kleur: k } });
+      if (actief(ed) && !NB.isBlanco(ed)) lijst.push({ id: 'd-' + ed.id, start: ed.deadline_at, title: 'Inleveren · ' + ed.series_name, editable: false, classNames: ['nb-inlever'], extendedProps: { soort: 'inlever', ed: ed, kleur: k } });
     });
     st.events.forEach(function (ev) {
       lijst.push({ id: 'e-' + ev.id, start: ev.starts_at, title: ev.title, editable: false, classNames: ['nb-evt'], extendedProps: { soort: 'event', ev: ev } });
@@ -219,7 +219,7 @@
         + '<span class="w-1.5 self-stretch rounded" style="background:' + k.bg + '"></span>'
         + '<span class="w-14 shrink-0"><span class="block text-lg font-bold leading-none" style="color:' + k.bg + '">' + e(NB.datum(ed.send_at, { day: 'numeric' })) + '</span><span class="block text-[10px] uppercase opacity-60">' + e(NB.datum(ed.send_at, { month: 'short' })) + '</span></span>'
         + '<span class="flex-1 min-w-0"><span class="block font-semibold truncate">' + e(ed.series_name) + ' · ' + e(ed.title) + '</span>'
-        + '<span class="block text-xs opacity-60">' + (actief(ed) ? 'Inleverdatum ' + e(NB.datum(ed.deadline_at, { day: 'numeric', month: 'short' })) + ' · ' + ((pr.goedgekeurd || 0) + (pr.ingeleverd || 0)) + ' van ' + (pr.totaal || 0) + ' binnen' : ed.status === 'scheduled' ? 'Vertrekt ' + e(NB.datum(ed.send_at)) : 'Verzonden') + '</span></span>'
+        + '<span class="block text-xs opacity-60">' + (actief(ed) && NB.isBlanco(ed) ? 'Blanco mailing · ' + (pr.totaal || 0) + ' ' + ((pr.totaal || 0) === 1 ? 'blok' : 'blokken') : actief(ed) ? 'Inleverdatum ' + e(NB.datum(ed.deadline_at, { day: 'numeric', month: 'short' })) + ' · ' + ((pr.goedgekeurd || 0) + (pr.ingeleverd || 0)) + ' van ' + (pr.totaal || 0) + ' binnen' : ed.status === 'scheduled' ? 'Vertrekt ' + e(NB.datum(ed.send_at)) : 'Verzonden') + '</span></span>'
         + NB.editieBadge(ed.status) + '</button>';
     };
     bak.innerHTML = (komend.length ? '<div class="px-4 pt-3 pb-1 text-xs font-semibold uppercase tracking-wide opacity-50">Komend</div>' + komend.map(rij).join('') : '<p class="p-4 text-sm opacity-60">Geen edities gepland.</p>')
@@ -250,7 +250,7 @@
     return kaart('<div class="flex items-start justify-between gap-2"><div class="min-w-0"><div class="text-xs font-semibold uppercase tracking-wide" style="color:' + k.bg + '">' + e(ed.series_name) + '</div>'
       + '<h2 class="text-lg font-bold leading-tight">' + e(ed.title) + '</h2></div>' + NB.editieBadge(ed.status) + '</div>'
       + '<div class="text-sm"><div><span class="opacity-60">Verzenddag</span> ' + e(NB.datum(ed.send_at, { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })) + '</div>'
-      + (actief(ed) ? '<div><span class="opacity-60">Inleverdatum</span> ' + e(NB.datum(ed.deadline_at, { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })) + ' <span class="' + (t.voorbij ? 'text-warning font-semibold' : 'opacity-60') + '">(' + e(NB.tellerTekst(ed.deadline_at)) + ')</span></div>' : '') + '</div>'
+      + (actief(ed) && NB.isBlanco(ed) ? '<div><span class="opacity-60">Blanco mailing</span> zelf opgebouwd, geen opdrachten en geen inleverdag</div>' : actief(ed) ? '<div><span class="opacity-60">Inleverdatum</span> ' + e(NB.datum(ed.deadline_at, { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })) + ' <span class="' + (t.voorbij ? 'text-warning font-semibold' : 'opacity-60') + '">(' + e(NB.tellerTekst(ed.deadline_at)) + ')</span></div>' : '') + '</div>'
       + (actief(ed) ? NB.balkUitVoortgang(pr) + '<div class="text-xs opacity-60">' + ((pr.goedgekeurd || 0) + (pr.ingeleverd || 0)) + ' van ' + (pr.totaal || 0) + ' stukjes binnen</div>' : '')
       + '<div class="flex flex-wrap gap-2 mt-1"><a class="btn btn-sm btn-primary" href="#/editie/' + e(ed.id) + '"><i data-lucide="pen-line" class="w-4 h-4"></i> Open de redactietafel</a>'
       + (ed.is_editor && s ? '<a class="btn btn-sm btn-ghost" href="#/reeks/' + e(s.id) + '"><i data-lucide="settings" class="w-4 h-4"></i> Reeks</a>' : '') + '</div>', ' border-primary/40')
@@ -376,16 +376,20 @@
     sel.innerHTML = reeksen.map(function (s) { return '<option value="' + e(s.id) + '"' + (s.id === (el && el.dataset && el.dataset.series) ? ' selected' : '') + '>' + e(s.name) + '</option>'; }).join('');
     var datum = el && el.dataset && el.dataset.datum ? el.dataset.datum : NB.lokaal(new Date(Date.now() + 21 * 86400000).toISOString()).slice(0, 10);
     document.getElementById('editieDatum').value = datum;
+    document.getElementById('editieNaam').value = '';
+    var vast = document.querySelector('input[name="editieOpbouw"][value="vast"]');
+    if (vast) vast.checked = true;
     NB.dialoog('dlgEditie').showModal();
   };
 
   NB.actions['maak-editie'] = async function () {
     try {
+      var blanco = (document.querySelector('input[name="editieOpbouw"]:checked') || {}).value === 'blanco';
       var ed = await NB.api('/api/series/' + document.getElementById('editieReeks').value + '/editions', {
-        method: 'POST', body: { date: document.getElementById('editieDatum').value },
+        method: 'POST', body: { date: document.getElementById('editieDatum').value, blanco: blanco, title: document.getElementById('editieNaam').value.trim() },
       });
       NB.dialoog('dlgEditie').close();
-      NB.toast('Editie aangemaakt.');
+      NB.toast(blanco ? 'Blanco mailing aangemaakt. Bouw ze op met de "+"-lijn in de brief.' : 'Editie aangemaakt.');
       NB.ga('#/editie/' + ed.id);
     } catch (err) { NB.fout(err); }
   };

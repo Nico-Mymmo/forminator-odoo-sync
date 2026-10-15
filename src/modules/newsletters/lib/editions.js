@@ -89,21 +89,39 @@ function startInhoud(sectie) {
 }
 
 /**
+ * Een blanco mailing heeft geen inleverdag: de inleverdatum is gelijk aan het
+ * verzendmoment. Dat is tegelijk het kenmerk waaraan de rest ze herkent
+ * (geen extra kolom nodig).
+ */
+export function isBlanco(edition) {
+  return Boolean(edition && edition.deadline_at && edition.send_at
+    && new Date(edition.deadline_at).getTime() === new Date(edition.send_at).getTime());
+}
+
+/**
  * Een editie met per rubriek een opdracht. Automatische rubrieken (agenda,
  * inhoudstafel, afsluiting) staan meteen op goedgekeurd; "Uit het nieuws"
  * wordt voorgevuld met wat sinds de vorige editie verscheen en wacht op
  * nalezing.
+ *
+ * `blanco`: een lege brief zonder opdrachten, die marketing zelf opbouwt met
+ * blokken. Ze staat meteen op "nalezen" (er valt niets te verzamelen) en
+ * heeft geen inleverdag (zie isBlanco).
  */
-export async function maakEditie(env, series, { send, deadline, userId = null, title = '' }) {
+export async function maakEditie(env, series, { send, deadline, userId = null, title = '', blanco = false }) {
   const editie = await insertEdition(env, {
     series_id: series.id,
-    title: title || maandLabel(send.toISOString()),
+    title: title || (blanco ? 'Extra mailing' : maandLabel(send.toISOString())),
     send_at: send.toISOString(),
-    deadline_at: deadline.toISOString(),
-    status: EDITION_STATUS.COLLECTING,
+    deadline_at: (blanco ? send : deadline).toISOString(),
+    status: blanco ? EDITION_STATUS.REVIEW : EDITION_STATUS.COLLECTING,
     created_by: userId,
   });
   if (!editie) return null; // bestond al (unieke index)
+  if (blanco) {
+    await logActivity(env, { editionId: editie.id, userId, kind: 'created', text: 'Blanco mailing aangemaakt' });
+    return editie;
+  }
 
   const vorige = (await listEditions(env, { seriesId: series.id, statuses: [EDITION_STATUS.SENT], limit: 1 }))[0];
   const sinds = (vorige?.send_at || new Date(Date.now() - 45 * DAG_MS).toISOString()).slice(0, 10);
@@ -148,7 +166,8 @@ export async function zorgVoorEdities(env, nu = new Date()) {
     if (!volgend) continue;
     if (volgend.send.getTime() - nu.getTime() > series.create_days_ahead * DAG_MS) continue;
     const bestaand = await listEditions(env, { seriesId: series.id, limit: 10 });
-    const al = bestaand.some((e) => e.status !== EDITION_STATUS.CANCELLED
+    // Een blanco mailing telt niet mee: die vervangt de gewone editie niet.
+    const al = bestaand.some((e) => e.status !== EDITION_STATUS.CANCELLED && !isBlanco(e)
       && Math.abs(new Date(e.send_at).getTime() - volgend.send.getTime()) < 20 * DAG_MS);
     if (al) continue;
     try {
@@ -164,14 +183,14 @@ export async function zorgVoorEdities(env, nu = new Date()) {
   return gemaakt;
 }
 
-/** Een manueel aangevraagde editie, op een gekozen dag. */
-export async function maakEditieOp(env, series, { date, userId }) {
+/** Een manueel aangevraagde editie, op een gekozen dag; `blanco` = lege brief zonder opdrachten. */
+export async function maakEditieOp(env, series, { date, userId, blanco = false, title = '' }) {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(date || ''));
   if (!m) throw new NewsletterError('Kies een verzenddag (JJJJ-MM-DD).');
   const send = brussel(Number(m[1]), Number(m[2]), Number(m[3]), series.send_hour, 0);
   if (send.getTime() < Date.now()) throw new NewsletterError('Die dag ligt in het verleden.');
   const deadline = inleverdatum(send, series.deadline_workdays);
-  const e = await maakEditie(env, series, { send, deadline, userId });
+  const e = await maakEditie(env, series, { send, deadline, userId, blanco: Boolean(blanco), title: String(title || '').trim().slice(0, 120) });
   if (!e) throw new NewsletterError('Er bestaat al een editie op dat moment.', 409);
   return e;
 }
