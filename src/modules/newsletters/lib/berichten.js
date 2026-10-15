@@ -72,7 +72,8 @@ async function actueelNieuws(env, it) {
       const versie = x.hasImage ? String(x.imageVersion || '') : '';
       if (versie !== String(n.beeld_versie || '')) {
         const url = versie ? await hostBerichtBeeld(env, id) : null;
-        if (url || !versie) { uit.beeld_url = url || ''; uit.beeld_versie = versie; veranderd = true; }
+        // Een nieuw beeld: de oude uitsnede klopt niet meer; het scherm maakt een nieuwe.
+        if (url || !versie) { uit.beeld_url = url || ''; uit.beeld_versie = versie; uit.beeld_uitsnede = ''; uit.beeld_versie_uitsnede = ''; veranderd = true; }
       }
       return uit;
     } catch (error) {

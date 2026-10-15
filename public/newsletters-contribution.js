@@ -270,6 +270,7 @@
   /** Kort nieuws: welke berichten (2 of 3). De vorm staat bij Opmaak. */
   function kortNieuwsKeuze() {
     if (NB.state.berichtenFout) return berichtenFout();
+    setTimeout(snijNieuwsBeelden, 0);
     var boot = NB.state.boot;
     var max = boot.nieuws_max || 3;
     var items = lees('content.items') || [];
@@ -366,8 +367,40 @@
       zet('content.items', items);
       gewijzigd();
       render();
+      snijNieuwsBeelden();
     } catch (err) { NB.fout(err); el.disabled = false; }
   };
+
+  /**
+   * Elke foto in Kort nieuws krijgt een bijgesneden kopie op 16:9 (het kader
+   * "nieuws"), zodat elk kaartje even hoog is en de titels op één lijn staan.
+   * Een mailprogramma kan niet zelf bijsnijden, dus het scherm doet het (canvas,
+   * zoals in het beeldvenster). Loopt stil op de achtergrond; één keer per beeld.
+   */
+  var gesneden = {};
+  async function snijNieuwsBeelden() {
+    if (!s() || !s().can_edit || c().kind !== 'news' || !NB.beeld || !NB.beeld.snij) return;
+    var items = lees('content.items') || [];
+    for (var i = 0; i < items.length; i++) {
+      var n = items[i];
+      if (!n || !n.beeld_url || n.beeld_thingie) continue;
+      if (n.beeld_uitsnede && n.beeld_versie_uitsnede === String(n.beeld_versie || '')) continue;
+      var sleutel = n.beeld_url + '|' + (n.beeld_versie || '');
+      if (gesneden[sleutel]) continue;
+      gesneden[sleutel] = true;
+      try {
+        var url = await NB.beeld.snij({ url: n.beeld_url, plaats: 'nieuws', vulling: 'vullen', focus: { x: 0.5, y: 0.5 } }, 16 / 9);
+        var lijst = (lees('content.items') || []).slice();
+        var j = lijst.findIndex(function (x) { return x && x.beeld_url === n.beeld_url; });
+        if (j < 0) continue;
+        lijst[j] = Object.assign({}, lijst[j], { beeld_uitsnede: url, beeld_versie_uitsnede: String(n.beeld_versie || '') });
+        zet('content.items', lijst);
+        gewijzigd();
+      } catch (err) {
+        console.warn('[nieuwsbrieven] uitsnede voor kort nieuws mislukt:', err && err.message);
+      }
+    }
+  }
 
   NB.actions['nieuws-weg'] = function (el) {
     var items = lees('content.items') || [];
