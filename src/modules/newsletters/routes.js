@@ -300,6 +300,8 @@ function inhoudPerSoort(kind, c = {}) {
           source: kort(n?.source, 80), beeld_url: url(n?.beeld_url), beeld_versie: kort(n?.beeld_versie, 40),
           // Een tekening als beeld, wanneer het bericht zelf geen foto heeft.
           beeld_thingie: /^[a-z0-9-]{1,60}$/.test(String(n?.beeld_thingie || '')) ? n.beeld_thingie : '',
+          // De foto bijgesneden op 16:9 (door het scherm gemaakt), zodat elk kaartje even hoog is.
+          beeld_uitsnede: url(n?.beeld_uitsnede), beeld_versie_uitsnede: kort(n?.beeld_versie_uitsnede, 40),
         })).filter((n) => n.title),
         suggestions: Array.isArray(c.suggestions) ? c.suggestions.slice(0, 12) : undefined,
       };

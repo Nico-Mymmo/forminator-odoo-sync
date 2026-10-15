@@ -719,8 +719,9 @@ function blokNews(item, ctx, id) {
       const maat = Math.round(hoogte * 0.72);
       return link(n, `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td align="center" valign="middle" height="${hoogte}" style="height:${hoogte}px;background-color:${S.sky50};${radius}"><img src="${esc(tek)}" width="${maat}" height="${maat}" alt="" style="display:inline-block;width:${maat}px;height:${maat}px;border:0"></td></tr></table>`);
     }
-    const src = safeUrl(n.beeld_url);
-    if (src) return link(n, `<img src="${esc(src)}" width="${breedte}" alt="${esc(n.title)}" style="display:block;width:100%;max-width:${breedte}px;height:auto;border:0;${radius}">`);
+    // Liefst de uitsnede (16:9, door het scherm gemaakt): dan is elk vak even hoog.
+    const src = safeUrl(n.beeld_uitsnede && n.beeld_versie_uitsnede === String(n.beeld_versie || '') ? n.beeld_uitsnede : n.beeld_url);
+    if (src) return link(n, `<img class="nb-foto" src="${esc(src)}" width="${breedte}" alt="${esc(n.title)}" style="display:block;width:100%;max-width:${breedte}px;height:auto;border:0;${radius}">`);
     return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td height="${hoogte}" style="height:${hoogte}px;background-color:${S.sky50};${radius}">&nbsp;</td></tr></table>`;
   };
   let lijf = '';
@@ -731,10 +732,12 @@ function blokNews(item, ctx, id) {
     const hoogte = Math.round(breedte * 9 / 16);
     const metBeeld = lijst.some(heeftBeeld);
     const cellen = lijst.slice(0, 3).map((n, i) => {
+      // Lange woorden (appartementsgebouwen) breken af in plaats van uit het kaartje te lopen.
+      const breek = 'overflow-wrap:break-word;word-break:break-word;hyphens:auto;';
       const kaart = `${metBeeld ? beeldvak(n, breedte - 2, hoogte, 'border-radius:12px 12px 0 0') : ''}
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td style="padding:14px 16px 16px">${bron(n)}
-<div style="font-family:${S.fontBody};font-size:${aantal === 3 ? 15 : 17}px;font-weight:700;line-height:1.3;color:${S.headingSoft}">${esc(n.title)}</div>
-${n.note ? `<div style="font-family:${S.fontBody};font-size:14px;line-height:1.5;color:${S.text};margin-top:6px">${esc(kortje(n.note, aantal === 3 ? 110 : 160))}</div>` : ''}${meer(n)}</td></tr></table>`;
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="table-layout:fixed"><tr><td style="padding:12px 14px 14px;${breek}">${bron(n)}
+<div lang="nl" style="font-family:${S.fontBody};font-size:${aantal === 3 ? 14 : 17}px;font-weight:700;line-height:1.3;color:${S.headingSoft};${breek}">${esc(n.title)}</div>
+${n.note ? `<div lang="nl" style="font-family:${S.fontBody};font-size:14px;line-height:1.5;color:${S.text};margin-top:6px;${breek}">${esc(kortje(n.note, aantal === 3 ? 110 : 160))}</div>` : ''}${meer(n)}</td></tr></table>`;
       // Breedte als percentage, zodat de tabel nooit breder wordt dan het scherm;
       // de pixels staan enkel in `width=` voor Outlook. Op een gsm: onder elkaar.
       const pct = Math.floor(100 / aantal) - (aantal > 1 ? 2 : 0);
@@ -745,7 +748,7 @@ ${n.note ? `<div style="font-family:${S.fontBody};font-size:14px;line-height:1.5
     const metBeeld = lijst.some(heeftBeeld);
     lijf = lijst.map((n, i) => `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="${i ? `border-top:1px solid ${S.line};` : ''}"><tr>
 ${metBeeld ? `<td width="120" valign="top" style="width:120px;padding:16px 18px 16px 0">${beeldvak(n, 120, 68, 'border-radius:8px')}</td>` : ''}
-<td valign="top" style="padding:16px 0">${bron(n)}<div style="font-family:${S.fontBody};font-size:16px;font-weight:700;line-height:1.35;color:${S.headingSoft}">${esc(n.title)}</div>
+<td valign="top" style="padding:16px 0;overflow-wrap:break-word;word-break:break-word">${bron(n)}<div lang="nl" style="font-family:${S.fontBody};font-size:16px;font-weight:700;line-height:1.35;color:${S.headingSoft};hyphens:auto">${esc(n.title)}</div>
 ${n.note ? `<div style="font-family:${S.fontBody};font-size:14px;line-height:1.5;color:${S.text};margin-top:4px">${esc(kortje(n.note, 160))}</div>` : ''}${meer(n)}</td></tr></table>`).join('');
   } else {
     const kaarten = lijst.map((n, i) => `
@@ -952,7 +955,7 @@ function huls(rijen, { tint, preheader, voetRij }) {
   return `<div style="margin:0;padding:0;background-color:${tint}">
 <style>@import url('${S.rethinkCss}');@font-face{font-family:'Gelica';src:url('${S.gelicaUrl}') format('opentype');font-weight:400;font-style:normal}
 /* Smalle schermen (Apple Mail, iOS, de Gmail-apps): kolommen onder elkaar, minder marge. Outlook negeert dit en houdt de vaste breedtes. */
-@media only screen and (max-width:480px){.nb-cel{padding-left:20px!important;padding-right:20px!important}.nb-kol{display:block!important;width:100%!important;max-width:100%!important;box-sizing:border-box!important;padding-left:0!important;padding-right:0!important}.nb-kol-na{padding-top:14px!important}.nb-gat{display:none!important}.nb-gsm-vol{width:100%!important;max-width:100%!important}}</style>
+@media only screen and (max-width:480px){.nb-cel{padding-left:20px!important;padding-right:20px!important}.nb-kol{display:block!important;width:100%!important;max-width:100%!important;box-sizing:border-box!important;padding-left:0!important;padding-right:0!important}.nb-kol-na{padding-top:14px!important}.nb-gat{display:none!important}.nb-gsm-vol,.nb-kol .nb-foto{width:100%!important;max-width:100%!important}}</style>
 ${preheader ? `<div style="display:none;max-height:0;max-width:0;overflow:hidden;opacity:0;mso-hide:all;font-size:1px;line-height:1px;color:${tint}">${esc(preheader)}</div>` : ''}
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:${tint}"><tr><td align="center" style="padding:28px 12px 36px">
 <table role="presentation" width="${WIDTH}" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:${WIDTH}px;background-color:#ffffff;border-radius:20px;border-collapse:separate;overflow:hidden">

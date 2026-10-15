@@ -3828,6 +3828,16 @@ bleken drie dingen niet te kloppen. Alle drie zijn gefixt in `lib/sync.js`,
   rand per kaartje. Het beeldvak is er voor alle kaartjes zodra er één een
   beeld heeft: een foto vult het vak, een tekening (`items[i].beeld_thingie`)
   staat gecentreerd op een lichte tint, anders een leeg tintvak.
+  **Alle titels op dezelfde hoogte** (2026-10-15): een foto wordt in de
+  browser op 16:9 gesneden (`snijNieuwsBeelden()` in
+  newsletters-contribution.js via `NB.beeld.snij`), bewaard als
+  `items[i].beeld_uitsnede` + `beeld_versie_uitsnede`; render.js gebruikt de
+  uitsnede enkel als die versie gelijk is aan `beeld_versie` (lib/berichten.js
+  wist ze bij een nieuwe foto). Zo zijn alle beeldvakken even hoog, ook in
+  mailprogramma's die geen `object-fit` kennen. Titel 14px bij drie kolommen,
+  `overflow-wrap/word-break/hyphens` + `lang="nl"` op de tekst zodat lange
+  woorden niet wegvallen; foto's dragen `class="nb-foto"` en worden op een gsm
+  (media query in `huls()`) volle breedte als de kaartjes onder elkaar komen.
 - **Een bericht zonder foto krijgt een beeld dat ook op het bericht komt**
   (2026-10-15): in het paneel (oranje vakje bij het kaartje, of "+ Beeld" bij
   "Eén bericht") kies je een tekening of beeld; de brief bewaart het, en
