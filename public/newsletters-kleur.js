@@ -46,7 +46,11 @@
       var huidige = String(o.huidige || '').toLowerCase();
       opKies = o.opKies;
       paneel = document.createElement('div');
-      paneel.className = 'fixed z-[1100] bg-base-100 rounded-2xl shadow-xl border border-base-content/10 p-4';
+      paneel.className = 'bg-base-100 rounded-2xl shadow-xl border border-base-content/10 p-4';
+      // Positie en laag IN de stijl, niet via Tailwind-klassen: die maakt de
+      // CDN pas na het invoegen aan, en dan meten we de breedte verkeerd (de
+      // kiezer belandde helemaal links).
+      paneel.style.cssText = 'position:fixed;z-index:1100;left:-9999px;top:0;width:max-content';
       paneel.innerHTML = '<div class="flex flex-col gap-2.5">'
         + families.map(function (f) {
           return '<div class="flex gap-2.5" title="' + e(f.familie) + '">' + f.kleuren.map(function (k) {

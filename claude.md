@@ -3818,6 +3818,26 @@ bleken drie dingen niet te kloppen. Alle drie zijn gefixt in `lib/sync.js`,
   enkel tekst): twee of drie berichten (`POST /api/snippets/:id/kort` = kaartje
   met gehost beeld). Een oud nieuwsblok zonder vorm blijft "enkel tekst".
 
+## Nieuwsbrief: vaste breedte, merkkleuren, drie opbouwen voor een vraag (2026-10-15)
+
+- **EEN breedte**: alles staat in de tekstkolom van 560 px (40 px marge).
+  Ook een gekleurde kaart (`paneel()`, marge 40), een kolombeeld
+  (`schikBeeld`, binnen de marge) en een blok Afbeelding (BEELD_KADERS.vol =
+  560). Niets gaat over die breedte; enkel de achtergrond van een blok
+  (`achtergrond`) kleurt het hele blok.
+- **Kleuren zijn ALTIJD merkkleuren, via de gewone kleurkiezer**
+  (newsletters-kleur.js, het bolletje met het palet). Nooit een eigen rij
+  kleurbolletjes of kleuren buiten MERKKLEUREN. Een vraag: `content.kleur` =
+  een merkkleur; vlak, rand en knoppen komen uit haar familie
+  (`vraagThema()` in constants.js). Oude kleurnamen: VRAAG_OUDE_KLEUREN.
+- **Een vraag heeft drie OPBOUWEN** (niet enkel een andere kleur):
+  subtiel (kleurstreep, kleine knopjes op een rij), twee kolommen (vraag
+  links, antwoorden rechts), opvallend (groot gekleurd vlak, gecentreerd).
+- De kleurkiezer zet zijn positie en laag in de stijl zelf: Tailwind-klassen
+  maakt de CDN pas na het invoegen aan, en dan stond hij helemaal links.
+- **In de inhoudstafel** schakel je in de brief (opmaakstand, het knopje bij
+  het handvat), niet meer in de rechterkolom.
+
 ## Nieuwsbrief: EEN vraagblok (2026-10-15)
 
 - In de lijst staat nog één sjabloon, **Vraag aan de lezer**. De soort (korte
