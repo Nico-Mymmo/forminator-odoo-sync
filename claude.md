@@ -3817,6 +3817,22 @@ bleken drie dingen niet te kloppen. Alle drie zijn gefixt in `lib/sync.js`,
 - **Kort nieuws** (`news` met `vorm` uit NIEUWS_VORMEN: naast elkaar, lijstje,
   enkel tekst): twee of drie berichten (`POST /api/snippets/:id/kort` = kaartje
   met gehost beeld). Een oud nieuwsblok zonder vorm blijft "enkel tekst".
+  **Strak uitgelijnd** (2026-10-15): elk kaartje heeft dezelfde opbouw
+  (beeldvak, bron, titel, tekst, link) in EEN tabelrij, dus even hoog, met een
+  rand per kaartje. Het beeldvak is er voor alle kaartjes zodra er één een
+  beeld heeft: een foto vult het vak, een tekening (`items[i].beeld_thingie`)
+  staat gecentreerd op een lichte tint, anders een leeg tintvak.
+- **Een bericht zonder foto krijgt een beeld dat ook op het bericht komt**
+  (2026-10-15): in het paneel (oranje vakje bij het kaartje, of "+ Beeld" bij
+  "Eén bericht") kies je een tekening of beeld; de brief bewaart het, en
+  `POST /api/snippets/:id/beeld` zet hetzelfde beeld (een tekening als haar
+  PNG) via `importImageFromUrl()` op het bericht in Nieuws & updates, dus ook
+  op de site. Faalt zacht: de brief heeft het beeld al. Daarna verandert de
+  `imageVersion` van het bericht en neemt `lib/berichten.js` het beeld over
+  zoals elk ander beeld.
+- **De inhoudstafel lijst enkel wat NA de inhoudstafel komt** (2026-10-15):
+  een kop boven de inhoudstafel is de kop van de brief, geen hoofdstuk. Een
+  kop zonder stukjes eronder valt weg, in elke modus.
 
 ## Nieuwsbrief: vaste breedte, merkkleuren, drie opbouwen voor een vraag (2026-10-15)
 

@@ -672,6 +672,13 @@ ${kopHtml}${rijen}`, S.sky50, { padding: '36px 32px 26px', id });
  * Kort nieuws: twee of drie kleinere berichten uit Nieuws & updates in één
  * blok, in een van de NIEUWS_VORMEN. De kop is optioneel en typ je in de brief.
  */
+/**
+ * Kort nieuws: twee of drie berichten, strak uitgelijnd. Elk kaartje heeft
+ * dezelfde opbouw (beeldvak, bron, titel, tekst, link) en de cellen van EEN
+ * tabelrij zijn even hoog, dus de kaartjes ook. Geen foto in Nieuws &
+ * updates? Dan een tekening (`beeld_thingie`) gecentreerd op een lichte
+ * tint, of een leeg tintvak, zodat de rij uitgelijnd blijft.
+ */
 function blokNews(item, ctx, id) {
   const c = item.content || {};
   const lijst = (c.items || []).filter((n) => String(n?.title || '').trim()).slice(0, 4);
@@ -679,30 +686,45 @@ function blokNews(item, ctx, id) {
   const kortje = (t, max) => { const x = String(t || '').trim(); return x.length > max ? `${x.slice(0, max - 1).replace(/\s+\S*$/, '')}…` : x; };
   const bron = (n) => (n.source ? `<div style="font-family:${S.fontBody};font-size:11px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:${S.muted};margin-bottom:6px">${esc(n.source)}</div>` : '');
   const meer = (n, maat = 14) => (safeUrl(n.url) ? `<div style="margin-top:10px"><a href="${safeUrl(n.url)}" style="font-family:${S.fontBody};font-size:${maat}px;font-weight:700;color:${S.primary};text-decoration:none">Lees meer &rarr;</a></div>` : '');
-  const foto = (n, breedte, radius = 10) => {
+  const link = (n, html) => (safeUrl(n.url) ? `<a href="${safeUrl(n.url)}" style="text-decoration:none">${html}</a>` : html);
+  const tekeningSrc = (n) => (n.beeld_thingie && ctx.thingieUrl ? ctx.thingieUrl(n.beeld_thingie) || '' : '');
+  const heeftBeeld = (n) => Boolean(tekeningSrc(n) || safeUrl(n.beeld_url));
+  /**
+   * Het beeldvak: een foto die het vak vult, of een tekening gecentreerd op
+   * een tint. `hoogte` = breedte * 9/16, als vaste hoogte van de cel zodat
+   * elk kaartje in de rij op dezelfde hoogte begint.
+   */
+  const beeldvak = (n, breedte, hoogte, radius) => {
+    const tek = tekeningSrc(n);
+    if (tek) {
+      const maat = Math.round(hoogte * 0.72);
+      return link(n, `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td align="center" valign="middle" height="${hoogte}" style="height:${hoogte}px;background-color:${S.sky50};${radius}"><img src="${esc(tek)}" width="${maat}" height="${maat}" alt="" style="display:inline-block;width:${maat}px;height:${maat}px;border:0"></td></tr></table>`);
+    }
     const src = safeUrl(n.beeld_url);
-    if (!src) return '';
-    const img = `<img src="${esc(src)}" width="${breedte}" alt="${esc(n.title)}" style="display:block;width:100%;max-width:${breedte}px;height:auto;border:0;border-radius:${radius}px">`;
-    return safeUrl(n.url) ? `<a href="${safeUrl(n.url)}" style="text-decoration:none">${img}</a>` : img;
+    if (src) return link(n, `<img src="${esc(src)}" width="${breedte}" alt="${esc(n.title)}" style="display:block;width:100%;max-width:${breedte}px;height:auto;border:0;${radius}">`);
+    return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td height="${hoogte}" style="height:${hoogte}px;background-color:${S.sky50};${radius}">&nbsp;</td></tr></table>`;
   };
   let lijf = '';
   if (vorm === 'kolommen') {
     const aantal = Math.max(1, Math.min(3, lijst.length));
     const gat = 16;
     const breedte = Math.floor((560 - gat * (aantal - 1)) / aantal);
-    const cellen = lijst.slice(0, 3).map((n, i) => `<td width="${breedte}" valign="top" style="width:${breedte}px;padding:0 ${i < aantal - 1 ? gat / 2 : 0}px 0 ${i ? gat / 2 : 0}px">
-${foto(n, breedte) ? `<div style="margin-bottom:12px">${foto(n, breedte)}</div>` : ''}${bron(n)}
+    const hoogte = Math.round(breedte * 9 / 16);
+    const metBeeld = lijst.some(heeftBeeld);
+    const cellen = lijst.slice(0, 3).map((n, i) => {
+      const kaart = `${metBeeld ? beeldvak(n, breedte - 2, hoogte, 'border-radius:12px 12px 0 0') : ''}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td style="padding:14px 16px 16px">${bron(n)}
 <div style="font-family:${S.fontBody};font-size:${aantal === 3 ? 15 : 17}px;font-weight:700;line-height:1.3;color:${S.headingSoft}">${esc(n.title)}</div>
-${n.note ? `<div style="font-family:${S.fontBody};font-size:14px;line-height:1.5;color:${S.text};margin-top:6px">${esc(kortje(n.note, aantal === 3 ? 110 : 160))}</div>` : ''}${meer(n)}</td>`).join('');
-    lijf = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>${cellen}</tr></table>`;
-  } else if (vorm === 'lijst') {
-    lijf = lijst.map((n, i) => {
-      const f = foto(n, 120, 8);
-      return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="${i ? `border-top:1px solid ${S.line};` : ''}"><tr>
-${f ? `<td width="120" valign="top" style="width:120px;padding:16px 18px 16px 0">${f}</td>` : ''}
-<td valign="top" style="padding:16px 0">${bron(n)}<div style="font-family:${S.fontBody};font-size:16px;font-weight:700;line-height:1.35;color:${S.headingSoft}">${esc(n.title)}</div>
-${n.note ? `<div style="font-family:${S.fontBody};font-size:14px;line-height:1.5;color:${S.text};margin-top:4px">${esc(kortje(n.note, 160))}</div>` : ''}${meer(n)}</td></tr></table>`;
+${n.note ? `<div style="font-family:${S.fontBody};font-size:14px;line-height:1.5;color:${S.text};margin-top:6px">${esc(kortje(n.note, aantal === 3 ? 110 : 160))}</div>` : ''}${meer(n)}</td></tr></table>`;
+      return `${i ? `<td width="${gat}" style="width:${gat}px;font-size:0;line-height:0">&nbsp;</td>` : ''}<td width="${breedte}" valign="top" style="width:${breedte}px;border:1px solid ${S.border};border-radius:12px;border-collapse:separate;overflow:hidden;background-color:#ffffff">${kaart}</td>`;
     }).join('');
+    lijf = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:separate"><tr>${cellen}</tr></table>`;
+  } else if (vorm === 'lijst') {
+    const metBeeld = lijst.some(heeftBeeld);
+    lijf = lijst.map((n, i) => `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="${i ? `border-top:1px solid ${S.line};` : ''}"><tr>
+${metBeeld ? `<td width="120" valign="top" style="width:120px;padding:16px 18px 16px 0">${beeldvak(n, 120, 68, 'border-radius:8px')}</td>` : ''}
+<td valign="top" style="padding:16px 0">${bron(n)}<div style="font-family:${S.fontBody};font-size:16px;font-weight:700;line-height:1.35;color:${S.headingSoft}">${esc(n.title)}</div>
+${n.note ? `<div style="font-family:${S.fontBody};font-size:14px;line-height:1.5;color:${S.text};margin-top:4px">${esc(kortje(n.note, 160))}</div>` : ''}${meer(n)}</td></tr></table>`).join('');
   } else {
     const kaarten = lijst.map((n, i) => `
 <td width="50%" valign="top" style="padding:0 ${i % 2 === 0 ? 8 : 0}px 16px ${i % 2 === 1 ? 8 : 0}px">
@@ -928,10 +950,15 @@ export function renderEdition({ series, edition, items, mode = 'preview', ctx = 
 
   // Inhoudstafel en afsluiting kijken naar wat ECHT meegaat. Een titelblok is
   // een kopje; een blok dat marketing eruit hield (`in_toc: false`) valt weg.
-  const toc = mee
-    .filter((it) => !['toc', 'closing', 'intro', 'image'].includes(it.kind) && it.content?.in_toc !== false)
+  // Enkel wat NA de inhoudstafel komt (een kop die erboven staat, is de kop
+  // van de brief, geen hoofdstuk), en een kop zonder stukjes eronder valt weg.
+  const tocIndex = items.findIndex((it) => it.kind === 'toc');
+  const naToc = new Set(items.slice(tocIndex + 1).map((it) => it.id));
+  const ruw = mee
+    .filter((it) => !['toc', 'closing', 'intro', 'image'].includes(it.kind) && it.content?.in_toc !== false && (tocIndex < 0 || naToc.has(it.id)))
     .map((it) => ({ t: kopVan(it), kop: it.kind === 'heading' }))
     .filter((x) => x.t);
+  const toc = ruw.filter((x, i) => !x.kop || ruw.slice(i + 1).some((y, j) => !y.kop && !ruw.slice(i + 1, i + 1 + j).some((z) => z.kop)));
   const authors = [];
   const gezien = new Set();
   // Enkel wie in DEZE versie echt iets bijdroeg: een stukje dat wegvalt, telt niet mee.
