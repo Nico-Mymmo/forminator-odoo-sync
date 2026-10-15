@@ -69,15 +69,30 @@ function avatar(author, size = 32, { onDark = false } = {}) {
   return `<table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr><td width="${size}" height="${size}" align="center" valign="middle" style="width:${size}px;height:${size}px;border-radius:50%;background-color:${bg};color:${fg};font-family:${S.fontBody};font-size:${Math.round(size * 0.36)}px;font-weight:700;line-height:${size}px;text-align:center">${esc(initialen(naam))}</td></tr></table>`;
 }
 
+/** Een technisch account (Administrator, OdooBot) is geen collega. */
+function isTechnisch(naam) {
+  return /^(administrator|admin|odoobot)$/i.test(String(naam || '').trim());
+}
+
+/**
+ * Wie een stukje echt bijdroeg: bij een bericht uit Nieuws & updates wie het
+ * deelde, bij een blok dat zichzelf vult niemand, anders de schrijver.
+ */
+function bijdrageVan(it) {
+  if (KINDS[it.kind]?.auto) return null;
+  const a = it.kind === 'snippet' ? it.content?.door : it.author;
+  return a?.name && !isTechnisch(a.name) ? a : null;
+}
+
 function byline(author, { onDark = false, prefix = '' } = {}) {
   // Een technisch account is geen collega: dan liever geen naam.
-  if (!author?.name || /^(administrator|admin|odoobot)$/i.test(String(author.name).trim())) return '';
+  if (!author?.name || isTechnisch(author.name)) return '';
   const kleur = onDark ? S.sky100 : S.muted;
   const naamKleur = onDark ? '#ffffff' : S.headingSoft;
   const functie = author.job_title ? ` · ${esc(author.job_title)}` : '';
   return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin-top:22px"><tr>
 <td valign="middle" style="padding-right:10px">${avatar(author, 32, { onDark })}</td>
-<td valign="middle" style="font-family:${S.fontBody};font-size:13px;line-height:1.4;color:${kleur}">${prefix ? esc(prefix) + ' ' : ''}<strong style="color:${naamKleur}">${esc(author.name)}</strong>${functie}</td>
+<td valign="middle" style="font-family:${S.fontBody};font-size:13px;line-height:1.4;color:${kleur}">${prefix ? esc(prefix) + ' ' : ''}<strong style="color:${naamKleur}">${esc(String(author.name).trim().split(/\s+/)[0])}</strong>${functie}</td>
 </tr></table>`;
 }
 
@@ -697,9 +712,10 @@ export function renderEdition({ series, edition, items, mode = 'preview', ctx = 
   const toc = mee.filter((it) => !['toc', 'closing', 'intro', 'image'].includes(it.kind)).map(kopVan).filter(Boolean);
   const authors = [];
   const gezien = new Set();
+  // Enkel wie in DEZE versie echt iets bijdroeg: een stukje dat wegvalt, telt niet mee.
   for (const it of mee) {
-    const a = it.author;
-    if (a?.name && !gezien.has(a.name)) { gezien.add(a.name); authors.push(a); }
+    const a = bijdrageVan(it);
+    if (a && !gezien.has(a.name)) { gezien.add(a.name); authors.push(a); }
   }
   const blokCtx = { ...ctx, toc, authors };
 
