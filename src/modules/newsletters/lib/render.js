@@ -488,19 +488,21 @@ ${leesLink(c.link_label, c.link_url)}${door}`, S.teal50, { id });
   return schikBeeld({ b, ctx, id, inhoud: `${pil(tag, S.pink50, S.pink700)}${tekst}${door}`, padding: '44px 40px 4px' });
 }
 
+/**
+ * Een video is enkel het stilstaand beeld, met het labeltje erboven; klikken
+ * op het beeld opent de video (Vimeo of YouTube). Geen titel, tekst of knop:
+ * wie daar iets bij wil, zet er een tekstblok naast (beslissing 2026-10-15).
+ */
 function blokVideo(item, ctx, id) {
   const c = item.content || {};
   const b = beeldVan(c, { fotoVeld: 'thumbnail_url', plaats: 'video' });
-  const thumbTag = beeldTag(b, ctx, BEELD_KADERS.video.breedte, { href: c.video_url, alt: c.title || 'Video' });
-  const thumb = thumbTag ? `<div${id ? ' data-nb-beeld="1"' : ''} style="margin:16px 0 16px">${thumbTag}</div>`
-    : id ? `<div data-nb-beeld="1" style="margin:16px 0;border:2px dashed #d1d5db;border-radius:14px;padding:26px;text-align:center;font-family:${S.fontBody};font-size:14px;color:${S.muted}">Klik hier voor een stilstaand beeld van de video</div>` : '';
-  const titel = typbaar(id, 'title', c.title, { tag: 'h2', plaatshouder: 'Typ hier een titel', stijl: `margin:14px 0 12px;font-family:${S.fontHead};font-weight:400;font-size:28px;line-height:1.15;color:${S.heading}` });
-  const tekst = typbaar(id, 'text', c.text, { plaatshouder: 'Een paar zinnen over de video (optioneel)', optioneel: true, html: tekstNaarHtml(c.text), stijl: `font-family:${S.fontBody};font-size:16px;line-height:1.6;color:${S.text}` });
-  const knopHtml = id
-    ? `<a href="#" style="display:inline-block;background-color:${S.mint};color:${S.primary};font-family:${S.fontBody};font-size:15px;font-weight:700;padding:14px 22px;border-radius:8px;text-decoration:none"><span data-nb-veld="button_label" data-placeholder="Bekijk de video">${esc(c.button_label || '')}</span></a>`
-    : knop(c.button_label || 'Bekijk de video', c.video_url);
-  return rij(`${pil(item.title, S.sky50, S.primary)}${titel}${thumb}${tekst}
-<div style="margin-top:18px">${knopHtml}</div>${byline(item.author)}`, { padding: '44px 40px 4px', id });
+  const thumbTag = beeldTag(b, ctx, BEELD_KADERS.video.breedte, { href: c.video_url, alt: item.title || 'Video' });
+  const thumb = thumbTag ? `<div${id ? ' data-nb-beeld="1"' : ''} style="margin-top:14px">${thumbTag}</div>`
+    : id ? `<div data-nb-video="1" style="margin-top:14px;border:2px dashed #d1d5db;border-radius:14px;padding:40px 20px;text-align:center;font-family:${S.fontBody};font-size:14px;color:${S.muted}">Klik hier om een video te kiezen</div>` : '';
+  const labeltje = id
+    ? `<div style="line-height:1"><span data-nb-veld="@title" data-nb-optioneel="1" data-placeholder="Label (optioneel)" style="display:inline-block;font-family:${S.fontBody};font-size:12px;font-weight:700;letter-spacing:0.02em;padding:5px 12px;border-radius:999px;background-color:${S.sky50};color:${S.primary}">${esc(item.title || '')}</span></div>`
+    : pil(item.title, S.sky50, S.primary);
+  return rij(`${labeltje}${thumb}`, { padding: '44px 40px 0', id });
 }
 
 function blokLink(item, ctx, id, { linkedin = false } = {}) {

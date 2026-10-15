@@ -30,6 +30,7 @@ import { hostBeelden, BEELDEN_MAP } from './lib/beelden-hosten.js';
 import { naamVoor, medewerkerVoorOdooGebruiker } from '../../lib/medewerkers.js';
 import { lijstTekeningen, pngSleutel, vergeetTekeningen } from '../av-slides/lib/thingies.js';
 import { listIntegrations } from '../forminator-sync-v2/database.js';
+import { listVimeoVideos, getVimeoVideo, idFromVimeoUrl, resolveVideoWithoutToken } from '../event-operations-v2/lib/vimeo.js';
 import { ArticleFetchError } from '../content-feed/lib/article-fetch.js';
 import { listSnippets, getSnippet, getSnippetImage, listTaxonomy } from '../content-feed/lib/content-service.js';
 import { hostBerichtBeeld, kaartjeVanBericht } from './lib/berichten.js';
@@ -1233,6 +1234,32 @@ export const routes = {
   'GET /api/chat-channels': async ({ env }) => {
     try {
       return json({ success: true, data: (await listChannels(env)).map((k) => ({ id: k.id, name: k.name })) });
+    } catch (err) { return fout(err); }
+  },
+
+  // ─── Video: dezelfde Vimeo-kiezer als bij de events ──────────────────────
+
+  /** De video's uit het Vimeo-account (lib/vimeo.js van Eventbeheer; zonder token: `configured: false`). */
+  'GET /api/vimeo/videos': async ({ env, request }) => {
+    try {
+      const u = new URL(request.url);
+      return json({ success: true, data: await listVimeoVideos(env, { query: u.searchParams.get('q') || '', page: u.searchParams.get('page') || 1 }) });
+    } catch (err) { return fout(err); }
+  },
+
+  /**
+   * Eén video: titel, link en stilstaand beeld, uit de Vimeo-API (met token)
+   * of de publieke oEmbed (ook YouTube). Body: { vimeo_id } of { url }.
+   */
+  'POST /api/video': async ({ env, request }) => {
+    try {
+      const b = await leesBody(request);
+      const raw = String(b.url || '').trim();
+      const vimeoId = b.vimeo_id ? String(b.vimeo_id).replace(/\D/g, '') : idFromVimeoUrl(raw);
+      let video = vimeoId ? await getVimeoVideo(env, vimeoId) : null;
+      if (!video) video = await resolveVideoWithoutToken(raw || `https://vimeo.com/${vimeoId}`);
+      if (!video) throw new NewsletterError('Geen geldige Vimeo- of YouTube-link herkend.');
+      return json({ success: true, data: { url: video.url, title: video.title, thumbnail_url: video.thumbnail_url } });
     } catch (err) { return fout(err); }
   },
 

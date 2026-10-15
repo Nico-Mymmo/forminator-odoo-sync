@@ -159,6 +159,28 @@
     <form method="dialog" class="modal-backdrop"><button>sluiten</button></form>
   </dialog>
 
+  <!-- Een video kiezen: dezelfde Vimeo-lijst als bij de events, of een link plakken -->
+  <dialog id="dlgVideo" class="modal">
+    <div class="modal-box max-w-3xl">
+      <h3 class="font-bold text-lg mb-1">Video kiezen</h3>
+      <p class="text-sm opacity-70 mb-3">Uit ons Vimeo-account, zoals bij de events. In de mail staat enkel het stilstaand beeld; klikken opent de video.</p>
+      <div class="flex items-center gap-2 mb-3">
+        <input class="input input-bordered input-sm flex-1" id="videoZoek" placeholder="Zoek in Vimeo…">
+        <button class="btn btn-sm" data-action="video-zoek">Zoeken</button>
+      </div>
+      <div id="videoLijst" class="grid grid-cols-2 sm:grid-cols-3 gap-3 items-start max-h-[45vh] overflow-y-auto p-1"></div>
+      <div class="divider text-xs opacity-60">of plak een link</div>
+      <div class="flex items-center gap-2">
+        <input class="input input-bordered input-sm flex-1" id="videoLink" placeholder="https://vimeo.com/… of https://youtu.be/…">
+        <button class="btn btn-sm btn-primary" data-action="video-link">Gebruiken</button>
+      </div>
+      <div class="modal-action">
+        <button class="btn btn-sm btn-ghost" data-action="sluit-dialoog" data-dialoog="dlgVideo">Sluiten</button>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>sluiten</button></form>
+  </dialog>
+
   <!-- Tekening of foto bij een blok -->
   <dialog id="dlgBeeld" class="modal">
     <div id="dlgBeeldInhoud" class="modal-box max-w-4xl"></div>

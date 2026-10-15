@@ -486,6 +486,62 @@
   }
   NB.actions['beeld-open'] = function () { NB.openBeeld(); };
 
+  // ─── Video: dezelfde Vimeo-kiezer als bij de events ───────────────────────
+
+  NB.openVideo = async function () {
+    if (!c() || !s().can_edit) return;
+    document.getElementById('videoLink').value = lees('content.video_url') || '';
+    document.getElementById('videoZoek').value = '';
+    NB.dialoog('dlgVideo').showModal();
+    await laadVideos('');
+  };
+  NB.actions['video-open'] = function () { return NB.openVideo(); };
+  NB.actions['video-zoek'] = function () { return laadVideos(document.getElementById('videoZoek').value); };
+
+  async function laadVideos(zoek) {
+    var bak = document.getElementById('videoLijst');
+    bak.innerHTML = '<p class="text-sm opacity-60 col-span-full">Laden…</p>';
+    try {
+      var data = await NB.api('/api/vimeo/videos?q=' + encodeURIComponent(zoek || ''));
+      if (!data.configured) {
+        bak.innerHTML = '<div class="col-span-full alert alert-info text-sm"><span>De Vimeo-lijst staat uit (geen VIMEO_ACCESS_TOKEN in de Worker). Een link plakken werkt wel.</span></div>';
+        return;
+      }
+      if (data.status === 'unauthorized' || data.status === 'error') {
+        bak.innerHTML = '<div class="col-span-full alert alert-warning text-sm"><span>' + e(data.error || 'Vimeo is niet bereikbaar.') + '</span></div>';
+        return;
+      }
+      if (!data.videos.length) { bak.innerHTML = '<p class="text-sm opacity-60 col-span-full">Niets gevonden.</p>'; return; }
+      bak.innerHTML = data.videos.map(function (v) {
+        var min = Math.floor((v.duration_seconds || 0) / 60);
+        var sec = String((v.duration_seconds || 0) % 60).padStart(2, '0');
+        var prive = v.privacy && v.privacy !== 'anybody' ? '<span class="badge badge-warning badge-xs mt-1">niet openbaar</span>' : '';
+        return '<button class="group flex flex-col items-stretch justify-start text-left w-full" data-action="video-kies" data-id="' + e(v.id) + '">'
+          + '<img src="' + e(v.thumbnail_url) + '" alt="" class="rounded w-full aspect-video object-cover bg-base-300 group-hover:ring-2 ring-primary">'
+          + '<span class="text-xs mt-1 line-clamp-2 min-h-[2.5em] leading-snug">' + e(v.title) + '</span>'
+          + '<span class="text-xs opacity-50">' + min + ':' + sec + '</span>' + (prive ? '<span>' + prive + '</span>' : '') + '</button>';
+      }).join('');
+    } catch (err) { bak.innerHTML = '<p class="text-sm text-error col-span-full">' + e(err.message) + '</p>'; }
+  }
+
+  async function zetVideo(body) {
+    var v = await NB.api('/api/video', { method: 'POST', body: body });
+    zet('content.video_url', v.url);
+    zet('content.thumbnail_url', v.thumbnail_url);
+    // Het stilstaand beeld komt van de video; een eigen beeld van vroeger valt weg.
+    zet('content.beeld', null);
+    NB.dialoog('dlgVideo').close();
+    gewijzigd();
+    render();
+    NB.toast('Video gekozen: ' + v.title);
+  }
+  NB.actions['video-kies'] = function (el) { return zetVideo({ vimeo_id: el.dataset.id }); };
+  NB.actions['video-link'] = function () {
+    var adres = document.getElementById('videoLink').value.trim();
+    if (!adres) { NB.toast('Plak eerst een link.', 'warning'); return; }
+    return zetVideo({ url: adres });
+  };
+
   // ─── Schrijf met AI ───────────────────────────────────────────────────────
 
   NB.openAI = function () {
@@ -573,9 +629,10 @@
       case 'snippet':
         return berichtKeuze() + (lees('content.snippet_id') ? labelVeld() + doorRegel() + berichtBron() : '');
       case 'video':
-        return uitleg('Titel, tekst en de knoptekst typ je <strong>in de brief</strong>.')
-          + veld('Link naar de video', 'content.video_url', { hint: 'https://vimeo.com/… of YouTube' })
-          + beeldRij('Stilstaand beeld (een mail kan geen video afspelen)');
+        return uitleg('In de brief staat enkel het stilstaand beeld; klikken opent de video. Een titel of tekst erbij? Zet er een tekstblok naast.')
+          + '<div class="flex items-center gap-2">' + (s().can_edit ? '<button class="btn btn-sm btn-primary" data-action="video-open"><i data-lucide="circle-play" class="w-4 h-4"></i> ' + (lees('content.video_url') ? 'Andere video' : 'Video kiezen') + '</button>' : '')
+          + (lees('content.video_url') ? '<a class="link text-xs truncate" href="' + e(lees('content.video_url')) + '" target="_blank" rel="noopener">' + e(lees('content.video_url')) + '</a>' : '') + '</div>'
+          + (lees('content.video_url') ? beeldRij('Stilstaand beeld (komt van de video; kies er zelf een om het te vervangen)') : '');
       case 'link':
       case 'linkedin':
         return '<div class="flex gap-2 items-end">' + veld('Link', 'content.url', { hint: 'https://' }) + (s().can_edit ? '<button class="btn btn-sm" data-action="link-ophalen">Ophalen</button>' : '') + '</div>'

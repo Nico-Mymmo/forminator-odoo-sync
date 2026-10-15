@@ -3378,7 +3378,7 @@ volgens FORBIDDEN_FIELDS nooit gelezen mag worden.
 | Odoo-schrijfpad + idempotentie | `lib/mail-service.js` |
 | Herstelronde voor verplaatste events | `lib/mail-cron.js` (`*/15`-tak in `index.js#scheduled()`) |
 | Editor | `public/events-v2-mail-studio.js` + de dialogen in `events-v2.html` |
-| Vimeo-videokiezer | `lib/vimeo.js` + `GET /api/vimeo/videos` (secret `VIMEO_ACCESS_TOKEN`) |
+| Vimeo-videokiezer (ook gebruikt door Nieuwsbrieven: `idFromVimeoUrl`, `resolveVideoWithoutToken`) | `lib/vimeo.js` + `GET /api/vimeo/videos` (secret `VIMEO_ACCESS_TOKEN`) |
 | Tests (zonder Odoo/netwerk) | `node src/modules/event-operations-v2/tests/mail-test.mjs` |
 
 Afspraken die bewust zo zijn:
@@ -5451,6 +5451,14 @@ Afspraken die bewust zo zijn:
   tekstveld als Odoo niet antwoordt), het chatkanaal uit `GET
   /api/chat-channels` (het kanaalregister van Mini-apps), de hoofdredactie als
   vinkjes (enkel een beheerder bewaart `editor_user_ids`).
+- **Een video is enkel het stilstaand beeld** (beslissing Nico, 2026-10-15):
+  het labeltje erboven, daaronder het beeld, en klikken op het beeld opent de
+  video. Geen titel, tekst of knop in het blok; wie dat wil, zet er een
+  tekstblok naast. De video kies je uit DEZELFDE Vimeo-lijst als bij de events
+  (`lib/vimeo.js` van Eventbeheer: `GET /api/vimeo/videos`, `POST /api/video`
+  voor een geplakte Vimeo- of YouTube-link zonder token), via de werkbalk, de
+  lege plek in de brief (`data-nb-video`) of het paneel (`dlgVideo`). Het
+  beeld komt van de video (`thumbnail_url`); "+ Beeld" vervangt het.
 - **De koppelingen blijven zoals ze zijn** (bewust, 2026-10-15): EEN koppeling
   per reeks, aangemaakt bij het eerste antwoord, in Koppelingen onder het
   tabblad "Nieuwsbrief-antwoorden". Er komen er geen bij per vraag. Het scherm
