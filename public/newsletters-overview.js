@@ -22,6 +22,8 @@
     syndicoach: { bg: '#ec4899', text: '#ffffff' },
     openvme: { bg: '#0369a1', text: '#ffffff' },
     professionals: { bg: '#14b8a6', text: '#ffffff' },
+    productupdate: { bg: '#7c3aed', text: '#ffffff' },
+    aankondiging: { bg: '#ea580c', text: '#ffffff' },
   };
   var MERK_KLEUR = { syndicoach: KLEUREN.syndicoach, openvme: KLEUREN.openvme };
   var STAND_STIP = { collecting: '#f59e0b', review: '#38bdf8', scheduled: '#0369a1', sent: '#16a34a', cancelled: '#9ca3af' };
@@ -49,7 +51,7 @@
       + '<button class="btn btn-sm join-item' + (st.weergave === 'lijst' ? ' btn-active' : '') + '" data-action="kal-weergave" data-weergave="lijst"><i data-lucide="list" class="w-4 h-4"></i> Lijst</button></div>'
       + '<button class="btn btn-sm btn-outline" data-action="open-idee"><i data-lucide="lightbulb" class="w-4 h-4"></i> Idee</button>'
       + (NB.state.boot.me.is_editor || (NB.state.boot.series || []).some(function (s) { return s.is_editor; })
-        ? '<button class="btn btn-sm btn-primary" data-action="open-nieuwe-editie"><i data-lucide="plus" class="w-4 h-4"></i> Nieuwe editie</button>' : '')
+        ? '<button class="btn btn-sm btn-primary" data-action="open-nieuwe-editie"><i data-lucide="plus" class="w-4 h-4"></i> Nieuwe mailing</button>' : '')
       + '</div></div>';
   }
 
@@ -368,23 +370,73 @@
     } catch (err) { NB.fout(err); }
   };
 
-  /** Nieuwe editie: vanaf de knop (datum over drie weken) of vanaf een dag op de kalender. */
+  /** Een soort mailing zonder vaste rubrieken start altijd blanco (zelfde regel als altijdBlanco() op de server). */
+  function altijdBlanco(s) { return !(s && s.sections && s.sections.length); }
+
+  /** Het venster past zich aan het gekozen soort aan: met rubrieken is er een keuze, zonder niet. */
+  function toonOpbouw() {
+    var s = serieVan(document.getElementById('editieReeks').value);
+    var vrij = altijdBlanco(s);
+    document.getElementById('editieOpbouw').classList.toggle('hidden', vrij);
+    document.getElementById('editieUitleg').textContent = !s ? ''
+      : vrij ? 'Een losse mailing: je bouwt ze zelf op met blokken, zonder opdrachten of inleverdag.'
+        : s.cadence === 'monthly' ? 'Een nieuwsbrief met vast ritme en vaste rubrieken.' : 'Met vaste rubrieken, zonder vast ritme.';
+  }
+  NB.changes['editie-reeks'] = toonOpbouw;
+
+  /** Nieuwe mailing: vanaf de knop (datum over drie weken) of vanaf een dag op de kalender. */
   NB.actions['open-nieuwe-editie'] = function (el) {
     var reeksen = (NB.state.boot.series || []).filter(function (s) { return s.is_active && s.is_editor; });
-    if (!reeksen.length) { NB.toast('Enkel de hoofdredactie plant een editie.', 'warning'); return; }
+    if (!reeksen.length) { NB.toast('Enkel de hoofdredactie plant een mailing.', 'warning'); return; }
+    var gekozen = el && el.dataset && el.dataset.series;
+    var optie = function (s) { return '<option value="' + e(s.id) + '"' + (s.id === gekozen ? ' selected' : '') + '>' + e(s.name) + '</option>'; };
+    var brieven = reeksen.filter(function (s) { return !altijdBlanco(s); });
+    var losse = reeksen.filter(altijdBlanco);
     var sel = document.getElementById('editieReeks');
-    sel.innerHTML = reeksen.map(function (s) { return '<option value="' + e(s.id) + '"' + (s.id === (el && el.dataset && el.dataset.series) ? ' selected' : '') + '>' + e(s.name) + '</option>'; }).join('');
+    sel.innerHTML = (brieven.length ? '<optgroup label="Nieuwsbrieven">' + brieven.map(optie).join('') + '</optgroup>' : '')
+      + (losse.length ? '<optgroup label="Losse mailings">' + losse.map(optie).join('') + '</optgroup>' : '');
     var datum = el && el.dataset && el.dataset.datum ? el.dataset.datum : NB.lokaal(new Date(Date.now() + 21 * 86400000).toISOString()).slice(0, 10);
     document.getElementById('editieDatum').value = datum;
     document.getElementById('editieNaam').value = '';
     var vast = document.querySelector('input[name="editieOpbouw"][value="vast"]');
     if (vast) vast.checked = true;
+    toonOpbouw();
+    NB.ikons();
     NB.dialoog('dlgEditie').showModal();
+  };
+
+  /** Een nieuw soort mailing: een reeks zonder ritme en zonder rubrieken, daarna meteen de instellingen. */
+  NB.actions['open-nieuw-soort'] = function () {
+    if (!NB.state.boot.me.is_editor) { NB.toast('Enkel beheerders en marketing voegen een soort mailing toe.', 'warning'); return; }
+    var merken = NB.state.boot.brands || {};
+    document.getElementById('soortMerk').innerHTML = Object.keys(merken).map(function (k) { return '<option value="' + e(k) + '">' + e(merken[k].name || k) + '</option>'; }).join('');
+    document.getElementById('soortBasis').innerHTML = '<option value="">Niets overnemen</option>' + (NB.state.boot.series || []).map(function (s) { return '<option value="' + e(s.id) + '">' + e(s.name) + '</option>'; }).join('');
+    document.getElementById('soortNaam').value = '';
+    document.getElementById('soortRitme').value = 'none';
+    NB.dialoog('dlgEditie').close();
+    NB.dialoog('dlgSoort').showModal();
+    document.getElementById('soortNaam').focus();
+  };
+
+  NB.actions['maak-soort'] = async function () {
+    try {
+      var naam = document.getElementById('soortNaam').value.trim();
+      if (!naam) { NB.toast('Geef het soort mailing een naam.', 'warning'); return; }
+      var s = await NB.api('/api/series', {
+        method: 'POST',
+        body: { name: naam, brand: document.getElementById('soortMerk').value, cadence: document.getElementById('soortRitme').value, basis: document.getElementById('soortBasis').value || null },
+      });
+      NB.state.boot.series = (NB.state.boot.series || []).concat([s]);
+      NB.dialoog('dlgSoort').close();
+      NB.toast('"' + naam + '" is er. Kies nu de lijsten en de afzender.');
+      NB.ga('#/reeks/' + s.id);
+    } catch (err) { NB.fout(err); }
   };
 
   NB.actions['maak-editie'] = async function () {
     try {
-      var blanco = (document.querySelector('input[name="editieOpbouw"]:checked') || {}).value === 'blanco';
+      var blanco = altijdBlanco(serieVan(document.getElementById('editieReeks').value))
+        || (document.querySelector('input[name="editieOpbouw"]:checked') || {}).value === 'blanco';
       var ed = await NB.api('/api/series/' + document.getElementById('editieReeks').value + '/editions', {
         method: 'POST', body: { date: document.getElementById('editieDatum').value, blanco: blanco, title: document.getElementById('editieNaam').value.trim() },
       });

@@ -3807,6 +3807,28 @@ bleken drie dingen niet te kloppen. Alle drie zijn gefixt in `lib/sync.js`,
     "Opbouwen" (i.p.v. Verzamelen/Nalezen) tot alle blokken bevestigd zijn.
 - De checklist blijft dezelfde: zonder bevestigde blokken kan ze niet vertrekken.
 
+## Nieuwsbrief: soorten mailing (2026-10-15)
+
+- **Woorden (Nico)**: "mailing" is het overkoepelende woord. Een **soort
+  mailing** = een reeks (`newsletter_series`). De drie nieuwsbrieven zijn
+  soorten met vast ritme en vaste rubrieken; **Productupdate** en
+  **Aankondiging** (migratie `20261015150000_newsletters_losse_mailings.sql`,
+  overgenomen van de OpenVME-reeks) zijn **losse mailings**: `cadence: 'none'`,
+  `sections: []`. De knop en het venster heten "Nieuwe mailing" / "Welke
+  mailing", met de groepen "Nieuwsbrieven" en "Losse mailings".
+- **Zonder rubrieken altijd blanco**: `altijdBlanco(series)` in
+  lib/editions.js (en dezelfde regel in newsletters-overview.js): een soort
+  zonder `sections` start elke mailing blanco, de keuze Opbouw verdwijnt uit
+  het venster. Naam zonder eigen naam: de dag ("25 okt 2026") bij een los
+  soort, "Extra mailing" bij een blanco van een nieuwsbrief.
+- **Nieuw soort toevoegen**: `POST /api/series` (enkel `isHoofdredactie`:
+  admin of marketing) met `{ name, brand, cadence, basis }` ->
+  `insertSeries()` in store.js: code uit de naam (uniek, anders `-2`), geen
+  rubrieken; met `basis` worden lijsten, afzender, logo, tint, chatkanaal,
+  doelgroep, toon, koppeling en hoofdredactie overgenomen. Het scherm springt
+  daarna naar de instellingen (`#/reeks/:id`). Kleuren op de kalender:
+  `KLEUREN[code]`, anders de merkkleur.
+
 ## Nieuwsbrief: rechts enkel instellingen, titelblok, kort nieuws (2026-10-15)
 
 - **Tekstblok** = `article` (label in KINDS: "Tekstblok"): titel, optionele

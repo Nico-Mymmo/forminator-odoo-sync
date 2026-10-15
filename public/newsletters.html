@@ -136,20 +136,24 @@
     <form method="dialog" class="modal-backdrop"><button>sluiten</button></form>
   </dialog>
 
-  <!-- Nieuwe editie -->
+  <!-- Nieuwe mailing (een editie van een nieuwsbrief, of een losse mailing) -->
   <dialog id="dlgEditie" class="modal">
     <div class="modal-box max-w-md">
-      <h3 class="font-bold text-lg mb-1">Nieuwe editie</h3>
-      <p class="text-sm opacity-70 mb-4">De lezers, de afzender en de huisstijl komen van de nieuwsbrief die je kiest.</p>
-      <label class="form-control mb-3">
-        <span class="label-text mb-1">Welke nieuwsbrief</span>
-        <select id="editieReeks" class="select select-bordered select-sm"></select>
+      <h3 class="font-bold text-lg mb-1">Nieuwe mailing</h3>
+      <p class="text-sm opacity-70 mb-4">De lezers, de afzender en de huisstijl komen van het soort mailing dat je kiest.</p>
+      <label class="form-control mb-1">
+        <span class="label-text mb-1">Welke mailing</span>
+        <select id="editieReeks" class="select select-bordered select-sm" data-change="editie-reeks"></select>
       </label>
+      <div class="flex items-center justify-between gap-2 mb-3">
+        <span id="editieUitleg" class="text-xs opacity-60"></span>
+        <button type="button" class="btn btn-xs btn-ghost shrink-0" data-action="open-nieuw-soort"><i data-lucide="plus" class="w-3 h-3"></i> Nieuw soort mailing</button>
+      </div>
       <label class="form-control mb-3">
         <span class="label-text mb-1">Verzenddag</span>
         <input id="editieDatum" type="date" class="input input-bordered input-sm">
       </label>
-      <div class="mb-3">
+      <div class="mb-3" id="editieOpbouw">
         <span class="label-text mb-1 block">Opbouw</span>
         <label class="flex items-start gap-3 p-3 rounded-lg border border-base-300 cursor-pointer has-[:checked]:border-primary has-[:checked]:bg-primary/5 mb-2">
           <input type="radio" name="editieOpbouw" value="vast" class="radio radio-primary radio-sm mt-0.5" checked>
@@ -162,11 +166,45 @@
       </div>
       <label class="form-control">
         <span class="label-text mb-1">Naam <span class="opacity-60">(zoals jullie ze intern noemen)</span></span>
-        <input id="editieNaam" type="text" class="input input-bordered input-sm" placeholder="Vanzelf: de maand, of &quot;Extra mailing&quot;" maxlength="120">
+        <input id="editieNaam" type="text" class="input input-bordered input-sm" placeholder="Vanzelf: de maand of de dag" maxlength="120">
       </label>
       <div class="modal-action">
         <button class="btn btn-primary btn-sm" data-action="maak-editie">Aanmaken</button>
         <button class="btn btn-ghost btn-sm" data-action="sluit-dialoog" data-dialoog="dlgEditie">Annuleren</button>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>sluiten</button></form>
+  </dialog>
+
+  <!-- Nieuw soort mailing (een reeks zonder ritme en zonder rubrieken) -->
+  <dialog id="dlgSoort" class="modal">
+    <div class="modal-box max-w-md">
+      <h3 class="font-bold text-lg mb-1">Nieuw soort mailing</h3>
+      <p class="text-sm opacity-70 mb-4">Bijvoorbeeld "Productupdate" of "Aankondiging". Lijsten, afzender en rubrieken stel je daarna in bij de instellingen.</p>
+      <label class="form-control mb-3">
+        <span class="label-text mb-1">Naam</span>
+        <input id="soortNaam" type="text" class="input input-bordered input-sm" placeholder="Bv. Productupdate" maxlength="80">
+      </label>
+      <div class="grid grid-cols-2 gap-3 mb-3">
+        <label class="form-control">
+          <span class="label-text mb-1">Huisstijl</span>
+          <select id="soortMerk" class="select select-bordered select-sm"></select>
+        </label>
+        <label class="form-control">
+          <span class="label-text mb-1">Ritme</span>
+          <select id="soortRitme" class="select select-bordered select-sm">
+            <option value="none">Enkel met de hand</option>
+            <option value="monthly">Elke maand, vanzelf</option>
+          </select>
+        </label>
+      </div>
+      <label class="form-control">
+        <span class="label-text mb-1">Neem lijsten, afzender en chatkanaal over van</span>
+        <select id="soortBasis" class="select select-bordered select-sm"></select>
+      </label>
+      <div class="modal-action">
+        <button class="btn btn-primary btn-sm" data-action="maak-soort">Aanmaken en instellen</button>
+        <button class="btn btn-ghost btn-sm" data-action="sluit-dialoog" data-dialoog="dlgSoort">Annuleren</button>
       </div>
     </div>
     <form method="dialog" class="modal-backdrop"><button>sluiten</button></form>
