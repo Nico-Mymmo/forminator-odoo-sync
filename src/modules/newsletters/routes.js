@@ -18,7 +18,7 @@ import {
   sendMode, testEmails, BRAND, BEELD_KADERS, BEELD_PLAATSEN, TEKENING_MATEN, TITEL_NIVEAUS, MERKKLEUREN, merkkleur, BERICHT_VORMEN,
   VRAAG_SOORTEN, VRAAG_STIJLEN, VRAAG_STANDAARD, VRAAG_OUDE_KLEUREN, NIEUWS_VORMEN, NIEUWS_MAX,
 } from './lib/constants.js';
-import { renderEdition, renderContribution, heeftInhoud, kopVan } from './lib/render.js';
+import { renderEdition, renderContribution, heeftInhoud, kopVan, inToc } from './lib/render.js';
 import { verzamel, maakEditieOp, vernieuwNieuws, ondertekenaarId, metOndertekening } from './lib/editions.js';
 import { antwoordLinks, antwoordenVanEditie } from './lib/answers.js';
 import { tokenVeldBestaat, verstuurTest, leesCijfers } from './lib/odoo-mailing.js';
@@ -156,8 +156,8 @@ export function normaliseerInhoud(kind, c = {}) {
   const uit = inhoudPerSoort(kind, c);
   const bg = merkkleur(c?.achtergrond);
   if (bg) uit.achtergrond = bg;
-  // Uit de inhoudstafel gehouden (opmaakstand). Standaard staat alles erin.
-  if (c?.in_toc === false) uit.in_toc = false;
+  // In of uit de inhoudstafel, als marketing dat uitdrukkelijk koos (anders de standaard per soort, inToc()).
+  if (c?.in_toc === false || c?.in_toc === true) uit.in_toc = c.in_toc;
   return uit;
 }
 
@@ -506,6 +506,7 @@ export const routes = {
             comment_count: opmerkingen[i.id] || 0,
             has_content: heeftInhoud(i, { events: [{ id: 0 }] }),
             heading: kopVan(i),
+            in_toc: inToc(i),
           })),
           progress: voortgang(items),
           activity: activity.map((a) => ({ ...a, user_name: naamVan(users, a.user_id) })),
@@ -880,7 +881,7 @@ export const routes = {
         const metOpmaak = { ...b.content };
         if (metOpmaak.stijl === undefined && item.content?.stijl) metOpmaak.stijl = item.content.stijl;
         if (metOpmaak.kleur === undefined && item.content?.kleur) metOpmaak.kleur = item.content.kleur;
-        if (metOpmaak.in_toc === undefined && item.content?.in_toc === false) metOpmaak.in_toc = false;
+        if (metOpmaak.in_toc === undefined && typeof item.content?.in_toc === 'boolean') metOpmaak.in_toc = item.content.in_toc;
         w.content = normaliseerInhoud(kind, metOpmaak);
         // De achtergrond zet de hoofdredactie in de opmaakstand; een schrijver
         // die zijn tekst bewaart, wist ze niet.
@@ -952,9 +953,9 @@ export const routes = {
       const { item, edition, series } = await stukjeMetContext(env, params.id);
       eisEditor(user, series);
       if (edition && !isActiveEdition(edition)) throw new NewsletterError('Deze editie is al verstuurd.', 409);
+      // Uitdrukkelijk erin of eruit: de standaard per soort (inToc) telt dan niet meer.
       const aan = (await leesBody(request)).in_toc !== false;
-      const content = { ...(item.content || {}) };
-      if (aan) delete content.in_toc; else content.in_toc = false;
+      const content = { ...(item.content || {}), in_toc: aan };
       return json({ success: true, data: await updateContribution(env, item.id, { content }) });
     } catch (err) { return fout(err); }
   },

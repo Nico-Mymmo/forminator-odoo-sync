@@ -203,6 +203,15 @@
     return Boolean(k && k.auto);
   };
 
+  /** Staat een blok in de inhoudstafel? Dezelfde regel als inToc() op de server. */
+  NB.inToc = function (it, content) {
+    if (!it || it.kind === 'toc') return false;
+    var v = (content || it.content || {}).in_toc;
+    if (v === true) return true;
+    if (v === false) return false;
+    return ['closing', 'intro', 'image'].indexOf(it.kind) < 0;
+  };
+
   NB.isVraag = function (kind) {
     var k = NB.state.boot && NB.state.boot.kinds && NB.state.boot.kinds[kind];
     return Boolean(k && k.interactive);
