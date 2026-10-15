@@ -77,7 +77,7 @@
         + '<div class="grid sm:grid-cols-2 gap-3">' + invoer('Naam afzender', 'from_name', s.from_name) + invoer('Adres afzender', 'from_email', s.from_email) + '</div>'
         + invoer('Antwoorden op de mail gaan naar', 'reply_to', s.reply_to)
         + '<div class="grid sm:grid-cols-2 gap-3">' + invoer('Logo (adres van het beeld)', 'logo_url', s.logo_url, { uitleg: 'Leeg = het logo van het merk.' }) + invoer('Achtergrondtint', 'tint', s.tint || '#f0f9ff', { type: 'color' }) + '</div>')
-      + kaart('Ritme', '<label class="form-control"><span class="label-text mb-1">Hoe vaak</span><select class="select select-bordered select-sm" data-reeks="cadence"><option value="monthly"' + (s.cadence === 'monthly' ? ' selected' : '') + '>Elke maand, vanzelf</option><option value="none"' + (s.cadence === 'none' ? ' selected' : '') + '>Enkel met de hand</option></select></label>'
+      + kaart('Ritme', '<label class="form-control"><span class="label-text mb-1">Hoe vaak</span><select class="select select-bordered select-sm" data-reeks="cadence"><option value="monthly"' + (s.cadence === 'monthly' ? ' selected' : '') + '>Elke maand, vanzelf</option><option value="none"' + (s.cadence === 'none' ? ' selected' : '') + '>Enkel met de hand (losse mailing)</option></select></label>'
         + '<div class="grid sm:grid-cols-2 gap-3">' + invoer('Verzenddag (dag van de maand)', 'send_day', s.send_day, { type: 'number', min: 1, max: 28 }) + invoer('Uur', 'send_hour', s.send_hour, { type: 'number', min: 6, max: 20 })
         + invoer('Inleverdatum, werkdagen vóór de verzenddag', 'deadline_workdays', s.deadline_workdays, { type: 'number', min: 1, max: 10 }) + invoer('Editie aanmaken, dagen vooraf', 'create_days_ahead', s.create_days_ahead, { type: 'number', min: 7, max: 90 }) + '</div>'
         + '<p class="text-xs opacity-60">Een verzenddag in het weekend schuift naar de maandag. De inleverdatum valt om 17:00.</p>',
@@ -91,7 +91,7 @@
       + '</div>'
       + '<div class="card bg-base-100 border border-base-content/10 mt-5"><div class="card-body p-5 gap-3">'
       + '<div class="flex items-center justify-between"><h2 class="font-semibold">Vaste rubrieken</h2><button class="btn btn-sm btn-ghost" data-action="rubriek-bij"><i data-lucide="plus" class="w-4 h-4"></i> Rubriek</button></div>'
-      + '<p class="text-sm opacity-70">Elke nieuwe editie krijgt deze rubrieken, in deze volgorde, met een opdracht bij wie ze schrijft. Een bestaande editie verandert niet mee.</p>'
+      + '<p class="text-sm opacity-70">Elke nieuwe editie krijgt deze rubrieken, in deze volgorde, met een opdracht bij wie ze schrijft. Een bestaande editie verandert niet mee. <strong>Zonder rubrieken</strong> start elke mailing van dit soort blanco: je bouwt ze zelf op met blokken.</p>'
       + s.sections.map(function (r, i) { return rubriekRij(r, i, s.sections.length); }).join('')
       + '</div></div>'
       + '<div class="flex justify-end mt-5"><button class="btn btn-primary btn-sm" data-action="bewaar-reeks">Bewaren</button></div>';

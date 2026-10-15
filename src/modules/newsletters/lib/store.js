@@ -83,6 +83,28 @@ export function normalizeSections(list) {
   });
 }
 
+/**
+ * Een nieuw soort mailing. `code` moet uniek zijn; bij een botsing komt er
+ * een cijfer achter. Overgenomen van `basis` (een bestaande reeks): afzender,
+ * lijsten, logo, tint, chatkanaal, doelgroep en toon.
+ */
+export async function insertSeries(env, values, basis = null) {
+  const over = basis ? {
+    odoo_list_ids: basis.odoo_list_ids, from_name: basis.from_name, from_email: basis.from_email, reply_to: basis.reply_to,
+    logo_url: basis.logo_url, tint: basis.tint, chat_channel: basis.chat_channel, audience: basis.audience, tone: basis.tone,
+    answers_integration_id: basis.answers_integration_id, editor_user_ids: basis.editor_user_ids,
+  } : {};
+  const basisCode = String(values.code || '').trim().toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '') || 'mailing';
+  for (let n = 0; n < 20; n += 1) {
+    const code = n ? `${basisCode}-${n + 1}` : basisCode;
+    const { data, error } = await db(env).from(TABLES.series).insert({ ...over, ...values, code }).select('*').single();
+    if (error && /duplicate key/i.test(error.message)) continue;
+    check(error, 'Soort mailing aanmaken');
+    return data;
+  }
+  throw new NewsletterError('Geen vrije code gevonden voor dit soort mailing.');
+}
+
 export async function updateSeries(env, id, values) {
   const { data, error } = await db(env).from(TABLES.series)
     .update({ ...values, updated_at: nu() }).eq('id', id).select('*').single();

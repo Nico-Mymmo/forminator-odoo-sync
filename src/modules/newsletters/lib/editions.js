@@ -93,6 +93,16 @@ function startInhoud(sectie) {
  * verzendmoment. Dat is tegelijk het kenmerk waaraan de rest ze herkent
  * (geen extra kolom nodig).
  */
+/** "25 okt 2026": de naam van een losse mailing zonder eigen naam. */
+function dagLabel(d) {
+  return new Intl.DateTimeFormat('nl-BE', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Europe/Brussels' }).format(d);
+}
+
+/** Een soort mailing zonder vaste rubrieken start altijd blanco. */
+export function altijdBlanco(series) {
+  return !(series?.sections || []).length;
+}
+
 export function isBlanco(edition) {
   return Boolean(edition && edition.deadline_at && edition.send_at
     && new Date(edition.deadline_at).getTime() === new Date(edition.send_at).getTime());
@@ -111,7 +121,7 @@ export function isBlanco(edition) {
 export async function maakEditie(env, series, { send, deadline, userId = null, title = '', blanco = false }) {
   const editie = await insertEdition(env, {
     series_id: series.id,
-    title: title || (blanco ? 'Extra mailing' : maandLabel(send.toISOString())),
+    title: title || (!blanco ? maandLabel(send.toISOString()) : series.cadence === 'none' ? dagLabel(send) : 'Extra mailing'),
     send_at: send.toISOString(),
     deadline_at: (blanco ? send : deadline).toISOString(),
     status: blanco ? EDITION_STATUS.REVIEW : EDITION_STATUS.COLLECTING,
@@ -190,7 +200,7 @@ export async function maakEditieOp(env, series, { date, userId, blanco = false, 
   const send = brussel(Number(m[1]), Number(m[2]), Number(m[3]), series.send_hour, 0);
   if (send.getTime() < Date.now()) throw new NewsletterError('Die dag ligt in het verleden.');
   const deadline = inleverdatum(send, series.deadline_workdays);
-  const e = await maakEditie(env, series, { send, deadline, userId, blanco: Boolean(blanco), title: String(title || '').trim().slice(0, 120) });
+  const e = await maakEditie(env, series, { send, deadline, userId, blanco: Boolean(blanco) || altijdBlanco(series), title: String(title || '').trim().slice(0, 120) });
   if (!e) throw new NewsletterError('Er bestaat al een editie op dat moment.', 409);
   return e;
 }

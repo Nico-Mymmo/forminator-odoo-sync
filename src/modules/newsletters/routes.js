@@ -8,7 +8,7 @@
  */
 
 import {
-  NewsletterError, listSeries, getSeries, updateSeries, normalizeSeriesPayload,
+  NewsletterError, listSeries, getSeries, insertSeries, updateSeries, normalizeSeriesPayload,
   listEditions, listEditionsRange, getEdition, updateEdition, listContributions, listContributionsForEditions,
   listPool, listMine, getContribution, insertContributions, updateContribution, deleteContribution,
   listComments, countComments, addComment, logActivity, listActivity, listUsers, isActiveEdition,
@@ -478,6 +478,27 @@ export const routes = {
       const s = await getSeries(env, params.id);
       if (!s) throw new NewsletterError('Reeks niet gevonden.', 404);
       return json({ success: true, data: s });
+    } catch (err) { return fout(err); }
+  },
+
+  /**
+   * Een nieuw soort mailing (reeks). Enkel de hoofdredactie. Standaard zonder
+   * ritme en zonder rubrieken: elke mailing ervan start blanco. Met `basis`
+   * (id van een bestaande reeks) worden afzender, lijsten, logo, tint,
+   * chatkanaal, doelgroep en toon overgenomen.
+   */
+  'POST /api/series': async ({ env, user, request }) => {
+    try {
+      if (!isHoofdredactie(user)) throw new NewsletterError('Enkel de hoofdredactie kan een soort mailing toevoegen.', 403);
+      const b = await leesBody(request);
+      const name = kort(b.name, 80);
+      if (!name) throw new NewsletterError('Geef het soort mailing een naam.');
+      if (!BRAND[b.brand]) throw new NewsletterError('Kies een huisstijl.');
+      const basis = b.basis ? await getSeries(env, String(b.basis)) : null;
+      if (b.basis && !basis) throw new NewsletterError('De reeks om van over te nemen bestaat niet.', 404);
+      const waarden = normalizeSeriesPayload({ name, cadence: b.cadence === 'monthly' ? 'monthly' : 'none', sections: [] });
+      const s = await insertSeries(env, { ...waarden, code: name, brand: b.brand, description: kort(b.description, 300) }, basis);
+      return json({ success: true, data: { ...s, is_editor: true } }, 201);
     } catch (err) { return fout(err); }
   },
 
