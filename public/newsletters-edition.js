@@ -27,9 +27,8 @@
    */
   var SJABLONEN = [
     { key: 'vooraf', kind: 'intro', titel: 'Woordje vooraf', icoon: 'hand-heart', uitleg: 'Een korte inleiding bovenaan, ondertekend met foto.' },
-    { key: 'vraag', kind: 'question', titel: 'Korte vraag', icoon: 'circle-help', uitleg: 'Eén vraag, lezers antwoorden met een klik.' },
-    { key: 'stelling', kind: 'statement', titel: 'Stelling', icoon: 'scale', uitleg: 'Eens of oneens? Eén klik volstaat.' },
-    { key: 'peiling', kind: 'poll', titel: 'Jij beslist mee', icoon: 'list-checks', uitleg: 'Laat lezers kiezen tussen een paar opties.' },
+    // EEN vraagblok: korte vraag, stelling of keuze kies je daarna in de brief zelf.
+    { key: 'vraag', kind: 'question', naam: 'Vraag aan de lezer', titel: 'Korte vraag', icoon: 'message-circle-question', uitleg: 'Een vraag, stelling of keuze; lezers antwoorden met één klik.' },
     { key: 'bericht', kind: 'snippet', titel: 'Interessant voor jou', icoon: 'rss', uitleg: 'Een bericht uit Nieuws & updates, meteen ingevuld.' },
     { key: 'linkedin', kind: 'linkedin', titel: 'Op LinkedIn', icoon: 'share-2', uitleg: 'Een post die het delen waard is.' },
     { key: 'tekst', kind: 'article', titel: 'Uit het team', icoon: 'file-text', uitleg: 'Een kort verhaal, met foto of tekening.' },
@@ -111,7 +110,7 @@
     var lijst = SJABLONEN.map(function (s) {
       return '<button class="nb-sjabloon text-left rounded-xl border border-base-content/10 hover:border-primary/50 hover:bg-primary/5 p-2.5 flex gap-2 items-start" draggable="true" data-action="sjabloon" data-sjabloon="' + s.key + '">'
         + '<i data-lucide="' + s.icoon + '" class="w-4 h-4 mt-0.5 text-primary shrink-0"></i>'
-        + '<span class="min-w-0"><span class="block text-sm font-medium">' + e(s.titel) + '</span><span class="block text-xs opacity-60 leading-snug">' + e(s.uitleg) + '</span></span></button>';
+        + '<span class="min-w-0"><span class="block text-sm font-medium">' + e(s.naam || s.titel) + '</span><span class="block text-xs opacity-60 leading-snug">' + e(s.uitleg) + '</span></span></button>';
     }).join('');
     return kaart('<h3 class="font-semibold flex items-center gap-2"><i data-lucide="plus" class="w-4 h-4"></i> Iets toevoegen</h3>'
       + '<p class="text-sm opacity-70">Sleep een blokje naar de brief, of klik erop en kies daarna de plek. Marketing bevestigt het nog; tot dan staat het als onbevestigd in de brief.</p>'
@@ -194,6 +193,7 @@
       + (auto ? '<p class="text-sm opacity-70">Dit blok vult zichzelf.</p>'
         : '<label class="form-control"><span class="label-text text-xs mb-1">Wie schrijft het?</span><select class="select select-bordered select-sm" data-change="eigenaar" data-id="' + e(it.id) + '">' + NB.gebruikersOpties(it.owner_user_id, true) + '</select></label>'
           + '<div class="flex items-center gap-2 text-sm">' + NB.statusBadge(it.status) + '</div>')
+      + vraagOpmaak(it)
       + '<div class="flex items-center gap-3"><span class="label-text text-xs">Achtergrond</span><button type="button" class="btn btn-sm btn-ghost gap-2 px-2" data-action="kleur-blok" data-id="' + e(it.id) + '">' + NB.kleurBol(it.content && it.content.achtergrond) + '<span>' + ((it.content && it.content.achtergrond) ? e(it.content.achtergrond.toUpperCase()) : 'Standaard') + '</span></button></div>'
       + '<div class="flex flex-wrap gap-2 mt-1">'
       + (auto ? '' : '<button class="btn btn-sm" data-action="opmaak-inhoud" data-id="' + e(it.id) + '"><i data-lucide="pen-line" class="w-4 h-4"></i> Inhoud bewerken</button>')
@@ -201,9 +201,44 @@
       ' border-primary/40') + '</div>';
   }
 
+  /** Een vraag aan de lezer: hoe opvallend (stijl) en in welke kleur. */
+  function vraagOpmaak(it) {
+    if (VRAAG_KINDS.indexOf(it.kind) < 0) return '';
+    var boot = NB.state.boot;
+    var std = (boot.vraag_standaard || {})[it.kind] || {};
+    var c = Object.assign({ stijl: std.stijl, kleur: std.kleur }, it.content || {});
+    var soort = (boot.vraag_soorten || []).find(function (v) { return v.kind === it.kind; });
+    var stijlen = (boot.vraag_stijlen || []).map(function (s) {
+      var aan = s.key === c.stijl;
+      return '<button type="button" class="btn btn-sm h-auto min-h-0 py-2 flex-col items-start text-left gap-0 normal-case font-normal ' + (aan ? 'btn-primary' : 'btn-outline border-base-content/20') + '" data-action="vraag-stijl" data-id="' + e(it.id) + '" data-stijl="' + e(s.key) + '">'
+        + '<span class="font-semibold">' + e(s.label) + '</span><span class="text-[11px] leading-tight opacity-70">' + e(s.uitleg) + '</span></button>';
+    }).join('');
+    var kleuren = Object.keys(boot.vraag_kleuren || {}).map(function (k) {
+      var v = boot.vraag_kleuren[k];
+      var aan = k === c.kleur;
+      return '<button type="button" style="width:30px;height:30px;border-radius:50%;background:' + e(v.sterk) + ';border:3px solid #fff;box-shadow:0 0 0 ' + (aan ? '2px #0284c7' : '1px rgba(0,0,0,.2)') + '" data-action="vraag-kleur" data-id="' + e(it.id) + '" data-kleur="' + e(k) + '" title="' + e(v.label) + '" aria-label="' + e(v.label) + '"></button>';
+    }).join('');
+    return '<div class="text-sm">Soort: <strong>' + e(soort ? soort.label : it.kind) + '</strong> <span class="opacity-60">(wisselen kan in de brief, bij Inhoud)</span></div>'
+      + '<div><span class="label-text text-xs">Stijl</span><div class="grid grid-cols-3 gap-2 mt-1">' + stijlen + '</div></div>'
+      + '<div><span class="label-text text-xs">Kleur</span><div class="flex gap-2 mt-1">' + kleuren + '</div></div>';
+  }
+
+  async function zetVraagOpmaak(id, wat) {
+    var it = itemVan(id);
+    if (!it) return;
+    try {
+      var bij = await NB.api('/api/contributions/' + id + '/vraagstijl', { method: 'POST', body: wat });
+      it.content = bij.content;
+      laadBrief();
+      toonPaneel();
+    } catch (err) { NB.fout(err); }
+  }
+  NB.actions['vraag-stijl'] = function (el) { zetVraagOpmaak(el.dataset.id, { stijl: el.dataset.stijl }); };
+  NB.actions['vraag-kleur'] = function (el) { zetVraagOpmaak(el.dataset.id, { kleur: el.dataset.kleur }); };
+
   function paneelPlaatsen() {
     var sj = SJ[NB.state.plaatsen];
-    return kaart('<h3 class="font-semibold flex items-center gap-2"><i data-lucide="' + sj.icoon + '" class="w-4 h-4 text-primary"></i> ' + e(sj.titel) + '</h3>'
+    return kaart('<h3 class="font-semibold flex items-center gap-2"><i data-lucide="' + sj.icoon + '" class="w-4 h-4 text-primary"></i> ' + e(sj.naam || sj.titel) + '</h3>'
       + '<p class="text-sm">Klik in de brief op een <strong class="text-primary">blauwe plek</strong>: daar komt het blok. Je vult het daarna meteen in.</p>'
       + '<button class="btn btn-sm btn-ghost self-start" data-action="plaats-annuleer">Annuleren</button>', ' border-primary');
   }
@@ -278,7 +313,11 @@
     + '[data-nb-veld="text"] p{margin:0 0 14px!important}[data-nb-veld="text"] p:last-child{margin-bottom:0!important}'
     + '.nb-gereedschap{position:absolute;top:8px;left:10px;z-index:3;display:flex;gap:6px}'
     + '.nb-gereedschap button,.nb-plus{font:600 12px/1 system-ui,-apple-system,"Segoe UI",sans-serif;border-radius:999px;padding:7px 11px;cursor:pointer;border:1px solid #bae6fd;background:#fff;color:#0369a1;box-shadow:0 1px 2px rgba(0,0,0,.06)}'
-    + '.nb-gereedschap button:hover{background:#0284c7;border-color:#0284c7;color:#fff}'
+    + '.nb-gereedschap button:hover,.nb-gereedschap button.nb-aan{background:#0284c7;border-color:#0284c7;color:#fff}'
+    + '.nb-gereedschap .nb-soorten{display:flex;gap:0;border-radius:999px;box-shadow:0 1px 2px rgba(0,0,0,.06)}'
+    + '.nb-gereedschap .nb-soorten button{border-radius:0;box-shadow:none;margin-left:-1px}'
+    + '.nb-gereedschap .nb-soorten button:first-child{border-radius:999px 0 0 999px;margin-left:0}'
+    + '.nb-gereedschap .nb-soorten button:last-child{border-radius:0 999px 999px 0}'
     + '.nb-plus-cel{padding-left:20px;vertical-align:top}'
     + '.nb-plus{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;width:150px;height:150px;box-sizing:border-box;border:2px dashed #7dd3fc;border-radius:14px;background:rgba(255,255,255,.6);font-size:12px;padding:0}'
     + '.nb-plus span{font-size:30px;line-height:1;font-weight:400}'
@@ -307,6 +346,12 @@
     return null;
   }
 
+  function eenRegel(veld) {
+    return veld === 'title' || veld === 'question' || /^options\.\d+\.label$/.test(veld);
+  }
+
+  var VRAAG_KINDS = ['question', 'statement', 'poll'];
+
   function versier(doc) {
     if (!doc.getElementById('nbStijl')) {
       var stijl = doc.createElement('style');
@@ -331,7 +376,7 @@
         var el = ev.target.closest && ev.target.closest('[data-nb-veld][contenteditable]');
         if (!el || !NB.stukjeZet) return;
         var veld = el.getAttribute('data-nb-veld');
-        var waarde = veld === 'title' ? el.textContent.replace(/\s+/g, ' ').trim() : htmlNaarTekst(el);
+        var waarde = eenRegel(veld) ? el.textContent.replace(/\s+/g, ' ').trim() : htmlNaarTekst(el);
         NB.state.inlineVuil = true;
         NB.stukjeZet('content.' + veld, waarde, { stil: true });
         // Een beeld tussen de tekst schuift mee: tel de alinea's ervoor.
@@ -352,10 +397,10 @@
         var tekst = (ev.clipboardData && ev.clipboardData.getData('text/plain')) || '';
         doc.execCommand('insertText', false, tekst);
       });
-      // De titel is één regel.
+      // Een titel, een vraag en het opschrift van een knop zijn één regel.
       doc.addEventListener('keydown', function (ev) {
-        var el = ev.target.closest && ev.target.closest('[data-nb-veld="title"][contenteditable]');
-        if (el && ev.key === 'Enter') ev.preventDefault();
+        var el = ev.target.closest && ev.target.closest('[data-nb-veld][contenteditable]');
+        if (el && ev.key === 'Enter' && eenRegel(el.getAttribute('data-nb-veld'))) ev.preventDefault();
       });
       koppelHerordenen(doc);
       doc.addEventListener('dragover', function (ev) {
@@ -513,9 +558,26 @@
     var s = NB.state.stukje;
     if (!s || NB.state.stukjeHost !== 'paneel' || !s.can_edit || NB.state.voorbeeldStand === 'test' || opmaak()) return;
     var soort = NB.state.concept && NB.state.concept.kind;
-    if (soort !== 'intro' && soort !== 'image') return;
+    var isVraag = VRAAG_KINDS.indexOf(soort) >= 0;
+    if (soort !== 'intro' && soort !== 'image' && !isVraag) return;
     var rij = doc.querySelector('[data-nb-id="' + s.item.id + '"]');
     if (!rij) return;
+    if (isVraag) {
+      // Een vraag: de soort kiezen en meteen typen, IN de brief.
+      rij.querySelectorAll('[data-nb-veld]').forEach(function (x) { x.setAttribute('contenteditable', 'true'); x.setAttribute('spellcheck', 'true'); });
+      var vcel = rij.firstElementChild;
+      var vbar = doc.createElement('div');
+      vbar.className = 'nb-gereedschap';
+      var soorten = (NB.state.boot.vraag_soorten || []).map(function (v) {
+        return '<button type="button" data-nb-knop="soort:' + v.kind + '"' + (v.kind === soort ? ' class="nb-aan"' : '') + ' title="' + e(v.uitleg) + '">' + e(v.label) + '</button>';
+      }).join('');
+      var aantal = ((NB.state.concept.content || {}).options || []).length;
+      vbar.innerHTML = '<span class="nb-soorten">' + soorten + '</span>'
+        + (aantal < 6 ? '<button type="button" data-nb-knop="optie-bij">+ Antwoord</button>' : '')
+        + '<button type="button" data-nb-knop="ai">\u2728 AI</button>';
+      vcel.appendChild(vbar);
+      return;
+    }
     if (soort === 'image') {
       // Een afbeelding: op het beeld klikken opent het beeldvenster.
       rij.querySelectorAll('[data-nb-beeld]').forEach(function (x) { x.setAttribute('data-nb-knop', 'beeld'); x.title = 'Klik om het beeld aan te passen'; });
@@ -623,6 +685,8 @@
   function blokKnop(wat) {
     if (wat === 'ai') openAI();
     else if (wat === 'beeld') openBeeld();
+    else if (wat.indexOf('soort:') === 0 && NB.wisselVraagSoort) NB.wisselVraagSoort(wat.slice(6));
+    else if (wat === 'optie-bij' && NB.vraagOptieBij) NB.vraagOptieBij();
   }
 
   // ─── Schrijf met AI (venster) ─────────────────────────────────────────────
@@ -733,6 +797,8 @@
     var data = vooraf || await NB.api('/api/contributions/' + id);
     if (NB.state.paneelId !== id) return;
     await NB.stukjeInPaneel(data);
+    // Nu het stukje er is: bewerkbaar maken in de brief (woordje vooraf, vraag).
+    labels();
     history.replaceState(null, '', '#/stukje/' + id);
     if (window.innerWidth < 1024 && bak) bak.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
