@@ -147,10 +147,10 @@ export const STYLE = {
  * object-fit in Gmail/Outlook), dus "vullen" = een eigen, bijgesneden kopie.
  *
  *   rechts / links             naast een alinea, de tekst loopt eromheen
- *   kolom-rechts / kolom-links  een tweede kolom over het hele blok, tot de rand
+ *   kolom-rechts / kolom-links  een tweede kolom over het hele blok (binnen de marge)
  *   tekst                      tussen de alinea's, over de hele breedte
  *   video / link               vaste plek in dat soort blok
- *   vol                        een blok "Afbeelding": de hele breedte, rand tot rand
+ *   vol                        een blok "Afbeelding": de hele tekstbreedte (560 px)
  */
 /**
  * EEN blok "Vraag aan de lezer", drie soorten. De soort is de `kind` van het
@@ -164,32 +164,53 @@ export const VRAAG_SOORTEN = [
   { kind: 'poll', label: 'Jij beslist mee', titel: 'Jij beslist mee', uitleg: 'Lezers kiezen tussen een paar opties.' },
 ];
 
-/** Hoe opvallend een vraag in de brief staat: van klein tot een groot vlak. */
+/**
+ * Drie OPBOUWEN voor een vraag, van klein tot groot. De sleutels liggen vast
+ * (ze staan in de inhoud van bestaande stukjes); de opbouw verschilt echt,
+ * niet enkel de kleur.
+ */
 export const VRAAG_STIJLEN = [
-  { key: 'subtiel', label: 'Subtiel', uitleg: 'Klein, tussen de tekst door.' },
-  { key: 'kaart', label: 'Kaart', uitleg: 'Een licht gekleurd vlak.' },
-  { key: 'opvallend', label: 'Opvallend', uitleg: 'Een groot, donker vlak.' },
+  { key: 'subtiel', label: 'Subtiel', uitleg: 'Eén regel met een kleurstreep, kleine knopjes.' },
+  { key: 'kaart', label: 'Twee kolommen', uitleg: 'Vraag links, antwoorden rechts.' },
+  { key: 'opvallend', label: 'Opvallend', uitleg: 'Een groot gekleurd vlak, gecentreerd.' },
 ];
 
-/**
- * De kleuren van een vraag: per merkkleurfamilie een licht vlak, een rand en
- * een sterke kleur (voor het opvallende vlak, de knoppen en de tekst erop).
- * `knop` = de knoppen op het opvallende vlak.
- */
-export const VRAAG_KLEUREN = {
-  blauw: { label: 'Blauw', licht: '#f0f9ff', rand: '#bae6fd', sterk: '#0369a1', knop: '#99f6e4', knopTekst: '#0369a1' },
-  mint: { label: 'Mint', licht: '#f0fdfa', rand: '#99f6e4', sterk: '#0f766e', knop: '#ffffff', knopTekst: '#0f766e' },
-  oranje: { label: 'Oranje', licht: '#fff7ed', rand: '#fed7aa', sterk: '#c2410c', knop: '#ffffff', knopTekst: '#c2410c' },
-  roze: { label: 'Roze', licht: '#fdf2f8', rand: '#fbcfe8', sterk: '#be185d', knop: '#ffffff', knopTekst: '#be185d' },
-  grijs: { label: 'Grijs', licht: '#f9fafb', rand: '#e5e7eb', sterk: '#1f2937', knop: '#ffffff', knopTekst: '#1f2937' },
+/** Zo stonden de vragen er vóór je kon kiezen; de kleur is een merkkleur. */
+export const VRAAG_STANDAARD = {
+  question: { stijl: 'kaart', kleur: '#f97316' },
+  statement: { stijl: 'opvallend', kleur: '#0369a1' },
+  poll: { stijl: 'opvallend', kleur: '#0369a1' },
 };
 
-/** Zo stonden de vragen er vóór je kon kiezen: een oude vraag blijft er zo uitzien. */
-export const VRAAG_STANDAARD = {
-  question: { stijl: 'kaart', kleur: 'oranje' },
-  statement: { stijl: 'opvallend', kleur: 'blauw' },
-  poll: { stijl: 'opvallend', kleur: 'blauw' },
-};
+/** Kleurnamen van vóór de merkkleurkiezer (2026-10-15), voor oude stukjes. */
+export const VRAAG_OUDE_KLEUREN = { blauw: '#0369a1', mint: '#14b8a6', oranje: '#f97316', roze: '#ec4899', grijs: '#1f2937' };
+
+/**
+ * De tinten van een vraag, ALTIJD uit de merkkleuren: de gekozen kleur is de
+ * sterke kleur, het lichte vlak en de rand komen uit dezelfde familie. Tekst
+ * erop is wit of donkergrijs, naargelang de kleur donker genoeg is.
+ */
+export function vraagThema(hex) {
+  const k = merkkleur(hex) || merkkleur(VRAAG_OUDE_KLEUREN[hex]) || '#0369a1';
+  const fam = MERKKLEUREN.find((f) => f.kleuren.some((x) => x.toLowerCase() === k)) || MERKKLEUREN[1];
+  const tinten = fam.kleuren.map((x) => x.toLowerCase());
+  const grijs = fam.familie === 'Grijs';
+  const donker = isDonker(k);
+  const opTekst = donker ? '#ffffff' : '#1f2937';
+  return {
+    sterk: k,
+    licht: grijs ? '#f9fafb' : tinten[0],
+    rand: grijs ? '#e5e7eb' : tinten[1],
+    opTekst,
+    // Zachte tekst op het sterke vlak (het zinnetje onder de vraag).
+    opZacht: donker ? (fam.familie === 'Blauw' ? '#e0f2fe' : '#f3f4f6') : '#4b5563',
+    // Knoppen op het sterke vlak: mint op blauw (zoals altijd), anders wit.
+    knop: donker ? (fam.familie === 'Blauw' ? '#99f6e4' : '#ffffff') : '#ffffff',
+    knopTekst: donker ? k : '#1f2937',
+    // De kleur als tekst op wit: enkel als ze donker genoeg is om te lezen.
+    accentTekst: donker ? k : '#1f2937',
+  };
+}
 
 /**
  * Hoe een bericht uit Nieuws & updates in de brief staat. Meerdere vormen,
@@ -219,13 +240,13 @@ export const NIEUWS_MAX = 3;
 export const BEELD_KADERS = {
   rechts: { breedte: 180, verhouding: 1 },
   links: { breedte: 180, verhouding: 1 },
-  'kolom-rechts': { breedte: 280, verhouding: 0.8 },
-  'kolom-links': { breedte: 280, verhouding: 0.8 },
+  'kolom-rechts': { breedte: 240, verhouding: 0.8 },
+  'kolom-links': { breedte: 240, verhouding: 0.8 },
   tekst: { breedte: 560, verhouding: 16 / 9 },
   video: { breedte: 560, verhouding: 16 / 9 },
   link: { breedte: 558, verhouding: 1.91 },
   compact: { breedte: 150, verhouding: 1 },
-  vol: { breedte: 640, verhouding: 16 / 9 },
+  vol: { breedte: 560, verhouding: 16 / 9 },
 };
 
 /**

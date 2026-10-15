@@ -553,16 +553,22 @@
       return '<button type="button" class="btn btn-sm h-auto min-h-0 py-2 flex-col items-start text-left gap-0 normal-case font-normal ' + (s.key === stijl ? 'btn-primary' : 'btn-outline border-base-content/20') + '" data-action="vraag-stijl-zet" data-stijl="' + e(s.key) + '"' + (mag ? '' : ' disabled') + '>'
         + '<span class="font-semibold">' + e(s.label) + '</span><span class="text-[11px] leading-tight opacity-70">' + e(s.uitleg) + '</span></button>';
     }).join('');
-    var kleuren = Object.keys(boot.vraag_kleuren || {}).map(function (k) {
-      var v = boot.vraag_kleuren[k];
-      return '<button type="button" style="width:30px;height:30px;border-radius:50%;background:' + e(v.sterk) + ';border:3px solid #fff;box-shadow:0 0 0 ' + (k === kleur ? '2px #0284c7' : '1px rgba(0,0,0,.2)') + '" data-action="vraag-kleur-zet" data-kleur="' + e(k) + '" title="' + e(v.label) + '" aria-label="' + e(v.label) + '"' + (mag ? '' : ' disabled') + '></button>';
-    }).join('');
-    return '<div><span class="label-text">Stijl: van klein en subtiel tot groot en opvallend</span><div class="grid grid-cols-3 gap-2 mt-1">' + stijlen + '</div></div>'
-      + '<div><span class="label-text">Kleur</span><div class="flex gap-2 mt-1">' + kleuren + '</div></div>';
+    var hex = (boot.vraag_oude_kleuren || {})[kleur] || kleur;
+    var kleuren = '<button type="button" class="btn btn-sm btn-ghost gap-2 px-2 self-start" data-action="vraag-kleur-kies"' + (mag ? '' : ' disabled') + '>' + NB.kleurBol(hex) + '<span>' + e(String(hex || '').toUpperCase()) + '</span></button>';
+    return '<div><span class="label-text">Opbouw: van klein tot groot</span><div class="grid grid-cols-3 gap-2 mt-1">' + stijlen + '</div></div>'
+      + '<div class="flex items-center gap-3"><span class="label-text">Kleur</span>' + kleuren + '</div>';
   }
 
+  // De kleur: EEN merkkleur uit de gewone kleurkiezer (newsletters-kleur.js).
+  NB.actions['vraag-kleur-kies'] = function (el) {
+    var r = el.getBoundingClientRect();
+    NB.kleur.open({
+      x: r.left, y: r.bottom, huidige: lees('content.kleur'),
+      opKies: function (hex) { zet('content.kleur', hex || ''); gewijzigd(); render(); },
+    });
+  };
+
   NB.actions['vraag-stijl-zet'] = function (el) { zet('content.stijl', el.dataset.stijl); gewijzigd(); render(); };
-  NB.actions['vraag-kleur-zet'] = function (el) { zet('content.kleur', el.dataset.kleur); gewijzigd(); render(); };
 
   /** Kort nieuws: welke berichten (2 of 3) en hoe ze naast elkaar staan. */
   function kortNieuwsKeuze() {

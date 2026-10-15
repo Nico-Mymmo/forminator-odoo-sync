@@ -40,7 +40,7 @@
     { key: 'tip', groep: 'verhaal', kind: 'article', naam: 'Tip', titel: 'Tip', icoon: 'lightbulb', uitleg: 'Eén tip die tijd bespaart.' },
     { key: 'citaat', groep: 'verhaal', kind: 'quote', naam: 'Uit de praktijk', titel: 'Uit de praktijk', icoon: 'quote', uitleg: 'Wat een klant of collega zei.' },
     // Beeld en media
-    { key: 'afbeelding', groep: 'media', kind: 'image', naam: 'Afbeelding', titel: 'Afbeelding', icoon: 'image', uitleg: 'Een beeld over de hele breedte van de mail.' },
+    { key: 'afbeelding', groep: 'media', kind: 'image', naam: 'Afbeelding', titel: 'Afbeelding', icoon: 'image', uitleg: 'Een beeld over de volle tekstbreedte.' },
     { key: 'video', groep: 'media', kind: 'video', naam: 'Video', titel: 'Video', icoon: 'circle-play', uitleg: 'Een filmpje, met een stilstaand beeld.' },
     { key: 'linkedin', groep: 'media', kind: 'linkedin', naam: 'Op LinkedIn', titel: 'Op LinkedIn', icoon: 'share-2', uitleg: 'Een post die het delen waard is.' },
   ];
@@ -214,7 +214,7 @@
       + (auto ? '<p class="text-sm opacity-70">Dit blok vult zichzelf.</p>'
         : '<label class="form-control"><span class="label-text text-xs mb-1">Wie schrijft het?</span><select class="select select-bordered select-sm" data-change="eigenaar" data-id="' + e(it.id) + '">' + NB.gebruikersOpties(it.owner_user_id, true) + '</select></label>'
           + '<div class="flex items-center gap-2 text-sm">' + NB.statusBadge(it.status) + '</div>')
-      + vraagOpmaak(it) + tocKeuze(it)
+      + vraagOpmaak(it)
       + '<div class="flex items-center gap-3"><span class="label-text text-xs">Achtergrond</span><button type="button" class="btn btn-sm btn-ghost gap-2 px-2" data-action="kleur-blok" data-id="' + e(it.id) + '">' + NB.kleurBol(it.content && it.content.achtergrond) + '<span>' + ((it.content && it.content.achtergrond) ? e(it.content.achtergrond.toUpperCase()) : 'Standaard') + '</span></button></div>'
       + '<div class="flex flex-wrap gap-2 mt-1">'
       + (auto ? '' : '<button class="btn btn-sm" data-action="opmaak-inhoud" data-id="' + e(it.id) + '"><i data-lucide="pen-line" class="w-4 h-4"></i> Inhoud bewerken</button>')
@@ -234,33 +234,24 @@
       return '<button type="button" class="btn btn-sm h-auto min-h-0 py-2 flex-col items-start text-left gap-0 normal-case font-normal ' + (aan ? 'btn-primary' : 'btn-outline border-base-content/20') + '" data-action="vraag-stijl" data-id="' + e(it.id) + '" data-stijl="' + e(s.key) + '">'
         + '<span class="font-semibold">' + e(s.label) + '</span><span class="text-[11px] leading-tight opacity-70">' + e(s.uitleg) + '</span></button>';
     }).join('');
-    var kleuren = Object.keys(boot.vraag_kleuren || {}).map(function (k) {
-      var v = boot.vraag_kleuren[k];
-      var aan = k === c.kleur;
-      return '<button type="button" style="width:30px;height:30px;border-radius:50%;background:' + e(v.sterk) + ';border:3px solid #fff;box-shadow:0 0 0 ' + (aan ? '2px #0284c7' : '1px rgba(0,0,0,.2)') + '" data-action="vraag-kleur" data-id="' + e(it.id) + '" data-kleur="' + e(k) + '" title="' + e(v.label) + '" aria-label="' + e(v.label) + '"></button>';
-    }).join('');
+    var hex = (boot.vraag_oude_kleuren || {})[c.kleur] || c.kleur;
+    var kleuren = '<button type="button" class="btn btn-sm btn-ghost gap-2 px-2" data-action="vraag-kleur-kies-opmaak" data-id="' + e(it.id) + '">' + NB.kleurBol(hex) + '<span>' + e(String(hex || '').toUpperCase()) + '</span></button>';
     return '<div class="text-sm">Soort: <strong>' + e(soort ? soort.label : it.kind) + '</strong> <span class="opacity-60">(wisselen kan in de brief, bij Inhoud)</span></div>'
-      + '<div><span class="label-text text-xs">Stijl</span><div class="grid grid-cols-3 gap-2 mt-1">' + stijlen + '</div></div>'
-      + '<div><span class="label-text text-xs">Kleur</span><div class="flex gap-2 mt-1">' + kleuren + '</div></div>';
+      + '<div><span class="label-text text-xs">Opbouw</span><div class="grid grid-cols-3 gap-2 mt-1">' + stijlen + '</div></div>'
+      + '<div class="flex items-center gap-3"><span class="label-text text-xs">Kleur</span>' + kleuren + '</div>';
   }
 
-  /** In de inhoudstafel of niet. Enkel voor blokken die er kunnen in staan. */
-  function tocKeuze(it) {
-    if (['toc', 'closing', 'intro', 'image'].indexOf(it.kind) >= 0) return '';
-    var aan = !(it.content && it.content.in_toc === false);
-    return '<label class="label cursor-pointer justify-start gap-3 p-0"><input type="checkbox" class="toggle toggle-sm toggle-primary" data-action="in-toc" data-id="' + e(it.id) + '"' + (aan ? ' checked' : '') + '>'
-      + '<span class="label-text">In de inhoudstafel' + (it.kind === 'heading' ? ' (als kopje)' : '') + '</span></label>';
-  }
-
-  NB.actions['in-toc'] = async function (el) {
-    var it = itemVan(el.dataset.id);
+  /** In de inhoudstafel of niet (het schakelaartje bij het handvat in de brief). */
+  async function zetInToc(id) {
+    var it = itemVan(id);
     if (!it) return;
+    var aan = it.content && it.content.in_toc === false;
     try {
-      var bij = await NB.api('/api/contributions/' + it.id + '/in-toc', { method: 'POST', body: { in_toc: el.checked } });
+      var bij = await NB.api('/api/contributions/' + id + '/in-toc', { method: 'POST', body: { in_toc: aan } });
       it.content = bij.content;
       laadBrief();
-    } catch (err) { NB.fout(err); el.checked = !el.checked; }
-  };
+    } catch (err) { NB.fout(err); }
+  }
 
   async function zetVraagOpmaak(id, wat) {
     var it = itemVan(id);
@@ -273,7 +264,14 @@
     } catch (err) { NB.fout(err); }
   }
   NB.actions['vraag-stijl'] = function (el) { zetVraagOpmaak(el.dataset.id, { stijl: el.dataset.stijl }); };
-  NB.actions['vraag-kleur'] = function (el) { zetVraagOpmaak(el.dataset.id, { kleur: el.dataset.kleur }); };
+  NB.actions['vraag-kleur-kies-opmaak'] = function (el) {
+    var it = itemVan(el.dataset.id);
+    var r = el.getBoundingClientRect();
+    NB.kleur.open({
+      x: r.left, y: r.bottom, huidige: it && it.content && it.content.kleur,
+      opKies: function (hex) { zetVraagOpmaak(el.dataset.id, { kleur: hex || '' }); },
+    });
+  };
 
   function paneelPlaatsen() {
     var sj = SJ[NB.state.plaatsen];
@@ -375,6 +373,9 @@
     + '.nb-opmaak [data-nb-id]>td{box-shadow:inset 0 0 0 1px rgba(2,132,199,.22)}'
     + '.nb-greep-rij{position:absolute;left:10px;top:8px;z-index:4;display:flex;align-items:center;gap:6px;max-width:70%}'
     + '.nb-kleurbol{width:26px;height:26px;flex:none;border-radius:50%;border:2px solid #fff;box-shadow:0 0 0 1px rgba(3,105,161,.5),0 1px 3px rgba(0,0,0,.25);cursor:pointer;padding:0}'
+    + '.nb-toc-schakel{flex:none;font:600 11px/1 system-ui,-apple-system,"Segoe UI",sans-serif;padding:6px 9px;border-radius:999px;border:1px dashed rgba(3,105,161,.5);background:#fff;color:#64748b;cursor:pointer;white-space:nowrap}'
+    + '.nb-toc-schakel.nb-aan{border-style:solid;border-color:#0284c7;color:#0369a1;background:#f0f9ff}'
+    + '.nb-toc-schakel:hover{border-color:#0284c7;color:#0369a1}'
     + '.nb-kleurbol-leeg{background-image:linear-gradient(135deg,transparent 45%,#ef4444 45%,#ef4444 55%,transparent 55%)}'
     + '.nb-greep{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:600 12px/1 system-ui,-apple-system,"Segoe UI",sans-serif;background:#0369a1;color:#fff;border-radius:8px;padding:7px 10px;cursor:grab;touch-action:none;user-select:none;box-shadow:0 1px 3px rgba(0,0,0,.25)}'
     + '.nb-greep:active{cursor:grabbing}'
@@ -407,6 +408,8 @@
       (doc.head || doc.documentElement).appendChild(stijl);
       doc.addEventListener('click', function (ev) {
         ev.preventDefault();
+        var tocKnop = ev.target.closest('[data-nb-toc]');
+        if (tocKnop) { zetInToc(tocKnop.getAttribute('data-nb-toc')); return; }
         var bol = ev.target.closest('[data-nb-kleur]');
         if (bol) { kiesBlokKleur(bol.getAttribute('data-nb-kleur'), bol); return; }
         if (NB.kleur) NB.kleur.sluit();
@@ -525,6 +528,17 @@
       bol.style.backgroundColor = (it.content && it.content.achtergrond) || '#ffffff';
       balk.appendChild(g);
       balk.appendChild(bol);
+      // In de inhoudstafel of niet: een schakelaartje bij het handvat.
+      if (['toc', 'closing', 'intro', 'image'].indexOf(it.kind) < 0) {
+        var aan = !(it.content && it.content.in_toc === false);
+        var toc = doc.createElement('button');
+        toc.type = 'button';
+        toc.className = 'nb-toc-schakel' + (aan ? ' nb-aan' : '');
+        toc.setAttribute('data-nb-toc', it.id);
+        toc.title = aan ? 'Staat in de inhoudstafel; klik om het eruit te halen' : 'Staat niet in de inhoudstafel; klik om het erin te zetten';
+        toc.textContent = (aan ? '\u2713 ' : '') + 'Inhoudstafel';
+        balk.appendChild(toc);
+      }
       cel.appendChild(balk);
     });
   }

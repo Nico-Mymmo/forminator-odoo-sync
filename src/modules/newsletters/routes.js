@@ -16,7 +16,7 @@ import {
 import {
   KINDS, isKind, DEFAULT_OPTIONS, EDITION_STATUS, CONTRIBUTION_STATUS, LOG_PREFIX, ASSET_ORIGIN,
   sendMode, testEmails, BRAND, BEELD_KADERS, BEELD_PLAATSEN, MERKKLEUREN, merkkleur, BERICHT_VORMEN,
-  VRAAG_SOORTEN, VRAAG_STIJLEN, VRAAG_KLEUREN, VRAAG_STANDAARD, NIEUWS_VORMEN, NIEUWS_MAX,
+  VRAAG_SOORTEN, VRAAG_STIJLEN, VRAAG_STANDAARD, VRAAG_OUDE_KLEUREN, NIEUWS_VORMEN, NIEUWS_MAX,
 } from './lib/constants.js';
 import { renderEdition, renderContribution, heeftInhoud, kopVan } from './lib/render.js';
 import { verzamel, maakEditieOp, vernieuwNieuws, ondertekenaarId, metOndertekening } from './lib/editions.js';
@@ -268,7 +268,8 @@ function inhoudPerSoort(kind, c = {}) {
         ask_comment: c.ask_comment !== false, show_results: c.show_results !== false,
         // Hoe opvallend en in welke kleur (zonder keuze: zoals vroeger).
         stijl: VRAAG_STIJLEN.some((s) => s.key === c.stijl) ? c.stijl : VRAAG_STANDAARD[kind].stijl,
-        kleur: Object.prototype.hasOwnProperty.call(VRAAG_KLEUREN, c.kleur) ? c.kleur : VRAAG_STANDAARD[kind].kleur,
+        // Enkel een merkkleur (de kleurkiezer); een oude kleurnaam wordt haar merkkleur.
+        kleur: merkkleur(c.kleur) || merkkleur(VRAAG_OUDE_KLEUREN[c.kleur]) || VRAAG_STANDAARD[kind].kleur,
       };
     case 'events':
       return {
@@ -356,8 +357,8 @@ export const routes = {
           nieuws_max: NIEUWS_MAX,
           vraag_soorten: VRAAG_SOORTEN,
           vraag_stijlen: VRAAG_STIJLEN,
-          vraag_kleuren: VRAAG_KLEUREN,
           vraag_standaard: VRAAG_STANDAARD,
+          vraag_oude_kleuren: VRAAG_OUDE_KLEUREN,
           default_options: DEFAULT_OPTIONS,
           asset_origin: ASSET_ORIGIN,
           series: series.map((s) => ({ ...s, is_editor: isEditorVan(user, s) })),

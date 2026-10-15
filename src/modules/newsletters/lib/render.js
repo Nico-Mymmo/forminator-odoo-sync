@@ -22,7 +22,7 @@
 import { esc, safeUrl } from '../../../lib/mail/render-blocks.js';
 import {
   STYLE as S, BRAND, KINDS, CONTRIBUTION_STATUS, BEELD_KADERS, merkkleur, isDonker,
-  VRAAG_STIJLEN, VRAAG_KLEUREN, VRAAG_STANDAARD,
+  VRAAG_STIJLEN, VRAAG_STANDAARD, vraagThema,
 } from './constants.js';
 
 const WIDTH = 640;
@@ -131,7 +131,11 @@ function rij(inhoud, { padding = '40px 40px 0', id = null } = {}) {
   return `<tr${attr}><td style="padding:${padding}">${inhoud}</td></tr>`;
 }
 
-function paneel(inhoud, bg, { padding = '36px 32px 30px', margin = '32px 24px 0', id = null } = {}) {
+/**
+ * EEN breedte voor alles: de tekstkolom van 560 px (40 px marge links en
+ * rechts). Ook een gekleurde kaart of vlak gaat daar nooit over.
+ */
+function paneel(inhoud, bg, { padding = '36px 32px 30px', margin = '32px 40px 0', id = null } = {}) {
   const attr = id ? ` data-nb-id="${esc(id)}"` : '';
   return `<tr${attr}><td style="padding:${margin}"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:${bg};border-radius:18px"><tr><td style="padding:${padding}">${inhoud}</td></tr></table></td></tr>`;
 }
@@ -205,8 +209,9 @@ function tekstMetBeeld(stukken, b, ctx, id) {
 }
 
 /**
- * Een blok met zijn beeld als tweede kolom over het hele blok ('kolom-…', tot
- * de rand). De andere plekken staan al in de tekst (tekstMetBeeld).
+ * Een blok met zijn beeld als tweede kolom over het hele blok ('kolom-…'),
+ * BINNEN de vaste breedte (40 px marge, zoals alles). De andere plekken staan
+ * al in de tekst (tekstMetBeeld).
  */
 function schikBeeld({ b, ctx, id, inhoud, padding, bg = '' }) {
   const attr = id ? ` data-nb-id="${esc(id)}"` : '';
@@ -217,10 +222,14 @@ function schikBeeld({ b, ctx, id, inhoud, padding, bg = '' }) {
     return `<tr${attr}><td style="padding:${padding};${bgStijl}">${inhoud}</td></tr>`;
   }
   const bAttr = id ? ' data-nb-beeld="1"' : '';
+  const delen = String(padding).trim().split(/\s+/);
+  const boven = delen[0] || '40px';
+  const onder = delen[2] || boven;
+  const links = pl === 'kolom-links';
   const tabel = (cellen) => `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>${cellen}</tr></table>`;
-  const beeldCel = `<td width="${k.breedte}" valign="top" style="width:${k.breedte}px;padding:0"${bAttr}>${beeldTag(b, ctx, k.breedte, { radius: 0 })}</td>`;
-  const tekstCel = `<td valign="top" style="padding:${padding}">${inhoud}</td>`;
-  return `<tr${attr}><td style="padding:0;${bgStijl}">${tabel(pl === 'kolom-links' ? beeldCel + tekstCel : tekstCel + beeldCel)}</td></tr>`;
+  const beeldCel = `<td width="${k.breedte}" valign="top" style="width:${k.breedte}px;padding:0"${bAttr}>${beeldTag(b, ctx, k.breedte)}</td>`;
+  const tekstCel = `<td valign="top" style="padding:0 ${links ? 0 : 24}px 0 ${links ? 24 : 0}px">${inhoud}</td>`;
+  return `<tr${attr}><td style="padding:${boven} 40px ${onder};${bgStijl}">${tabel(links ? beeldCel + tekstCel : tekstCel + beeldCel)}</td></tr>`;
 }
 
 // ─── Datums (Europe/Brussels) ───────────────────────────────────────────────
@@ -426,7 +435,7 @@ ${alineas(c.text, { size: 15, lineHeight: 1.55 }).join('')}
       return rij(`${kaart}${door}`, { padding: '44px 40px 4px', id });
     }
     case 'uitgelicht': {
-      const foto = beeldTag(b, ctx, 528, { href: c.link_url, alt: c.title || '' });
+      const foto = beeldTag(b, ctx, 496, { href: c.link_url, alt: c.title || '' });
       return paneel(`${pil(tag, S.mint, S.primary)}
 ${kop(c.title, { size: 32, color: '#ffffff', margin: '16px 0 12px' })}
 ${foto ? `<div style="margin:6px 0 18px">${foto}</div>` : ''}
@@ -500,83 +509,90 @@ ${wie ? `<div style="font-family:${S.fontBody};font-size:14px;color:${S.muted};m
 
 /**
  * EEN blok voor elke vraag aan de lezer. De soort (`item.kind`: question,
- * statement, poll) bepaalt de knoppen; `content.stijl` hoe opvallend het
- * staat (VRAAG_STIJLEN) en `content.kleur` in welke merkkleur (VRAAG_KLEUREN).
- * Zonder keuze: zoals de vragen er vroeger uitzagen (VRAAG_STANDAARD).
+ * statement, poll) bepaalt de antwoorden; `content.stijl` de OPBOUW
+ * (VRAAG_STIJLEN):
+ *   subtiel    één regel met een kleurstreep, kleine knopjes op een rij
+ *   kaart      twee kolommen: vraag links, antwoorden onder elkaar rechts
+ *   opvallend  een groot gekleurd vlak, alles gecentreerd, grote knoppen
+ * `content.kleur` is een merkkleur; alle tinten komen uit haar familie
+ * (vraagThema). Zonder keuze: VRAAG_STANDAARD.
  *
- * In het voorbeeld (`id` gezet) zijn vraag, zinnetje en de opschriften van de
- * knoppen aanwijsbaar met `data-nb-veld`: het scherm maakt ze daar bewerkbaar.
+ * In het voorbeeld (`id` gezet) zijn labeltje, vraag, zinnetje en de
+ * opschriften van de knoppen aanwijsbaar met `data-nb-veld`.
  */
 function blokVraag(item, ctx, id) {
   const c = item.content || {};
   const kind = item.kind;
   const std = VRAAG_STANDAARD[kind] || VRAAG_STANDAARD.question;
   const stijl = VRAAG_STIJLEN.some((x) => x.key === c.stijl) ? c.stijl : std.stijl;
-  const k = VRAAG_KLEUREN[c.kleur] || VRAAG_KLEUREN[std.kleur];
-  const donker = stijl === 'opvallend';
+  const k = vraagThema(c.kleur || std.kleur);
   const standaardIntro = { question: '', statement: 'Eén klik volstaat.', poll: 'Eén klik is je stem.' }[kind] || '';
-  const veld = (naam, plaatshouder) => (id ? ` data-nb-veld="${naam}" data-placeholder="${esc(plaatshouder)}"` : '');
-
-  const tekstKleur = donker ? '#ffffff' : S.heading;
-  const zachteKleur = donker ? S.sky100 : S.text;
-  const vraagTekst = kind === 'statement' && String(c.question || '').trim() && !id ? `“${String(c.question).trim()}”` : String(c.question || '');
-  const maat = { subtiel: 22, kaart: kind === 'question' ? 25 : 28, opvallend: kind === 'statement' ? 32 : 30 }[stijl];
-  const vraag = id || vraagTekst
-    ? `<h3${veld('question', kind === 'statement' ? 'Typ hier de stelling' : 'Typ hier de vraag')} style="margin:10px 0 10px;font-family:${S.fontHead};font-weight:400;font-size:${maat}px;line-height:1.2;color:${tekstKleur}">${esc(vraagTekst)}</h3>`
-    : '';
-  const introWaarde = String(c.intro || '').trim();
-  const intro = id
-    ? `<div${veld('intro', standaardIntro || 'Een zinnetje erbij (optioneel)')} style="font-family:${S.fontBody};font-size:15px;line-height:1.55;color:${zachteKleur}">${esc(introWaarde)}</div>`
-    : (introWaarde || standaardIntro) ? tekstNaarHtml(introWaarde || standaardIntro, { size: 15, color: zachteKleur }) : '';
-
+  const veld = (naam, plaatshouder, extra = '') => (id ? ` data-nb-veld="${naam}" data-placeholder="${esc(plaatshouder)}"${extra}` : '');
   const ops = opties(item);
+  const letters = 'ABCDEF';
   const opschrift = (o, i) => `<span${veld(`options.${i}.label`, 'Antwoord')}>${esc(o.label)}</span>`;
-  // De knoppen: op een donker vlak in de knopkleur, anders wit met de sterke kleur.
-  const vol = donker
-    ? `background-color:${k.knop};color:${k.knopTekst};`
-    : `background-color:${k.sterk};color:#ffffff;`;
-  const rand = donker ? '' : `border:1.5px solid ${k.rand};`;
-  let knoppen = '';
-  if (kind === 'statement') {
-    const knopStijl = `display:block;text-align:center;${vol}font-family:${S.fontBody};font-size:${stijl === 'subtiel' ? 15 : 16}px;font-weight:700;padding:${stijl === 'subtiel' ? 11 : 15}px 6px;border-radius:8px;text-decoration:none`;
-    if (ops.length <= 4) {
-      const breed = Math.floor(100 / ops.length);
-      knoppen = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:20px"><tr>${ops.map((o, i) =>
-        `<td width="${breed}%" style="padding:0 ${i === ops.length - 1 ? 0 : 6}px 0 ${i === 0 ? 0 : 6}px">${antwoordA(item, o, ctx, knopStijl, opschrift(o, i))}</td>`).join('')}</tr></table>`;
-    } else {
-      knoppen = `<div style="margin-top:20px">${ops.map((o, i) => `<div style="margin-bottom:10px">${antwoordA(item, o, ctx, knopStijl, opschrift(o, i))}</div>`).join('')}</div>`;
-    }
-  } else if (kind === 'poll') {
-    const letters = 'ABCDEF';
-    const rij = donker
-      ? `display:block;background-color:${k.knop};color:${k.knopTekst};`
-      : `display:block;background-color:#ffffff;${rand}color:${k.sterk};`;
-    const knopStijl = `${rij}font-family:${S.fontBody};font-size:${stijl === 'subtiel' ? 15 : 16}px;font-weight:700;padding:${stijl === 'subtiel' ? 10 : 14}px 18px;border-radius:8px;text-decoration:none`;
-    // Het letterbolletje moet afsteken tegen de knop: wit op een gekleurde knop, anders de sterke kleur.
-    const bol = donker && k.knop !== '#ffffff' ? `background-color:#ffffff;color:${k.knopTekst}` : `background-color:${k.sterk};color:#ffffff`;
-    knoppen = `<div style="margin-top:20px">${ops.map((o, i) => `<div style="margin-bottom:10px">${antwoordA(item, o, ctx, knopStijl,
-      `<span style="display:inline-block;width:26px;height:26px;line-height:26px;text-align:center;border-radius:50%;${bol};font-size:13px;margin-right:12px">${letters[i]}</span>${opschrift(o, i)}`)}</div>`).join('')}</div>`;
-  } else {
-    const pil = donker
-      ? `background-color:${k.knop};color:${k.knopTekst};border:1.5px solid ${k.knop};`
-      : `background-color:#ffffff;border:1.5px solid ${k.rand};color:${k.sterk};`;
-    const knopStijl = `display:inline-block;${pil}font-family:${S.fontBody};font-size:15px;font-weight:600;padding:10px 16px;border-radius:999px;text-decoration:none;margin:0 8px 10px 0`;
-    knoppen = `<div style="margin-top:16px">${ops.map((o, i) => antwoordA(item, o, ctx, knopStijl, opschrift(o, i))).join('')}</div>`;
+  const vraagTekst = kind === 'statement' && String(c.question || '').trim() && !id ? `“${String(c.question).trim()}”` : String(c.question || '');
+  const introWaarde = String(c.intro || '').trim();
+  const opVlak = stijl === 'opvallend';
+
+  const labelKleur = opVlak ? (k.opTekst === '#ffffff' ? k.knop : k.opTekst) : k.accentTekst;
+  const kopje = id
+    ? `<div${veld('@title', 'Label')} style="font-family:${S.fontBody};font-size:12px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:${labelKleur}">${esc(item.title || '')}</div>`
+    : label(item.title, labelKleur);
+  const vraag = (maat, kleur, extra = '') => (id || vraagTekst
+    ? `<h3${veld('question', kind === 'statement' ? 'Typ hier de stelling' : 'Typ hier de vraag')} style="margin:8px 0 8px;font-family:${S.fontHead};font-weight:400;font-size:${maat}px;line-height:1.2;color:${kleur};${extra}">${esc(vraagTekst)}</h3>`
+    : '');
+  const intro = (kleur, extra = '') => (id
+    ? `<div${veld('intro', standaardIntro || 'Een zinnetje erbij (optioneel)')} style="font-family:${S.fontBody};font-size:15px;line-height:1.55;color:${kleur};${extra}">${esc(introWaarde)}</div>`
+    : (introWaarde || standaardIntro) ? `<div style="font-family:${S.fontBody};font-size:15px;line-height:1.55;color:${kleur};${extra}">${esc(introWaarde || standaardIntro)}</div>` : '');
+  const letter = (i, achter, voor) => (kind === 'poll'
+    ? `<span style="display:inline-block;width:24px;height:24px;line-height:24px;text-align:center;border-radius:50%;background-color:${achter};color:${voor};font-size:12px;margin-right:10px">${letters[i]}</span>` : '');
+  const door = byline(item.author, { onDark: opVlak && k.opTekst === '#ffffff', prefix: 'Gesteld door' });
+  const omhul = (html) => (id ? `<div data-nb-antwoorden="1">${html}</div>` : html);
+
+  if (stijl === 'subtiel') {
+    // Eén regel: streep links, kleine vraag, knopjes op een rij.
+    const knop = `display:inline-block;background-color:#ffffff;border:1.5px solid ${k.rand};color:${k.accentTekst};font-family:${S.fontBody};font-size:14px;font-weight:700;padding:7px 14px;border-radius:999px;text-decoration:none;margin:0 6px 8px 0`;
+    const knoppen = omhul(`<div style="margin-top:10px">${ops.map((o, i) => antwoordA(item, o, ctx, knop, `${kind === 'poll' ? `<span style="opacity:.6;margin-right:6px">${letters[i]}</span>` : ''}${opschrift(o, i)}`)).join('')}</div>`);
+    return rij(`<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+<td width="4" style="width:4px;background-color:${k.sterk};border-radius:2px;font-size:0;line-height:0">&nbsp;</td>
+<td style="padding:4px 0 4px 18px">${kopje}${vraag(20, S.heading)}${intro(S.text, 'font-size:14px')}${knoppen}${door}</td></tr></table>`, { padding: '36px 40px 4px', id });
   }
 
-  // Het labeltje is de naam van het blok (`item.title`): in het voorbeeld typbaar
-  // (`@title` = een veld van het stukje zelf, niet van de inhoud).
-  const kopje = id
-    ? `<div data-nb-veld="@title" data-placeholder="Label" style="font-family:${S.fontBody};font-size:12px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:${donker ? k.knop : k.sterk}">${esc(item.title || '')}</div>`
-    : label(item.title, donker ? k.knop : k.sterk);
-  // Waar de antwoorden staan: daaronder zet het scherm "+ Antwoord".
-  if (id) knoppen = `<div data-nb-antwoorden="1">${knoppen}</div>`;
-  const door = byline(item.author, { onDark: donker, prefix: 'Gesteld door' });
-  const inhoud = `${kopje}\n${vraag}\n${intro}\n${knoppen}${door}`;
-  if (stijl === 'subtiel') {
-    return rij(`<div style="border-top:2px solid ${k.rand};padding-top:22px">${inhoud}</div>`, { padding: '36px 40px 4px', id });
+  if (stijl === 'kaart') {
+    // Twee kolommen in een licht vlak: links de vraag, rechts de antwoorden.
+    const knop = `display:block;background-color:${kind === 'poll' ? '#ffffff' : k.sterk};${kind === 'poll' ? `border:1.5px solid ${k.rand};` : ''}color:${kind === 'poll' ? k.accentTekst : k.opTekst};font-family:${S.fontBody};font-size:15px;font-weight:700;padding:12px 14px;border-radius:8px;text-decoration:none;text-align:${kind === 'poll' ? 'left' : 'center'}`;
+    const knoppen = omhul(ops.map((o, i) => `<div style="margin-bottom:8px">${antwoordA(item, o, ctx, knop, `${letter(i, k.sterk, k.opTekst)}${opschrift(o, i)}`)}</div>`).join(''));
+    const inhoud = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+<td width="55%" valign="top" style="width:55%;padding-right:22px">${kopje}${vraag(26, S.heading)}${intro(S.text)}${door}</td>
+<td width="45%" valign="middle" style="width:45%">${knoppen}</td></tr></table>`;
+    return paneel(inhoud, k.licht, { padding: '30px 28px 22px', id });
   }
-  return paneel(inhoud, donker ? k.sterk : k.licht, { padding: donker ? '38px 36px 30px' : '32px 32px 24px', id });
+
+  // Opvallend: een band over de hele breedte, alles gecentreerd.
+  let knoppen;
+  if (kind === 'poll') {
+    const knop = `display:block;background-color:${k.knop};color:${k.knopTekst};font-family:${S.fontBody};font-size:16px;font-weight:700;padding:14px 18px;border-radius:10px;text-decoration:none;text-align:left`;
+    const bol = k.knop === '#ffffff' ? [k.sterk, k.opTekst] : ['#ffffff', k.knopTekst];
+    knoppen = ops.map((o, i) => `<div style="margin-bottom:10px">${antwoordA(item, o, ctx, knop, `${letter(i, bol[0], bol[1])}${opschrift(o, i)}`)}</div>`).join('');
+  } else {
+    const knop = `display:block;text-align:center;background-color:${k.knop};color:${k.knopTekst};font-family:${S.fontBody};font-size:16px;font-weight:700;padding:15px 8px;border-radius:10px;text-decoration:none`;
+    if (ops.length <= 4) {
+      const breed = Math.floor(100 / Math.max(1, ops.length));
+      knoppen = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>${ops.map((o, i) =>
+        `<td width="${breed}%" style="padding:0 ${i === ops.length - 1 ? 0 : 5}px 0 ${i === 0 ? 0 : 5}px">${antwoordA(item, o, ctx, knop, opschrift(o, i))}</td>`).join('')}</tr></table>`;
+    } else {
+      knoppen = ops.map((o, i) => `<div style="margin-bottom:10px">${antwoordA(item, o, ctx, knop, opschrift(o, i))}</div>`).join('');
+    }
+  }
+  const midden = 'text-align:center';
+  const band = `${kopje.replace('style="', `style="${midden};`)}
+${vraag(34, k.opTekst, midden)}
+${intro(k.opZacht, midden)}
+<div style="margin-top:24px">${omhul(knoppen)}</div>
+${door ? `<table role="presentation" align="center" cellpadding="0" cellspacing="0" border="0"><tr><td>${door}</td></tr></table>` : ''}`;
+  // Groot en gecentreerd, maar binnen de vaste breedte (zoals elke kaart).
+  return paneel(`<div align="center" style="text-align:center">${band}</div>`, k.sterk, { padding: '44px 36px 36px', id });
 }
 
 function blokEvents(item, ctx, id) {
@@ -713,13 +729,13 @@ function blokImage(item, ctx, id) {
   const c = item.content || {};
   const b = beeldVan(c, { plaats: 'vol' });
   const k = BEELD_KADERS.vol;
-  const tag = beeldTag(b, ctx, k.breedte, { radius: 0, href: c.link_url, alt: c.bijschrift || '' });
+  const tag = beeldTag(b, ctx, k.breedte, { href: c.link_url, alt: c.bijschrift || '' });
   if (!tag) return '';
   const bijschrift = String(c.bijschrift || '').trim()
-    ? `<tr><td style="padding:10px 40px 0;font-family:${S.fontBody};font-size:13px;line-height:1.5;color:${S.muted};text-align:center">${esc(c.bijschrift)}</td></tr>`
+    ? `<tr><td style="padding:10px 0 0;font-family:${S.fontBody};font-size:13px;line-height:1.5;color:${S.muted};text-align:center">${esc(c.bijschrift)}</td></tr>`
     : '';
   const bAttr = id ? ' data-nb-beeld="1"' : '';
-  return `<tr${id ? ` data-nb-id="${esc(id)}"` : ''}><td style="padding:36px 0 0"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td${bAttr} style="padding:0">${tag}</td></tr>${bijschrift}</table></td></tr>`;
+  return `<tr${id ? ` data-nb-id="${esc(id)}"` : ''}><td style="padding:36px 40px 0"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td${bAttr} style="padding:0">${tag}</td></tr>${bijschrift}</table></td></tr>`;
 }
 
 function blokPlaatshouder(item, id) {
