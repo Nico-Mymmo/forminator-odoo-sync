@@ -1,45 +1,42 @@
 /**
- * Nieuwsbrieven -- de redactietafel van één editie. De BRIEF ZELF is het
- * werkblad: links de mail zoals hij vertrekt (dezelfde renderer als de mail),
- * rechts een paneel. Klik op een blok en het paneel wordt het invulformulier
- * van dat blok; wat je typt, staat meteen op zijn plek in de brief. Zonder
- * gekozen blok toont het paneel wat er voor jou klaarstaat en de blokjes die
- * je kan toevoegen (slepen naar de brief, of klikken en de plek kiezen).
- * Alles wat de hoofdredactie nog niet bevestigde, is in de brief gemarkeerd.
+ * Nieuwsbrieven -- de redactietafel van één editie.
  *
- * Twee standen (NB.state.modus):
- *   'inhoud'  schrijven: een blok kiezen en het invullen (iedereen)
- *   'opmaak'  de hoofdredactie: blokken toevoegen, verslepen om te herordenen,
- *             toewijzen, hernoemen, weghalen. Geen tekst bewerken.
+ * Wat de lezer ziet, maak je IN de brief; wat de lezer niet ziet, staat
+ * rechts (de regie). De tafel vult het scherm: bovenaan een vaste kop (de
+ * stappen, testen, inplannen), links de brief in een eigen vak dat scrolt,
+ * rechts het paneel in een eigen vak dat scrolt (newsletters.html).
+ *
+ *   - klik op een blok: het paneel toont zijn instellingen, en in de brief
+ *     worden titel, tekst, vraag, ... bewerkbaar, met een zwevende werkbalk
+ *     boven het blok (AI, beeld, soort vraag; voor de hoofdredactie ook
+ *     omhoog/omlaag, kleur, inhoudstafel, weghalen)
+ *   - een "+"-lijn tussen twee blokken: daar iets toevoegen (blokjes, een
+ *     bericht uit Nieuws & updates, een idee uit de voorraad)
+ *   - de hoofdredactie sleept blokken aan hun handvat
+ *   - het oogje toont de brief zoals de lezer hem ziet, zonder lege blokken
+ *     en markeringen; dan is er niets bewerkbaar
  */
 (function () {
   'use strict';
   var NB = window.NB;
   var e = NB.esc;
-  NB.changes = NB.changes || {};
 
   /**
    * De blokjes die iedereen kan toevoegen. Een interessant artikel komt ALTIJD
-   * uit Nieuws & updates ("Interessant voor jou"): niemand typt dat zelf over,
-   * dus er is geen apart blokje meer om een link te plakken. `kind` is de soort uit
+   * uit Nieuws & updates: niemand typt dat zelf over. `kind` is de soort uit
    * lib/constants.js (KINDS); `titel` staat als labeltje boven het blok in de
    * mail en mag nadien nog wijzigen.
    */
   var SJABLONEN = [
-    // Opbouw van de brief
     { key: 'titel', groep: 'opbouw', kind: 'heading', naam: 'Titel', titel: 'Titel', icoon: 'heading', uitleg: 'Een kop boven een reeks blokken; komt in de inhoudstafel.', enkelRedactie: true },
     { key: 'vooraf', groep: 'opbouw', kind: 'intro', naam: 'Woordje vooraf', titel: 'Woordje vooraf', icoon: 'hand-heart', uitleg: 'Een korte inleiding bovenaan, ondertekend met foto.' },
     { key: 'tekstblok', groep: 'opbouw', kind: 'article', naam: 'Tekstblok', titel: '', icoon: 'align-left', uitleg: 'Titel, subtitel, alinea\'s en een beeld.' },
-    // Uit Nieuws & updates
     { key: 'bericht', groep: 'nieuws', kind: 'snippet', naam: 'Eén bericht', titel: 'Interessant voor jou', icoon: 'rss', uitleg: 'Een bericht uit Nieuws & updates, groot in beeld.' },
     { key: 'kortnieuws', groep: 'nieuws', kind: 'news', naam: 'Kort nieuws', titel: 'Kort nieuws', icoon: 'newspaper', uitleg: 'Twee of drie kleinere berichten naast elkaar.', inhoud: { vorm: 'kolommen', heading: '' } },
-    // De lezer laten reageren. EEN vraagblok: de soort kies je daarna in de brief.
     { key: 'vraag', groep: 'lezer', kind: 'question', naam: 'Vraag aan de lezer', titel: 'Korte vraag', icoon: 'message-circle-question', uitleg: 'Een vraag, stelling of keuze; antwoorden met één klik.' },
-    // Verhalen (een tekstblok met een vast labeltje, of een citaat)
     { key: 'tekst', groep: 'verhaal', kind: 'article', naam: 'Uit het team', titel: 'Uit het team', icoon: 'users', uitleg: 'Een kort verhaal, met foto of tekening.' },
     { key: 'tip', groep: 'verhaal', kind: 'article', naam: 'Tip', titel: 'Tip', icoon: 'lightbulb', uitleg: 'Eén tip die tijd bespaart.' },
     { key: 'citaat', groep: 'verhaal', kind: 'quote', naam: 'Uit de praktijk', titel: 'Uit de praktijk', icoon: 'quote', uitleg: 'Wat een klant of collega zei.' },
-    // Beeld en media
     { key: 'afbeelding', groep: 'media', kind: 'image', naam: 'Afbeelding', titel: 'Afbeelding', icoon: 'image', uitleg: 'Een beeld over de volle tekstbreedte.' },
     { key: 'video', groep: 'media', kind: 'video', naam: 'Video', titel: 'Video', icoon: 'circle-play', uitleg: 'Een filmpje, met een stilstaand beeld.' },
     { key: 'linkedin', groep: 'media', kind: 'linkedin', naam: 'Op LinkedIn', titel: 'Op LinkedIn', icoon: 'share-2', uitleg: 'Een post die het delen waard is.' },
@@ -54,16 +51,17 @@
   var SJ = {};
   SJABLONEN.forEach(function (s) { SJ[s.key] = s; });
 
-  try { NB.state.modus = NB.state.modus || localStorage.getItem('nbModus') || 'inhoud'; } catch (err) { NB.state.modus = NB.state.modus || 'inhoud'; }
+  var VRAAG_KINDS = ['question', 'statement', 'poll'];
 
   function d() { return NB.state.editie; }
   function ik() { return NB.state.boot.me.id; }
+  function editor() { return Boolean(d() && d().series.is_editor); }
   function actief() { return ['collecting', 'review'].indexOf(d().edition.status) >= 0; }
+  function lezer() { return NB.state.voorbeeldStand === 'test'; }
   function itemVan(id) { return d().items.find(function (i) { return i.id === id; }) || null; }
-  function voornaam(naam) { return String(naam || '').split(' ')[0]; }
-  function opmaak() { return NB.state.modus === 'opmaak' && d() && d().series.is_editor; }
+  function vak() { return document.getElementById('nbBriefvak'); }
 
-  // ─── Bovenaan: stand van de editie ────────────────────────────────────────
+  // ─── De kop: naam, stappen, knoppen ───────────────────────────────────────
 
   function voortgang() {
     var echt = d().items.filter(function (i) { return !NB.isAuto(i.kind); });
@@ -71,28 +69,73 @@
     return { totaal: echt.length, bevestigd: tel('approved'), ingeleverd: tel('submitted') };
   }
 
-  function standBalk() {
+  /** Verzamelen → Nalezen → Testen → Inplannen → Verzonden, met de huidige stap. */
+  function stappen() {
     var ed = d().edition;
-    var editor = d().series.is_editor;
-    var p = voortgang();
-    var t = NB.teller(ed.deadline_at);
-    var wanneer = !actief() ? e((NB.EDITIE_STATUS[ed.status] || {}).label || ed.status)
-      : t.voorbij ? '<strong>Inleverdatum voorbij</strong> · tijd om na te lezen en te bevestigen'
-        : 'Inleveren tegen <strong>' + e(NB.datum(ed.deadline_at, { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })) + '</strong> · <span class="nb-teller">' + e(NB.tellerTekst(ed.deadline_at)) + '</span>';
-    var knoppen = [];
-    if (editor && ed.status !== 'sent') {
-      knoppen.push('<button class="btn btn-sm btn-outline btn-primary" data-action="test-versturen"><i data-lucide="send" class="w-4 h-4"></i> Testmail</button>');
-    }
-    if (editor && actief() && d().series.chat_channel) knoppen.push('<button class="btn btn-sm btn-ghost" data-action="herinner">Herinner in de chat</button>');
-    if (editor && actief() && d().send_mode === 'live') knoppen.push('<button class="btn btn-sm btn-error" data-action="open-inplannen">Bevestigen en inplannen</button>');
-    return '<div class="card bg-base-100 border border-base-content/10 mb-4"><div class="card-body p-4 flex-row flex-wrap items-center gap-x-6 gap-y-3">'
-      + '<div class="text-sm">' + wanneer + '<div class="opacity-60 mt-0.5">Verzenden ' + e(NB.datum(ed.send_at)) + (actief() ? ', pas na bevestiging door marketing' : '') + '</div></div>'
-      + '<div class="flex-1 min-w-[200px]"><div class="flex justify-between text-sm mb-1.5"><span><strong>' + (p.bevestigd + p.ingeleverd) + ' van ' + p.totaal + '</strong> blokken binnen</span><span class="opacity-60">' + p.bevestigd + ' bevestigd</span></div>' + NB.balk(d().items) + '</div>'
-      + (knoppen.length ? '<div class="flex flex-wrap gap-2">' + knoppen.join('') + '</div>' : '')
-      + '</div></div>';
+    if (ed.status === 'cancelled') return '';
+    var nu = ed.status === 'collecting' ? 0 : ed.status === 'review' ? (ed.last_test_at ? 3 : 2) : ed.status === 'scheduled' ? 3 : 4;
+    var klaar = function (i) { return i < nu || ed.status === 'sent' || (ed.status === 'scheduled' && i <= 3); };
+    return '<div class="nb-stappen" title="Waar deze editie staat">' + NB.STAPPEN.map(function (s, i) {
+      var k = klaar(i) ? 'nb-stap-klaar' : i === nu ? 'nb-stap-nu' : '';
+      var label = s.key === 'scheduled' && ed.status === 'scheduled' ? 'Vertrekt ' + NB.datum(ed.send_at, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : s.label;
+      return (i ? '<i data-lucide="chevron-right" class="w-3 h-3 nb-pijl"></i>' : '')
+        + '<span class="nb-stap ' + k + '"><i data-lucide="' + (klaar(i) ? 'check' : s.icoon) + '" class="w-3.5 h-3.5"></i>' + e(label) + '</span>';
+    }).join('') + '</div>';
   }
 
-  // ─── Het paneel zonder gekozen blok ───────────────────────────────────────
+  function blokkades() {
+    var cl = d().checklist;
+    return cl ? cl.items.filter(function (p) { return p.blokkeert && !p.ok; }) : [];
+  }
+
+  function kop() {
+    var ed = d().edition;
+    var p = voortgang();
+    var stats = ed.stats;
+    var t = NB.teller(ed.deadline_at);
+    var wanneer = ed.status === 'scheduled'
+      ? (ed.odoo_mailing_id ? '<span class="font-semibold">Aan Odoo gegeven</span> · vertrekt of is vertrokken' : 'Vertrekt op <strong>' + e(NB.datum(ed.send_at, { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })) + '</strong> · tot dan kan je terughalen')
+      : !actief() ? ''
+      : t.voorbij ? '<span class="text-warning font-semibold">Inleverdatum voorbij</span> · nalezen en bevestigen'
+        : 'Inleverdatum ' + e(NB.datum(ed.deadline_at, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })) + ' · <span class="nb-teller">' + e(NB.tellerTekst(ed.deadline_at)) + '</span>';
+    var knoppen = [];
+    var oog = lezer();
+    knoppen.push('<div class="join">'
+      + '<button class="btn btn-sm join-item' + (!oog ? ' btn-active' : '') + '" data-action="oog" data-stand="preview" title="Werken aan de brief"><i data-lucide="pen-line" class="w-4 h-4"></i> Werken</button>'
+      + '<button class="btn btn-sm join-item' + (oog ? ' btn-active' : '') + '" data-action="oog" data-stand="test" title="Zoals de lezer het ziet, zonder lege blokken en markeringen"><i data-lucide="eye" class="w-4 h-4"></i> Als lezer</button></div>');
+    knoppen.push('<div class="join">'
+      + '<button class="btn btn-sm btn-square join-item' + (NB.state.toestel !== 'gsm' ? ' btn-active' : '') + '" data-action="toestel" data-toestel="desktop" title="Op een computer"><i data-lucide="monitor" class="w-4 h-4"></i></button>'
+      + '<button class="btn btn-sm btn-square join-item' + (NB.state.toestel === 'gsm' ? ' btn-active' : '') + '" data-action="toestel" data-toestel="gsm" title="Op een gsm"><i data-lucide="smartphone" class="w-4 h-4"></i></button></div>');
+    if (actief()) knoppen.push('<button class="btn btn-sm btn-outline" data-action="toevoegen-open" title="Iets toevoegen aan de brief (of klik op een + tussen twee blokken)"><i data-lucide="plus" class="w-4 h-4"></i> Blok</button>');
+    if (editor() && ed.status !== 'sent' && ed.status !== 'cancelled') {
+      knoppen.push('<button class="btn btn-sm btn-outline btn-primary" data-action="test-versturen"><i data-lucide="send" class="w-4 h-4"></i> Testmail</button>');
+    }
+    if (editor() && actief()) {
+      var tegen = blokkades();
+      var kan = !tegen.length;
+      knoppen.push('<button class="btn btn-sm btn-error" data-action="open-inplannen"' + (kan ? '' : ' disabled title="' + e('Nog niet klaar: ' + tegen.map(function (x) { return x.label; }).join('; ')) + '"') + '><i data-lucide="send" class="w-4 h-4"></i> Verzenden</button>');
+    }
+    if (editor() && ed.status === 'scheduled' && !ed.odoo_mailing_id) {
+      knoppen.push('<button class="btn btn-sm btn-outline" data-action="open-moment"><i data-lucide="calendar-clock" class="w-4 h-4"></i> Moment wijzigen</button>');
+      knoppen.push('<button class="btn btn-sm btn-warning" data-action="terughalen"><i data-lucide="undo-2" class="w-4 h-4"></i> Terughalen</button>');
+    }
+    return '<div class="min-w-0 mr-auto">'
+      + '<div class="text-xs opacity-60"><a class="hover:underline" href="#/">Nieuwsbrieven</a> / ' + e(d().series.name) + '</div>'
+      + '<div class="flex flex-wrap items-center gap-2"><h1 class="text-lg font-bold leading-tight">' + e(ed.title) + '</h1>' + NB.editieBadge(ed.status)
+      + (stats ? '<span class="text-xs opacity-70">' + (stats.sent || 0) + ' verzonden · ' + Math.round(stats.opened_ratio || 0) + '% geopend · ' + Math.round(stats.clicks_ratio || 0) + '% geklikt</span>' : '')
+      + '</div>'
+      + '<div class="text-xs opacity-70 mt-0.5">' + wanneer + (actief() ? ' · verzenddag ' + e(NB.datum(ed.send_at, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })) + ' · <strong>' + (p.bevestigd + p.ingeleverd) + ' van ' + p.totaal + '</strong> binnen' : '') + '</div>'
+      + '</div>'
+      + stappen()
+      + '<div class="flex flex-wrap items-center gap-2">' + knoppen.join('') + '</div>';
+  }
+
+  function tekenKop() {
+    var el = document.getElementById('nbKop');
+    if (el) { el.innerHTML = kop(); NB.ikons(); }
+  }
+
+  // ─── Het paneel zonder gekozen blok: de regie van de editie ───────────────
 
   function kaart(inhoud, extra) {
     return '<div class="card bg-base-100 border border-base-content/10' + (extra || '') + '"><div class="card-body p-4 gap-2">' + inhoud + '</div></div>';
@@ -106,36 +149,70 @@
       + (rechts || NB.statusBadge(it.status)) + '</div>';
   }
 
+  /** Klaar om te verzenden? Dezelfde lijst als op de server; klik en je springt ernaar. */
+  function checklistKaart() {
+    var cl = d().checklist;
+    if (!cl || !actief()) return '';
+    var rijen = cl.items.map(function (p) {
+      var icoon = p.ok ? 'circle-check' : p.blokkeert ? 'circle' : 'triangle-alert';
+      var kleur = p.ok ? 'text-success' : p.blokkeert ? 'text-error' : 'text-warning';
+      var klik = (p.ids && p.ids.length) ? ' data-action="kies-blok" data-id="' + e(p.ids[0]) + '"'
+        : p.key === 'onderwerp' || p.key === 'voorbeeldtekst' ? ' data-action="focus-onderwerp"'
+          : p.key === 'test' && !p.ok ? ' data-action="test-versturen"'
+            : p.key === 'ontvangers' ? ' data-action="ga" data-hash="#/reeks/' + e(d().series.id) + '"' : '';
+      var tag = klik ? 'button' : 'div';
+      return '<' + tag + ' class="flex items-start gap-2 text-sm text-left w-full py-1' + (klik ? ' hover:text-primary' : '') + '"' + klik + '>'
+        + '<i data-lucide="' + icoon + '" class="w-4 h-4 shrink-0 mt-0.5 ' + kleur + '"></i>'
+        + '<span class="min-w-0"><span>' + e(p.label) + '</span>' + (p.uitleg && !p.ok ? '<span class="block text-xs opacity-60 truncate">' + e(p.uitleg) + '</span>' : '') + '</span></' + tag + '>';
+    }).join('');
+    var slot = cl.ok ? '<p class="text-xs text-success font-semibold">Alles klaar: je kan inplannen.</p>'
+      : cl.klaar_op_live_na ? '<p class="text-xs opacity-70">Alles klaar, enkel de echte verzending staat nog uit (teststand).</p>' : '';
+    return kaart('<h3 class="font-semibold flex items-center gap-2"><i data-lucide="list-checks" class="w-4 h-4"></i> Klaar om te verzenden?</h3><div>' + rijen + '</div>' + slot, cl.ok ? ' border-success/50' : '');
+  }
+
+  function lijstNamen() {
+    var ids = (d().series.odoo_list_ids || []).map(Number);
+    var lijsten = NB.state.lijsten || [];
+    if (!ids.length) return '<span class="text-warning">Geen Odoo-lijst gekozen.</span>';
+    return ids.map(function (id) {
+      var l = lijsten.find(function (x) { return Number(x.id) === id; });
+      return l ? e(l.name) + (l.contacts !== null && l.contacts !== undefined ? ' (' + l.contacts + ')' : '') : 'lijst ' + id;
+    }).join(', ');
+  }
+
+  function editieKaart() {
+    var ed = d().edition;
+    var mag = actief();
+    var sm = d().send_mode;
+    return kaart('<h3 class="font-semibold flex items-center gap-2"><i data-lucide="mail" class="w-4 h-4"></i> Editie</h3>'
+      + '<label class="form-control"><span class="label-text text-xs">Onderwerp</span><input id="edOnderwerp" class="input input-bordered input-sm" maxlength="200" placeholder="Onderwerp" value="' + e(ed.subject) + '"' + (mag ? '' : ' disabled') + '></label>'
+      + '<label class="form-control"><span class="label-text text-xs">Voorbeeldtekst (de grijze regel in de inbox)</span><input id="edPreheader" class="input input-bordered input-sm" maxlength="200" placeholder="Voorbeeldtekst" value="' + e(ed.preheader) + '"' + (mag ? '' : ' disabled') + '></label>'
+      + '<div id="edVoorstellen" class="flex flex-col gap-1"></div>'
+      + (mag ? '<div class="flex gap-2"><button class="btn btn-sm btn-ghost" data-action="ai-onderwerp"><i data-lucide="sparkles" class="w-4 h-4"></i> Stel voor</button>'
+        + '<button class="btn btn-sm btn-primary ml-auto" data-action="bewaar-onderwerp">Bewaren</button></div>' : '')
+      + '<div class="divider my-1"></div>'
+      + '<div class="grid grid-cols-2 gap-2">'
+      + '<label class="form-control"><span class="label-text text-xs">Inleverdatum</span><input id="edDeadline" type="datetime-local" class="input input-bordered input-sm" value="' + e(NB.lokaal(ed.deadline_at)) + '"' + (mag ? '' : ' disabled') + '></label>'
+      + '<label class="form-control"><span class="label-text text-xs">Verzenddag</span><input id="edSend" type="datetime-local" class="input input-bordered input-sm" value="' + e(NB.lokaal(ed.send_at)) + '"' + (mag ? '' : ' disabled') + '></label></div>'
+      + (mag ? '<div class="flex gap-2 items-center"><span class="text-xs opacity-60">Verzenden gebeurt pas na "Inplannen".</span><button class="btn btn-sm btn-ghost ml-auto" data-action="bewaar-datums">Bewaren</button></div>' : '')
+      + (ed.status === 'scheduled' ? '<div class="alert alert-info text-sm py-2"><i data-lucide="calendar-clock" class="w-4 h-4"></i><span>Vertrekt op <strong>' + e(NB.datum(ed.send_at)) + '</strong>. Tot dan: Terughalen of Moment wijzigen, bovenaan.</span></div>' : '')
+      + '<div class="divider my-1"></div>'
+      + '<div class="text-sm"><span class="text-xs opacity-60 block">Ontvangers</span>' + (sm === 'live' ? lijstNamen() : '<span class="opacity-80">Teststand: enkel naar ' + e((d().test_emails || []).join(', ') || 'niemand') + '.</span><span class="block text-xs opacity-60">Bij een echte verzending: ' + lijstNamen() + '</span>') + '</div>'
+      + (d().series.chat_channel && mag ? '<button class="btn btn-sm btn-ghost self-start" data-action="herinner"><i data-lucide="bell" class="w-4 h-4"></i> Herinner iedereen in de chat</button>' : '')
+      + (mag ? '<button class="btn btn-xs btn-ghost self-start opacity-60" data-action="annuleer-editie">Editie annuleren</button>' : ''));
+  }
+
   function voorJou() {
     var mijn = d().items.filter(function (i) { return i.owner_user_id === ik() && !NB.isAuto(i.kind); });
     var open = mijn.filter(function (i) { return i.status === 'open' || i.status === 'draft'; });
-    var kop = '<h3 class="font-semibold flex items-center gap-2"><i data-lucide="pen-line" class="w-4 h-4"></i> Voor jou</h3>';
+    var kopje = '<h3 class="font-semibold flex items-center gap-2"><i data-lucide="pen-line" class="w-4 h-4"></i> Voor jou</h3>';
     if (!mijn.length) {
-      return kaart(kop + '<p class="text-sm opacity-70">Er staat in deze editie niets op jouw naam. Wil je toch iets kwijt? Kies hieronder een blokje.</p>');
+      return kaart(kopje + '<p class="text-sm opacity-70">Er staat in deze editie niets op jouw naam. Wil je toch iets kwijt? Klik op een <strong>+</strong> tussen twee blokken in de brief.</p>');
     }
     var uitleg = open.length
-      ? '<p class="text-sm opacity-70">Klik op een blok, hier of in de brief, en vul het in. Het staat meteen op zijn plek.</p>'
-      : '<p class="text-sm opacity-70">Alles van jou is doorgegeven. Dank je!</p>';
-    return kaart(kop + uitleg + '<div>' + mijn.map(function (i) { return blokRij(i); }).join('') + '</div>', open.length ? ' border-primary/40' : '');
-  }
-
-  function toevoegen() {
-    if (!actief()) return '';
-    var zichtbaar = SJABLONEN.filter(function (s) { return !s.enkelRedactie || d().series.is_editor; });
-    var tegel = function (s) {
-      return '<button class="nb-sjabloon text-left rounded-lg border border-base-content/10 hover:border-primary/50 hover:bg-primary/5 px-2.5 py-2 flex gap-2 items-center min-w-0" draggable="true" data-action="sjabloon" data-sjabloon="' + s.key + '" title="' + e(s.uitleg) + '">'
-        + '<i data-lucide="' + s.icoon + '" class="w-4 h-4 text-primary shrink-0"></i>'
-        + '<span class="min-w-0"><span class="block text-sm font-medium leading-tight truncate">' + e(s.naam || s.titel) + '</span><span class="block text-[11px] opacity-60 leading-tight truncate">' + e(s.uitleg) + '</span></span></button>';
-    };
-    var groepen = GROEPEN.map(function (g) {
-      var lijst = zichtbaar.filter(function (s) { return s.groep === g.key; });
-      if (!lijst.length) return '';
-      return '<div><div class="text-[11px] font-semibold uppercase tracking-wide opacity-50 mb-1.5">' + e(g.naam) + '</div>'
-        + '<div class="grid grid-cols-2 gap-1.5">' + lijst.map(tegel).join('') + '</div></div>';
-    }).join('');
-    return kaart('<h3 class="font-semibold flex items-center gap-2"><i data-lucide="plus" class="w-4 h-4"></i> Iets toevoegen</h3>'
-      + '<p class="text-xs opacity-60 -mt-1">Sleep een blok naar de brief, of klik en kies de plek.</p>'
-      + '<div class="flex flex-col gap-3 mt-1">' + groepen + '</div>');
+      ? '<p class="text-sm opacity-70">Klik op een blok, hier of in de brief, en typ erin. Klaar? Dan "Inleveren".</p>'
+      : '<p class="text-sm opacity-70">Alles van jou is ingeleverd. Dank je!</p>';
+    return kaart(kopje + uitleg + '<div>' + mijn.map(function (i) { return blokRij(i); }).join('') + '</div>', open.length ? ' border-primary/40' : '');
   }
 
   function teBevestigen() {
@@ -143,149 +220,36 @@
     if (!lijst.length) return '';
     return kaart('<h3 class="font-semibold flex items-center gap-2"><i data-lucide="badge-check" class="w-4 h-4"></i> Te bevestigen</h3>'
       + '<div>' + lijst.map(function (i) {
-        return blokRij(i, '<span class="text-xs opacity-60 shrink-0">' + e(voornaam(i.owner_name)) + '</span><button class="btn btn-xs btn-success" data-action="keur-goed" data-id="' + e(i.id) + '">Bevestigen</button>');
+        return blokRij(i, '<span class="text-xs opacity-60 shrink-0">' + e(NB.voornaam(i.owner_name)) + '</span><button class="btn btn-xs btn-success" data-action="keur-goed" data-id="' + e(i.id) + '">Bevestigen</button>');
       }).join('') + '</div>', ' border-warning/50');
   }
 
-  function onderwerp() {
+  function verloop() {
     var ed = d().edition;
-    return kaart('<h3 class="font-semibold">Onderwerp en voorbeeldtekst</h3>'
-      + '<input id="edOnderwerp" class="input input-bordered input-sm" maxlength="200" placeholder="Onderwerp" value="' + e(ed.subject) + '">'
-      + '<input id="edPreheader" class="input input-bordered input-sm" maxlength="200" placeholder="Voorbeeldtekst (grijze regel in de inbox)" value="' + e(ed.preheader) + '">'
-      + '<div id="edVoorstellen" class="flex flex-col gap-1"></div>'
-      + '<div class="flex gap-2"><button class="btn btn-sm btn-ghost" data-action="ai-onderwerp"><i data-lucide="sparkles" class="w-4 h-4"></i> Stel voor</button>'
-      + '<button class="btn btn-sm btn-primary ml-auto" data-action="bewaar-onderwerp">Bewaren</button></div>');
-  }
-
-  function datums() {
-    if (!actief()) return '';
-    var ed = d().edition;
-    return kaart('<h3 class="font-semibold">Datums</h3><div class="grid grid-cols-2 gap-2">'
-      + '<label class="form-control"><span class="label-text text-xs">Inleveren</span><input id="edDeadline" type="datetime-local" class="input input-bordered input-sm" value="' + e(NB.lokaal(ed.deadline_at)) + '"></label>'
-      + '<label class="form-control"><span class="label-text text-xs">Verzenden</span><input id="edSend" type="datetime-local" class="input input-bordered input-sm" value="' + e(NB.lokaal(ed.send_at)) + '"></label></div>'
-      + '<button class="btn btn-sm btn-ghost self-end" data-action="bewaar-datums">Bewaren</button>');
-  }
-
-  function voorraad() {
-    var pool = (d().suggesties && d().suggesties.pool) || [];
-    if (!pool.length || !actief()) return '';
-    return kaart('<h3 class="font-semibold">Ideeën in de voorraad</h3>'
-      + pool.map(function (p) {
-        return '<div class="flex items-center gap-2 py-1"><a class="flex-1 min-w-0 text-sm font-medium hover:underline truncate" href="#/stukje/' + e(p.id) + '">' + e(p.title) + '</a>'
-          + '<button class="btn btn-xs btn-primary" data-action="neem-op" data-id="' + e(p.id) + '">Opnemen</button></div>';
-      }).join(''));
-  }
-
-  function activiteit() {
     var lijst = d().activity || [];
-    if (!lijst.length) return '';
-    return '<details class="collapse collapse-arrow bg-base-100 border border-base-content/10"><summary class="collapse-title font-semibold text-sm min-h-0 py-3">Wat er gebeurde</summary><div class="collapse-content">'
-      + lijst.slice(0, 15).map(function (a) {
-        return '<div class="text-sm py-1 border-b border-base-content/10 last:border-0">' + (a.user_name ? '<strong>' + e(voornaam(a.user_name)) + '</strong>: ' : '') + e(a.text) + ' <span class="opacity-50 text-xs">' + e(NB.datum(a.created_at, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })) + '</span></div>';
-      }).join('') + '</div></details>';
+    var vragen = d().items.some(function (i) { return NB.isVraag(i.kind); });
+    var delen = [];
+    if (ed.last_test_at) delen.push('<div class="text-xs opacity-70">Laatste testmail: ' + e(NB.datum(ed.last_test_at)) + '</div>');
+    if (vragen) delen.push('<button class="btn btn-sm btn-outline self-start" data-action="open-antwoorden"><i data-lucide="message-circle-question" class="w-4 h-4"></i> Antwoorden op de vragen</button>');
+    delen.push(lijst.length
+      ? '<div>' + lijst.slice(0, 20).map(function (a) {
+        return '<div class="text-xs py-1 border-b border-base-content/10 last:border-0">' + (a.user_name ? '<strong>' + e(NB.voornaam(a.user_name)) + '</strong>: ' : '') + e(a.text) + ' <span class="opacity-50">' + e(NB.datum(a.created_at, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })) + '</span></div>';
+      }).join('') + '</div>'
+      : '<p class="text-xs opacity-60">Nog niets gebeurd.</p>');
+    return '<details class="collapse collapse-arrow bg-base-100 border border-base-content/10"' + (ed.status === 'sent' ? ' open' : '') + '><summary class="collapse-title font-semibold text-sm min-h-0 py-3">Verloop</summary><div class="collapse-content flex flex-col gap-2">' + delen.join('') + '</div></details>';
   }
 
   function paneelOverzicht() {
-    var editor = d().series.is_editor;
-    if (opmaak()) {
-      return '<div class="flex flex-col gap-4">' + toevoegen()
-        + kaart('<h3 class="font-semibold flex items-center gap-2"><i data-lucide="grip-vertical" class="w-4 h-4"></i> Volgorde</h3><p class="text-sm opacity-70">Sleep een blok aan zijn handvat in de brief naar een andere plek. Klik op een blok om het toe te wijzen, te hernoemen of weg te halen.</p>')
-        + onderwerp() + voorraad() + datums() + activiteit()
-        + (actief() ? '<button class="btn btn-xs btn-ghost self-start opacity-60" data-action="annuleer-editie">Editie annuleren</button>' : '')
-        + '</div>';
+    if (editor()) {
+      return '<div class="flex flex-col gap-3">' + teBevestigen() + checklistKaart() + voorJou() + editieKaart() + verloop() + '</div>';
     }
-    // Schrijven: wat er voor jou klaarstaat. Een schrijver kan ook zelf iets
-    // toevoegen; de hoofdredactie doet dat in de opmaakstand.
-    return '<div class="flex flex-col gap-4">' + voorJou() + (editor ? teBevestigen() : toevoegen())
-      + (editor ? '' : activiteit())
-      + '</div>';
+    return '<div class="flex flex-col gap-3">' + voorJou() + verloop() + '</div>';
   }
 
-  /** Opmaakstand, een blok gekozen: wie, hoe het heet, weghalen. */
-  function paneelBlok(it) {
-    var auto = NB.isAuto(it.kind);
-    var vasteNaam = auto || it.kind === 'intro' || it.kind === 'heading';
-    return '<div class="flex flex-col gap-3">' + kaart(
-      '<div class="flex items-center gap-2"><button class="btn btn-ghost btn-sm px-2" data-action="opmaak-terug"><i data-lucide="arrow-left" class="w-4 h-4"></i> Overzicht</button></div>'
-      + '<div class="text-xs font-semibold uppercase tracking-wide opacity-60">' + e(NB.soort(it.kind)) + '</div>'
-      + (vasteNaam
-        ? '<div class="text-lg font-bold">' + e(it.title) + '</div>'
-        : '<label class="form-control"><span class="label-text text-xs mb-1">Naam boven het blok</span><input class="input input-bordered input-sm" maxlength="120" data-change="blok-naam" data-id="' + e(it.id) + '" value="' + e(it.title) + '"></label>')
-      + (auto ? '<p class="text-sm opacity-70">Dit blok vult zichzelf.</p>'
-        : '<label class="form-control"><span class="label-text text-xs mb-1">Wie schrijft het?</span><select class="select select-bordered select-sm" data-change="eigenaar" data-id="' + e(it.id) + '">' + NB.gebruikersOpties(it.owner_user_id, true) + '</select></label>'
-          + '<div class="flex items-center gap-2 text-sm">' + NB.statusBadge(it.status) + '</div>')
-      + vraagOpmaak(it)
-      + '<div class="flex items-center gap-3"><span class="label-text text-xs">Achtergrond</span><button type="button" class="btn btn-sm btn-ghost gap-2 px-2" data-action="kleur-blok" data-id="' + e(it.id) + '">' + NB.kleurBol(it.content && it.content.achtergrond) + '<span>' + ((it.content && it.content.achtergrond) ? e(it.content.achtergrond.toUpperCase()) : 'Standaard') + '</span></button></div>'
-      + '<div class="flex flex-wrap gap-2 mt-1">'
-      + (auto ? '' : '<button class="btn btn-sm" data-action="opmaak-inhoud" data-id="' + e(it.id) + '"><i data-lucide="pen-line" class="w-4 h-4"></i> Inhoud bewerken</button>')
-      + '<button class="btn btn-sm btn-ghost text-error ml-auto" data-action="blok-weg" data-id="' + e(it.id) + '"><i data-lucide="trash-2" class="w-4 h-4"></i> Uit de brief</button></div>',
-      ' border-primary/40') + '</div>';
-  }
-
-  /** Een vraag aan de lezer: hoe opvallend (stijl) en in welke kleur. */
-  function vraagOpmaak(it) {
-    if (VRAAG_KINDS.indexOf(it.kind) < 0) return '';
-    var boot = NB.state.boot;
-    var std = (boot.vraag_standaard || {})[it.kind] || {};
-    var c = Object.assign({ stijl: std.stijl, kleur: std.kleur }, it.content || {});
-    var soort = (boot.vraag_soorten || []).find(function (v) { return v.kind === it.kind; });
-    var stijlen = (boot.vraag_stijlen || []).map(function (s) {
-      var aan = s.key === c.stijl;
-      return '<button type="button" class="btn btn-sm h-auto min-h-0 py-2 flex-col items-start text-left gap-0 normal-case font-normal ' + (aan ? 'btn-primary' : 'btn-outline border-base-content/20') + '" data-action="vraag-stijl" data-id="' + e(it.id) + '" data-stijl="' + e(s.key) + '">'
-        + '<span class="font-semibold">' + e(s.label) + '</span><span class="text-[11px] leading-tight opacity-70">' + e(s.uitleg) + '</span></button>';
-    }).join('');
-    var hex = (boot.vraag_oude_kleuren || {})[c.kleur] || c.kleur;
-    var kleuren = '<button type="button" class="btn btn-sm btn-ghost gap-2 px-2" data-action="vraag-kleur-kies-opmaak" data-id="' + e(it.id) + '">' + NB.kleurBol(hex) + '<span>' + e(String(hex || '').toUpperCase()) + '</span></button>';
-    return '<div class="text-sm">Soort: <strong>' + e(soort ? soort.label : it.kind) + '</strong> <span class="opacity-60">(wisselen kan in de brief, bij Inhoud)</span></div>'
-      + '<div><span class="label-text text-xs">Opbouw</span><div class="grid grid-cols-3 gap-2 mt-1">' + stijlen + '</div></div>'
-      + '<div class="flex items-center gap-3"><span class="label-text text-xs">Kleur</span>' + kleuren + '</div>';
-  }
-
-  /** In de inhoudstafel of niet (het schakelaartje bij het handvat in de brief). */
-  async function zetInToc(id) {
-    var it = itemVan(id);
-    if (!it) return;
-    var aan = it.content && it.content.in_toc === false;
-    try {
-      var bij = await NB.api('/api/contributions/' + id + '/in-toc', { method: 'POST', body: { in_toc: aan } });
-      it.content = bij.content;
-      laadBrief();
-    } catch (err) { NB.fout(err); }
-  }
-
-  async function zetVraagOpmaak(id, wat) {
-    var it = itemVan(id);
-    if (!it) return;
-    try {
-      var bij = await NB.api('/api/contributions/' + id + '/vraagstijl', { method: 'POST', body: wat });
-      it.content = bij.content;
-      laadBrief();
-      toonPaneel();
-    } catch (err) { NB.fout(err); }
-  }
-  NB.actions['vraag-stijl'] = function (el) { zetVraagOpmaak(el.dataset.id, { stijl: el.dataset.stijl }); };
-  NB.actions['vraag-kleur-kies-opmaak'] = function (el) {
-    var it = itemVan(el.dataset.id);
-    var r = el.getBoundingClientRect();
-    NB.kleur.open({
-      x: r.left, y: r.bottom, huidige: it && it.content && it.content.kleur,
-      opKies: function (hex) { zetVraagOpmaak(el.dataset.id, { kleur: hex || '' }); },
-    });
-  };
-
-  function paneelPlaatsen() {
-    var sj = SJ[NB.state.plaatsen];
-    return kaart('<h3 class="font-semibold flex items-center gap-2"><i data-lucide="' + sj.icoon + '" class="w-4 h-4 text-primary"></i> ' + e(sj.naam || sj.titel) + '</h3>'
-      + '<p class="text-sm">Klik in de brief op een <strong class="text-primary">blauwe plek</strong>: daar komt het blok. Je vult het daarna meteen in.</p>'
-      + '<button class="btn btn-sm btn-ghost self-start" data-action="plaats-annuleer">Annuleren</button>', ' border-primary');
-  }
-
-  /** Het paneel zonder gekozen blok (of in de plaatsstand). */
   function toonPaneel() {
     var bak = document.getElementById('nbPaneel');
     if (!bak) return;
-    var gekozen = opmaak() && NB.state.opmaakId ? itemVan(NB.state.opmaakId) : null;
-    bak.innerHTML = NB.state.plaatsen ? paneelPlaatsen() : gekozen ? paneelBlok(gekozen) : paneelOverzicht();
+    bak.innerHTML = paneelOverzicht();
     NB.ikons();
   }
 
@@ -293,11 +257,11 @@
 
   var briefNr = 0;
 
-  /** Wat er nu in het schrijfpaneel staat, ook al is het nog niet bewaard. */
+  /** Wat er nu in het paneel staat, ook al is het nog niet bewaard. */
   function ontwerp() {
     var s = NB.state.stukje;
     var c = NB.state.concept;
-    if (NB.state.stukjeHost !== 'paneel' || !s || !c) return null;
+    if (!s || !c) return null;
     return { id: s.item.id, kind: c.kind, title: c.title, content: c.content };
   }
 
@@ -305,14 +269,13 @@
     var frame = document.getElementById('edVoorbeeld');
     if (!frame) return;
     var nr = ++briefNr;
-    var stand = NB.state.voorbeeldStand === 'test' ? 'test' : 'preview';
     var r;
     try {
-      r = await NB.api('/api/editions/' + d().edition.id + '/preview', { method: 'POST', body: { mode: stand, override: ontwerp() } });
+      r = await NB.api('/api/editions/' + d().edition.id + '/preview', { method: 'POST', body: { mode: lezer() ? 'test' : 'preview', override: ontwerp() } });
     } catch (err) { NB.fout(err); return; }
     // Een trager, ouder antwoord mag een nieuwer niet overschrijven.
     if (nr !== briefNr || !document.body.contains(frame)) return;
-    // De hoogte vasthouden tot de nieuwe brief er staat: anders springt de pagina.
+    // De hoogte vasthouden tot de nieuwe brief er staat: anders springt het vak.
     frame.style.minHeight = frame.offsetHeight + 'px';
     frame.onload = function () {
       var doc = frame.contentDocument;
@@ -320,7 +283,8 @@
       frame.style.height = (doc.documentElement.scrollHeight + 16) + 'px';
       frame.style.minHeight = '';
       versier(doc);
-      if (NB.state.scrolNa) { scrolNaarBlok(NB.state.scrolNa); NB.state.scrolNa = null; }
+      if (NB.state.scrolNa) { scrolNaarBlok(NB.state.scrolNa); NB.state.scrolNa = null; NB.state.vakScroll = null; }
+      if (NB.state.vakScroll !== null && NB.state.vakScroll !== undefined && vak()) { vak().scrollTop = NB.state.vakScroll; NB.state.vakScroll = null; }
       kolomPassen(doc);
     };
     frame.srcdoc = '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"></head><body style="margin:0">' + r.html + '</body></html>';
@@ -338,67 +302,61 @@
     + '.nb-label-mijn{background:#0284c7;color:#fff}'
     + '.nb-label-wacht{background:#fef3c7;color:#92400e;border:1px solid #fcd34d}'
     + '.nb-label-bezig{background:#f3f4f6;color:#374151;border:1px solid #e5e7eb}'
-    + '.nb-plekken-aan [data-nb-id]{opacity:.55}'
-    + '.nb-plek>td{padding:6px 24px}'
-    + '.nb-plek div{border:2px dashed #38bdf8;border-radius:10px;padding:9px;text-align:center;font:600 13px system-ui,-apple-system,"Segoe UI",sans-serif;color:#0369a1;background:#f0f9ff;cursor:pointer}'
-    + '.nb-plek:hover div,.nb-plek.nb-over div{background:#0284c7;border-color:#0284c7;color:#fff}'
-    // Typen in de brief (het woordje vooraf)
+    // Typen in de brief
     + '[data-nb-veld]:empty::before{content:attr(data-placeholder);color:#9ca3af;font-style:italic}'
-    // Optionele velden (subtitel, labeltje): leeg enkel zichtbaar in het gekozen blok.
     + '[data-nb-optioneel]:empty{display:none!important}'
     + '.nb-gekozen [data-nb-optioneel]:empty{display:block!important}'
     + '.nb-gekozen span[data-nb-optioneel]:empty{display:inline-block!important}'
-    + '[data-nb-veld][contenteditable]{outline:none;border-radius:6px;cursor:text;transition:box-shadow .15s}'
+    + '[data-nb-veld][contenteditable]{outline:none;border-radius:6px;cursor:text;transition:box-shadow .15s;min-width:1em}'
     + '[data-nb-veld][contenteditable]:hover{box-shadow:0 0 0 2px rgba(56,189,248,.35)}'
     + '[data-nb-veld][contenteditable]:focus{box-shadow:0 0 0 2px #38bdf8;background:rgba(255,255,255,.55)}'
     + '[data-nb-veld="text"] p{margin:0 0 14px!important}[data-nb-veld="text"] p:last-child{margin-bottom:0!important}'
-    + '.nb-gereedschap{position:absolute;top:8px;left:10px;z-index:3;display:flex;gap:6px}'
-    + '.nb-gereedschap button,.nb-plus{font:600 12px/1 system-ui,-apple-system,"Segoe UI",sans-serif;border-radius:999px;padding:7px 11px;cursor:pointer;border:1px solid #bae6fd;background:#fff;color:#0369a1;box-shadow:0 1px 2px rgba(0,0,0,.06)}'
-    + '.nb-gereedschap button:hover,.nb-gereedschap button.nb-aan{background:#0284c7;border-color:#0284c7;color:#fff}'
+    // De zwevende werkbalk boven het gekozen blok
+    + '.nb-werkbalk{position:absolute;top:-16px;left:14px;z-index:5;display:flex;align-items:center;gap:4px;padding:4px;border-radius:999px;background:#fff;border:1px solid #bae6fd;box-shadow:0 2px 8px rgba(0,0,0,.12)}'
+    + '.nb-werkbalk button{font:600 12px/1 system-ui,-apple-system,"Segoe UI",sans-serif;border-radius:999px;padding:7px 10px;cursor:pointer;border:0;background:transparent;color:#0369a1;white-space:nowrap}'
+    + '.nb-werkbalk button:hover,.nb-werkbalk button.nb-aan{background:#0284c7;color:#fff}'
+    + '.nb-werkbalk button.nb-weg:hover{background:#b91c1c}'
+    + '.nb-werkbalk .nb-scheid{width:1px;height:18px;background:#e5e7eb;margin:0 2px}'
+    + '.nb-werkbalk .nb-greep{cursor:grab;color:#64748b;padding:7px 6px;touch-action:none;user-select:none}'
+    + '.nb-werkbalk .nb-greep:active{cursor:grabbing}'
+    + '.nb-werkbalk .nb-kleurbol{width:18px;height:18px;border-radius:50%;border:2px solid #fff;box-shadow:0 0 0 1px rgba(3,105,161,.5);display:inline-block;vertical-align:middle}'
+    + '.nb-soorten{display:flex;gap:0}.nb-soorten button{border-radius:0;padding:7px 9px}.nb-soorten button:first-child{border-radius:999px 0 0 999px}.nb-soorten button:last-child{border-radius:0 999px 999px 0}'
     + '.nb-optie-weg{display:inline-block;margin-left:10px;width:20px;height:20px;line-height:18px;text-align:center;border-radius:50%;background:#fff;color:#b91c1c;border:1px solid #fecaca;font:700 14px/18px system-ui,sans-serif;cursor:pointer;vertical-align:middle}'
     + '.nb-optie-weg:hover{background:#b91c1c;color:#fff}'
     + '.nb-antwoord-bij{margin-top:4px;border:2px dashed rgba(125,211,252,.9);border-radius:8px;padding:10px;text-align:center;font:600 13px system-ui,-apple-system,"Segoe UI",sans-serif;color:#0369a1;background:rgba(255,255,255,.85);cursor:pointer}'
     + '.nb-antwoord-bij:hover{background:#0284c7;border-color:#0284c7;color:#fff}'
-    + '.nb-gereedschap .nb-soorten{display:flex;gap:0;border-radius:999px;box-shadow:0 1px 2px rgba(0,0,0,.06)}'
-    + '.nb-gereedschap .nb-soorten button{border-radius:0;box-shadow:none;margin-left:-1px}'
-    + '.nb-gereedschap .nb-soorten button:first-child{border-radius:999px 0 0 999px;margin-left:0}'
-    + '.nb-gereedschap .nb-soorten button:last-child{border-radius:0 999px 999px 0}'
-    + '.nb-plus-cel{padding-left:20px;vertical-align:top}'
-    + '.nb-plus{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;width:150px;height:150px;box-sizing:border-box;border:2px dashed #7dd3fc;border-radius:14px;background:rgba(255,255,255,.6);font-size:12px;padding:0}'
-    + '.nb-plus span{font-size:30px;line-height:1;font-weight:400}'
-    + '.nb-plus:hover{background:#e0f2fe;border-color:#0284c7}'
     + '[data-nb-beeld][data-nb-knop]{cursor:pointer}[data-nb-beeld][data-nb-knop]:hover img{outline:3px solid #38bdf8;outline-offset:-3px}'
+    + '[data-nb-beeld][data-nb-knop]:hover{outline:3px solid #38bdf8;outline-offset:-3px;border-radius:14px}'
     + '[data-nb-eiland]{user-select:none}'
-    // Opmaakstand
-    + '.nb-opmaak [data-nb-id]>td{box-shadow:inset 0 0 0 1px rgba(2,132,199,.22)}'
-    + '.nb-greep-rij{position:absolute;left:10px;top:8px;z-index:4;display:flex;align-items:center;gap:6px;max-width:70%}'
-    + '.nb-kleurbol{width:26px;height:26px;flex:none;border-radius:50%;border:2px solid #fff;box-shadow:0 0 0 1px rgba(3,105,161,.5),0 1px 3px rgba(0,0,0,.25);cursor:pointer;padding:0}'
-    + '.nb-toc-schakel{flex:none;font:600 11px/1 system-ui,-apple-system,"Segoe UI",sans-serif;padding:6px 9px;border-radius:999px;border:1px dashed rgba(3,105,161,.5);background:#fff;color:#64748b;cursor:pointer;white-space:nowrap}'
-    + '.nb-toc-schakel.nb-aan{border-style:solid;border-color:#0284c7;color:#0369a1;background:#f0f9ff}'
-    + '.nb-toc-schakel:hover{border-color:#0284c7;color:#0369a1}'
-    + '.nb-kleurbol-leeg{background-image:linear-gradient(135deg,transparent 45%,#ef4444 45%,#ef4444 55%,transparent 55%)}'
-    + '.nb-greep{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:600 12px/1 system-ui,-apple-system,"Segoe UI",sans-serif;background:#0369a1;color:#fff;border-radius:8px;padding:7px 10px;cursor:grab;touch-action:none;user-select:none;box-shadow:0 1px 3px rgba(0,0,0,.25)}'
-    + '.nb-greep:active{cursor:grabbing}'
+    // Het handvat op elk ander blok (hoofdredactie): enkel zichtbaar als je erover gaat
+    + '.nb-greep-rij{position:absolute;left:10px;top:8px;z-index:4;opacity:0;transition:opacity .15s}'
+    + '[data-nb-id]:hover .nb-greep-rij{opacity:1}'
+    + '.nb-greep-los{font:600 12px/1 system-ui,-apple-system,"Segoe UI",sans-serif;background:#0369a1;color:#fff;border-radius:8px;padding:7px 10px;cursor:grab;touch-action:none;user-select:none;box-shadow:0 1px 3px rgba(0,0,0,.25);max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}'
+    + '.nb-greep-los:active{cursor:grabbing}'
     + '.nb-sleept>td{opacity:.3}'
-    + '.nb-lijn>td{padding:0 24px}.nb-lijn div{height:5px;border-radius:3px;background:#0284c7;box-shadow:0 0 0 4px rgba(2,132,199,.18)}';
+    + '.nb-lijn>td{padding:0 24px}.nb-lijn div{height:5px;border-radius:3px;background:#0284c7;box-shadow:0 0 0 4px rgba(2,132,199,.18)}'
+    // De "+"-lijn tussen twee blokken: verschijnt als je erover gaat
+    + '.nb-plus-lijn td{padding:0 24px;height:16px;cursor:default}'
+    + '.nb-plus-in{position:relative;height:16px;opacity:0;transition:opacity .15s}'
+    + '.nb-plus-lijn:hover .nb-plus-in,.nb-plus-lijn.nb-altijd .nb-plus-in{opacity:1}'
+    + '.nb-plus-in::before{content:"";position:absolute;left:0;right:0;top:7px;height:2px;background:#38bdf8;border-radius:1px}'
+    + '.nb-plus-knop{position:absolute;left:50%;top:-6px;transform:translateX(-50%);width:28px;height:28px;line-height:26px;border-radius:50%;background:#0284c7;color:#fff;border:2px solid #fff;text-align:center;font:700 18px/26px system-ui,sans-serif;cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,.25)}'
+    + '.nb-plus-knop:hover{background:#0369a1}';
 
   /** Wat er op een blok in de brief staat, naast de inhoud. */
   function labelVan(it) {
     if (!it || NB.isAuto(it.kind) || it.status === 'approved') return null;
-    var editor = d().series.is_editor;
     if (it.owner_user_id === ik() && (it.status === 'open' || it.status === 'draft')) {
-      return { soort: 'mijn', tekst: it.status === 'open' ? 'Voor jou · klik om in te vullen' : 'Voor jou · nog niet doorgegeven' };
+      return { soort: 'mijn', tekst: it.status === 'open' ? 'Voor jou · klik om in te vullen' : 'Voor jou · nog niet ingeleverd' };
     }
-    if (it.status === 'submitted') return { soort: 'wacht', tekst: editor ? 'Te bevestigen' : 'Onbevestigd · wacht op marketing' };
-    if (it.status === 'draft') return { soort: 'bezig', tekst: 'Onbevestigd · ' + (voornaam(it.owner_name) || 'iemand') + ' schrijft nog' };
+    if (it.status === 'submitted') return { soort: 'wacht', tekst: editor() ? 'Ingeleverd · te bevestigen' : 'Ingeleverd · wacht op marketing' };
+    if (it.status === 'draft') return { soort: 'bezig', tekst: 'Bezig · ' + (NB.voornaam(it.owner_name) || 'iemand') + ' schrijft nog' };
     return null;
   }
 
   function eenRegel(veld) {
-    return veld === 'title' || veld === '@title' || veld === 'question' || veld === 'heading' || veld === 'subtitle' || /^options\.\d+\.label$/.test(veld);
+    return ['title', '@title', 'question', 'heading', 'subtitle', 'quote', 'person', 'role', 'button_label', 'bijschrift'].indexOf(veld) >= 0 || /^options\.\d+\.label$/.test(veld);
   }
-
-  var VRAAG_KINDS = ['question', 'statement', 'poll'];
 
   function versier(doc) {
     if (!doc.getElementById('nbStijl')) {
@@ -408,18 +366,13 @@
       (doc.head || doc.documentElement).appendChild(stijl);
       doc.addEventListener('click', function (ev) {
         ev.preventDefault();
-        var tocKnop = ev.target.closest('[data-nb-toc]');
-        if (tocKnop) { zetInToc(tocKnop.getAttribute('data-nb-toc')); return; }
-        var bol = ev.target.closest('[data-nb-kleur]');
-        if (bol) { kiesBlokKleur(bol.getAttribute('data-nb-kleur'), bol); return; }
         if (NB.kleur) NB.kleur.sluit();
         var knop = ev.target.closest('[data-nb-knop]');
-        if (knop) { blokKnop(knop.getAttribute('data-nb-knop')); return; }
-        var plek = ev.target.closest('.nb-plek');
-        if (plek) { plaats(plek.getAttribute('data-na')); return; }
-        if (NB.state.plaatsen) return;
+        if (knop) { blokKnop(knop.getAttribute('data-nb-knop'), knop); return; }
+        var plus = ev.target.closest('.nb-plus-knop');
+        if (plus) { openToevoegen(plus.closest('.nb-plus-lijn').getAttribute('data-na')); return; }
+        if (ev.target.closest('.nb-werkbalk') || ev.target.closest('.nb-greep-rij')) return;
         var blok = ev.target.closest('[data-nb-id]');
-        if (blok && opmaak()) { NB.state.opmaakId = blok.getAttribute('data-nb-id'); labels(); toonPaneel(); return; }
         if (blok) selecteer(blok.getAttribute('data-nb-id')).catch(NB.fout);
       });
       doc.addEventListener('input', function (ev) {
@@ -454,23 +407,9 @@
         if (el && ev.key === 'Enter' && eenRegel(el.getAttribute('data-nb-veld'))) ev.preventDefault();
       });
       koppelHerordenen(doc);
-      doc.addEventListener('dragover', function (ev) {
-        var plek = ev.target.closest && ev.target.closest('.nb-plek');
-        doc.querySelectorAll('.nb-over').forEach(function (x) { if (x !== plek) x.classList.remove('nb-over'); });
-        if (!plek || !NB.state.sleep) return;
-        ev.preventDefault();
-        plek.classList.add('nb-over');
-      });
-      doc.addEventListener('drop', function (ev) {
-        var plek = ev.target.closest && ev.target.closest('.nb-plek');
-        if (!plek || !NB.state.sleep) return;
-        ev.preventDefault();
-        NB.state.plaatsen = NB.state.sleep;
-        plaats(plek.getAttribute('data-na'));
-      });
     }
     labels(doc);
-    if (NB.state.plaatsen || NB.state.sleep) toonPlekken(doc);
+    plusLijnen(doc);
   }
 
   function labels(doc) {
@@ -485,7 +424,7 @@
       var l = labelVan(it);
       if (!NB.isAuto(it.kind) && it.status !== 'approved') rij.classList.add('nb-onbevestigd');
       if (l && l.soort === 'mijn') rij.classList.add('nb-mijn');
-      if (id === (opmaak() ? NB.state.opmaakId : NB.state.paneelId)) rij.classList.add('nb-gekozen');
+      if (id === NB.state.paneelId) rij.classList.add('nb-gekozen');
       rij.title = NB.isAuto(it.kind) ? 'Vult zichzelf' : '';
       var cel = rij.firstElementChild;
       if (l && cel) {
@@ -496,71 +435,56 @@
       }
     });
     // Niet opnieuw opbouwen terwijl iemand in de brief typt: dan valt de cursor weg.
-    var actief = doc.activeElement;
-    if (!(actief && actief.hasAttribute && actief.hasAttribute('contenteditable'))) bewerkbaar(doc);
+    var a = doc.activeElement;
+    if (!(a && a.hasAttribute && a.hasAttribute('contenteditable'))) bewerkbaar(doc);
     handvatten(doc);
   }
 
-  // ─── Opmaakstand: verslepen om te herordenen ─────────────────────────────
+  // ─── Hoofdredactie: slepen om te herordenen ──────────────────────────────
 
-  /** Elk blok een handvat met zijn naam; enkel in de opmaakstand. */
+  /** Elk NIET gekozen blok een handvat (zichtbaar als je erover gaat); het gekozen blok heeft het in zijn werkbalk. */
   function handvatten(doc) {
     doc.querySelectorAll('.nb-greep-rij').forEach(function (x) { x.remove(); });
-    if (doc.body) doc.body.classList.toggle('nb-opmaak', Boolean(opmaak()));
-    if (!opmaak() || NB.state.voorbeeldStand === 'test') return;
+    if (!editor() || lezer() || !actief()) return;
     doc.querySelectorAll('[data-nb-id]').forEach(function (rij) {
       var it = itemVan(rij.getAttribute('data-nb-id'));
       var cel = rij.firstElementChild;
-      if (!it || !cel) return;
+      if (!it || !cel || it.id === NB.state.paneelId) return;
       var balk = doc.createElement('div');
       balk.className = 'nb-greep-rij';
       var g = doc.createElement('div');
-      g.className = 'nb-greep';
+      g.className = 'nb-greep-los';
       g.setAttribute('data-nb-greep', it.id);
       g.title = 'Sleep om te verplaatsen';
-      var wie = !NB.isAuto(it.kind) && it.owner_name ? ' \u00b7 ' + voornaam(it.owner_name) : '';
-      g.textContent = '\u283F  ' + NB.blokNaam(it) + wie;
-      var bol = doc.createElement('button');
-      bol.type = 'button';
-      bol.className = 'nb-kleurbol' + ((it.content && it.content.achtergrond) ? '' : ' nb-kleurbol-leeg');
-      bol.setAttribute('data-nb-kleur', it.id);
-      bol.title = 'Achtergrondkleur van dit blok';
-      bol.style.backgroundColor = (it.content && it.content.achtergrond) || '#ffffff';
+      var wie = !NB.isAuto(it.kind) && it.owner_name ? ' · ' + NB.voornaam(it.owner_name) : '';
+      g.textContent = '⠿  ' + NB.blokNaam(it) + wie;
       balk.appendChild(g);
-      balk.appendChild(bol);
-      // In de inhoudstafel of niet: een schakelaartje bij het handvat.
-      if (['toc', 'closing', 'intro', 'image'].indexOf(it.kind) < 0) {
-        var aan = !(it.content && it.content.in_toc === false);
-        var toc = doc.createElement('button');
-        toc.type = 'button';
-        toc.className = 'nb-toc-schakel' + (aan ? ' nb-aan' : '');
-        toc.setAttribute('data-nb-toc', it.id);
-        toc.title = aan ? 'Staat in de inhoudstafel; klik om het eruit te halen' : 'Staat niet in de inhoudstafel; klik om het erin te zetten';
-        toc.textContent = (aan ? '\u2713 ' : '') + 'Inhoudstafel';
-        balk.appendChild(toc);
-      }
       cel.appendChild(balk);
     });
   }
 
   /**
    * Slepen met de muis (of een vinger) aan een handvat. Een blauwe lijn toont
-   * waar het blok terechtkomt; loslaten bewaart de nieuwe volgorde. Aan de rand
-   * van het venster scrolt de pagina mee.
+   * waar het blok terechtkomt; loslaten bewaart de nieuwe volgorde. Aan de
+   * rand van het vak scrolt het vak mee.
    */
   function koppelHerordenen(doc) {
     var sleep = null;
     var frame = function () { return document.getElementById('edVoorbeeld'); };
     var rol = function () {
       if (!sleep) return;
+      var v = vak();
       var top = frame().getBoundingClientRect().top + sleep.y;
-      if (top < 90) window.scrollBy(0, -16);
-      else if (top > window.innerHeight - 70) window.scrollBy(0, 16);
+      if (v) {
+        var r = v.getBoundingClientRect();
+        if (top < r.top + 60) v.scrollTop -= 16;
+        else if (top > r.bottom - 60) v.scrollTop += 16;
+      }
       sleep.raf = requestAnimationFrame(rol);
     };
     doc.addEventListener('pointerdown', function (ev) {
       var g = ev.target.closest && ev.target.closest('[data-nb-greep]');
-      if (!g || !opmaak()) return;
+      if (!g || !editor()) return;
       ev.preventDefault();
       var rij = g.closest('[data-nb-id]');
       var lijn = doc.createElement('tr');
@@ -600,98 +524,97 @@
       if (ids.join() === oud.join()) return;
       try {
         await NB.api('/api/editions/' + d().edition.id + '/order', { method: 'POST', body: { ids: ids } });
-        NB.state.opmaakId = s.id;
-        herlaad({ open: null });
+        herlaad();
       } catch (err) { NB.fout(err); }
     };
     doc.addEventListener('pointerup', los);
     doc.addEventListener('pointercancel', los);
   }
 
-  /**
-   * Het gekozen woordje vooraf bewerkbaar maken IN de brief: titel en tekst
-   * (contenteditable op `data-nb-veld` uit de renderer), bovenaan het blok
-   * "Schrijf met AI" en "+ Tekening of foto", en een plusje waar het beeld komt.
-   */
+  // ─── Het gekozen blok: typen in de brief en de zwevende werkbalk ──────────
+
   function bewerkbaar(doc) {
     doc.querySelectorAll('[contenteditable]').forEach(function (x) { x.removeAttribute('contenteditable'); });
-    doc.querySelectorAll('.nb-gereedschap,.nb-plus-cel,.nb-optie-weg,.nb-antwoord-bij').forEach(function (x) { x.remove(); });
+    doc.querySelectorAll('.nb-werkbalk,.nb-optie-weg,.nb-antwoord-bij').forEach(function (x) { x.remove(); });
     doc.querySelectorAll('[data-nb-beeld][data-nb-knop]').forEach(function (x) { x.removeAttribute('data-nb-knop'); });
     var s = NB.state.stukje;
-    if (!s || NB.state.stukjeHost !== 'paneel' || !s.can_edit || NB.state.voorbeeldStand === 'test' || opmaak()) return;
-    var soort = NB.state.concept && NB.state.concept.kind;
-    var isVraag = VRAAG_KINDS.indexOf(soort) >= 0;
-    if (['intro', 'image', 'article', 'heading', 'news'].indexOf(soort) < 0 && !isVraag) return;
+    if (!s || !NB.state.concept || lezer() || !actief()) return;
     var rij = doc.querySelector('[data-nb-id="' + s.item.id + '"]');
     if (!rij) return;
-    if (isVraag) {
-      // Een vraag: de soort kiezen en meteen typen, IN de brief.
-      rij.querySelectorAll('[data-nb-veld]').forEach(function (x) { x.setAttribute('contenteditable', 'true'); x.setAttribute('spellcheck', 'true'); });
-      var vcel = rij.firstElementChild;
-      var vbar = doc.createElement('div');
-      vbar.className = 'nb-gereedschap';
-      var soorten = (NB.state.boot.vraag_soorten || []).map(function (v) {
-        return '<button type="button" data-nb-knop="soort:' + v.kind + '"' + (v.kind === soort ? ' class="nb-aan"' : '') + ' title="' + e(v.uitleg) + '">' + e(v.label) + '</button>';
-      }).join('');
-      var aantal = ((NB.state.concept.content || {}).options || []).length;
-      vbar.innerHTML = '<span class="nb-soorten">' + soorten + '</span>'
-        + '<button type="button" data-nb-knop="ai">\u2728 AI</button>';
-      vcel.appendChild(vbar);
-      // "+ Antwoord" onder de antwoorden, waar je het verwacht.
-      var antwoorden = rij.querySelector('[data-nb-antwoorden]');
-      if (antwoorden && aantal < 6) {
-        var bij = doc.createElement('div');
-        bij.className = 'nb-antwoord-bij';
-        bij.setAttribute('data-nb-knop', 'optie-bij');
-        bij.textContent = '+ Antwoord toevoegen';
-        antwoorden.appendChild(bij);
-      }
-      // Een antwoord weghalen: een kruisje naast elk antwoord (zolang er meer dan twee zijn).
-      if (aantal > 2) {
-        rij.querySelectorAll('[data-nb-veld^="options."]').forEach(function (x) {
-          var m = /^options\.(\d+)\.label$/.exec(x.getAttribute('data-nb-veld'));
-          if (!m) return;
-          var weg = doc.createElement('span');
-          weg.className = 'nb-optie-weg';
-          weg.setAttribute('data-nb-knop', 'optie-weg:' + m[1]);
-          weg.setAttribute('contenteditable', 'false');
-          weg.title = 'Dit antwoord weghalen';
-          weg.textContent = '\u00d7';
-          x.parentNode.insertBefore(weg, x.nextSibling);
-        });
-      }
-      return;
-    }
-    if (soort === 'heading' || soort === 'news') {
-      // Een titel, of de kop van kort nieuws: gewoon typen, geen werkbalk.
-      rij.querySelectorAll('[data-nb-veld]').forEach(function (x) { x.setAttribute('contenteditable', 'true'); x.setAttribute('spellcheck', 'true'); });
-      return;
-    }
-    if (soort === 'image') {
-      // Een afbeelding: op het beeld klikken opent het beeldvenster.
-      rij.querySelectorAll('[data-nb-beeld]').forEach(function (x) { x.setAttribute('data-nb-knop', 'beeld'); x.title = 'Klik om het beeld aan te passen'; });
-      return;
-    }
-    try { doc.execCommand('defaultParagraphSeparator', false, 'p'); } catch (err) { /* oude browsers */ }
-    rij.querySelectorAll('[data-nb-veld]').forEach(function (x) { x.setAttribute('contenteditable', 'true'); x.setAttribute('spellcheck', 'true'); });
+    var soort = NB.state.concept.kind;
+    var isVraag = VRAAG_KINDS.indexOf(soort) >= 0;
+    var mag = s.can_edit;
     var cel = rij.firstElementChild;
-    var bar = doc.createElement('div');
-    bar.className = 'nb-gereedschap';
-    var beelden = rij.querySelectorAll('[data-nb-beeld]');
-    bar.innerHTML = '<button type="button" data-nb-knop="ai">\u2728 Schrijf met AI</button>'
-      + '<button type="button" data-nb-knop="beeld">' + (beelden.length ? '\u{1F5BC} Beeld aanpassen' : '+ Tekening of foto') + '</button>';
-    cel.appendChild(bar);
-    beelden.forEach(function (x) {
-      x.setAttribute('data-nb-knop', 'beeld');
-      x.title = 'Klik om het beeld aan te passen';
-    });
+
+    if (mag) {
+      try { doc.execCommand('defaultParagraphSeparator', false, 'p'); } catch (err) { /* oude browsers */ }
+      rij.querySelectorAll('[data-nb-veld]').forEach(function (x) { x.setAttribute('contenteditable', 'true'); x.setAttribute('spellcheck', 'true'); });
+      if (NB.kanBeeld(soort)) {
+        rij.querySelectorAll('[data-nb-beeld]').forEach(function (x) { x.setAttribute('data-nb-knop', 'beeld'); x.title = 'Klik om het beeld aan te passen'; });
+      }
+      if (isVraag) {
+        var aantal = ((NB.state.concept.content || {}).options || []).length;
+        var antwoorden = rij.querySelector('[data-nb-antwoorden]');
+        if (antwoorden && aantal < 6) {
+          var bij = doc.createElement('div');
+          bij.className = 'nb-antwoord-bij';
+          bij.setAttribute('data-nb-knop', 'optie-bij');
+          bij.textContent = '+ Antwoord toevoegen';
+          antwoorden.appendChild(bij);
+        }
+        if (aantal > 2) {
+          rij.querySelectorAll('[data-nb-veld^="options."]').forEach(function (x) {
+            var m = /^options\.(\d+)\.label$/.exec(x.getAttribute('data-nb-veld'));
+            if (!m) return;
+            var weg = doc.createElement('span');
+            weg.className = 'nb-optie-weg';
+            weg.setAttribute('data-nb-knop', 'optie-weg:' + m[1]);
+            weg.setAttribute('contenteditable', 'false');
+            weg.title = 'Dit antwoord weghalen';
+            weg.textContent = '×';
+            x.parentNode.insertBefore(weg, x.nextSibling);
+          });
+        }
+      }
+    }
+
+    // De werkbalk: wat je snel doet met dit blok.
+    var knoppen = [];
+    if (editor()) knoppen.push('<span class="nb-greep" data-nb-greep="' + e(s.item.id) + '" title="Sleep om te verplaatsen">⠿</span>');
+    if (mag && NB.kanAI(soort)) knoppen.push('<button type="button" data-nb-knop="ai">✨ Schrijf met AI</button>');
+    if (mag && NB.kanBeeld(soort)) knoppen.push('<button type="button" data-nb-knop="beeld">' + (rij.querySelector('[data-nb-beeld] img') ? '\u{1F5BC} Beeld' : '+ Beeld') + '</button>');
+    if (mag && isVraag) {
+      knoppen.push('<span class="nb-soorten">' + (NB.state.boot.vraag_soorten || []).map(function (v) {
+        return '<button type="button" data-nb-knop="soort:' + v.kind + '"' + (v.kind === soort ? ' class="nb-aan"' : '') + ' title="' + e(v.uitleg) + '">' + e(v.label) + '</button>';
+      }).join('') + '</span>');
+    }
+    if (editor()) {
+      if (knoppen.length > 1) knoppen.push('<span class="nb-scheid"></span>');
+      var ids = d().items.map(function (i) { return i.id; });
+      var i = ids.indexOf(s.item.id);
+      knoppen.push('<button type="button" data-nb-knop="omhoog" title="Hoger"' + (i <= 0 ? ' disabled' : '') + '>↑</button>');
+      knoppen.push('<button type="button" data-nb-knop="omlaag" title="Lager"' + (i >= ids.length - 1 ? ' disabled' : '') + '>↓</button>');
+      var bg = (NB.state.concept.content || {}).achtergrond;
+      knoppen.push('<button type="button" data-nb-knop="kleur" title="Achtergrondkleur van dit blok"><span class="nb-kleurbol" style="background:' + e(bg || '#ffffff') + '"></span></button>');
+      if (['toc', 'closing', 'intro', 'image'].indexOf(soort) < 0) {
+        var inToc = (NB.state.concept.content || {}).in_toc !== false;
+        knoppen.push('<button type="button" data-nb-knop="toc"' + (inToc ? ' class="nb-aan"' : '') + ' title="' + (inToc ? 'Staat in de inhoudstafel; klik om het eruit te halen' : 'Staat niet in de inhoudstafel; klik om het erin te zetten') + '">' + (inToc ? '✓ ' : '') + 'Inhoudstafel</button>');
+      }
+      if (!NB.isAuto(soort)) knoppen.push('<button type="button" class="nb-weg" data-nb-knop="weg" title="Uit de brief halen">\u{1F5D1}</button>');
+    }
+    if (knoppen.length && cel) {
+      var bar = doc.createElement('div');
+      bar.className = 'nb-werkbalk';
+      bar.innerHTML = knoppen.join('');
+      cel.appendChild(bar);
+    }
   }
 
   /** Van bewerkte HTML terug naar de tekst met **vet** en [link](https://...). */
   function inlineTekst(node) {
     var uit = '';
     node.childNodes.forEach(function (n) {
-      if (n.nodeType === 3) { uit += n.nodeValue.replace(/\u00a0/g, ' '); return; }
+      if (n.nodeType === 3) { uit += n.nodeValue.replace(/ /g, ' '); return; }
       if (n.nodeType !== 1) return;
       if (n.hasAttribute('data-nb-eiland')) return;
       var t = n.tagName;
@@ -718,7 +641,7 @@
   async function kolomPassen(doc) {
     var s = NB.state.stukje;
     var c = NB.state.concept;
-    if (kolomBezig || !s || !c || NB.state.stukjeHost !== 'paneel' || !s.can_edit || c.kind !== 'intro') return;
+    if (kolomBezig || !s || !c || !s.can_edit || c.kind !== 'intro') return;
     var b = c.content && c.content.beeld;
     if (!b || b.thingie || b.vulling !== 'vullen' || String(b.plaats).indexOf('kolom') !== 0) return;
     var rij = doc.querySelector('[data-nb-id="' + s.item.id + '"]');
@@ -740,8 +663,6 @@
     kolomBezig = false;
   }
 
-  // ─── Kleuren (opmaakstand) ───────────────────────────────────────────────
-
   /** Waar een element in de brief op het scherm staat (de brief is een iframe). */
   function opScherm(el) {
     var f = document.getElementById('edVoorbeeld').getBoundingClientRect();
@@ -749,75 +670,69 @@
     return { x: f.left + r.left, y: f.top + r.bottom };
   }
 
+  function blokKnop(wat, anker) {
+    var s = NB.state.stukje;
+    if (wat === 'ai') NB.openAI();
+    else if (wat === 'beeld') NB.openBeeld();
+    else if (wat.indexOf('soort:') === 0 && NB.wisselVraagSoort) NB.wisselVraagSoort(wat.slice(6));
+    else if (wat === 'optie-bij' && NB.vraagOptieBij) NB.vraagOptieBij();
+    else if (wat.indexOf('optie-weg:') === 0 && NB.vraagOptieWeg) NB.vraagOptieWeg(Number(wat.slice(10)));
+    else if (wat === 'omhoog' || wat === 'omlaag') verplaats(s.item.id, wat === 'omhoog' ? -1 : 1);
+    else if (wat === 'kleur') kiesBlokKleur(s.item.id, anker);
+    else if (wat === 'toc') zetInToc(s.item.id);
+    else if (wat === 'weg') NB.actions['blok-weg']({ dataset: { id: s.item.id } });
+  }
+
   function kiesBlokKleur(id, anker) {
     var it = itemVan(id);
     if (!it) return;
-    var p = anker.ownerDocument === document ? (function () { var r = anker.getBoundingClientRect(); return { x: r.left, y: r.bottom }; })() : opScherm(anker);
+    var p = opScherm(anker);
     NB.kleur.open({
       x: p.x, y: p.y, huidige: it.content && it.content.achtergrond,
       opKies: async function (kleur) {
         try {
           var bij = await NB.api('/api/contributions/' + id + '/achtergrond', { method: 'POST', body: { kleur: kleur } });
           it.content = bij.content;
+          if (NB.state.stukje && NB.state.stukje.item.id === id) {
+            NB.state.stukje.item.content = bij.content;
+            if (NB.state.concept) NB.state.concept.content.achtergrond = bij.content.achtergrond;
+          }
           laadBrief();
-          if (NB.state.opmaakId === id) toonPaneel();
         } catch (err) { NB.fout(err); }
       },
     });
   }
 
-  function mailKleur() {
-    var b = NB.state.boot.brands && NB.state.boot.brands[d().series.brand];
-    return d().series.tint || (b && b.tint) || '#f0f9ff';
+  async function zetInToc(id) {
+    var it = itemVan(id);
+    if (!it) return;
+    var aan = it.content && it.content.in_toc === false;
+    try {
+      var bij = await NB.api('/api/contributions/' + id + '/in-toc', { method: 'POST', body: { in_toc: aan } });
+      it.content = bij.content;
+      if (NB.state.stukje && NB.state.stukje.item.id === id) {
+        NB.state.stukje.item.content = bij.content;
+        if (NB.state.concept) NB.state.concept.content.in_toc = bij.content.in_toc === false ? false : undefined;
+      }
+      laadBrief();
+    } catch (err) { NB.fout(err); }
   }
 
-  function blokKnop(wat) {
-    if (wat === 'ai') openAI();
-    else if (wat === 'beeld') openBeeld();
-    else if (wat.indexOf('soort:') === 0 && NB.wisselVraagSoort) NB.wisselVraagSoort(wat.slice(6));
-    else if (wat === 'optie-bij' && NB.vraagOptieBij) NB.vraagOptieBij();
-    else if (wat.indexOf('optie-weg:') === 0 && NB.vraagOptieWeg) NB.vraagOptieWeg(Number(wat.slice(10)));
+  async function verplaats(id, richting) {
+    var ids = d().items.map(function (i) { return i.id; });
+    var i = ids.indexOf(id);
+    var j = i + richting;
+    if (i < 0 || j < 0 || j >= ids.length) return;
+    ids.splice(j, 0, ids.splice(i, 1)[0]);
+    try {
+      await bewaarOpen();
+      await NB.api('/api/editions/' + d().edition.id + '/order', { method: 'POST', body: { ids: ids } });
+      NB.state.scrolNa = id;
+      herlaad();
+    } catch (err) { NB.fout(err); }
   }
 
-  // ─── Schrijf met AI (venster) ─────────────────────────────────────────────
-
-  function openAI() {
-    var c = NB.state.concept;
-    if (!c) return;
-    document.getElementById('dlgAIInhoud').innerHTML = '<h3 class="font-bold text-lg mb-1 flex items-center gap-2"><i data-lucide="sparkles" class="w-5 h-5 text-primary"></i> Schrijf met AI</h3>'
-      + '<p class="text-sm opacity-70 mb-3">Zet in steekwoorden wat je kwijt wil. Je krijgt een voorstel; jij kiest of je het overneemt.</p>'
-      + '<textarea class="textarea textarea-bordered w-full" rows="5" data-veld="raw_notes" placeholder="Bv. nieuwe vormgeving, zelfde info, elke maand, veel leesplezier">' + e(c.raw_notes || '') + '</textarea>'
-      + '<div class="flex flex-wrap gap-2 mt-3"><button class="btn btn-sm btn-primary" data-action="ai" data-ai="write"><i data-lucide="sparkles" class="w-4 h-4"></i> Schrijf het voor me</button>'
-      + '<button class="btn btn-sm btn-ghost" data-action="ai" data-ai="shorter">Korter</button><button class="btn btn-sm btn-ghost" data-action="ai" data-ai="warmer">Warmer</button><button class="btn btn-sm btn-ghost" data-action="ai" data-ai="spelling">Spelling nakijken</button></div>'
-      + '<div id="stVoorstel" class="mt-3"></div>'
-      + '<div class="modal-action mt-3"><button class="btn btn-ghost btn-sm" data-action="sluit-dialoog" data-dialoog="dlgAI">Sluiten</button></div>';
-    NB.ikons();
-    NB.dialoog('dlgAI').showModal();
-  }
-
-  // ─── Beeld (gedeeld venster, newsletters-beeld.js) ─────────────────────────
-
-  function openBeeld() {
-    var c = NB.state.concept;
-    if (!c) return;
-    if (c.kind === 'image') {
-      NB.beeld.open({
-        beeld: NB.beeldVan(c.content, 'image_url', 'vol'),
-        vast: 'vol',
-        opslaan: function (b) { NB.stukjeZet('content.beeld', b); },
-      });
-      return;
-    }
-    NB.beeld.open({
-      beeld: NB.beeldVan(c.content, 'image_url', 'rechts'),
-      plaatsen: true,
-      opslaan: function (b) {
-        NB.stukjeZet('content.thingie', '', { stil: true });
-        NB.stukjeZet('content.image_url', '', { stil: true });
-        NB.stukjeZet('content.beeld', b);
-      },
-    });
-  }
+  // ─── Vak, hoogte, scrollen ────────────────────────────────────────────────
 
   function briefDoc() {
     var frame = document.getElementById('edVoorbeeld');
@@ -830,34 +745,30 @@
     if (frame && doc) frame.style.height = (doc.documentElement.scrollHeight + 16) + 'px';
   }
 
-  /** Blauwe plekken tussen de blokken: daar kan een nieuw blok komen. */
-  function toonPlekken(doc) {
-    doc = doc || briefDoc();
-    if (!doc || doc.querySelector('.nb-plek')) return;
+  /** De "+"-lijnen tussen de blokken (en bovenaan): daar kan een nieuw blok komen. */
+  function plusLijnen(doc) {
+    doc.querySelectorAll('.nb-plus-lijn').forEach(function (x) { x.remove(); });
+    if (!actief() || lezer()) return;
     var blokken = Array.prototype.slice.call(doc.querySelectorAll('[data-nb-id]'));
-    if (!blokken.length) return;
-    var maak = function (na) {
+    var maak = function (na, altijd) {
       var tr = doc.createElement('tr');
-      tr.className = 'nb-plek';
+      tr.className = 'nb-plus-lijn' + (altijd ? ' nb-altijd' : '');
       tr.setAttribute('data-na', na);
-      tr.innerHTML = '<td><div>+ Hier plaatsen</div></td>';
+      tr.innerHTML = '<td><div class="nb-plus-in"><span class="nb-plus-knop" title="Hier iets toevoegen">+</span></div></td>';
       return tr;
     };
+    if (!blokken.length) {
+      var tabel = doc.querySelector('table table');
+      if (tabel) (tabel.tBodies[0] || tabel).appendChild(maak('', true));
+      hoogteBij();
+      return;
+    }
     blokken[0].parentNode.insertBefore(maak(''), blokken[0]);
     blokken.forEach(function (rij) {
       var it = itemVan(rij.getAttribute('data-nb-id'));
       if (it && it.kind === 'closing') return;
       rij.parentNode.insertBefore(maak(rij.getAttribute('data-nb-id')), rij.nextSibling);
     });
-    doc.body.classList.add('nb-plekken-aan');
-    hoogteBij();
-  }
-
-  function verbergPlekken() {
-    var doc = briefDoc();
-    if (!doc) return;
-    doc.querySelectorAll('.nb-plek').forEach(function (x) { x.remove(); });
-    doc.body.classList.remove('nb-plekken-aan');
     hoogteBij();
   }
 
@@ -865,9 +776,15 @@
     var frame = document.getElementById('edVoorbeeld');
     var doc = briefDoc();
     var rij = doc && doc.querySelector('[data-nb-id="' + id + '"]');
+    var v = vak();
     if (!frame || !rij) return;
-    var y = frame.getBoundingClientRect().top + rij.getBoundingClientRect().top + window.scrollY - 90;
-    window.scrollTo({ top: Math.max(0, y), behavior: 'smooth' });
+    if (!v || window.innerWidth < 1024) {
+      var y = frame.getBoundingClientRect().top + rij.getBoundingClientRect().top + window.scrollY - 90;
+      window.scrollTo({ top: Math.max(0, y), behavior: 'smooth' });
+      return;
+    }
+    var top = frame.getBoundingClientRect().top + rij.getBoundingClientRect().top - v.getBoundingClientRect().top + v.scrollTop - 60;
+    v.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
   }
 
   // ─── Een blok kiezen, sluiten, plaatsen ───────────────────────────────────
@@ -878,7 +795,8 @@
   }
 
   async function selecteer(id, vooraf) {
-    if (NB.state.paneelId === id && NB.state.stukjeHost === 'paneel' && !vooraf) return;
+    if (NB.state.paneelId === id && NB.state.stukje && !vooraf) return;
+    if (lezer()) { NB.state.voorbeeldStand = 'preview'; await herlaad({ open: id }); return; }
     await bewaarOpen();
     NB.state.paneelId = id;
     labels();
@@ -887,7 +805,7 @@
     var data = vooraf || await NB.api('/api/contributions/' + id);
     if (NB.state.paneelId !== id) return;
     await NB.stukjeInPaneel(data);
-    // Nu het stukje er is: bewerkbaar maken in de brief (woordje vooraf, vraag).
+    // Nu het stukje er is: bewerkbaar maken in de brief, met de werkbalk.
     labels();
     history.replaceState(null, '', '#/stukje/' + id);
     if (window.innerWidth < 1024 && bak) bak.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -896,35 +814,24 @@
   async function sluitPaneel() {
     await bewaarOpen();
     NB.state.paneelId = null;
-    NB.state.stukjeHost = null;
     NB.state.stukje = null;
     NB.state.concept = null;
     history.replaceState(null, '', '#/editie/' + d().edition.id);
     labels();
     toonPaneel();
   }
+  NB.sluitPaneel = sluitPaneel;
 
-  async function plaats(na) {
-    var sj = SJ[NB.state.plaatsen];
-    NB.state.plaatsen = null;
-    NB.state.sleep = null;
-    verbergPlekken();
-    if (!sj) { toonPaneel(); return; }
+  /** Een nieuw blok op een gekozen plek (`na` = het blok waarna, '' = bovenaan). */
+  async function plaats(body, na) {
     try {
       await bewaarOpen();
-      var rij = await NB.api('/api/editions/' + d().edition.id + '/contributions', {
-        method: 'POST', body: { kind: sj.kind, title: sj.titel, after_id: na || '', content: sj.inhoud || undefined },
-      });
+      body.after_id = na || '';
+      var rij = await NB.api('/api/editions/' + d().edition.id + '/contributions', { method: 'POST', body: body });
       NB.state.scrolNa = rij.id;
-      if (opmaak()) {
-        NB.toast('Toegevoegd. Wijs het toe aan wie het schrijft.', 'info');
-        NB.state.opmaakId = rij.id;
-        await herlaad({ open: null });
-        return;
-      }
-      NB.toast('Toegevoegd. Vul het in; marketing bevestigt het nog.', 'info');
+      NB.toast(editor() ? 'Toegevoegd.' : 'Toegevoegd. Vul het in; marketing bevestigt het nog.', 'info');
       await herlaad({ open: rij.id });
-    } catch (err) { NB.fout(err); toonPaneel(); }
+    } catch (err) { NB.fout(err); }
   }
 
   /** Na een wijziging in het paneel: de brief en de stand bijwerken zonder herladen. */
@@ -932,50 +839,140 @@
     if (!NB.state.editie || !item) return;
     var it = itemVan(item.id);
     if (!it) return;
-    ['status', 'title', 'kind', 'owner_user_id'].forEach(function (k) { if (item[k] !== undefined) it[k] = item[k]; });
+    ['status', 'title', 'kind', 'owner_user_id', 'content'].forEach(function (k) { if (item[k] !== undefined) it[k] = item[k]; });
     if (item.owner_name !== undefined) it.owner_name = item.owner_name;
     labels();
-    var kop = document.getElementById('edStand');
-    if (kop) { kop.innerHTML = standBalk(); NB.ikons(); }
+    tekenKop();
   };
 
-  NB.sluitPaneel = function () { return sluitPaneel(); };
+  /** De stand van de editie (checklist, stappen, voortgang) opnieuw ophalen, zonder de brief te hertekenen. */
+  NB.vernieuwStand = async function () {
+    if (!d()) return;
+    try {
+      var data = await NB.api('/api/editions/' + d().edition.id);
+      d().edition = data.edition;
+      d().checklist = data.checklist;
+      d().activity = data.activity;
+      data.items.forEach(function (n) {
+        var it = itemVan(n.id);
+        if (it) ['status', 'title', 'owner_user_id', 'owner_name', 'kind'].forEach(function (k) { it[k] = n[k]; });
+      });
+      tekenKop();
+      labels();
+      if (!NB.state.paneelId) toonPaneel();
+    } catch (err) { /* de stand is geen reden om te storen */ }
+  };
 
-  // ─── Het scherm ───────────────────────────────────────────────────────────
+  // ─── Iets toevoegen (het venster bij de "+"-lijn) ─────────────────────────
 
-  function werkblad() {
-    var stand = NB.state.voorbeeldStand === 'test' ? 'test' : 'preview';
-    var modi = d().series.is_editor
-      ? '<div role="tablist" class="tabs tabs-boxed tabs-sm w-fit">'
-        + '<button role="tab" class="tab gap-1' + (!opmaak() ? ' tab-active' : '') + '" data-action="modus" data-modus="inhoud"><i data-lucide="pen-line" class="w-3.5 h-3.5"></i> Inhoud</button>'
-        + '<button role="tab" class="tab gap-1' + (opmaak() ? ' tab-active' : '') + '" data-action="modus" data-modus="opmaak"><i data-lucide="layout-template" class="w-3.5 h-3.5"></i> Opmaak</button></div>'
-      : '';
-    return '<div class="grid gap-5 lg:grid-cols-[minmax(0,1fr)_400px] items-start">'
-      + '<div class="min-w-0">'
-      + '<div class="flex flex-wrap items-center gap-3 mb-3">' + modi
-      + (opmaak() ? '<button type="button" id="edMailKleur" class="btn btn-sm btn-ghost gap-2 px-2" data-action="kleur-mail" title="Achtergrond rond de mail, voor alle edities van deze nieuwsbrief">' + NB.kleurBol(mailKleur()) + '<span>Achtergrond van de mail</span></button>' : '')
-      + '<div role="tablist" class="tabs tabs-boxed tabs-sm w-fit">'
-      + '<button role="tab" class="tab' + (stand === 'preview' ? ' tab-active' : '') + '" data-action="voorbeeld-stand" data-stand="preview">Werkblad</button>'
-      + '<button role="tab" class="tab' + (stand === 'test' ? ' tab-active' : '') + '" data-action="voorbeeld-stand" data-stand="test">Zoals de lezer het ziet</button>'
-      + '</div><span class="text-xs opacity-60">' + (stand !== 'preview' ? 'Enkel kijken; ga terug naar het werkblad om iets te wijzigen.'
-        : opmaak() ? 'Sleep blokken aan hun handvat; klik op een blok voor de instellingen.' : 'Klik op een blok om het in te vullen.') + '</span></div>'
-      + '<div class="max-w-[700px] mx-auto"><iframe id="edVoorbeeld" class="nb-voorbeeld" title="De nieuwsbrief"></iframe></div>'
-      + '</div>'
-      + '<aside id="nbPaneel" class="min-w-0 lg:sticky lg:top-16 lg:max-h-[calc(100vh-5rem)] lg:overflow-y-auto nb-paneel"></aside>'
-      + '</div>';
+  function openToevoegen(na) {
+    NB.state.plaatsNa = na === undefined || na === null ? laatstePlek() : na;
+    NB.state.toevoegTab = NB.state.toevoegTab || 'blokken';
+    tekenToevoegen();
+    NB.dialoog('dlgToevoegen').showModal();
   }
 
-  async function antwoorden() {
-    var bak = document.getElementById('edAntwoorden');
-    if (!bak) return;
+  /** Zonder gekozen plek: net voor de afsluiting. */
+  function laatstePlek() {
+    var zonder = d().items.filter(function (i) { return i.kind !== 'closing'; });
+    return zonder.length ? zonder[zonder.length - 1].id : '';
+  }
+
+  function tekenToevoegen() {
+    var bak = document.getElementById('dlgToevoegenInhoud');
+    var tab = NB.state.toevoegTab;
+    var tabs = [['blokken', 'Blokken', 'layout-grid'], ['nieuws', 'Nieuws & updates', 'rss']];
+    if (editor()) tabs.push(['voorraad', 'Voorraad', 'lightbulb']);
+    var tabHtml = '<div role="tablist" class="tabs tabs-boxed w-fit mb-3">' + tabs.map(function (t) {
+      return '<button role="tab" class="tab gap-1' + (tab === t[0] ? ' tab-active' : '') + '" data-action="toevoeg-tab" data-tab="' + t[0] + '"><i data-lucide="' + t[2] + '" class="w-3.5 h-3.5"></i> ' + e(t[1]) + '</button>';
+    }).join('') + '</div>';
+    var inhoud = '';
+    if (tab === 'blokken') {
+      var zichtbaar = SJABLONEN.filter(function (s) { return !s.enkelRedactie || editor(); });
+      inhoud = GROEPEN.map(function (g) {
+        var lijst = zichtbaar.filter(function (s) { return s.groep === g.key; });
+        if (!lijst.length) return '';
+        return '<div class="mb-3"><div class="text-[11px] font-semibold uppercase tracking-wide opacity-50 mb-1.5">' + e(g.naam) + '</div>'
+          + '<div class="grid grid-cols-2 sm:grid-cols-3 gap-1.5">' + lijst.map(function (s) {
+            return '<button class="text-left rounded-lg border border-base-content/10 hover:border-primary/50 hover:bg-primary/5 px-2.5 py-2 flex gap-2 items-center min-w-0" data-action="toevoeg-blok" data-sjabloon="' + s.key + '">'
+              + '<i data-lucide="' + s.icoon + '" class="w-4 h-4 text-primary shrink-0"></i>'
+              + '<span class="min-w-0"><span class="block text-sm font-medium leading-tight truncate">' + e(s.naam) + '</span><span class="block text-[11px] opacity-60 leading-tight">' + e(s.uitleg) + '</span></span></button>';
+          }).join('') + '</div></div>';
+      }).join('');
+    } else if (tab === 'nieuws') {
+      if (NB.state.berichtenFout) {
+        inhoud = '<div class="alert alert-warning text-sm flex-col items-start gap-2"><span><strong>De berichten konden niet geladen worden.</strong><br>' + e(NB.state.berichtenFout) + '</span><button class="btn btn-sm" data-action="toevoeg-berichten-opnieuw">Opnieuw proberen</button></div>';
+      } else if (!NB.state.berichten) {
+        inhoud = '<div class="flex justify-center py-8"><span class="loading loading-spinner"></span></div>';
+        NB.laadBerichten().then(function () { if (NB.dialoog('dlgToevoegen').open) tekenToevoegen(); });
+      } else {
+        var al = d().items.filter(function (i) { return i.kind === 'snippet' && i.content && i.content.snippet_id; }).map(function (i) { return Number(i.content.snippet_id); });
+        inhoud = NB.state.berichten.length
+          ? '<p class="text-xs opacity-60 mb-2">Gepubliceerde berichten, nieuwste eerst. Eén klik zet het bericht groot in de brief; voor "Kort nieuws" kies je het blok bij Blokken.</p><div class="max-h-[50vh] overflow-y-auto">'
+            + NB.state.berichten.map(function (b) {
+              var erin = al.indexOf(Number(b.id)) >= 0;
+              return '<div class="flex items-center gap-3 py-2 border-b border-base-content/10 last:border-0"><div class="flex-1 min-w-0"><div class="text-sm font-medium truncate">' + e(b.title) + '</div><div class="text-xs opacity-60">' + e(b.published_on ? NB.datum(b.published_on, { day: 'numeric', month: 'short', year: 'numeric' }) : '') + (b.type ? ' · ' + e(b.type) : '') + '</div></div>'
+                + (erin ? '<span class="text-xs opacity-60">staat erin</span>' : '<button class="btn btn-xs btn-primary" data-action="toevoeg-bericht" data-id="' + b.id + '">In de brief</button>') + '</div>';
+            }).join('') + '</div>'
+          : '<p class="text-sm opacity-60">Geen gepubliceerde berichten gevonden.</p>';
+      }
+    } else {
+      var pool = (d().suggesties && d().suggesties.pool) || [];
+      inhoud = pool.length
+        ? '<p class="text-xs opacity-60 mb-2">Ideeën van collega\'s die nog in geen editie staan.</p>' + pool.map(function (p) {
+          return '<div class="flex items-center gap-3 py-2 border-b border-base-content/10 last:border-0"><div class="flex-1 min-w-0"><div class="text-sm font-medium truncate">' + e(p.title) + '</div>' + (p.raw_notes ? '<div class="text-xs opacity-60 truncate">' + e(p.raw_notes) + '</div>' : '') + '</div>'
+            + '<button class="btn btn-xs btn-primary" data-action="toevoeg-idee" data-id="' + e(p.id) + '">Opnemen</button></div>';
+        }).join('')
+        : '<p class="text-sm opacity-60">De voorraad is leeg.</p>';
+    }
+    bak.innerHTML = '<h3 class="font-bold text-lg mb-1">Iets toevoegen</h3><p class="text-sm opacity-70 mb-3">Het komt op de plek van de "+" die je aanklikte. Verplaatsen kan nadien.</p>'
+      + tabHtml + inhoud
+      + '<div class="modal-action mt-3"><button class="btn btn-ghost btn-sm" data-action="sluit-dialoog" data-dialoog="dlgToevoegen">Sluiten</button></div>';
+    NB.ikons();
+  }
+
+  NB.actions['toevoegen-open'] = function () { openToevoegen(undefined); };
+  NB.actions['toevoeg-tab'] = function (el) { NB.state.toevoegTab = el.dataset.tab; tekenToevoegen(); };
+  NB.actions['toevoeg-berichten-opnieuw'] = async function () { await NB.laadBerichten(true); tekenToevoegen(); };
+
+  NB.actions['toevoeg-blok'] = function (el) {
+    var sj = SJ[el.dataset.sjabloon];
+    if (!sj) return;
+    NB.dialoog('dlgToevoegen').close();
+    return plaats({ kind: sj.kind, title: sj.titel, content: sj.inhoud || undefined }, NB.state.plaatsNa);
+  };
+
+  NB.actions['toevoeg-bericht'] = async function (el) {
+    el.disabled = true;
+    try {
+      var vermijd = d().items.filter(function (i) { return i.kind === 'snippet'; }).map(function (i) { return (i.content && i.content.tag) || i.title; }).filter(Boolean);
+      var inhoud = await NB.berichtInhoud(el.dataset.id, vermijd);
+      var gebruikt = d().items.filter(function (i) { return i.kind === 'snippet' && i.content && i.content.snippet_id; }).map(function (i) { return i.content.vorm || 'klassiek'; });
+      var vormen = ['klassiek', 'kaart', 'compact', 'uitgelicht'];
+      inhoud.vorm = vormen.find(function (v) { return gebruikt.indexOf(v) < 0; }) || vormen[gebruikt.length % vormen.length];
+      NB.dialoog('dlgToevoegen').close();
+      await plaats({ kind: 'snippet', title: 'Interessant voor jou', content: inhoud }, NB.state.plaatsNa);
+    } catch (err) { NB.fout(err); el.disabled = false; }
+  };
+
+  NB.actions['toevoeg-idee'] = function (el) {
+    NB.dialoog('dlgToevoegen').close();
+    return plaats({ from_pool_id: el.dataset.id }, NB.state.plaatsNa);
+  };
+
+  // ─── De antwoorden op de vragen (venster) ─────────────────────────────────
+
+  NB.actions['open-antwoorden'] = async function () {
+    var bak = document.getElementById('dlgAntwoordenInhoud');
+    bak.innerHTML = '<div class="flex justify-center py-10"><span class="loading loading-spinner"></span></div>';
+    NB.dialoog('dlgAntwoorden').showModal();
     try {
       var r = await NB.api('/api/editions/' + d().edition.id + '/answers');
-      if (!r.questions.length) { bak.innerHTML = '<p class="opacity-60">Deze editie heeft geen vragen.</p>'; return; }
       var vragen = r.questions.map(function (q) {
         var max = Math.max(1, q.total);
-        return '<div class="card bg-base-100 border border-base-content/10"><div class="card-body p-5 gap-2">'
+        return '<div class="card bg-base-100 border border-base-content/10"><div class="card-body p-4 gap-2">'
           + '<div class="text-xs font-bold uppercase tracking-wide text-primary">' + e(q.title) + '</div>'
-          + '<div class="text-lg font-semibold">' + e(q.question) + '</div>'
+          + '<div class="font-semibold">' + e(q.question) + '</div>'
           + q.options.map(function (o) {
             var n = q.counts[o.value] || 0;
             var pct = Math.round((n / max) * 100);
@@ -990,16 +987,29 @@
       var rijen = r.answers.map(function (a) {
         var q = titels[a.contribution_id] || { options: [] };
         var opt = (q.options || []).find(function (o) { return o.value === a.option_value; });
-        var odoo = !a.verified ? 'anoniem, niet naar Odoo' : a.push_error ? 'fout: ' + a.push_error : a.pushed_at ? 'naar de koppeling' : 'wacht (10 min)';
+        var odoo = !a.verified ? 'anoniem, niet naar Odoo' : a.push_error ? 'fout: ' + a.push_error : a.pushed_at ? (r.integration_active ? 'naar Odoo via de koppeling' : 'bewaard; de koppeling staat uit, niets in Odoo') : 'wacht (10 min)';
         return '<tr><td>' + (a.contact ? '<div class="font-medium">' + e(a.contact.name) + '</div><div class="text-xs opacity-60">' + e(a.contact.email) + '</div>' : '<span class="opacity-60">Anoniem</span>') + '</td>'
           + '<td>' + e(q.title || '') + '</td><td><span class="badge badge-sm">' + e(opt ? opt.label : a.option_value) + '</span></td>'
           + '<td class="max-w-xs">' + e(a.comment || '') + '</td><td class="text-xs whitespace-nowrap">' + e(NB.datum(a.updated_at)) + '</td><td class="text-xs">' + e(odoo) + '</td></tr>';
       }).join('');
-      bak.innerHTML = '<div class="grid gap-4 md:grid-cols-2 mb-5">' + vragen + '</div>'
-        + (r.integration_id ? '<p class="text-sm mb-3">Antwoorden gaan naar de koppeling van deze reeks (<a class="link" href="/forminator-v2">Koppelingen</a>, "Nieuwsbrief-antwoorden …"). Zolang die uit staat, worden ze bewaard maar gebeurt er niets in Odoo.</p>' : '<p class="text-sm mb-3 opacity-70">Bij het eerste antwoord maakt de OM een koppeling voor deze reeks aan (uitgeschakeld).</p>')
-        + '<div class="overflow-x-auto bg-base-100 rounded-xl border border-base-content/10"><table class="table table-sm"><thead><tr><th>Wie</th><th>Vraag</th><th>Antwoord</th><th>Toelichting</th><th>Wanneer</th><th>Odoo</th></tr></thead><tbody>'
-        + (rijen || '<tr><td colspan="6" class="opacity-60">Nog geen antwoorden.</td></tr>') + '</tbody></table></div>';
-    } catch (err) { NB.fout(err); }
+      bak.innerHTML = '<h3 class="font-bold text-lg mb-3">Antwoorden op de vragen in de mail</h3>'
+        + (r.questions.length
+          ? '<div class="grid gap-3 md:grid-cols-2 mb-4">' + vragen + '</div>'
+            + '<p class="text-xs opacity-70 mb-3">Elk antwoord wordt hier geteld en bewaard. ' + (r.integration_id
+              ? 'Wat er in Odoo mee gebeurt, regel je in <a class="link" href="/forminator-v2" target="_blank" rel="noopener">Koppelingen</a>, tabblad "Nieuwsbrief-antwoorden"' + (r.integration_active ? ' (staat aan).' : ' (staat uit: er gebeurt niets in Odoo).')
+              : 'Bij het eerste antwoord komt er in Koppelingen een koppeling "Nieuwsbrief-antwoorden" bij, die uit staat tot marketing ze aanzet.') + '</p>'
+            + '<div class="overflow-x-auto bg-base-100 rounded-xl border border-base-content/10"><table class="table table-sm"><thead><tr><th>Wie</th><th>Vraag</th><th>Antwoord</th><th>Toelichting</th><th>Wanneer</th><th>Odoo</th></tr></thead><tbody>'
+            + (rijen || '<tr><td colspan="6" class="opacity-60">Nog geen antwoorden.</td></tr>') + '</tbody></table></div>'
+          : '<p class="opacity-60">Deze editie heeft geen vragen.</p>')
+        + '<div class="modal-action"><button class="btn btn-ghost btn-sm" data-action="sluit-dialoog" data-dialoog="dlgAntwoorden">Sluiten</button></div>';
+    } catch (err) { bak.innerHTML = '<div class="alert alert-error text-sm">' + e(err.message) + '</div>'; }
+  };
+
+  // ─── Het scherm ───────────────────────────────────────────────────────────
+
+  function laadLijsten() {
+    if (NB.state.lijsten !== undefined) return Promise.resolve();
+    return NB.api('/api/mailing-lists').then(function (r) { NB.state.lijsten = r; }).catch(function () { NB.state.lijsten = null; });
   }
 
   /**
@@ -1013,33 +1023,24 @@
     NB.state.editie = data;
     if (data.series.is_editor) {
       try { data.suggesties = await NB.api('/api/editions/' + params.id + '/suggestions'); } catch (err) { data.suggesties = null; }
+      laadLijsten().then(function () { if (!NB.state.paneelId) toonPaneel(); });
     }
-    if (NB.state.paneelEditie !== params.id) { NB.state.paneelId = null; NB.state.opmaakId = null; }
-    if (params.stukje) NB.state.modus = 'inhoud';
-    if (NB.state.opmaakId && !itemVan(NB.state.opmaakId)) NB.state.opmaakId = null;
+    if (NB.state.paneelEditie !== params.id) { NB.state.paneelId = null; NB.state.voorbeeldStand = 'preview'; }
     NB.state.paneelEditie = params.id;
-    NB.state.plaatsen = null;
-    NB.state.sleep = null;
-    NB.state.stukjeHost = null;
+    NB.state.stukje = null;
+    NB.state.concept = null;
     var open = params.stukje ? params.stukje.item.id : (params.open || NB.state.paneelId);
     if (open && !itemVan(open)) open = null;
     NB.state.paneelId = null;
 
-    var tab = NB.state.editieTab === 'antwoorden' ? 'antwoorden' : 'redactie';
-    var tabKnop = function (naam, label) {
-      return '<button role="tab" class="tab' + (tab === naam ? ' tab-active' : '') + '" data-action="editie-tab" data-tab="' + naam + '">' + label + '</button>';
-    };
-    var stats = data.edition.stats;
-    app.innerHTML = '<div class="text-sm opacity-70 mb-1"><a class="hover:underline" href="#/">Nieuwsbrieven</a> / ' + e(data.series.name) + '</div>'
-      + '<div class="flex flex-wrap items-center gap-3 mb-4"><h1 class="text-2xl font-bold">' + e(data.edition.title) + '</h1>' + NB.editieBadge(data.edition.status)
-      + (stats ? '<span class="text-sm opacity-70">' + (stats.sent || 0) + ' verzonden · ' + Math.round(stats.opened_ratio || 0) + '% geopend · ' + Math.round(stats.clicks_ratio || 0) + '% geklikt</span>' : '')
-      + '<div role="tablist" class="tabs tabs-boxed w-fit ml-auto">' + tabKnop('redactie', 'Redactie') + tabKnop('antwoorden', 'Antwoorden') + '</div>'
-      + '</div>'
-      + '<div id="edStand">' + standBalk() + '</div>'
-      + (tab === 'antwoorden' ? '<div id="edAntwoorden"><span class="loading loading-spinner"></span></div>' : werkblad());
+    app.innerHTML = '<div class="nb-werkvenster">'
+      + '<header id="nbKop" class="nb-kop">' + kop() + '</header>'
+      + '<div class="nb-werkvlak">'
+      + '<div id="nbBriefvak" class="nb-briefvak"><div id="nbBriefkader" class="nb-briefkader' + (NB.state.toestel === 'gsm' ? ' nb-gsm' : '') + '"><iframe id="edVoorbeeld" class="nb-voorbeeld" title="De nieuwsbrief"></iframe></div></div>'
+      + '<aside id="nbPaneel" class="nb-regie"></aside>'
+      + '</div></div>';
     NB.ikons();
-    if (tab === 'antwoorden') { antwoorden(); return; }
-    if (open && !opmaak()) {
+    if (open && !lezer()) {
       await selecteer(open, params.stukje || null).catch(function (err) { NB.fout(err); toonPaneel(); });
     } else {
       toonPaneel();
@@ -1051,22 +1052,11 @@
     opties = opties || {};
     await bewaarOpen();
     var open = opties.open !== undefined ? opties.open : NB.state.paneelId;
-    var y = window.scrollY;
+    var v = vak();
+    if (v && !NB.state.scrolNa) NB.state.vakScroll = v.scrollTop;
     await NB.views.editie({ id: d().edition.id, open: open });
-    // Blijf staan waar je was, behalve als er naar een nieuw blok gescrold wordt.
-    if (!NB.state.scrolNa) window.scrollTo(0, y);
   }
   NB.herlaadEditie = herlaad;
-
-  // ─── Slepen vanuit het paneel naar de brief ───────────────────────────────
-
-  document.addEventListener('dragstart', function (ev) {
-    var el = ev.target.closest && ev.target.closest('[data-sjabloon]');
-    if (!el || !NB.state.editie) return;
-    NB.state.sleep = el.dataset.sjabloon;
-    try { ev.dataTransfer.setData('text/plain', el.dataset.sjabloon); ev.dataTransfer.effectAllowed = 'copy'; } catch (err) { /* oude browsers */ }
-    toonPlekken();
-  });
 
   // Een smaller of breder venster maakt de brief langer of korter.
   var maatTimer = null;
@@ -1075,68 +1065,23 @@
     maatTimer = setTimeout(hoogteBij, 150);
   });
 
-  document.addEventListener('dragend', function () {
-    if (!NB.state.sleep) return;
-    NB.state.sleep = null;
-    if (!NB.state.plaatsen) verbergPlekken();
-  });
-
   // ─── Acties ───────────────────────────────────────────────────────────────
 
-  NB.actions['editie-tab'] = function (el) { NB.state.editieTab = el.dataset.tab; herlaad(); };
+  NB.actions['ga'] = function (el) { NB.ga(el.dataset.hash); };
 
-  // Het gekozen blok blijft open: terug naar het werkblad = meteen verder werken.
-  NB.actions['voorbeeld-stand'] = function (el) {
-    NB.state.voorbeeldStand = el.dataset.stand;
+  NB.actions['oog'] = function (el) {
+    var stand = el.dataset.stand === 'test' ? 'test' : 'preview';
+    if (stand === NB.state.voorbeeldStand || (stand === 'preview' && !NB.state.voorbeeldStand)) return;
+    NB.state.voorbeeldStand = stand;
     return herlaad();
   };
 
-  NB.actions['modus'] = async function (el) {
-    var nieuw = el.dataset.modus === 'opmaak' ? 'opmaak' : 'inhoud';
-    if (nieuw === NB.state.modus || (nieuw === 'inhoud' && !NB.state.modus)) return;
-    if (NB.state.paneelId) await sluitPaneel();
-    NB.state.modus = nieuw;
-    NB.state.opmaakId = null;
-    NB.state.voorbeeldStand = 'preview';
-    try { localStorage.setItem('nbModus', nieuw); } catch (err) { /* geen opslag */ }
-    return herlaad({ open: null });
-  };
-
-  NB.actions['kleur-blok'] = function (el) { kiesBlokKleur(el.dataset.id, el); };
-
-  NB.actions['kleur-mail'] = function (el) {
-    var r = el.getBoundingClientRect();
-    NB.kleur.open({
-      x: r.left, y: r.bottom, huidige: d().series.tint,
-      opKies: async function (kleur) {
-        try {
-          var bij = await NB.api('/api/series/' + d().series.id, { method: 'PUT', body: { tint: kleur || '' } });
-          d().series.tint = bij.tint;
-          var knop = document.getElementById('edMailKleur');
-          if (knop) knop.innerHTML = NB.kleurBol(mailKleur()) + '<span>Achtergrond van de mail</span>';
-          laadBrief();
-          NB.toast('Geldt voor alle edities van ' + d().series.name + '.', 'info');
-        } catch (err) { NB.fout(err); }
-      },
-    });
-  };
-
-  NB.actions['opmaak-terug'] = function () { NB.state.opmaakId = null; labels(); toonPaneel(); };
-
-  /** Van de opmaak naar het schrijven van één blok. */
-  NB.actions['opmaak-inhoud'] = function (el) {
-    NB.state.modus = 'inhoud';
-    NB.state.opmaakId = null;
-    try { localStorage.setItem('nbModus', 'inhoud'); } catch (err) { /* geen opslag */ }
-    return herlaad({ open: el.dataset.id });
-  };
-
-  NB.changes['blok-naam'] = async function (el) {
-    try {
-      var bij = await NB.api('/api/contributions/' + el.dataset.id, { method: 'PUT', body: { title: el.value } });
-      NB.stukjeBijgewerkt(bij);
-      laadBrief();
-    } catch (err) { NB.fout(err); }
+  NB.actions['toestel'] = function (el) {
+    NB.state.toestel = el.dataset.toestel === 'gsm' ? 'gsm' : 'desktop';
+    var kader = document.getElementById('nbBriefkader');
+    if (kader) kader.classList.toggle('nb-gsm', NB.state.toestel === 'gsm');
+    tekenKop();
+    setTimeout(hoogteBij, 250);
   };
 
   NB.actions['kies-blok'] = function (el) {
@@ -1144,35 +1089,23 @@
     return selecteer(id).then(function () { scrolNaarBlok(id); });
   };
 
+  NB.actions['focus-onderwerp'] = function () {
+    var inp = document.getElementById('edOnderwerp');
+    if (inp) { inp.focus(); inp.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+  };
+
   NB.actions['paneel-sluit'] = function () { return sluitPaneel(); };
 
-  NB.actions['sjabloon'] = async function (el) {
-    if (NB.state.voorbeeldStand === 'test') NB.state.voorbeeldStand = 'preview';
-    await sluitPaneel();
-    NB.state.plaatsen = el.dataset.sjabloon;
-    toonPaneel();
-    toonPlekken();
-    var doc = briefDoc();
-    var eerste = doc && doc.querySelector('.nb-plek');
-    if (eerste && window.innerWidth < 1024) eerste.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  };
-
-  NB.actions['plaats-annuleer'] = function () {
-    NB.state.plaatsen = null;
-    verbergPlekken();
-    toonPaneel();
-  };
-
   NB.actions['test-versturen'] = async function (el) {
-    el.disabled = true;
+    if (el && el.disabled !== undefined) el.disabled = true;
     try {
       await bewaarOpen();
       var r = await NB.api('/api/editions/' + d().edition.id + '/test', { method: 'POST' });
       NB.toast('Testmail ' + (r.queued ? 'in de wachtrij van Odoo' : 'verstuurd') + ' naar ' + r.to.join(', ') + '.');
       if (!r.token_field) NB.toast('Het Studio-veld x_studio_om_token ontbreekt: antwoorden op vragen tellen als anoniem.', 'warning');
       if (r.beeld_problemen && r.beeld_problemen.length) NB.toast(r.beeld_problemen.length + ' beeld(en) konden niet klaargezet worden en staan misschien gebroken in de mail. Laad ze opnieuw op als PNG of JPEG.', 'warning');
-      herlaad();
-    } catch (err) { NB.fout(err); el.disabled = false; }
+      NB.vernieuwStand();
+    } catch (err) { NB.fout(err); if (el && el.disabled !== undefined) el.disabled = false; }
   };
 
   NB.actions['herinner'] = async function () {
@@ -1201,6 +1134,8 @@
       });
       Object.assign(d().edition, { subject: bij.subject, preheader: bij.preheader });
       NB.toast('Onderwerp bewaard.');
+      NB.vernieuwStand();
+      laadBrief();
     } catch (err) { NB.fout(err); }
   };
 
@@ -1229,68 +1164,84 @@
       var bij = await NB.api('/api/contributions/' + el.dataset.id + '/status', { method: 'POST', body: { status: 'approved' } });
       NB.toast('Bevestigd.');
       NB.stukjeBijgewerkt(bij);
-      if (!NB.state.paneelId) toonPaneel();
-    } catch (err) { NB.fout(err); }
-  };
-
-  NB.actions['verplaats'] = async function (el) {
-    var ids = d().items.map(function (i) { return i.id; });
-    var i = ids.indexOf(el.dataset.id);
-    var j = i + Number(el.dataset.richting);
-    if (i < 0 || j < 0 || j >= ids.length) return;
-    ids.splice(j, 0, ids.splice(i, 1)[0]);
-    try {
-      await bewaarOpen();
-      await NB.api('/api/editions/' + d().edition.id + '/order', { method: 'POST', body: { ids: ids } });
-      herlaad();
+      NB.vernieuwStand();
     } catch (err) { NB.fout(err); }
   };
 
   NB.actions['blok-weg'] = async function (el) {
-    if (!window.confirm('Dit blok uit de brief halen?')) return;
+    var it = itemVan(el.dataset.id);
+    var ja = await NB.bevestig({ titel: 'Uit de brief halen?', tekst: '"' + NB.blokNaam(it) + '" verdwijnt uit deze editie, met wat erin getypt is.', knop: 'Weghalen' });
+    if (!ja) return;
     try {
       NB.state.vuil = false;
       await NB.api('/api/contributions/' + el.dataset.id, { method: 'DELETE' });
       NB.state.paneelId = null;
-      NB.state.opmaakId = null;
-      NB.state.stukjeHost = null;
       NB.state.stukje = null;
+      NB.state.concept = null;
       history.replaceState(null, '', '#/editie/' + d().edition.id);
       herlaad({ open: null });
     } catch (err) { NB.fout(err); }
   };
 
-  NB.actions['neem-op'] = async function (el) {
-    try {
-      await NB.api('/api/editions/' + d().edition.id + '/contributions', { method: 'POST', body: { from_pool_id: el.dataset.id } });
-      NB.toast('Opgenomen in deze editie.');
-      herlaad({ open: el.dataset.id });
-    } catch (err) { NB.fout(err); }
-  };
-
   NB.actions['annuleer-editie'] = async function () {
-    if (!window.confirm('Deze editie annuleren? De stukjes blijven bewaard bij de editie.')) return;
+    var ja = await NB.bevestig({ titel: 'Editie annuleren?', tekst: 'De editie verdwijnt uit het overzicht. De stukjes blijven bewaard bij de editie.', knop: 'Annuleren' });
+    if (!ja) return;
     try {
       await NB.api('/api/editions/' + d().edition.id + '/cancel', { method: 'POST' });
       NB.ga('#/');
     } catch (err) { NB.fout(err); }
   };
 
+  /** Het venster Verzenden: kies het moment; tot dan kan je nog terughalen. */
   NB.actions['open-inplannen'] = function () {
     var x = d();
-    document.getElementById('inplannenTekst').textContent = 'De editie gaat op ' + NB.datum(x.edition.send_at) + ' naar de Odoo-lijst(en) '
-      + (x.series.odoo_list_ids || []).join(', ') + ' van ' + x.series.name + '. Dit kan je in de OM niet terugdraaien.';
+    NB.state.inplanStand = 'verzenden';
+    document.getElementById('inplannenKop').textContent = 'Verzenden';
+    document.getElementById('inplannenTekst').textContent = 'De editie gaat naar ' + lijstNamen().replace(/<[^>]+>/g, '') + ' van ' + x.series.name
+      + '. Tot het gekozen moment staat ze klaar in de OM en kan je ze terughalen; daarna vertrekt ze via Odoo en is er geen weg terug.';
+    document.getElementById('inplannenMoment').value = NB.lokaal(x.voorgesteld_moment || x.edition.send_at);
+    document.getElementById('inplannenBevestigVeld').classList.remove('hidden');
     document.getElementById('inplannenBevestig').value = '';
+    document.getElementById('inplannenKnop').textContent = 'Verzenden';
+    NB.dialoog('dlgInplannen').showModal();
+  };
+
+  /** Hetzelfde venster om enkel het moment te verplaatsen (ingepland). */
+  NB.actions['open-moment'] = function () {
+    var x = d();
+    NB.state.inplanStand = 'moment';
+    document.getElementById('inplannenKop').textContent = 'Moment wijzigen';
+    document.getElementById('inplannenTekst').textContent = 'Kies wanneer ' + x.series.name + ' ' + x.edition.title + ' vertrekt.';
+    document.getElementById('inplannenMoment').value = NB.lokaal(x.edition.send_at);
+    document.getElementById('inplannenBevestigVeld').classList.add('hidden');
+    document.getElementById('inplannenKnop').textContent = 'Bewaren';
     NB.dialoog('dlgInplannen').showModal();
   };
 
   NB.actions['bevestig-inplannen'] = async function () {
+    var moment = NB.vanLokaal(document.getElementById('inplannenMoment').value);
+    if (!moment) { NB.toast('Kies een verzendmoment.', 'warning'); return; }
     try {
-      await NB.api('/api/editions/' + d().edition.id + '/schedule', {
-        method: 'POST', body: { confirm: document.getElementById('inplannenBevestig').value.trim() },
-      });
+      if (NB.state.inplanStand === 'moment') {
+        await NB.api('/api/editions/' + d().edition.id, { method: 'PUT', body: { send_at: moment } });
+        NB.toast('Verzendmoment verplaatst.');
+      } else {
+        await NB.api('/api/editions/' + d().edition.id + '/schedule', {
+          method: 'POST', body: { confirm: document.getElementById('inplannenBevestig').value.trim(), send_at: moment },
+        });
+        NB.toast('Klaargezet. Vertrekt op ' + NB.datum(moment) + '; tot dan kan je terughalen.');
+      }
       NB.dialoog('dlgInplannen').close();
-      NB.toast('Ingepland in Odoo.');
+      herlaad();
+    } catch (err) { NB.fout(err); }
+  };
+
+  NB.actions['terughalen'] = async function () {
+    var ja = await NB.bevestig({ titel: 'Terughalen?', tekst: 'De editie vertrekt dan niet en gaat terug naar Nalezen. Je kan ze nadien opnieuw verzenden.', knop: 'Terughalen', soort: 'primary' });
+    if (!ja) return;
+    try {
+      await NB.api('/api/editions/' + d().edition.id + '/unschedule', { method: 'POST' });
+      NB.toast('Teruggehaald.');
       herlaad();
     } catch (err) { NB.fout(err); }
   };
@@ -1300,11 +1251,12 @@
       var bij = await NB.api('/api/contributions/' + el.dataset.id, { method: 'PUT', body: { owner_user_id: el.value || null } });
       var u = (NB.state.boot.users || []).find(function (x) { return x.id === bij.owner_user_id; });
       bij.owner_name = u ? u.name : null;
-      if (NB.state.stukje && NB.state.stukje.item.id === bij.id) NB.state.stukje.item.owner_user_id = bij.owner_user_id;
-      if (NB.state.stukje && NB.state.stukje.item.id === bij.id) NB.state.stukje.item.owner_name = bij.owner_name;
+      if (NB.state.stukje && NB.state.stukje.item.id === bij.id) {
+        NB.state.stukje.item.owner_user_id = bij.owner_user_id;
+        NB.state.stukje.item.owner_name = bij.owner_name;
+      }
       NB.stukjeBijgewerkt(bij);
-      if (opmaak()) toonPaneel();
-      NB.toast(bij.owner_name ? 'Toegewezen aan ' + voornaam(bij.owner_name) + '.' : 'Aan niemand toegewezen.');
+      NB.toast(bij.owner_name ? 'Toegewezen aan ' + NB.voornaam(bij.owner_name) + '.' : 'Aan niemand toegewezen.');
       // De naam onder het blok in de brief komt van de schrijver.
       laadBrief();
     } catch (err) { NB.fout(err); }

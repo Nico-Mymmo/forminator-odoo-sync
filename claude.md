@@ -3835,8 +3835,8 @@ bleken drie dingen niet te kloppen. Alle drie zijn gefixt in `lib/sync.js`,
   links, antwoorden rechts), opvallend (groot gekleurd vlak, gecentreerd).
 - De kleurkiezer zet zijn positie en laag in de stijl zelf: Tailwind-klassen
   maakt de CDN pas na het invoegen aan, en dan stond hij helemaal links.
-- **In de inhoudstafel** schakel je in de brief (opmaakstand, het knopje bij
-  het handvat), niet meer in de rechterkolom.
+- **In de inhoudstafel** schakel je in de werkbalk boven het gekozen blok, of
+  in het paneel onder Opmaak (allebei `POST /api/contributions/:id/in-toc`).
 
 ## Nieuwsbrief: EEN vraagblok (2026-10-15)
 
@@ -3849,9 +3849,11 @@ bleken drie dingen niet te kloppen. Alle drie zijn gefixt in `lib/sync.js`,
 - Vraag, zinnetje en de opschriften van de knoppen typ je in de brief
   (`data-nb-veld="question" | "intro" | "options.N.label"`). Een lege vraag
   staat er in het voorbeeld al (zoals het woordje vooraf).
-- Opmaakstand: `content.stijl` (VRAAG_STIJLEN: subtiel, kaart, opvallend) en
-  `content.kleur` (VRAAG_KLEUREN: per merkkleurfamilie licht/rand/sterk/knop),
-  via `POST /api/contributions/:id/vraagstijl` (enkel hoofdredactie). Zonder
+- Opmaak (paneel rechts, enkel hoofdredactie): `content.stijl` (VRAAG_STIJLEN:
+  subtiel, kaart, opvallend) en `content.kleur` (per merkkleurfamilie
+  licht/rand/sterk/knop), via `POST /api/contributions/:id/vraagstijl`. Het
+  scherm zet de nieuwe waarde ook in het concept, anders bewaart de volgende
+  PUT de oude. Zonder
   keuze: VRAAG_STANDAARD (zoals de vragen er vroeger uitzagen). Een schrijver
   die bewaart, wist ze niet (PUT neemt ze over als ze ontbreken).
 - EEN renderer: `blokVraag()` in render.js.
@@ -4931,6 +4933,33 @@ Afspraken die bewust zo zijn:
   doorstuurt) (`webstory:noted:*` in KV). Nooit bij elke update.
 - **Inline stijl: altijd `background-color`, nooit `background`** -- Odoo's
   sanitizer knipt de shorthand stil weg (zie het vrije chatter-bericht).
+- **"In het midden" is een ZOEKLIJST, geen `<select>`** (2026-10-13, melding
+  marketing: honderden adressen waren onleesbaar). `comboHtml()` /
+  `renderComboList()` in dashboards-marketing-behaviour.js: per pagina de LEESBARE
+  naam uit het adres (`readablePage()`: "commissaris-van-de-rekeningen" ->
+  "Commissaris van de rekeningen", met "Financieel beheer" erboven) en het adres
+  eronder. Zoeken op elk woord, in adres en naam, zonder accenten of streepjes;
+  letters overslaan mag (achteraan). Alle pagina's van het segment, niet de top 200.
+  Echte paginatitels heeft de tracker niet; komen die er, dan horen ze in `dict`.
+- **Een actiekaart toont naast het aantal de CONVERSIERATIO** (`actRate()`): het deel
+  van de bezoeken in beeld (`m.total`: segment na de filters links, spelden, wat in
+  het midden staat). Rond een pagina is dat dus "wie deze pagina zag en daarna dit
+  deed". De kaart in het midden / het doel zelf (100%) krijgt er geen. De keuzelijst
+  Doel toont per doel ook het deel van het segment.
+- **Bewaarde weergaven met een mini-doel** (2026-10-13). Blokjes boven "Waar het
+  stokt" (`renderViews()`), gedeeld met iedereen die Dashboards heeft (tabel
+  `marketing_flow_views`, migratie `20261013150000`, `lib/flow-views.js`, routes
+  `/dashboards/api/marketing/views`). Een weergave = de FILTERS LINKS + stand, doel,
+  midden, stappen en spelden (`encodeView()`), op NAAM (een pagina als `p:<pad>`),
+  net als localStorage. De PERIODE zit er bewust niet in: de ratio geldt over de
+  periode die links gekozen is, met de vorige periode ernaast. Ratio
+  (`viewMetric()`): van de bezoeken in beeld, hoeveel doen DAARNA het doel; naar
+  het doel toe: het deel van het segment. Een mini-doel = `target_pct` plus het
+  vertrekpunt `baseline_pct` (de ratio toen het doel gezet werd), met een balkje van
+  vertrekpunt naar doel. Komt een bewaarde filter of pagina in de periode niet voor,
+  dan zegt het blokje dat en telt het niets -- de filter stil laten vallen zou een
+  groter segment tonen onder dezelfde naam. Het blokje van de weergave die open
+  staat, is omrand (vergelijking met `canon()`: jsonb houdt de sleutelvolgorde niet).
 
 ---
 
@@ -5394,28 +5423,66 @@ https://claude.ai/artifact/4KzZk1KM5JWNg32Pa1WRgW
 | Edities: datums (Europe/Brussels), automatisch aanmaken, alles verzamelen | `lib/editions.js` |
 | Bronnen: events (`listEvents`), nieuws (`listSnippets`), links (`fetchArticle`), collega's, tekeningen | `lib/sources.js` |
 | Vragen in de mail: token, antwoorden, doorzetten naar een koppeling | `lib/answers.js` |
-| Naar Odoo: testlijst, test, echte mailing, cijfers | `lib/odoo-mailing.js` |
+| Naar Odoo: testlijst, test, echte mailing (meteen vertrekken), cijfers | `lib/odoo-mailing.js` |
+| De verzending blijft in de OM tot het moment zelf: voorgesteld moment, claimen, versturen via de cron | `lib/verzending.js` |
 | AI-hulp (`askAI`, source `newsletters`) | `lib/ai.js` |
-| Cron (15-min-tak): edities, herinneringen, antwoorden | `lib/cron.js` |
+| Cron (15-min-tak): edities, herinneringen, antwoorden, ingeplande edities versturen op hun moment | `lib/cron.js` |
 | Publieke bedankpagina na een klik | `public-api.js` + blok `/t/_v/` in `src/router/public-routes.js`, pagina `public/nieuwsbrief-antwoord.html` |
+| Checklist "klaar om te verzenden?" (EEN lijst voor scherm en inplan-route) | `lib/checklist.js` |
 | Scherm | `public/newsletters.html` + `newsletters-{core,overview,edition,contribution,series,bootstrap}.js` |
-| Redactietafel: de brief als werkblad, paneel, blokjes om toe te voegen (`SJABLONEN`) | `newsletters-edition.js`; het invulformulier zelf in `newsletters-contribution.js` (`renderPaneel`) |
+| Redactietafel: kop met stappen, de brief, de "+"-lijn, de werkbalk, het venster Iets toevoegen (`SJABLONEN`) | `newsletters-edition.js`; het gekozen blok in het paneel rechts: `newsletters-contribution.js` (`render`) |
 
 Afspraken die bewust zo zijn:
 
-- **De brief zelf is het werkblad** (2026-10-12). De redactietafel toont links de
-  mail (`POST /api/editions/:id/preview`, dezelfde renderer), rechts een paneel.
-  Klik op een blok en het paneel wordt het invulformulier ervan; wat je typt gaat
-  als `override` mee, zodat de hele brief meteen toont wat er nog niet bewaard is.
-  Zonder gekozen blok toont het paneel "Voor jou" (wat op je naam staat), "Iets
-  toevoegen" (kant-en-klare blokjes: slepen naar de brief, of klikken en een
-  blauwe plek kiezen; de plek gaat als `after_id` mee) en, voor de
-  hoofdredactie, "Te bevestigen", onderwerp, voorraad en datums. Wat niet
-  bevestigd is, krijgt in de brief een gele streep en een label; dat is enkel
-  opmaak in het scherm (de renderer weet er niets van). Een stukje van een
-  editie opent nooit meer op een eigen pagina: `#/stukje/<id>` opent de
-  redactietafel met dat blok gekozen; enkel een idee in de voorraad heeft nog
-  een eigen schrijfscherm.
+- **Wat de lezer ziet, maak je IN de brief; wat de lezer niet ziet, staat
+  rechts** (2026-10-15, na het nazicht in `docs/review-om-nieuwsbrieven.md`).
+  De redactietafel vult het scherm (`body.nb-werk`): een vaste kop (naam,
+  stappenbalk Verzamelen -> Nalezen -> Testen -> Inplannen -> Verzonden,
+  Werken/Als lezer, computer/gsm, Blok, Testmail, Inplannen), links de brief in
+  een eigen vak dat scrolt (`#nbBriefvak`), rechts de regie in een eigen vak
+  dat scrolt (`#nbPaneel`). De pagina zelf scrolt niet: elk vak EEN scrollbar.
+  De brief komt van `POST /api/editions/:id/preview` (dezelfde renderer); wat
+  je typt gaat als `override` mee. Klik op een blok: het paneel toont zijn
+  instellingen en in de brief worden ALLE `data-nb-veld`-velden van dat blok
+  bewerkbaar (ook citaat, video, link, afsluiting, de kop van agenda en kort
+  nieuws, het bijschrift van een afbeelding), met een **zwevende werkbalk**
+  boven het blok (`.nb-werkbalk`: AI, beeld, soort vraag; hoofdredactie ook
+  handvat, omhoog/omlaag, kleurbolletje, inhoudstafel, weghalen). Een nieuw
+  blok komt via de **"+"-lijn** tussen twee blokken (`.nb-plus-lijn`, `data-na`
+  = het blok waarna) die het venster `dlgToevoegen` opent: Blokken (SJABLONEN
+  in groepen), Nieuws & updates (een bericht meteen als blok, via
+  `NB.berichtInhoud`), Voorraad (hoofdredactie). Geen slepen vanuit het paneel
+  en geen blauwe plekken meer. Zonder gekozen blok toont het paneel: Te
+  bevestigen, de **checklist** (`d().checklist`, uit `lib/checklist.js`),
+  Voor jou, Editie (onderwerp, voorbeeldtekst, inleverdatum, verzenddag,
+  ontvangers, herinneren, annuleren) en Verloop (activiteit, testmails, de
+  antwoorden in een venster). Een schrijver ziet enkel Voor jou en Verloop.
+  Wat niet bevestigd is, krijgt in de brief een gele streep en een label; dat
+  is enkel opmaak in het scherm. `#/stukje/<id>` opent de redactietafel met
+  dat blok gekozen; een idee in de voorraad is enkel titel en steekwoorden
+  (het venster `dlgIdee`, ook om aan te passen): er is GEEN aparte
+  schrijfpagina meer.
+- **De checklist is de enige waarheid over "klaar om te verzenden"**:
+  `checklist()` in `lib/checklist.js` geeft punten met `blokkeert`; `GET
+  /api/editions/:id` stuurt ze mee, de knop Inplannen staat uit zolang er een
+  rood punt is, en `POST /schedule` weigert met dezelfde punten. Een testmail
+  is verplicht (`last_test_at`). Voeg een controle NOOIT enkel in het scherm of
+  enkel in de route toe.
+- **Dezelfde woorden overal** (`NB.STATUS`, `NB.EDITIE_STATUS`, `NB.STAPPEN` in
+  newsletters-core.js): een stukje is Open, Bezig, Ingeleverd of Bevestigd;
+  een editie Verzamelen, Nalezen, Ingepland of Verzonden; de datums heten
+  Inleverdatum en Verzenddag. Geen "doorgegeven", geen "goedgekeurd" in het
+  scherm. `window.confirm` is weg: `NB.bevestig()` (venster `dlgBevestig`).
+- **Reeksinstellingen in gewone taal**: Odoo-lijsten als vinkjes uit `GET
+  /api/mailing-lists` (mailing.list met `contact_count`, valt terug op een
+  tekstveld als Odoo niet antwoordt), het chatkanaal uit `GET
+  /api/chat-channels` (het kanaalregister van Mini-apps), de hoofdredactie als
+  vinkjes (enkel een beheerder bewaart `editor_user_ids`).
+- **De koppelingen blijven zoals ze zijn** (bewust, 2026-10-15): EEN koppeling
+  per reeks, aangemaakt bij het eerste antwoord, in Koppelingen onder het
+  tabblad "Nieuwsbrief-antwoorden". Er komen er geen bij per vraag. Het scherm
+  zegt per antwoord wel eerlijk of de koppeling aan staat
+  (`integration_active` in `GET /api/editions/:id/answers`).
 - **Het woordje vooraf** (`intro`) is een korte inleiding bovenaan. De schrijver
   zet de groet ZELF in de tekst (dan staat ze in hetzelfde lettertype); eronder
   komt vanzelf een handtekening: foto, voornaam, en daaronder de functie. Geen
@@ -5458,21 +5525,21 @@ Afspraken die bewust zo zijn:
   (`kolomPassen`), zodat de foto het hele blok vult. Een tekening wordt nooit
   bijgesneden. Oude stukjes met enkel `image_url`/`thingie`/`thumbnail_url`
   tellen als "heel tonen" op hun oude plek (`beeldVan`, in renderer en scherm).
-- **Twee standen voor de hoofdredactie** (`NB.state.modus`, onthouden per
-  browser): "Inhoud" (een blok kiezen en invullen, zoals iedereen) en "Opmaak"
-  (blokken toevoegen met de blokjes, verslepen aan hun handvat om te
-  herordenen, en per blok: naam, wie schrijft het, weghalen). In de opmaakstand
-  kan je geen tekst bewerken; "Inhoud bewerken" springt naar de andere stand.
-  Verslepen = pointer events IN de brief (`koppelHerordenen`), met een blauwe
-  lijn waar het blok landt en meescrollen aan de rand; loslaten bewaart via
-  `/order`. Een schrijver ziet geen standen en voegt zelf iets toe vanuit zijn
-  overzicht.
+- **Geen standen meer** (2026-10-15; vroeger Inhoud/Opmaak en
+  Werkblad/Lezer). De hoofdredactie sleept altijd: elk niet-gekozen blok
+  heeft een handvat dat verschijnt als je erover gaat (`.nb-greep-rij`), het
+  gekozen blok heeft het in zijn werkbalk. Verslepen = pointer events IN de
+  brief (`koppelHerordenen`), met een blauwe lijn waar het blok landt en
+  meescrollen aan de rand van het vak; loslaten bewaart via `/order`. "Als
+  lezer" (`NB.state.voorbeeldStand === 'test'`) toont de brief zonder lege
+  blokken, lijnen, handvatten of markeringen; dan is niets bewerkbaar, en een
+  klik op een blok springt terug naar Werken.
 - **Merkkleuren** (2026-10-13): `MERKKLEUREN` in lib/constants.js (het palet van
   marketing) is de enige bron; de server aanvaardt enkel die kleuren als
-  achtergrond (`merkkleur()`). In de opmaakstand heeft elk blok naast zijn
-  handvat een kleurbolletje (`newsletters-kleur.js`, rooster zoals in
-  WordPress, met "Wissen"); dat bewaart `content.achtergrond` via `POST
-  /api/contributions/:id/achtergrond` (verandert de stand van het stukje niet,
+  achtergrond (`merkkleur()`). In de werkbalk boven het gekozen blok (en in
+  het paneel onder Opmaak) staat een kleurbolletje (`newsletters-kleur.js`,
+  rooster zoals in WordPress, met "Wissen"); dat bewaart `content.achtergrond`
+  via `POST /api/contributions/:id/achtergrond` (verandert de stand van het stukje niet,
   en een schrijver die bewaart, wist het niet). "Achtergrond van de mail" =
   `series.tint`, dus voor ALLE edities van die nieuwsbrief. Op een donkere kleur
   wordt gewone tekst licht (`lichteTekst`: enkel styles zonder eigen
@@ -5504,9 +5571,10 @@ Afspraken die bewust zo zijn:
   is het een kopie: aanpassen in de nieuwsbrief verandert het bericht niet. In
   de mail staat het als "Tekst en foto" (`blokArticle`). Los daarvan bestaat
   nog het oudere blok "Uit het nieuws" (`news`, tot vier korte verwijzingen).
-- **Iedereen kiest zelf de plek van een blok dat hij toevoegt**; de
-  hoofdredactie kan het nadien verschuiven, toewijzen of weghalen (paneel,
-  "Hoofdredactie"). "Bevestigen" in het scherm = de stand `approved`.
+- **Iedereen kiest zelf de plek van een blok dat hij toevoegt** (de
+  "+"-lijn waar hij op klikt, `after_id`); de hoofdredactie kan het nadien
+  verschuiven (werkbalk, handvat), toewijzen (paneel, "Hoofdredactie") of
+  weghalen (werkbalk). "Bevestigen" in het scherm = de stand `approved`.
 - **Twee veiligheden bij het versturen.** (1) `NEWSLETTER_SEND_MODE` (wrangler.jsonc):
   alles behalve `live` is teststand, en dan bestaat enkel de testroute. (2) Een
   test gaat naar een EIGEN Odoo-lijst "OM nieuwsbrief - testadressen" die de OM
@@ -5517,9 +5585,22 @@ Afspraken die bewust zo zijn:
 - **Elke test is een nieuwe `mailing.mailing`** ("[OM-test] ..."): een verstuurde
   mailing kan in Odoo niet opnieuw. Bewerk die mailings NOOIT in de editor van
   Odoo -- die herschrijft `body_arch`.
-- **Een echte verzending** vraagt `live`, de hoofdredactie, een onderwerp, ELK
-  stukje met inhoud goedgekeurd, en "VERSTUREN" getypt. Ze wordt ingepland op
-  het verzendmoment (`schedule_date` + `action_put_in_queue`).
+- **Er staat NOOIT een nieuwsbrief vooraf "geplaatst" in Odoo** (beslissing
+  Nico, 2026-10-15). "Verzenden" in de OM (`POST /schedule`, enkel `live`,
+  hoofdredactie, checklist groen, "VERSTUREN" getypt) zet de editie op
+  Ingepland met een verzendmoment (`send_at`; voorgesteld: de verzenddag als
+  die nog een uur weg is, anders morgen op het uur van de reeks; minstens een
+  kwartier vooruit). Tot dat moment staat ze enkel in de OM: de hoofdredactie
+  kan ze **terughalen** (`POST /unschedule`, terug naar Nalezen) of het moment
+  **verplaatsen** (`PUT` met enkel `send_at`). Een ingeplande editie is
+  vergrendeld (`isActiveEdition` = verzamelen of nalezen): eerst terughalen,
+  dan wijzigen. Op het moment zelf claimt de cron ze (`claimVerzending`,
+  `odoo_mailing_id = -1`, zodat twee crons nooit twee keer versturen), bouwt
+  de mail (`bouwEchteMail`: live-renderer, beelden gehost, tokens), maakt de
+  `mailing.mailing` en laat ze METEEN vertrekken (`action_send_mail`, anders
+  `action_launch`). Mislukt dat, dan gaat de editie terug naar Nalezen met de
+  reden in het verloop en in de chat, en vertrekt er niets. Daarna leest de
+  cron de cijfers tot Odoo `done` meldt (status Verzonden).
 - **De opmaak komt uit de huisstijl van de sites** (Gelica 400 voor titels met
   Georgia als terugval, Rethink Sans, #0369a1, mint #99f6e4), NIET uit de
   Dynapps-module `openvme_mail_snippets`. Tabellen met `width`, nooit de

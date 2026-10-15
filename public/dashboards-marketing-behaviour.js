@@ -122,7 +122,9 @@
     flowPrev: null,
     sort: { key: 'n', dir: -1 }, pageQuery: '', pageLimit: 20,
     // De lijst onderaan: per bezoek of per persoon, de sortering, de zoekopdracht en hoeveel er staan.
-    ses: { view: 'visits', sort: 'recent', q: '', limit: 25 }
+    ses: { view: 'visits', sort: 'recent', q: '', limit: 25 },
+    // Bewaarde weergaven van de padverkenner (gedeeld, Supabase). null = nog niet geladen.
+    views: null, viewsLoading: false, viewsError: '', viewNote: ''
   };
 
   // ── Filters bewaren (per gebruiker, in deze browser) ─────────────────────────
@@ -1366,16 +1368,31 @@
     return [cardAttrs(m, c.v, e.tok), cardHint(m, c.v, e.tok)];
   }
 
+  /**
+   * De CONVERSIERATIO van een actiekaart: het deel van de bezoeken in beeld (m.total:
+   * het segment na de filters links, de spelden en wat in het midden staat). De
+   * kaart in het midden of het doel zelf is per definitie 100%: daar geen ratio.
+   */
+  function actRate(m, c, n) { return (m.aligned && c.v === 0) || !m.total ? null : pct(n, m.total); }
+  function rateBase(m) {
+    return m.page ? 'de bezoeken met deze ' + focusWord() : m.back ? 'de bezoeken met ' + m.goal.kort : 'de bezoeken in het segment';
+  }
+  function actRateTxt(m, c, n) {
+    var r = actRate(m, c, n);
+    return r === null ? '' : ' Dat is ' + pctTxt(r) + ' van ' + rateBase(m) + ' (' + nf(m.total) + '), met de filters links.';
+  }
+
   function actCard(m, c, e, row, col) {
     var a = ACT[-e.tok];
     if (e.started) return formCard(m, c, e, row, col, a);
-    var k = actClick(m, c, e), style = actStyle(row, col, e.isPin || (m.page && c.v === 0));
+    var k = actClick(m, c, e), style = actStyle(row, col, e.isPin || (m.page && c.v === 0)), r = actRate(m, c, e.n);
     return '<button type="button" class="w-full text-left rounded-lg border px-2.5 flex items-center gap-2 hover:brightness-95" style="' + style + '"'
       + ' data-flow-node="' + e.id + '" ' + k[0]
-      + ' title="' + esc(tokName(e.tok) + ' (' + whereLabel(m, c.v) + '): ' + nf(e.n) + ' bezoeken.' + k[1]) + '">'
+      + ' title="' + esc(tokName(e.tok) + ' (' + whereLabel(m, c.v) + '): ' + nf(e.n) + ' bezoeken.' + actRateTxt(m, c, e.n) + k[1]) + '">'
       + '<i data-lucide="' + (a ? a.icon : 'check') + '" class="w-4 h-4 shrink-0" style="color:oklch(var(--su))"></i>'
       + '<span class="flex-1 min-w-0 text-[13px] font-medium leading-4 line-clamp-2">' + esc(tokLabel(e.tok)) + '</span>'
-      + '<span class="text-sm font-semibold tabular-nums">' + nf(e.n) + '</span></button>';
+      + '<span class="text-right leading-4 tabular-nums shrink-0"><span class="block text-sm font-semibold">' + nf(e.n) + '</span>'
+      + (r === null ? '' : '<span class="block text-[11px] text-base-content/70">' + pctTxt(r) + '</span>') + '</span></button>';
   }
 
   /**
@@ -1387,14 +1404,17 @@
     var verstuurd = e.n - e.started, k = actClick(m, c, e);
     var style = actStyle(row, col, e.isPin || (m.page && c.v === 0));
     var naam = a ? a.short : 'Formulier';
+    var r = actRate(m, c, verstuurd);
     var uitleg = naam + ' (' + whereLabel(m, c.v) + '): ' + nf(e.n) + ' bezoeken begonnen eraan, ' + nf(verstuurd) + ' verstuurden'
-      + (e.geschat ? ' (' + nf(e.geschat) + ' begonnen geschat uit klikken, van voor de popup zelf iets meldde)' : '') + '.' + k[1];
+      + (e.geschat ? ' (' + nf(e.geschat) + ' begonnen geschat uit klikken, van voor de popup zelf iets meldde)' : '') + '.'
+      + (r === null ? '' : ' Verstuurd = ' + pctTxt(r) + ' van ' + rateBase(m) + ' (' + nf(m.total) + '), met de filters links.') + k[1];
     return '<button type="button" class="w-full text-left rounded-lg border px-2.5 flex items-center gap-2 hover:brightness-95" style="' + style + '"'
       + ' data-flow-node="' + e.id + '" ' + k[0] + ' title="' + esc(uitleg) + '">'
       + '<i data-lucide="' + (a ? a.icon : 'check') + '" class="w-4 h-4 shrink-0" style="color:oklch(var(--su))"></i>'
       + '<span class="flex-1 min-w-0 text-[13px] font-medium leading-4 truncate">' + esc(naam) + (e.geschat ? '<span class="text-base-content/50">*</span>' : '') + '</span>'
       + '<span class="text-right leading-4 tabular-nums shrink-0"><span class="block text-[11px] text-base-content/70">' + nf(e.n) + ' gestart</span>'
-      + '<span class="block text-[13px] font-semibold">' + nf(verstuurd) + ' verstuurd</span></span></button>';
+      + '<span class="block text-[13px] font-semibold">' + nf(verstuurd) + ' verstuurd'
+      + (r === null ? '' : '<span class="text-[11px] font-normal text-base-content/70"> · ' + pctTxt(r) + '</span>') + '</span></span></button>';
   }
 
   function restCard(r, row, col) {
@@ -1582,7 +1602,7 @@
       var seen = {};
       path(s).forEach(function (p) { if (!seen[p]) { seen[p] = 1; m[p] = (m[p] || 0) + 1; } });
     });
-    return Object.keys(m).map(Number).sort(function (a, b) { return m[b] - m[a]; }).slice(0, 200).map(function (p) { return [p, m[p]]; });
+    return Object.keys(m).map(Number).sort(function (a, b) { return m[b] - m[a]; }).map(function (p) { return [p, m[p]]; });
   }
   /** De acties van het segment, samengesmolten (mergeTok), op aantal bezoeken: ook die kunnen in het midden. */
   function actOptions(cur) {
@@ -1610,25 +1630,14 @@
       + pills('flow-mode', null, [['fwd', 'Vanaf de instap'], ['page', 'Rond een pagina'], ['back', 'Naar het doel toe']], mode) + '</div>';
     if (mode === 'page') {
       // Een pagina of een actie in het midden; een actie heeft de waarde "a<code>".
-      var t = focusTok(), opts = focusOptions(cur), aopts = actOptions(cur);
-      var has = t !== null && (t < 0 ? aopts.some(function (o) { return o[0] === -t; }) : opts.some(function (o) { return o[0] === t; }));
-      var none = st.flow.act ? actFocusName(st.flow.act) + ' (niet in dit segment)'
-        : st.flow.page ? short(rawPageText(st.flow.page), 40) + ' (niet in dit segment)' : 'Kies een pagina';
-      html += '<label class="block min-w-0">' + groupLabel('In het midden', 'De pagina of actie in het midden. Ook te kiezen door bij "Vanaf de instap" een kaart aan te klikken, met het vizier in de tabel "Per pagina", of met "Zet in het midden" bij "Pagina onder de loep".')
-        + '<select class="select select-bordered select-sm max-w-[24rem] border-primary bg-primary/5 font-medium" data-bh-flow-page>'
-        + (has ? '' : '<option value="" selected>' + esc(none) + '</option>')
-        + '<optgroup label="Pagina\'s">'
-        + opts.map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === t ? ' selected' : '') + '>' + esc(short(pageName(o[0]), 60)) + ' (' + nf(o[1]) + ')</option>'; }).join('')
-        + '</optgroup>'
-        + (aopts.length ? '<optgroup label="Acties">' + aopts.map(function (o) {
-            return '<option value="a' + o[0] + '"' + (-o[0] === t ? ' selected' : '') + '>'
-              + esc(actFocusName(o[0]) + (o[0] === 1 || o[0] === 7 ? ', gestart of verstuurd' : '')) + ' (' + nf(o[1]) + ')</option>';
-          }).join('') + '</optgroup>' : '')
-        + '</select></label>';
+      html += '<div class="block min-w-0">' + groupLabel('In het midden', 'De pagina of actie in het midden. Typ om te zoeken, op het adres of de leesbare naam. Ook te kiezen door bij "Vanaf de instap" een kaart aan te klikken, met het vizier in de tabel "Per pagina", of met "Zet in het midden" bij "Pagina onder de loep".')
+        + comboHtml(cur) + '</div>';
     }
     html += '<label class="block">' + groupLabel('Doel', 'Vooruit en rond een pagina tonen bij elke pagina hoeveel bezoeken daarna dit doel haalden (groen). "Naar het doel toe" toont enkel bezoeken met dit doel, uitgelijnd op de eerste keer dat het gebeurde.')
       + '<select class="select select-bordered select-sm" data-bh-flow-goal>' + GOAL_ORDER.map(function (g) {
-          return '<option value="' + g + '"' + (st.flow.goal === g ? ' selected' : '') + '>' + esc(GOALS[g].label) + ' (' + nf(counts[g]) + ')</option>';
+          // Het aantal EN het deel van het segment: zo zie je meteen de ratio, die meegaat met de filters links.
+          return '<option value="' + g + '"' + (st.flow.goal === g ? ' selected' : '') + '>' + esc(GOALS[g].label) + ' (' + nf(counts[g])
+            + (cur.length ? ' · ' + pctTxt(pct(counts[g], cur.length)) : '') + ')</option>';
         }).join('') + '</select></label>';
     html += mode === 'page'
       ? stepper('Ervoor', 'flow-side', 'pb', st.flow.pb, MIN_SIDE, MAX_SIDE, 'Hoeveel stappen voor de pagina: hoe bezoekers er komen.')
@@ -1661,6 +1670,7 @@
     var m = buildFlow(cur), fv = m.total ? pinVerdicts(cur, m) : [];
     flowModel = m.total ? m : null;
     renderPinsLine(m.total, m.view ? personCount(m.view) : 0);
+    renderViews(cur);
     renderFlowAnswers(m, fv);
     renderFlowLegend(m);
     renderFocus(cur, m);
@@ -1676,6 +1686,435 @@
       return;
     }
     renderFlowGrid(m);
+  }
+
+  // ── "In het midden": een zoeklijst in plaats van een keuzelijst ─────────────
+  // Een gewone <select> met honderden adressen was onleesbaar (melding marketing,
+  // 2026-10-13). Nu: de LEESBARE naam ("Commissaris van de rekeningen", onder
+  // "Financieel beheer") met het adres eronder, en zoeken op elk woord, in het adres
+  // EN in de leesbare naam, zonder accenten of streepjes. Wie letters overslaat
+  // ("comrek"), vindt nog iets: die treffers komen achteraan. Alle pagina's van het
+  // segment staan erin, niet enkel de drukste 200.
+
+  var COMBO_MAX = 80;
+  var combo = { opts: [], shown: [], idx: 0 };
+
+  function decodeSafe(x) { try { return decodeURIComponent(x); } catch (_) { return x; } }
+  /** Een stuk van een adres leesbaar: "commissaris-van-de-rekeningen" -> "Commissaris van de rekeningen". */
+  function niceSeg(seg) {
+    var t = decodeSafe(seg).replace(/\.(html?|php)$/i, '').replace(/[-_+]+/g, ' ').replace(/\s+/g, ' ').trim();
+    return t ? t.charAt(0).toUpperCase() + t.slice(1) : t;
+  }
+  /** De leesbare naam van een pagina en waar ze onder hangt. */
+  function readablePage(i) {
+    var raw = String(d('p', i) || ''), q = raw.indexOf('?'), p = q >= 0 ? raw.slice(0, q) : raw;
+    var segs = p.split('/').filter(Boolean);
+    var name = segs.length ? niceSeg(segs[segs.length - 1]) : 'Homepage';
+    return { name: name + (q >= 0 ? ' (' + raw.slice(q) + ')' : ''), parent: segs.slice(0, -1).map(niceSeg).join(' › ') };
+  }
+  /** Om te vergelijken: kleine letters, zonder accenten, leestekens van een adres als spatie. */
+  function fold(x) { return ' ' + String(x || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ').trim() + ' '; }
+  function subseq(hay, w) { var j = 0; for (var i = 0; i < hay.length && j < w.length; i++) if (hay.charAt(i) === w.charAt(j)) j++; return j === w.length; }
+  /** Hoe goed een optie past: elk woord moet erin staan; 0 = geen treffer. Begin van de naam > begin van een woord > ergens. */
+  function comboScore(o, terms) {
+    var score = 0;
+    for (var i = 0; i < terms.length; i++) {
+      var w = terms[i];
+      if (o.nameF.indexOf(' ' + w) === 0) score += 8;
+      else if (o.nameF.indexOf(' ' + w) > 0) score += 6;
+      else if (o.nameF.indexOf(w) >= 0) score += 4;
+      else if (o.hay.indexOf(' ' + w) >= 0) score += 3;
+      else if (o.hay.indexOf(w) >= 0) score += 2;
+      else if (w.length >= 3 && subseq(o.hay.replace(/ /g, ''), w)) score += 0.5;
+      else return 0;
+    }
+    return score;
+  }
+
+  function comboOptions(cur) {
+    var acts = actOptions(cur).map(function (o) {
+      var name = actFocusName(o[0]), sub = o[0] === 1 || o[0] === 7 ? 'actie · gestart of verstuurd' : 'actie';
+      return { val: 'a' + o[0], name: name, sub: sub, n: o[1], act: true, nameF: fold(name), hay: fold(name + ' ' + ACT[o[0]].label + ' actie') };
+    });
+    var pages = focusOptions(cur).map(function (o) {
+      var r = readablePage(o[0]), raw = pageName(o[0]);
+      return { val: 'p' + o[0], name: r.name, sub: (r.parent ? r.parent + ' · ' : '') + raw, path: raw, n: o[1], act: false,
+        nameF: fold(r.name), hay: fold(r.name + ' ' + r.parent + ' ' + raw) };
+    });
+    return acts.concat(pages);
+  }
+
+  /** De knop met wat er nu in het midden staat; de lijst opent eronder. */
+  function comboHtml(cur) {
+    combo.opts = comboOptions(cur);
+    var t = focusTok(), label, sub = '', title;
+    var has = t !== null && combo.opts.some(function (o) { return o.val === (t < 0 ? 'a' + (-t) : 'p' + t); });
+    if (t !== null && t < 0) { label = actFocusName(-t); title = label; }
+    else if (t !== null) { var r = readablePage(t); label = r.name; sub = r.parent; title = pageName(t); }
+    else { label = st.flow.page ? readableRaw(st.flow.page) : 'Kies een pagina'; title = st.flow.page || ''; }
+    if (!has && (st.flow.page || st.flow.act)) sub = 'niet in dit segment';
+    return '<div class="relative" data-bh-combo>'
+      + '<button type="button" class="select select-bordered select-sm w-[24rem] max-w-full border-primary bg-primary/5 font-medium flex items-center gap-1.5 text-left"'
+      + ' data-bh-action="combo-open" aria-haspopup="listbox" title="' + esc(title) + '">'
+      + '<i data-lucide="search" class="w-3.5 h-3.5 shrink-0 text-base-content/50"></i>'
+      + '<span class="truncate">' + esc(label) + (sub ? '<span class="font-normal text-base-content/50"> · ' + esc(sub) + '</span>' : '') + '</span></button>'
+      + '<div id="bhComboPanel" class="hidden absolute left-0 top-full z-40 mt-1 w-[32rem] max-w-[calc(100vw-2rem)] rounded-xl border border-base-content/15 bg-base-100 shadow-xl p-2">'
+      + '<input id="bhComboQ" type="search" class="input input-bordered input-sm w-full" placeholder="Zoek een pagina of actie, bv. commissaris rekeningen" autocomplete="off" spellcheck="false" aria-label="Zoek een pagina of actie">'
+      + '<div id="bhComboList" class="mt-2 max-h-80 overflow-y-auto om-scroll" role="listbox"></div>'
+      + '<p class="text-[11px] text-base-content/50 px-1 pt-1.5">' + nf(combo.opts.filter(function (o) { return !o.act; }).length) + ' pagina\'s in dit segment, met het aantal bezoeken. ↑↓ en Enter om te kiezen.</p>'
+      + '</div></div>';
+  }
+  /** Het RUWE pad (st.flow.page) leesbaar, ook als het in deze periode niet voorkomt. */
+  function readableRaw(p) {
+    var segs = String(p || '').split('?')[0].split('/').filter(Boolean);
+    return segs.length ? niceSeg(segs[segs.length - 1]) : 'Homepage';
+  }
+
+  function renderComboList(q) {
+    var list = $('bhComboList');
+    if (!list) return;
+    var terms = fold(q).trim().split(' ').filter(Boolean), shown;
+    if (!terms.length) shown = combo.opts.slice();
+    else {
+      shown = combo.opts.map(function (o) { return { o: o, s: comboScore(o, terms) }; }).filter(function (x) { return x.s > 0; })
+        .sort(function (a, b) { return b.s - a.s || b.o.n - a.o.n; }).map(function (x) { return x.o; });
+    }
+    var more = shown.length - COMBO_MAX;
+    combo.shown = shown.slice(0, COMBO_MAX);
+    if (combo.idx >= combo.shown.length) combo.idx = 0;
+    var t = focusTok(), curVal = t === null ? '' : t < 0 ? 'a' + (-t) : 'p' + t, lastAct = null;
+    list.innerHTML = combo.shown.length ? combo.shown.map(function (o, i) {
+      var head = '';
+      if (lastAct !== o.act) { head = '<div class="px-2 pt-1.5 pb-0.5 text-[10px] font-semibold uppercase tracking-wide text-base-content/40">' + (o.act ? 'Acties' : 'Pagina\'s') + '</div>'; lastAct = o.act; }
+      return head + '<button type="button" role="option" id="bhComboOpt' + i + '" aria-selected="' + (i === combo.idx) + '" data-bh-action="combo-pick" data-value="' + o.val + '"'
+        + ' class="w-full grid grid-cols-[1fr_auto] gap-x-3 items-center rounded-lg px-2 py-1.5 text-left om-hover aria-selected:bg-primary/10' + (o.val === curVal ? ' ring-1 ring-primary/40' : '') + '"'
+        + (o.path ? ' title="' + esc(o.path) + '"' : '') + '>'
+        + '<span class="min-w-0"><span class="flex items-center gap-1.5 text-[13px] font-medium truncate">'
+        + (o.act ? '<i data-lucide="' + (ACT[o.val.slice(1)] ? ACT[o.val.slice(1)].icon : 'check') + '" class="w-3.5 h-3.5 shrink-0" style="color:oklch(var(--su))"></i>' : '')
+        + '<span class="truncate">' + esc(o.name) + '</span></span>'
+        + '<span class="block text-[11px] text-base-content/50 truncate">' + esc(o.sub) + '</span></span>'
+        + '<span class="text-xs tabular-nums text-base-content/60">' + nf(o.n) + '</span></button>';
+    }).join('') + (more > 0 ? '<p class="text-[11px] text-base-content/50 px-2 py-1">+ ' + nf(more) + ' meer: typ verder om te verfijnen.</p>' : '')
+      : '<p class="text-sm text-base-content/60 px-2 py-3">Niets gevonden voor "' + esc(q) + '".</p>';
+    markCombo();
+    icons();
+  }
+  function markCombo() {
+    combo.shown.forEach(function (_, i) {
+      var b = $('bhComboOpt' + i);
+      if (!b) return;
+      b.setAttribute('aria-selected', String(i === combo.idx));
+      b.classList.toggle('bg-primary/10', i === combo.idx);
+      if (i === combo.idx && b.scrollIntoView) b.scrollIntoView({ block: 'nearest' });
+    });
+  }
+  function toggleCombo() {
+    var panel = $('bhComboPanel');
+    if (!panel) return;
+    if (!panel.classList.contains('hidden')) { closeCombo(); return; }
+    panel.classList.remove('hidden');
+    var q = $('bhComboQ');
+    q.value = '';
+    combo.idx = 0;
+    renderComboList('');
+    q.focus();
+  }
+  function closeCombo() { var panel = $('bhComboPanel'); if (panel) panel.classList.add('hidden'); }
+  /** Een keuze uit de zoeklijst: "p<volgnummer>" of "a<actiecode>". Een ander midden = een andere uitlijning: de spelden vallen weg. */
+  function pickFocus(v) {
+    v = String(v || '');
+    if (v.charAt(0) === 'a') { var code = Number(v.slice(1)); if (!ACT[code]) return false; st.flow.act = code; }
+    else if (v.charAt(0) === 'p') { var i = Number(v.slice(1)); if (!d('p', i)) return false; st.flow.act = null; st.flow.page = d('p', i); }
+    else return false;
+    st.ppins = {};
+    return true;
+  }
+
+  // ── Bewaarde weergaven, met hun conversieratio en een mini-doel ──────────────
+  // Een weergave = de filters links + de stand van de padverkenner (stand, doel, wat
+  // in het midden staat, stappen, vastgezette kaarten). Gedeeld met het hele team
+  // (Supabase, src/modules/dashboards/lib/flow-views.js). Ze staan als blokjes boven
+  // "Waar het stokt", met het aantal en de RATIO over de gekozen PERIODE (die wordt
+  // bewust niet bewaard: een doel volg je over "de laatste 30 dagen", niet over een
+  // vaste maand) en de vorige periode ernaast.
+  //
+  // De ratio van een weergave = van de bezoeken in beeld, hoeveel doen DAARNA het
+  // doel (viewMetric). Rond een pagina: wie die pagina bekeek en daarna het doel
+  // deed -- dezelfde lezing als "doet daarna" op een kaart. Naar het doel toe: het
+  // deel van het segment dat het doel haalt (langs het vastgezette pad).
+  //
+  // Bewaard op NAAM, net als de filters in localStorage: een pagina als "p:<pad>",
+  // een filter als de waarde uit dict. Komt iets in de geladen periode niet voor,
+  // dan zegt het blokje dat, in plaats van stil de filter te laten vallen (dat zou
+  // een ander, groter segment tonen onder dezelfde naam).
+
+  function encTok(t) { return t >= 0 ? 'p:' + d('p', t) : t; }
+  function decTok(x) {
+    if (typeof x === 'number' && (x === ENTRY || (x < 0 && ACT[-x]))) return x;
+    if (typeof x === 'string' && x.indexOf('p:') === 0) { var i = st.data.dict.p.indexOf(x.slice(2)); return i >= 0 ? i : undefined; }
+    return undefined;
+  }
+  /** Wat er nu staat, in de vorm die bewaard wordt. */
+  function encodeView() {
+    var f = {}, fl = st.flow, pins = curPins(), out = {};
+    SCALAR.forEach(function (k) { f[k] = st.f[k]; });
+    var flow = { mode: fl.mode, goal: fl.goal };
+    if (fl.mode === 'page') { flow.page = fl.act ? null : fl.page; flow.act = fl.act || null; flow.pb = fl.pb; flow.pa = fl.pa; }
+    else flow.n = fl.n;
+    Object.keys(pins).forEach(function (k) { out[k] = encTok(pins[k]); });
+    return { v: 1, f: f, names: namesOf(), flow: flow, pins: out };
+  }
+  /** JSON met gesorteerde sleutels: jsonb in Postgres bewaart de volgorde niet. */
+  function canon(x) {
+    if (Array.isArray(x)) return '[' + x.map(canon).join(',') + ']';
+    if (x && typeof x === 'object') return '{' + Object.keys(x).sort().map(function (k) { return JSON.stringify(k) + ':' + canon(x[k]); }).join(',') + '}';
+    return JSON.stringify(x === undefined ? null : x);
+  }
+  /** Een bewaarde weergave terug naar filters, stand en spelden in de geladen periode. `missing` = wat er niet in voorkomt. */
+  function resolveView(state) {
+    state = state || {};
+    var f = Object.assign({}, DEFAULTS), missing = [], fl = state.flow || {}, pins = {};
+    SCALAR.forEach(function (k) { if (state.f && typeof state.f[k] === 'string') f[k] = state.f[k]; });
+    Object.keys(NAMED).forEach(function (k) {
+      var nm = state.names && state.names[k];
+      if (nm === undefined || nm === null) return;
+      var i = st.data.dict[NAMED[k]].indexOf(nm);
+      if (i < 0) missing.push(String(nm)); else f[k] = i;
+    });
+    var flow = { mode: 'fwd', goal: 'aanvraag', n: 4, page: null, act: null, pb: st.flow.pb, pa: st.flow.pa };
+    if (fl.mode === 'fwd' || fl.mode === 'back' || fl.mode === 'page') flow.mode = fl.mode;
+    if (GOALS[fl.goal]) flow.goal = fl.goal;
+    var n = Math.round(Number(fl.n));
+    if (n >= MIN_STEPS && n <= MAX_STEPS) flow.n = n;
+    ['pb', 'pa'].forEach(function (k) { var x = Math.round(Number(fl[k])); if (x >= MIN_SIDE && x <= MAX_SIDE) flow[k] = x; });
+    if (typeof fl.page === 'string' && fl.page) flow.page = fl.page;
+    var ac = Math.round(Number(fl.act));
+    if (ACT[ac] && mergeTok(-ac) === -ac) { flow.act = ac; flow.page = null; }
+    if (flow.mode === 'page' && flow.page && st.data.dict.p.indexOf(flow.page) < 0) missing.push(flow.page);
+    Object.keys(state.pins || {}).forEach(function (k) {
+      var t = decTok(state.pins[k]);
+      if (t === undefined) missing.push(String(state.pins[k]).replace(/^p:/, ''));
+      else pins[k] = t;
+    });
+    return { f: f, flow: flow, pins: pins, missing: missing };
+  }
+  /** fn() uitvoeren alsof deze weergave open stond; daarna alles terug. */
+  function withView(spec, fn) {
+    var keep = { f: st.f, flow: st.flow, pins: st.pins, bpins: st.bpins, ppins: st.ppins };
+    st.f = spec.f; st.flow = spec.flow; st.pins = {}; st.bpins = {}; st.ppins = {};
+    if (spec.flow.mode === 'back') st.bpins = spec.pins; else if (spec.flow.mode === 'page') st.ppins = spec.pins; else st.pins = spec.pins;
+    try { return fn(); } finally { st.f = keep.f; st.flow = keep.flow; st.pins = keep.pins; st.bpins = keep.bpins; st.ppins = keep.ppins; }
+  }
+  /** De conversie van wat er staat: van de bezoeken in beeld (n), hoeveel doen daarna het doel (k). */
+  function viewMetric(list) {
+    var mode = st.flow.mode, k = 0, n = 0, deep = -1;
+    if (mode === 'back') {
+      list.forEach(function (s) { n++; if (goalIdx(s) >= 0 && pinned(s)) k++; });
+      return { n: n, k: k };
+    }
+    if (mode === 'fwd') Object.keys(st.pins).forEach(function (x) { deep = Math.max(deep, Number(x)); });
+    list.forEach(function (s) {
+      var a = mode === 'page' ? alignIdx(s) : 0;
+      if (a < 0 || !pinned(s)) return;
+      n++;
+      var g = goalIdx(s);
+      if (g >= 0 && g >= (mode === 'page' ? a : deep)) k++;
+    });
+    return { n: n, k: k };
+  }
+  function rateOfMetric(x) { return x.n ? x.k / x.n * 100 : null; }
+  /** Wat er staat, in woorden: voor het blokje en het venster. Leest de toestand (ook binnen withView). */
+  function viewWhat() {
+    var fl = st.flow, goal = GOALS[fl.goal], t = fl.mode === 'page' ? focusTok() : null;
+    var mid = fl.mode === 'page' ? (t !== null ? (t < 0 ? actFocusName(-t) : readablePage(t).name) : readableRaw(fl.page))
+      : fl.mode === 'back' ? 'Naar het doel toe' : 'Vanaf de instap';
+    var pins = curPins(), keys = pinKeys(fl.mode, pins);
+    return {
+      line: mid + ' → ' + goal.naam,
+      kTxt: fl.mode === 'back' ? 'bezoeken in het segment doen ' + goal.kort : fl.mode === 'page' ? 'doen daarna ' + goal.kort : 'doen ' + goal.kort,
+      mode: VIEW_LABELS[fl.mode], goal: goal.label,
+      center: fl.mode === 'page' ? (t !== null ? centerName(t) : rawPageText(fl.page)) : '',
+      steps: fl.mode === 'page' ? fl.pb + ' ervoor, ' + fl.pa + ' erna' : String(fl.n),
+      pins: keys.map(function (k) { return pinLabel(fl.mode, k) + ': ' + tokLabel(pins[k]); }),
+      filters: activeKeys().map(chipLabel)
+    };
+  }
+  /** Aantal, ratio (en die van de vorige periode) en beschrijving van een bewaarde weergave. */
+  function viewStats(view) {
+    var spec = resolveView(view.state);
+    return withView(spec, function () {
+      var cur = [], prev = [];
+      st.data.sessions.forEach(function (s) { if (!matches(s)) return; (s[C.flags] & st.F.previous ? prev : cur).push(s); });
+      var a = spec.missing.length ? { n: 0, k: 0 } : viewMetric(cur), b = spec.missing.length ? { n: 0, k: 0 } : viewMetric(prev);
+      return { n: a.n, k: a.k, rate: rateOfMetric(a), prevRate: rateOfMetric(b), missing: spec.missing, what: viewWhat() };
+    });
+  }
+
+  function viewChip(v, x, active) {
+    var T = v.target_pct === null || v.target_pct === undefined ? null : Number(v.target_pct);
+    var B = v.baseline_pct === null || v.baseline_pct === undefined ? null : Number(v.baseline_pct), R = x.rate;
+    var reached = T !== null && R !== null && R >= T;
+    // Rood enkel als de ratio echt onder het vertrekpunt zakte: het vertrekpunt is afgerond bewaard.
+    var color = reached ? GOOD : T !== null && B !== null && R !== null && R < B - 0.05 ? BAD : 'inherit';
+    var tip = v.name + '\n' + x.what.line + '\n' + nf(x.k) + ' van ' + nf(x.n) + ' ' + x.what.kTxt + '.'
+      + '\nFilters: ' + (x.what.filters.length ? x.what.filters.join(', ') : 'geen (alle ' + chipLabelDefault() + ')')
+      + (x.what.pins.length ? '\nVastgezet: ' + x.what.pins.join(', ') : '') + '\nKlik om deze weergave te openen.';
+    var target = '';
+    if (T !== null) {
+      var frac = R === null ? 0 : B !== null && T > B ? (R - B) / (T - B) : T > 0 ? R / T : 1;
+      frac = Math.max(0, Math.min(1, frac));
+      target = '<div class="mt-2" title="' + esc('Doel: ' + pctTxt(T) + (B !== null ? ', vertrokken van ' + pctTxt(B) : '') + (v.target_set_at ? ' (gezet op ' + dayTxt(Date.parse(v.target_set_at) / 1000) + ')' : '') + '.') + '">'
+        + '<div class="flex items-baseline justify-between gap-2 text-[11px] tabular-nums"><span class="text-base-content/60"><i data-lucide="target" class="inline w-3 h-3 -mt-0.5"></i> doel ' + pctTxt(T)
+        + (B !== null ? ' <span class="text-base-content/45">· van ' + pctTxt(B) + '</span>' : '') + '</span>'
+        + '<span class="font-medium" style="color:' + (reached ? GOOD : 'inherit') + '">' + (R === null ? '' : reached ? 'gehaald' : 'nog ' + nf(T - R, 1) + ' pt') + '</span></div>'
+        + '<div class="h-1.5 rounded-full om-spoor overflow-hidden mt-1"><div class="h-full rounded-full" style="width:' + (frac * 100) + '%;background-color:' + (reached ? GOOD : ACCENT) + '"></div></div></div>';
+    }
+    return '<div class="rounded-xl border p-2.5 flex flex-col ' + (active ? 'border-primary ring-1 ring-primary bg-primary/5' : 'border-base-content/10') + '">'
+      + '<div class="flex items-start gap-1">'
+      + '<button type="button" class="flex-1 min-w-0 text-left" data-bh-action="view-open" data-id="' + esc(v.id) + '" title="' + esc(tip) + '">'
+      + '<div class="flex items-start justify-between gap-2"><span class="text-[13px] font-semibold leading-4 line-clamp-2">' + esc(v.name) + '</span>'
+      + '<span class="text-base font-semibold tabular-nums leading-4" style="color:' + color + '">' + (x.missing.length ? '—' : pctTxt(R)) + '</span></div>'
+      + '<div class="text-[11px] text-base-content/55 truncate mt-0.5">' + esc(x.what.line) + (x.what.filters.length ? ' · ' + x.what.filters.length + ' filter' + (x.what.filters.length === 1 ? '' : 's') : '') + '</div>'
+      + (x.missing.length
+        ? '<div class="text-[11px] text-warning mt-0.5 truncate">Komt in deze periode niet voor: ' + esc(short(x.missing[0], 30)) + '</div>'
+        : '<div class="text-[11px] tabular-nums text-base-content/70 mt-0.5">' + nf(x.k) + ' van ' + nf(x.n) + ' bezoeken'
+          + (x.prevRate !== null ? ' <span class="text-base-content/45">· vorige ' + pctTxt(x.prevRate) + '</span>' : '') + '</div>')
+      + '</button>'
+      + '<button type="button" class="btn btn-ghost btn-xs btn-square -mr-1 -mt-1" data-bh-action="view-edit" data-id="' + esc(v.id) + '" aria-label="Weergave of doel aanpassen" title="Naam of doel aanpassen, bijwerken of verwijderen">'
+      + '<i data-lucide="' + (T === null ? 'target' : 'pencil') + '" class="w-3.5 h-3.5"></i></button></div>'
+      + target + '</div>';
+  }
+  /** Zonder filters toont het tabblad de prospecten (DEFAULTS.purpose). */
+  function chipLabelDefault() { return 'prospecten'; }
+
+  function renderViews(cur) {
+    var el = $('bhViews');
+    if (!el || !st.data) return;
+    var now = viewMetric(cur), rate = rateOfMetric(now), what = viewWhat(), me = canon(encodeView());
+    var views = st.views || [], active = null;
+    var chips = views.map(function (v) {
+      var on = !active && canon(v.state) === me;
+      if (on) active = v;
+      return viewChip(v, viewStats(v), on);
+    });
+    // De huidige weergave: haar ratio, en bewaren als ze nog niet bewaard is.
+    var current = active ? '' : '<div class="rounded-xl border border-dashed border-base-content/25 p-2.5 flex flex-col justify-between gap-1.5">'
+      + '<div class="flex items-start justify-between gap-2"><span class="text-[11px] font-semibold uppercase tracking-wide text-base-content/50">Wat je nu ziet</span>'
+      + '<span class="text-base font-semibold tabular-nums leading-4">' + pctTxt(rate) + '</span></div>'
+      + '<div class="text-[11px] tabular-nums text-base-content/70" title="' + esc(what.line + (what.filters.length ? '. Filters: ' + what.filters.join(', ') : '')) + '">'
+      + nf(now.k) + ' van ' + nf(now.n) + ' ' + esc(what.kTxt) + '</div>'
+      + '<button type="button" class="btn btn-xs btn-outline gap-1 self-start" data-bh-action="view-new"' + (st.views === null ? ' disabled' : '') + '>'
+      + '<i data-lucide="bookmark-plus" class="w-3.5 h-3.5"></i> Bewaar deze weergave</button></div>';
+    var head = '<div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">'
+      + '<span class="text-[11px] font-semibold uppercase tracking-wide text-base-content/50 flex items-center gap-1" title="Weergaven die het team bewaarde: de filters links en deze padverkenner. De ratio = van de bezoeken in beeld, hoeveel daarna het doel doen. Een klik opent de weergave.">'
+      + '<i data-lucide="bookmark" class="w-3.5 h-3.5"></i> Bewaarde weergaven</span>'
+      + '<span class="text-[11px] text-base-content/50">ratio over de ' + esc(PERIODS[st.period]) + ', met de vorige periode ernaast</span></div>';
+    var notes = '';
+    if (st.viewsError) notes += '<p class="text-xs text-error mt-1">Bewaarde weergaven konden niet geladen worden: ' + esc(st.viewsError) + ' <button class="link" data-bh-action="view-retry">Opnieuw</button></p>';
+    if (st.viewNote) notes += '<p class="text-xs text-warning mt-1">' + esc(st.viewNote) + '</p>';
+    el.innerHTML = '<div class="mt-4">' + head + notes
+      + '<div class="grid grid-cols-[repeat(auto-fill,minmax(14rem,1fr))] gap-2 mt-2">' + chips.join('') + current + '</div></div>';
+  }
+
+  /** Een bewaarde weergave openen: filters, stand en spelden; de periode blijft. */
+  function applyView(id) {
+    var v = (st.views || []).filter(function (x) { return x.id === id; })[0];
+    if (!v || !st.data) return false;
+    var spec = resolveView(v.state);
+    st.f = spec.f; st.flow = spec.flow; st.flowPrev = null;
+    clearPins();
+    if (spec.flow.mode === 'back') st.bpins = spec.pins; else if (spec.flow.mode === 'page') st.ppins = spec.pins; else st.pins = spec.pins;
+    st.viewNote = spec.missing.length ? 'In de ' + PERIODS[st.period] + ' komt dit niet voor: ' + spec.missing.join(', ') + '. Die filter of kaart staat nu uit; kies een langere periode om ze te zien.' : '';
+    return true;
+  }
+
+  var viewApi = '/dashboards/api/marketing/views';
+  async function viewsFetch(url, opts) {
+    var res = await fetch(url, Object.assign({ credentials: 'include', headers: { 'Content-Type': 'application/json' } }, opts || {}));
+    if (res.status === 401) { window.location.href = '/'; throw new Error('Niet aangemeld'); }
+    var j = await res.json().catch(function () { return {}; });
+    if (!res.ok || !j.success) throw new Error(j.error || 'Fout ' + res.status);
+    return j.data;
+  }
+  async function loadViews() {
+    st.viewsLoading = true;
+    try { st.views = await viewsFetch(viewApi); st.viewsError = ''; }
+    catch (e) { st.viewsError = e.message; }
+    st.viewsLoading = false;
+    if (st.data) render();
+  }
+
+  // Het venster: nieuw bewaren, of naam / doel aanpassen, bijwerken of verwijderen.
+  var viewDlg = { id: null, rate: null };
+  function openViewDialog(id) {
+    var v = id ? (st.views || []).filter(function (x) { return x.id === id; })[0] : null;
+    if (id && !v) return;
+    var x, cur = split().cur;
+    if (v) x = viewStats(v);
+    else { var mm = viewMetric(cur); x = { n: mm.n, k: mm.k, rate: rateOfMetric(mm), missing: [], what: viewWhat() }; }
+    viewDlg = { id: v ? v.id : null, rate: x.rate };
+    $('bhViewTitle').textContent = v ? 'Weergave aanpassen' : 'Deze weergave bewaren';
+    $('bhViewName').value = v ? v.name : defaultViewName(x.what);
+    $('bhViewTarget').value = v && v.target_pct !== null && v.target_pct !== undefined ? String(Number(v.target_pct)) : '';
+    $('bhViewNow').innerHTML = x.missing.length
+      ? 'Komt in de ' + esc(PERIODS[st.period]) + ' niet voor: ' + esc(x.missing.join(', ')) + '.'
+      : 'Nu: <b>' + esc(pctTxt(x.rate)) + '</b> (' + nf(x.k) + ' van ' + nf(x.n) + ' ' + esc(x.what.kTxt) + ', ' + esc(PERIODS[st.period]) + ').'
+        + (v && v.baseline_pct !== null && v.baseline_pct !== undefined ? ' Vertrekpunt van het doel: ' + esc(pctTxt(Number(v.baseline_pct))) + (v.target_set_at ? ' (' + esc(dayTxt(Date.parse(v.target_set_at) / 1000)) + ')' : '') + '.' : ' Zet je een doel, dan is dat het vertrekpunt.');
+    var w = x.what;
+    $('bhViewWhat').innerHTML = [
+      ['Stand', w.mode], w.center ? ['In het midden', w.center] : null, ['Telt als conversie', w.goal], ['Stappen', w.steps],
+      ['Filters links', w.filters.length ? w.filters.join(', ') : 'geen (alle ' + chipLabelDefault() + ')'],
+      w.pins.length ? ['Vastgezet', w.pins.join(', ')] : null
+    ].filter(Boolean).map(function (r) {
+      return '<div class="grid grid-cols-[7.5rem_1fr] gap-2"><span class="text-base-content/55">' + esc(r[0]) + '</span><span>' + esc(r[1]) + '</span></div>';
+    }).join('');
+    // Bestaande weergave die niet open staat: aanbieden om ze te vervangen door wat je nu ziet.
+    var differs = !!v && canon(v.state) !== canon(encodeView());
+    $('bhViewReplaceWrap').classList.toggle('hidden', !differs);
+    $('bhViewReplace').checked = false;
+    $('bhViewDelete').classList.toggle('hidden', !v);
+    $('bhViewErr').textContent = '';
+    $('bhViewDialog').showModal();
+    icons();
+    setTimeout(function () { $('bhViewName').focus(); $('bhViewName').select(); }, 30);
+  }
+  function defaultViewName(w) { return short(w.line, 60); }
+
+  async function saveViewDialog() {
+    var name = $('bhViewName').value.trim(), tRaw = $('bhViewTarget').value.trim().replace(',', '.');
+    var target = tRaw === '' ? null : Number(tRaw);
+    if (!name) { $('bhViewErr').textContent = 'Geef de weergave een naam.'; return; }
+    if (target !== null && (!isFinite(target) || target < 0 || target > 100)) { $('bhViewErr').textContent = 'Het doel is een percentage tussen 0 en 100.'; return; }
+    var v = viewDlg.id ? (st.views || []).filter(function (x) { return x.id === viewDlg.id; })[0] : null;
+    var replace = !!v && $('bhViewReplace').checked;
+    var body = { name: name, target_pct: target };
+    // Het vertrekpunt = de ratio nu (van wat bewaard wordt). Enkel bij een nieuw of gewijzigd doel; anders blijft het oude.
+    var nowRate = replace ? rateOfMetric(viewMetric(split().cur)) : viewDlg.rate;
+    var oldT = v && v.target_pct !== null && v.target_pct !== undefined ? Number(v.target_pct) : null;
+    if (target !== null && (oldT !== target || replace)) body.baseline_pct = nowRate === null ? null : Math.round(nowRate * 100) / 100;
+    if (!v || replace) body.state = encodeView();
+    var btn = $('bhViewSave');
+    btn.disabled = true;
+    try {
+      var saved = v ? await viewsFetch(viewApi + '/' + v.id, { method: 'PUT', body: JSON.stringify(body) })
+        : await viewsFetch(viewApi, { method: 'POST', body: JSON.stringify(body) });
+      st.views = (st.views || []).filter(function (x) { return x.id !== saved.id; });
+      st.views.push(saved);
+      st.views.sort(function (a, b) { return String(a.created_at).localeCompare(String(b.created_at)); });
+      $('bhViewDialog').close();
+      render();
+    } catch (e) { $('bhViewErr').textContent = e.message; }
+    btn.disabled = false;
+  }
+  async function deleteViewDialog() {
+    var v = (st.views || []).filter(function (x) { return x.id === viewDlg.id; })[0];
+    if (!v || !window.confirm('"' + v.name + '" verwijderen? Ook voor je collega\'s.')) return;
+    try {
+      await viewsFetch(viewApi + '/' + v.id, { method: 'DELETE' });
+      st.views = st.views.filter(function (x) { return x.id !== v.id; });
+      $('bhViewDialog').close();
+      render();
+    } catch (e) { $('bhViewErr').textContent = e.message; }
   }
 
   // ── Pagina onder de loep ───────────────────────────────────────────────────
@@ -2789,6 +3228,7 @@
       if (st.flowPrev) { st.flowPrev.pins = {}; st.flowPrev.bpins = {}; st.flowPrev.focusV = null; }
       numberVisits(st.data);
       $('bhStatus').innerHTML = '';
+      if (st.views === null && !st.viewsLoading) loadViews();
       render();
     } catch (e) {
       $('bhStatus').innerHTML = '<div class="alert alert-error text-sm">Kon de bezoeken niet laden: ' + esc(e.message) + '</div>';
@@ -2800,10 +3240,18 @@
   // ── Listeners ──────────────────────────────────────────────────────────────
 
   document.addEventListener('click', function (e) {
+    // De zoeklijst "In het midden" gaat dicht bij een klik ernaast.
+    if (!e.target.closest('[data-bh-combo]')) closeCombo();
     var el = e.target.closest('[data-bh-action]');
     if (!el) return;
     var a = el.dataset.bhAction, v = el.dataset.value;
     if (a === 'period') { st.period = v; load(); return; }
+    if (a === 'combo-open') { toggleCombo(); return; }
+    if (a === 'view-new') { openViewDialog(null); return; }
+    if (a === 'view-edit') { openViewDialog(el.dataset.id); return; }
+    if (a === 'view-save') { saveViewDialog(); return; }
+    if (a === 'view-delete') { deleteViewDialog(); return; }
+    if (a === 'view-retry') { loadViews(); return; }
     if (a === 'kpi-chart') { openKpi(el.dataset.metric, 'periode'); return; }
     if (a === 'kpi-range') { openKpi(kpi.metric, v); return; }
     if (a === 'kpi-metric') { openKpi(v); return; }
@@ -2861,6 +3309,8 @@
     }
     else if (a === 'punpin') { delete st.ppins[el.dataset.dist]; }
     else if (a === 'center') { centerOn(mergeTok(Number(el.dataset.page))); }
+    else if (a === 'combo-pick') { closeCombo(); if (!pickFocus(v)) return; }
+    else if (a === 'view-open') { if (!applyView(el.dataset.id)) return; }
     else if (a === 'flow-back') { flowBack(); }
     else if (a === 'flow-mode') {
       // De stand van voor een klik op een kaart: terug MET haar spelden, zoals het kruisje.
@@ -2950,17 +3400,6 @@
       if (GOALS[goalSel.value]) { st.flow.goal = goalSel.value; st.bpins = {}; render(); }
       return;
     }
-    var pageSel = e.target.closest('[data-bh-flow-page]');
-    if (pageSel) {
-      // Een andere pagina in het midden = een andere uitlijning: de spelden vallen weg.
-      var pv = pageSel.value;
-      if (pv !== '') {
-        if (pv.charAt(0) === 'a') st.flow.act = Number(pv.slice(1));
-        else { st.flow.act = null; st.flow.page = d('p', Number(pv)); }
-        st.ppins = {}; render();
-      }
-      return;
-    }
     var el = e.target.closest('[data-bh-select]');
     if (!el) return;
     var k = el.dataset.bhSelect;
@@ -2970,6 +3409,7 @@
   });
 
   document.addEventListener('input', function (e) {
+    if (e.target.id === 'bhComboQ') { combo.idx = 0; renderComboList(e.target.value); return; }
     if (e.target.id === 'bhSessionsQuery') {
       st.ses.q = e.target.value;
       st.ses.limit = SES_STEP;
@@ -2980,6 +3420,24 @@
     st.pageQuery = e.target.value;
     st.pageLimit = 20;
     if (st.data) renderPages(split().cur);
+  });
+
+  // De zoeklijst met het toetsenbord: pijltjes, Enter kiest, Escape sluit.
+  document.addEventListener('keydown', function (e) {
+    if (e.target.id !== 'bhComboQ') return;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      var n = combo.shown.length;
+      if (n) { combo.idx = (combo.idx + (e.key === 'ArrowDown' ? 1 : -1) + n) % n; markCombo(); }
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      var o = combo.shown[combo.idx];
+      if (o) { closeCombo(); if (pickFocus(o.val)) render(); }
+    } else if (e.key === 'Escape') {
+      closeCombo();
+      var btn = document.querySelector('[data-bh-action="combo-open"]');
+      if (btn) btn.focus();
+    }
   });
 
   if (KPI_COMPACT) {

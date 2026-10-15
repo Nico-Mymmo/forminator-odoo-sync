@@ -34,15 +34,21 @@
       for (var i = 0; i < ROUTES.length; i++) {
         var m = ROUTES[i].re.exec(hash);
         if (m) {
-          if (ROUTES[i].view !== 'editie') NB.state.editieTab = NB.state.editieTab || 'redactie';
+          // De redactietafel vult het scherm (zie newsletters.html); de rest is een gewone pagina.
+          var werk = ROUTES[i].view === 'editie' || ROUTES[i].view === 'stukje';
+          document.body.classList.toggle('nb-werk', werk);
+          document.getElementById('nbBanner').classList.toggle('hidden', werk);
           await NB.views[ROUTES[i].view]({ id: m[1] });
-          window.scrollTo(0, 0);
+          if (!werk) window.scrollTo(0, 0);
           return;
         }
       }
+      document.body.classList.remove('nb-werk');
+      document.getElementById('nbBanner').classList.remove('hidden');
       await NB.views.overzicht();
     } catch (err) {
-      app.innerHTML = '<div class="alert alert-error">' + e(err.message || err) + '</div>';
+      document.body.classList.remove('nb-werk');
+      app.innerHTML = '<div class="alert alert-error m-4">' + e(err.message || err) + '</div>';
     }
   };
 
