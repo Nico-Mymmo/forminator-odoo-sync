@@ -27,7 +27,8 @@ import { stelStukjeVoor, stelOnderwerpVoor } from './lib/ai.js';
 import { linkVoorbeeld, eventsVoorEditie, auteurs, tekeningen } from './lib/sources.js';
 import { stuurHerinnering } from './lib/cron.js';
 import { hostBeelden, BEELDEN_MAP } from './lib/beelden-hosten.js';
-import { naamVoor, medewerkerVoorOdooGebruiker } from '../../lib/medewerkers.js';
+import { naamVoor, medewerkerVoorOdooGebruiker, medewerkersVoorGebruikers } from '../../lib/medewerkers.js';
+import { isEmail } from './lib/constants.js';
 import { lijstTekeningen, pngSleutel, vergeetTekeningen } from '../av-slides/lib/thingies.js';
 import { listIntegrations } from '../forminator-sync-v2/database.js';
 import { listVimeoVideos, getVimeoVideo, idFromVimeoUrl, resolveVideoWithoutToken } from '../event-operations-v2/lib/vimeo.js';
@@ -331,6 +332,32 @@ async function meldInChat(env, series, tekst) {
   } catch (error) {
     console.warn(`${LOG_PREFIX} chatmelding mislukt:`, error?.message);
   }
+}
+
+/**
+ * Wie een testmail mag krijgen: de collega's met een OM-account en de adressen
+ * uit NEWSLETTER_TEST_EMAILS. Niemand anders, ook niet als iemand het
+ * intypt: zo blijft een test altijd intern.
+ */
+async function testOntvangers(env, user) {
+  const users = await listUsers(env);
+  const profielen = await medewerkersVoorGebruikers(env, users).catch(() => ({}));
+  const standaard = testEmails(env);
+  const lijst = [];
+  const gezien = new Set();
+  for (const u of users) {
+    const email = String(u.email || '').trim().toLowerCase();
+    if (!isEmail(email) || gezien.has(email)) continue;
+    gezien.add(email);
+    lijst.push({ email, name: naamVoor(profielen[u.id], u), standaard: standaard.includes(email), mij: email === String(user?.email || '').toLowerCase() });
+  }
+  for (const email of standaard) {
+    if (gezien.has(email)) continue;
+    gezien.add(email);
+    lijst.push({ email, name: email, standaard: true, mij: email === String(user?.email || '').toLowerCase() });
+  }
+  lijst.sort((a, b) => a.name.localeCompare(b.name, 'nl'));
+  return lijst;
 }
 
 const MAX_BEELD = 3 * 1024 * 1024;
@@ -685,10 +712,23 @@ export const routes = {
    * naar iemand anders. Toont ook wat nog niet ingeleverd is, zodat je de hele
    * editie in je eigen mailbox naleest.
    */
-  'POST /api/editions/:id/test': async ({ env, user, params }) => {
+  /** Wie je kan aanvinken voor een testmail. */
+  'GET /api/test-ontvangers': async ({ env, user }) => {
+    try {
+      return json({ success: true, data: await testOntvangers(env, user) });
+    } catch (err) { return fout(err); }
+  },
+
+  'POST /api/editions/:id/test': async ({ env, user, params, request }) => {
     try {
       const { edition, series } = await editieMetReeks(env, params.id);
       eisEditor(user, series);
+      // Enkel aangevinkte collega's; wat niet in de lijst staat, valt stil weg.
+      const b = await leesBody(request);
+      const toegelaten = new Set((await testOntvangers(env, user)).map((x) => x.email));
+      const gekozen = (Array.isArray(b.emails) ? b.emails : []).map((x) => String(x || '').trim().toLowerCase()).filter((x) => toegelaten.has(x));
+      const adressen = gekozen.length ? gekozen : testEmails(env);
+      if (!adressen.length) throw new NewsletterError('Kies minstens één collega voor de testmail.');
       const tokenVeld = await tokenVeldBestaat(env);
       const v = await verzamel(env, series, edition, { png: true });
       const { html } = renderEdition({
@@ -698,7 +738,7 @@ export const routes = {
       const subject = edition.subject || `${series.name} ${edition.title}`;
       // Elk beeld op onze eigen, publieke opslag (lib/beelden-hosten.js).
       const gehost = await hostBeelden(env, html, { series });
-      const r = await verstuurTest(env, { series, edition, html: gehost.html, subject, preheader: edition.preheader });
+      const r = await verstuurTest(env, { series, edition, html: gehost.html, subject, preheader: edition.preheader, adressen });
       await updateEdition(env, edition.id, {
         test_mailing_ids: [...(edition.test_mailing_ids || []), r.mailingId],
         last_test_at: new Date().toISOString(),

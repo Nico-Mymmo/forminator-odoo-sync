@@ -5586,8 +5586,11 @@ Afspraken die bewust zo zijn:
 - **Twee veiligheden bij het versturen.** (1) `NEWSLETTER_SEND_MODE` (wrangler.jsonc):
   alles behalve `live` is teststand, en dan bestaat enkel de testroute. (2) Een
   test gaat naar een EIGEN Odoo-lijst "OM nieuwsbrief - testadressen" die de OM
-  bij elke test gelijkzet met `NEWSLETTER_TEST_EMAILS`; staat er toch iemand
-  anders op, dan vertrekt er niets. Bewust NIET lijst 2 "Test Inhouse" (te veel
+  bij elke test gelijkzet met de AANGEVINKTE collega's (venster `dlgTest`, `GET
+  /api/test-ontvangers`: de OM-gebruikers plus `NEWSLETTER_TEST_EMAILS`;
+  standaard de env-adressen en jezelf, onthouden per browser); een adres
+  buiten die lijst valt stil weg, en staat er toch iemand anders op de
+  Odoo-lijst, dan vertrekt er niets. Bewust NIET lijst 2 "Test Inhouse" (te veel
   mensen). Een test gaat via exact dezelfde weg als de echte mailing, zodat hij
   ook bewijst dat Odoo de HTML laat staan.
 - **Elke test is een nieuwe `mailing.mailing`** ("[OM-test] ..."): een verstuurde

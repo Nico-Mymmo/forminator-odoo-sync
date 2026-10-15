@@ -56,11 +56,13 @@ function afzender(series) {
 // ─── De testlijst ───────────────────────────────────────────────────────────
 
 /**
- * De testlijst met EXACT de testadressen. Geeft de lijst-id en de contacten.
+ * De testlijst met EXACT de gekozen adressen (collega's uit de OM en de
+ * adressen uit NEWSLETTER_TEST_EMAILS; de route kijkt dat na). Geeft de
+ * lijst-id en de contacten.
  */
-export async function zorgVoorTestlijst(env) {
-  const adressen = testEmails(env);
-  if (!adressen.length) throw new NewsletterError('Er is geen testadres ingesteld (NEWSLETTER_TEST_EMAILS).', 409);
+export async function zorgVoorTestlijst(env, gekozen = null) {
+  const adressen = [...new Set((gekozen || testEmails(env)).map((a) => String(a).trim().toLowerCase()).filter(Boolean))];
+  if (!adressen.length) throw new NewsletterError('Kies minstens één collega voor de testmail.', 409);
 
   let lijst = (await searchRead(env, {
     model: 'mailing.list', domain: [['name', '=', TEST_LIST_NAME]], fields: ['id'], limit: 1,
@@ -166,8 +168,8 @@ async function maakMailing(env, { series, edition, html, subject, preheader, lis
  * mailing (QWeb per ontvanger, uitschrijflink, Postmark broadcast), zodat de
  * test ook bewijst dat Odoo de HTML ongeschonden laat.
  */
-export async function verstuurTest(env, { series, edition, html, subject, preheader }) {
-  const { listId, contacten } = await zorgVoorTestlijst(env);
+export async function verstuurTest(env, { series, edition, html, subject, preheader, adressen = null }) {
+  const { listId, contacten } = await zorgVoorTestlijst(env, adressen);
   await zetTokens(env, contacten.map((c) => c.id));
   const stempel = new Date().toISOString().slice(0, 16).replace('T', ' ');
   const mailingId = await maakMailing(env, {

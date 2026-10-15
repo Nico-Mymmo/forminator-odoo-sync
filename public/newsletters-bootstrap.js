@@ -11,8 +11,8 @@
     var b = NB.state.boot;
     var stukken = [];
     if (b.send_mode !== 'live') {
-      stukken.push('<div class="alert alert-info mb-4 text-sm"><i data-lucide="flask-conical" class="w-5 h-5"></i><span><strong>Teststand.</strong> Er vertrekt niets naar klanten: een testmail gaat enkel naar '
-        + e((b.test_emails || []).join(', ') || 'niemand (NEWSLETTER_TEST_EMAILS is leeg)') + '.</span></div>');
+      stukken.push('<div class="alert alert-info mb-4 text-sm"><i data-lucide="flask-conical" class="w-5 h-5"></i><span><strong>Teststand.</strong> Er vertrekt niets naar klanten: een testmail gaat enkel naar de collega\'s die je aanvinkt'
+        + ((b.test_emails || []).length ? ' (standaard ' + e(b.test_emails.join(', ')) + ')' : '') + '.</span></div>');
     }
     if (!b.token_field && b.me.is_editor) {
       stukken.push('<div class="alert alert-warning mb-4 text-sm"><i data-lucide="alert-triangle" class="w-5 h-5"></i><span>Maak in Odoo Studio op <strong>Mailing Contact</strong> een tekstveld <code>x_studio_om_token</code> aan. Zonder dat veld weet de OM niet wie op een vraag in de mail antwoordde: alle antwoorden tellen dan als anoniem.</span></div>');

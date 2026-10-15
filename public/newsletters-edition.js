@@ -197,7 +197,7 @@
       + (mag ? '<div class="flex gap-2 items-center"><span class="text-xs opacity-60">Verzenden gebeurt pas na "Inplannen".</span><button class="btn btn-sm btn-ghost ml-auto" data-action="bewaar-datums">Bewaren</button></div>' : '')
       + (ed.status === 'scheduled' ? '<div class="alert alert-info text-sm py-2"><i data-lucide="calendar-clock" class="w-4 h-4"></i><span>Vertrekt op <strong>' + e(NB.datum(ed.send_at)) + '</strong>. Tot dan: Terughalen of Moment wijzigen, bovenaan.</span></div>' : '')
       + '<div class="divider my-1"></div>'
-      + '<div class="text-sm"><span class="text-xs opacity-60 block">Ontvangers</span>' + (sm === 'live' ? lijstNamen() : '<span class="opacity-80">Teststand: enkel naar ' + e((d().test_emails || []).join(', ') || 'niemand') + '.</span><span class="block text-xs opacity-60">Bij een echte verzending: ' + lijstNamen() + '</span>') + '</div>'
+      + '<div class="text-sm"><span class="text-xs opacity-60 block">Ontvangers</span>' + (sm === 'live' ? lijstNamen() : '<span class="opacity-80">Teststand: een testmail gaat enkel naar de collega\'s die je aanvinkt.</span><span class="block text-xs opacity-60">Bij een echte verzending: ' + lijstNamen() + '</span>') + '</div>'
       + (d().series.chat_channel && mag ? '<button class="btn btn-sm btn-ghost self-start" data-action="herinner"><i data-lucide="bell" class="w-4 h-4"></i> Herinner iedereen in de chat</button>' : '')
       + (mag ? '<button class="btn btn-xs btn-ghost self-start opacity-60" data-action="annuleer-editie">Editie annuleren</button>' : ''));
   }
@@ -1100,16 +1100,41 @@
 
   NB.actions['paneel-sluit'] = function () { return sluitPaneel(); };
 
-  NB.actions['test-versturen'] = async function (el) {
-    if (el && el.disabled !== undefined) el.disabled = true;
+  /** Testmail: eerst kiezen welke collega's ze krijgen (onthouden per browser). */
+  NB.actions['test-versturen'] = async function () {
+    var bak = document.getElementById('testOntvangers');
+    bak.innerHTML = '<div class="flex justify-center py-6"><span class="loading loading-spinner"></span></div>';
+    NB.dialoog('dlgTest').showModal();
+    try {
+      var lijst = await NB.api('/api/test-ontvangers');
+      var onthouden = null;
+      try { onthouden = JSON.parse(localStorage.getItem('nbTestAdressen') || 'null'); } catch (err) { onthouden = null; }
+      var aan = function (x) { return onthouden ? onthouden.indexOf(x.email) >= 0 : (x.standaard || x.mij); };
+      bak.innerHTML = lijst.length ? lijst.map(function (x) {
+        return '<label class="label cursor-pointer justify-start gap-3 py-1.5"><input type="checkbox" class="checkbox checkbox-sm" value="' + e(x.email) + '"' + (aan(x) ? ' checked' : '') + '>'
+          + '<span class="label-text">' + e(x.name) + (x.mij ? ' (jij)' : '') + '</span><span class="text-xs opacity-50 truncate">' + e(x.email) + '</span></label>';
+      }).join('') : '<p class="text-sm opacity-60">Geen collega\'s gevonden.</p>';
+    } catch (err) { bak.innerHTML = '<div class="alert alert-error text-sm">' + e(err.message) + '</div>'; }
+  };
+
+  NB.actions['test-bevestig'] = async function (el) {
+    var emails = Array.prototype.slice.call(document.querySelectorAll('#testOntvangers input:checked')).map(function (i) { return i.value; });
+    if (!emails.length) { NB.toast('Vink minstens één collega aan.', 'warning'); return; }
+    try { localStorage.setItem('nbTestAdressen', JSON.stringify(emails)); } catch (err) { /* geen opslag */ }
+    el.disabled = true;
+    el.innerHTML = '<span class="loading loading-spinner loading-xs"></span> Versturen…';
     try {
       await bewaarOpen();
-      var r = await NB.api('/api/editions/' + d().edition.id + '/test', { method: 'POST' });
+      var r = await NB.api('/api/editions/' + d().edition.id + '/test', { method: 'POST', body: { emails: emails } });
+      NB.dialoog('dlgTest').close();
       NB.toast('Testmail ' + (r.queued ? 'in de wachtrij van Odoo' : 'verstuurd') + ' naar ' + r.to.join(', ') + '.');
       if (!r.token_field) NB.toast('Het Studio-veld x_studio_om_token ontbreekt: antwoorden op vragen tellen als anoniem.', 'warning');
       if (r.beeld_problemen && r.beeld_problemen.length) NB.toast(r.beeld_problemen.length + ' beeld(en) konden niet klaargezet worden en staan misschien gebroken in de mail. Laad ze opnieuw op als PNG of JPEG.', 'warning');
       NB.vernieuwStand();
-    } catch (err) { NB.fout(err); if (el && el.disabled !== undefined) el.disabled = false; }
+    } catch (err) { NB.fout(err); }
+    el.disabled = false;
+    el.innerHTML = '<i data-lucide="send" class="w-4 h-4"></i> Versturen';
+    NB.ikons();
   };
 
   NB.actions['herinner'] = async function () {
