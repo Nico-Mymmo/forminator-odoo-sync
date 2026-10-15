@@ -36,7 +36,20 @@
     { key: 'kolom-rechts', label: 'Halve blok, rechts' },
     { key: 'kolom-links', label: 'Halve blok, links' },
     { key: 'tekst', label: 'Tussen de tekst' },
+    { key: 'hoek-rechts', label: 'Rechtsboven in de hoek' },
   ];
+
+  /** De grootte van een tekening (TEKENING_MATEN op de server, via /api/bootstrap). */
+  var MATEN = [
+    { key: 'klein', label: 'Klein' },
+    { key: 'middel', label: 'Middel' },
+    { key: 'groot', label: 'Groot' },
+  ];
+
+  function maatPx(b) {
+    var m = (NB.state.boot && NB.state.boot.tekening_maten) || { klein: 110, middel: 170, groot: 240 };
+    return m[(b && b.maat) || 'middel'] || m.middel;
+  }
 
   var st = null; // { beeld, opties, stap }
 
@@ -83,6 +96,9 @@
       'kolom-rechts': lijnen(6, 26) + beeld(38, 1, 25, 42),
       'kolom-links': beeld(1, 1, 25, 42) + lijnen(32, 26),
       tekst: '<rect x="6" y="5" width="36" height="4" rx="2" fill="currentColor" opacity=".55"/><rect x="6" y="12" width="52" height="2.5" rx="1.2" fill="currentColor" opacity=".3"/>' + beeld(6, 17, 52, 17) + '<rect x="6" y="37" width="52" height="2.5" rx="1.2" fill="currentColor" opacity=".3"/>',
+      'hoek-rechts': beeld(42, 4, 18, 18) + '<rect x="6" y="8" width="30" height="4" rx="2" fill="currentColor" opacity=".55"/>'
+        + [16, 21].map(function (y) { return '<rect x="6" y="' + y + '" width="32" height="2.5" rx="1.2" fill="currentColor" opacity=".3"/>'; }).join('')
+        + [27, 32, 37].map(function (y) { return '<rect x="6" y="' + y + '" width="52" height="2.5" rx="1.2" fill="currentColor" opacity=".3"/>'; }).join(''),
     }[plaats];
     return '<svg viewBox="0 0 64 44" width="64" height="44" aria-hidden="true">' + vak + inhoud + '</svg>';
   }
@@ -152,7 +168,7 @@
       + '</div>';
 
     var voorbeeld = '<div><div class="text-sm font-semibold mb-1.5">Zo komt het in de mail</div>'
-      + '<div class="rounded-lg overflow-hidden bg-base-200 mx-auto" style="width:' + Math.min(260, k.breedte) + 'px;' + (vullen ? 'aspect-ratio:' + k.verhouding : '') + '">'
+      + '<div class="rounded-lg overflow-hidden bg-base-200 mx-auto" style="width:' + Math.min(260, foto ? k.breedte : maatPx(b)) + 'px;' + (vullen ? 'aspect-ratio:' + k.verhouding : '') + '">'
       + '<img id="bdVoorbeeld" src="' + e(src) + '" alt="" class="block w-full ' + (vullen ? 'h-full object-cover' : 'h-auto') + '" style="object-position:' + fx + '% ' + fy + '%"></div></div>';
 
     var plaats = st.opties.plaatsen
@@ -168,7 +184,9 @@
         + keuzeKnop('beeld-dlg-vulling', 'vullen', vullen, vullingPictogram(true), 'Kader vullen')
         + keuzeKnop('beeld-dlg-vulling', 'heel', !vullen, vullingPictogram(false), 'Heel tonen')
         + '</div><p class="text-xs opacity-60 mt-1.5">' + (vullen ? 'Het beeld wordt bijgesneden tot het kader vol is.' : 'Het hele beeld, zonder bijsnijden.') + '</p></div>'
-      : '<p class="text-xs opacity-60">Een tekening staat altijd helemaal in beeld.</p>';
+      : '<div><div class="text-sm font-semibold mb-1.5">Grootte</div><div class="join">'
+        + MATEN.map(function (m) { return '<button type="button" class="btn btn-sm join-item' + ((b.maat || 'middel') === m.key ? ' btn-primary' : '') + '" data-action="beeld-dlg-maat" data-waarde="' + m.key + '">' + e(m.label) + '</button>'; }).join('')
+        + '</div><p class="text-xs opacity-60 mt-1.5">Onze tekeningen zijn herkenbare iconen: zet ze gerust groot. Ze worden nooit bijgesneden.</p></div>';
 
     return '<h3 class="font-bold text-lg mb-4">Beeld</h3>'
       + '<div class="grid gap-5 md:grid-cols-[minmax(0,1fr)_300px]">'
@@ -301,7 +319,7 @@
   NB.actions['beeld-dlg-tekening'] = function (el) {
     var naam = el.dataset.naam;
     NB.zorgVoorPng(naam).catch(function (err) { NB.toast('PNG van de tekening maken mislukt: ' + err.message, 'warning'); });
-    nieuw({ thingie: naam, url: '', vulling: 'heel' });
+    nieuw({ thingie: naam, url: '', vulling: 'heel', maat: (st.beeld && st.beeld.maat) || 'middel' });
   };
 
   NB.changes['beeld-dlg-foto'] = async function (el) {
@@ -318,6 +336,7 @@
 
   NB.actions['beeld-dlg-plaats'] = function (el) { st.beeld.plaats = el.dataset.waarde; teken(); };
   NB.actions['beeld-dlg-vulling'] = function (el) { st.beeld.vulling = el.dataset.waarde; teken(); };
+  NB.actions['beeld-dlg-maat'] = function (el) { st.beeld.maat = el.dataset.waarde; teken(); };
   NB.actions['beeld-dlg-alinea'] = function (el) {
     st.beeld.na_alinea = Math.max(0, Math.min(30, (st.beeld.na_alinea || 0) + Number(el.dataset.waarde)));
     teken();

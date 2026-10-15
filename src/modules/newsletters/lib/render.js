@@ -21,9 +21,15 @@
 
 import { esc, safeUrl } from '../../../lib/mail/render-blocks.js';
 import {
-  STYLE as S, BRAND, KINDS, CONTRIBUTION_STATUS, BEELD_KADERS, merkkleur, isDonker,
+  STYLE as S, BRAND, KINDS, CONTRIBUTION_STATUS, BEELD_KADERS, TEKENING_MATEN, merkkleur, isDonker,
   VRAAG_STIJLEN, VRAAG_STANDAARD, vraagThema,
 } from './constants.js';
+
+/** Hoe breed een beeld op zijn plek staat: een tekening naar haar grootte, een foto naar het kader. */
+function beeldBreedte(b, plaats) {
+  if (b?.thingie) return TEKENING_MATEN[b.maat] || TEKENING_MATEN.middel;
+  return (BEELD_KADERS[plaats] || BEELD_KADERS.rechts).breedte;
+}
 
 const WIDTH = 640;
 
@@ -203,16 +209,23 @@ function tekstMetBeeld(stukken, b, ctx, id) {
   const n = Math.max(0, Math.min(lijst.length, Number.isInteger(b.na_alinea) ? b.na_alinea : 0));
   const eiland = id ? ' data-nb-eiland="1" data-nb-beeld="1" contenteditable="false"' : '';
   if (pl === 'tekst') {
-    lijst.splice(n, 0, `<div${eiland} style="margin:${n === 0 ? 0 : 6}px 0 18px">${beeldTag(b, ctx, BEELD_KADERS.tekst.breedte)}</div>`);
+    // Een tekening tussen de tekst staat op haar grootte, gecentreerd; een foto over de hele breedte.
+    const tag = b.thingie
+      ? `<div align="center" style="text-align:center">${beeldTag(b, ctx, beeldBreedte(b, pl)).replace('width:100%', 'width:' + beeldBreedte(b, pl) + 'px').replace('display:block', 'display:inline-block')}</div>`
+      : beeldTag(b, ctx, BEELD_KADERS.tekst.breedte);
+    lijst.splice(n, 0, `<div${eiland} style="margin:${n === 0 ? 0 : 6}px 0 18px">${tag}</div>`);
     return lijst.join('');
   }
-  const k = BEELD_KADERS[pl];
+  const breedte = beeldBreedte(b, pl);
   const marge = pl === 'rechts' ? '4px 0 12px 24px' : '4px 24px 12px 0';
   const src = beeldSrc(b, ctx);
-  const img = `<img src="${esc(src)}" width="${k.breedte}" align="${pl === 'rechts' ? 'right' : 'left'}" alt="" style="float:${pl === 'rechts' ? 'right' : 'left'};width:${k.breedte}px;max-width:42%;height:auto;margin:${marge};border:0;border-radius:${b.thingie ? 0 : 14}px">`;
+  const img = `<img src="${esc(src)}" width="${breedte}" align="${pl === 'rechts' ? 'right' : 'left'}" alt="" style="float:${pl === 'rechts' ? 'right' : 'left'};width:${breedte}px;max-width:46%;height:auto;margin:${marge};border:0;border-radius:${b.thingie ? 0 : 14}px">`;
   if (id) {
-    // Voorbeeld: het eiland staat VOOR de alinea waar het naast hoort.
-    lijst.splice(Math.min(n, lijst.length), 0, `<div${eiland} style="float:${pl === 'rechts' ? 'right' : 'left'};width:${k.breedte}px;max-width:42%;margin:${marge}">${img.replace(/float:[a-z]+;/, '').replace(/margin:[^;]+;/, 'margin:0;')}</div>`);
+    // Voorbeeld: het eiland staat VOOR de alinea waar het naast hoort. Het
+    // eiland zelf is 46% van de kolom breed (zoals het beeld in de mail);
+    // het beeld erin vult het eiland (en niet 46% van het eiland: dan was het
+    // een postzegel).
+    lijst.splice(Math.min(n, lijst.length), 0, `<div${eiland} style="float:${pl === 'rechts' ? 'right' : 'left'};width:${breedte}px;max-width:46%;margin:${marge}">${img.replace(/float:[a-z]+;/, '').replace(/margin:[^;]+;/, 'margin:0;').replace('max-width:46%', 'max-width:100%')}</div>`);
     return lijst.join('');
   }
   if (!lijst.length) return `<div>${img}</div>`;
@@ -232,6 +245,17 @@ function schikBeeld({ b, ctx, id, inhoud, padding, bg = '' }) {
   const bgStijl = bg ? `background-color:${bg};` : '';
   const pl = b && b.plaats;
   const k = BEELD_KADERS[pl];
+  if (b && pl === 'hoek-rechts' && beeldSrc(b, ctx)) {
+    // Rechtsboven in de hoek, boven alles (ook het labeltje en de titel); de
+    // tekst loopt er links van. Een tekening op haar grootte, een foto in
+    // het vierkante kader. `align` op het beeld: dat volgen Outlook en Gmail.
+    const breedte = beeldBreedte(b, pl);
+    const tag = beeldTag(b, ctx, breedte, { radius: b.thingie ? 0 : 14 }).replace('width:100%', `width:${breedte}px`);
+    const hoek = id
+      ? `<div data-nb-eiland="1" data-nb-beeld="1" contenteditable="false" style="float:right;width:${breedte}px;max-width:46%;margin:0 0 14px 24px">${tag}</div>`
+      : tag.replace('<img ', `<img align="right" `).replace('style="display:block;', 'style="display:block;float:right;margin:0 0 14px 24px;');
+    return `<tr${attr}><td style="padding:${padding};${bgStijl}">${hoek}${inhoud}<div style="clear:both;font-size:0;line-height:0">&nbsp;</div></td></tr>`;
+  }
   if (!b || !k || !pl.startsWith('kolom') || !beeldSrc(b, ctx)) {
     return `<tr${attr}><td style="padding:${padding};${bgStijl}">${inhoud}</td></tr>`;
   }
