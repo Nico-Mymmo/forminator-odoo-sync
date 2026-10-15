@@ -532,6 +532,7 @@
       case 'statement':
       case 'poll':
         return typUitleg('Kies bovenaan het blok de <strong>soort vraag</strong> en typ de vraag en de antwoorden <strong>rechtstreeks in de brief</strong>. Een antwoord weg? Klik op het kruisje ernaast.')
+          + vraagStijlKeuze()
           + vinkje('Vraag na de klik om een korte toelichting', 'content.ask_comment') + vinkje('Toon de tussenstand na het antwoorden', 'content.show_results')
           + '<p class="text-xs opacity-60">Elk antwoord gaat naar de koppeling van deze reeks. Daar beslis je wat er in Odoo mee gebeurt.</p>';
       case 'news':
@@ -540,6 +541,28 @@
         return velden(kind);
     }
   }
+
+  /** Hoe opvallend de vraag staat (klein tot groot) en in welke kleur. */
+  function vraagStijlKeuze() {
+    var boot = NB.state.boot;
+    var std = (boot.vraag_standaard || {})[c().kind] || {};
+    var stijl = lees('content.stijl') || std.stijl;
+    var kleur = lees('content.kleur') || std.kleur;
+    var mag = NB.state.stukje.can_edit;
+    var stijlen = (boot.vraag_stijlen || []).map(function (s) {
+      return '<button type="button" class="btn btn-sm h-auto min-h-0 py-2 flex-col items-start text-left gap-0 normal-case font-normal ' + (s.key === stijl ? 'btn-primary' : 'btn-outline border-base-content/20') + '" data-action="vraag-stijl-zet" data-stijl="' + e(s.key) + '"' + (mag ? '' : ' disabled') + '>'
+        + '<span class="font-semibold">' + e(s.label) + '</span><span class="text-[11px] leading-tight opacity-70">' + e(s.uitleg) + '</span></button>';
+    }).join('');
+    var kleuren = Object.keys(boot.vraag_kleuren || {}).map(function (k) {
+      var v = boot.vraag_kleuren[k];
+      return '<button type="button" style="width:30px;height:30px;border-radius:50%;background:' + e(v.sterk) + ';border:3px solid #fff;box-shadow:0 0 0 ' + (k === kleur ? '2px #0284c7' : '1px rgba(0,0,0,.2)') + '" data-action="vraag-kleur-zet" data-kleur="' + e(k) + '" title="' + e(v.label) + '" aria-label="' + e(v.label) + '"' + (mag ? '' : ' disabled') + '></button>';
+    }).join('');
+    return '<div><span class="label-text">Stijl: van klein en subtiel tot groot en opvallend</span><div class="grid grid-cols-3 gap-2 mt-1">' + stijlen + '</div></div>'
+      + '<div><span class="label-text">Kleur</span><div class="flex gap-2 mt-1">' + kleuren + '</div></div>';
+  }
+
+  NB.actions['vraag-stijl-zet'] = function (el) { zet('content.stijl', el.dataset.stijl); gewijzigd(); render(); };
+  NB.actions['vraag-kleur-zet'] = function (el) { zet('content.kleur', el.dataset.kleur); gewijzigd(); render(); };
 
   /** Kort nieuws: welke berichten (2 of 3) en hoe ze naast elkaar staan. */
   function kortNieuwsKeuze() {
