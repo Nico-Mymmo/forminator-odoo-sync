@@ -140,6 +140,14 @@
   margin: 0;
 }
 
+/* Het totaal: de grootste maat van het thema. De klasse `has-<slug>-font-size`
+   (gezet in class-kostencalculator.php) wint als het thema eigen maten heeft;
+   heeft het er geen, dan staat het totaal anders even groot als de tekst. Dan
+   gelden de maten die WordPress zelf altijd meegeeft. */
+.mymmo-kosten .mymmo-kosten-groot {
+  font-size: var(--wp--preset--font-size--xx-large, var(--wp--preset--font-size--x-large, var(--wp--preset--font-size--large, inherit)));
+}
+
 /* De bijzin bij het totaal: de tekstkleur, zacht, zodat het totaal het enige
    blikvanger blijft. Haalt op het vlak nog 4,5:1. */
 .mymmo-kosten .mymmo-kosten-noot {

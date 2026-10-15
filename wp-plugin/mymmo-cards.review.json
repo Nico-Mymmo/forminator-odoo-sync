@@ -1,8 +1,8 @@
 {
   "plugin": "mymmo-cards",
-  "versie": "1.13.0",
-  "hash": "3fdfc1b086dc1520",
-  "datum": "2026-10-14T10:07:36.000Z",
+  "versie": "1.13.1",
+  "hash": "c08720c29e1f7d16",
+  "datum": "2026-10-15T12:24:12.000Z",
   "door": "Claude",
-  "samenvatting": "Nieuw blok Kostencalculator nagekeken op hiërarchie, zwaarte, kleur, mobiel, Gutenberg en toegankelijkheid. Vak is een vlak zoals een kaart zonder schaduw, een lijn scheidt het totaal; totaal in een lettergrootte van het thema zoals de stappen; telefoon: naam breekt af, bedrag blijft rechts, teller 48px, focusring op min en plus. Bekeken op 375, 768 en 1280 px zonder horizontale schuifbalk."
+  "samenvatting": "Kostencalculator 1.13.1: enkel een terugval voor de grootte van het totaal via de presetvariabelen van WordPress (xx-large, x-large, large). Geen nieuwe kleur, rand of maat; de klasse van het thema wint nog altijd waar ze bestaat."
 }

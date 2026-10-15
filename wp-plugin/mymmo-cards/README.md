@@ -395,6 +395,11 @@ Uitzetten per site: `define('MYMMO_CARDS_GEEN_AUTO_UPDATE', true);` in
 
 ## Versies
 
+**1.13.1** — het totaal van de kostencalculator staat weer groot. Op een
+site waar het thema geen eigen lettergroottes doorgeeft, kreeg €300 geen klasse
+en stond het even groot als de tekst ernaast. Nu valt het terug op de maten die
+WordPress zelf meegeeft (xx-large, dan x-large, dan large).
+
 **1.13.0** — nieuw blok: **Kostencalculator**, voor de pagina over de
 bankkosten van een VME. De bezoeker zet het aantal kavels met min en plus (2
 tot 200, standaard 4) en ziet per lijn wat het kost: OpenVME Basic aan 4 × €4 =
