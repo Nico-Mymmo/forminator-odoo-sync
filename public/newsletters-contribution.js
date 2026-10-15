@@ -768,7 +768,7 @@
           + vinkje('Vraag na de klik om een korte toelichting', 'content.ask_comment') + vinkje('Toon de tussenstand na het antwoorden', 'content.show_results')
           + '<p class="text-[11px] opacity-60">Antwoorden worden hier geteld en bewaard. Wat er in Odoo mee gebeurt, staat in Koppelingen onder "Nieuwsbrief-antwoorden".</p>';
       case 'events':
-        return uitleg('De kop typ je <strong>in de brief</strong>.') + eventsVeld();
+        return uitleg('Het labeltje (bv. "Schrijf je in") en de kop typ je <strong>in de brief</strong>. Voor elke volgende editie pas je de naam van de rubriek aan in de instellingen van de reeks.') + eventsVeld();
       case 'news':
         return uitleg('De kop typ je <strong>in de brief</strong>.') + kortNieuwsKeuze();
       case 'toc':
@@ -783,7 +783,7 @@
   }
 
   /** Blokken waarvan het labeltje NIET in de brief typbaar is: dan hier. */
-  var NAAM_HIER = { video: 1, link: 1, linkedin: 1, snippet: 1, news: 1, events: 1, toc: 1, image: 1 };
+  var NAAM_HIER = { video: 1, link: 1, linkedin: 1, snippet: 1, news: 1, toc: 1, image: 1 };
 
   function soortKeuze() {
     var kind = c().kind;
