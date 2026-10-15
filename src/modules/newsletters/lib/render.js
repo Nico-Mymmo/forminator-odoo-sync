@@ -679,7 +679,11 @@ ${link ? `<td align="right" valign="middle" style="padding:14px 18px 14px 0;whit
   const kopHtml = id
     ? typbaar(id, 'heading', c.heading || 'Kom ons ontmoeten', { tag: 'h2', plaatshouder: 'Kom ons ontmoeten', stijl: `margin:10px 0 20px;font-family:${S.fontHead};font-weight:400;font-size:28px;line-height:1.15;color:${S.heading}` })
     : kop(c.heading || 'Kom ons ontmoeten', { margin: '10px 0 20px' });
-  return paneel(`${label(item.title, S.primary)}
+  // Het labeltje (bv. "Schrijf je in") typ je in de brief, zoals de kop.
+  const labeltje = id
+    ? `<div data-nb-veld="@title" data-nb-optioneel="1" data-placeholder="Label (optioneel), bv. Schrijf je in" style="font-family:${S.fontBody};font-size:12px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:${S.primary}">${esc(item.title || '')}</div>`
+    : label(item.title, S.primary);
+  return paneel(`${labeltje}
 ${kopHtml}${rijen}`, S.sky50, { padding: '36px 32px 26px', id });
 }
 
