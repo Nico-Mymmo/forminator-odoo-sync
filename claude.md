@@ -4931,6 +4931,33 @@ Afspraken die bewust zo zijn:
   doorstuurt) (`webstory:noted:*` in KV). Nooit bij elke update.
 - **Inline stijl: altijd `background-color`, nooit `background`** -- Odoo's
   sanitizer knipt de shorthand stil weg (zie het vrije chatter-bericht).
+- **"In het midden" is een ZOEKLIJST, geen `<select>`** (2026-10-13, melding
+  marketing: honderden adressen waren onleesbaar). `comboHtml()` /
+  `renderComboList()` in dashboards-marketing-behaviour.js: per pagina de LEESBARE
+  naam uit het adres (`readablePage()`: "commissaris-van-de-rekeningen" ->
+  "Commissaris van de rekeningen", met "Financieel beheer" erboven) en het adres
+  eronder. Zoeken op elk woord, in adres en naam, zonder accenten of streepjes;
+  letters overslaan mag (achteraan). Alle pagina's van het segment, niet de top 200.
+  Echte paginatitels heeft de tracker niet; komen die er, dan horen ze in `dict`.
+- **Een actiekaart toont naast het aantal de CONVERSIERATIO** (`actRate()`): het deel
+  van de bezoeken in beeld (`m.total`: segment na de filters links, spelden, wat in
+  het midden staat). Rond een pagina is dat dus "wie deze pagina zag en daarna dit
+  deed". De kaart in het midden / het doel zelf (100%) krijgt er geen. De keuzelijst
+  Doel toont per doel ook het deel van het segment.
+- **Bewaarde weergaven met een mini-doel** (2026-10-13). Blokjes boven "Waar het
+  stokt" (`renderViews()`), gedeeld met iedereen die Dashboards heeft (tabel
+  `marketing_flow_views`, migratie `20261013150000`, `lib/flow-views.js`, routes
+  `/dashboards/api/marketing/views`). Een weergave = de FILTERS LINKS + stand, doel,
+  midden, stappen en spelden (`encodeView()`), op NAAM (een pagina als `p:<pad>`),
+  net als localStorage. De PERIODE zit er bewust niet in: de ratio geldt over de
+  periode die links gekozen is, met de vorige periode ernaast. Ratio
+  (`viewMetric()`): van de bezoeken in beeld, hoeveel doen DAARNA het doel; naar
+  het doel toe: het deel van het segment. Een mini-doel = `target_pct` plus het
+  vertrekpunt `baseline_pct` (de ratio toen het doel gezet werd), met een balkje van
+  vertrekpunt naar doel. Komt een bewaarde filter of pagina in de periode niet voor,
+  dan zegt het blokje dat en telt het niets -- de filter stil laten vallen zou een
+  groter segment tonen onder dezelfde naam. Het blokje van de weergave die open
+  staat, is omrand (vergelijking met `canon()`: jsonb houdt de sleutelvolgorde niet).
 
 ---
 

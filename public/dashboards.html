@@ -169,6 +169,8 @@
               <!-- Leesvolgorde: hoe kijk je (bediening), het antwoord (waar het stokt,
                    wat werkt), wat staat er vast, het pad zelf, en pas dan de legende. -->
               <div id="bhFlowControls" class="mt-3"></div>
+              <!-- Bewaarde weergaven met hun ratio en mini-doel (renderViews in dashboards-marketing-behaviour.js) -->
+              <div id="bhViews"></div>
               <div id="bhFlowAnswers"></div>
               <div id="bhPins" class="flex flex-wrap items-center gap-2 mt-4 empty:hidden"></div>
               <div id="bhFlow" class="overflow-x-auto pt-5 pb-2"></div>
@@ -482,6 +484,42 @@
       <div id="bhKpiBody" class="transition-opacity">
         <div style="height: 320px;" class="mt-3"><canvas id="bhKpiChart" aria-label="Verloop van het gekozen kerncijfer"></canvas></div>
         <div id="bhKpiTable" class="overflow-x-auto max-h-64"></div>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>sluiten</button></form>
+  </dialog>
+
+  <!-- Een weergave van de padverkenner bewaren, of naam en mini-doel aanpassen
+       (openViewDialog in dashboards-marketing-behaviour.js, src/modules/dashboards/lib/flow-views.js) -->
+  <dialog id="bhViewDialog" class="modal">
+    <div class="modal-box max-w-lg">
+      <h3 class="font-semibold text-lg" id="bhViewTitle">Deze weergave bewaren</h3>
+      <p class="text-sm opacity-70 mt-1">Voor het hele team. Ze komt als blokje boven &ldquo;Waar het stokt&rdquo;, met het aantal en de ratio over de gekozen periode.</p>
+      <label class="form-control mt-4">
+        <span class="label-text text-sm">Naam</span>
+        <input id="bhViewName" class="input input-sm input-bordered" maxlength="80" autocomplete="off" placeholder="bv. Rekeningcommissaris &rarr; registratie">
+      </label>
+      <label class="form-control mt-3">
+        <span class="label-text text-sm">Doel voor de ratio (optioneel)</span>
+        <div class="join">
+          <input id="bhViewTarget" class="input input-sm input-bordered join-item w-28" inputmode="decimal" autocomplete="off" placeholder="bv. 12">
+          <span class="btn btn-sm join-item pointer-events-none">%</span>
+        </div>
+      </label>
+      <p id="bhViewNow" class="text-xs text-base-content/70 mt-2"></p>
+      <div class="mt-4 rounded-lg bg-base-200/60 p-3 text-xs space-y-1">
+        <div class="text-[11px] font-semibold uppercase tracking-wide text-base-content/50 mb-1">Wat er bewaard wordt</div>
+        <div id="bhViewWhat"></div>
+      </div>
+      <label id="bhViewReplaceWrap" class="hidden mt-3 flex items-start gap-2 text-sm cursor-pointer">
+        <input id="bhViewReplace" type="checkbox" class="checkbox checkbox-sm mt-0.5">
+        <span>Vervang door wat je nu ziet (filters en padverkenner)</span>
+      </label>
+      <p id="bhViewErr" class="text-sm text-error mt-2 empty:hidden"></p>
+      <div class="modal-action items-center">
+        <button id="bhViewDelete" class="btn btn-sm btn-ghost text-error mr-auto" data-bh-action="view-delete">Verwijderen</button>
+        <form method="dialog"><button class="btn btn-sm btn-ghost">Annuleren</button></form>
+        <button id="bhViewSave" class="btn btn-sm btn-primary" data-bh-action="view-save">Bewaren</button>
       </div>
     </div>
     <form method="dialog" class="modal-backdrop"><button>sluiten</button></form>
