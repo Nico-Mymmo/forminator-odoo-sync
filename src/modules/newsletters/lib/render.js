@@ -554,7 +554,13 @@ function blokVraag(item, ctx, id) {
     knoppen = `<div style="margin-top:16px">${ops.map((o, i) => antwoordA(item, o, ctx, knopStijl, opschrift(o, i))).join('')}</div>`;
   }
 
-  const kopje = label(item.title, donker ? k.knop : k.sterk);
+  // Het labeltje is de naam van het blok (`item.title`): in het voorbeeld typbaar
+  // (`@title` = een veld van het stukje zelf, niet van de inhoud).
+  const kopje = id
+    ? `<div data-nb-veld="@title" data-placeholder="Label" style="font-family:${S.fontBody};font-size:12px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:${donker ? k.knop : k.sterk}">${esc(item.title || '')}</div>`
+    : label(item.title, donker ? k.knop : k.sterk);
+  // Waar de antwoorden staan: daaronder zet het scherm "+ Antwoord".
+  if (id) knoppen = `<div data-nb-antwoorden="1">${knoppen}</div>`;
   const door = byline(item.author, { onDark: donker, prefix: 'Gesteld door' });
   const inhoud = `${kopje}\n${vraag}\n${intro}\n${knoppen}${door}`;
   if (stijl === 'subtiel') {

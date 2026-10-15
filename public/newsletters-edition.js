@@ -336,6 +336,8 @@
     + '.nb-gereedschap button:hover,.nb-gereedschap button.nb-aan{background:#0284c7;border-color:#0284c7;color:#fff}'
     + '.nb-optie-weg{display:inline-block;margin-left:10px;width:20px;height:20px;line-height:18px;text-align:center;border-radius:50%;background:#fff;color:#b91c1c;border:1px solid #fecaca;font:700 14px/18px system-ui,sans-serif;cursor:pointer;vertical-align:middle}'
     + '.nb-optie-weg:hover{background:#b91c1c;color:#fff}'
+    + '.nb-antwoord-bij{margin-top:4px;border:2px dashed rgba(125,211,252,.9);border-radius:8px;padding:10px;text-align:center;font:600 13px system-ui,-apple-system,"Segoe UI",sans-serif;color:#0369a1;background:rgba(255,255,255,.85);cursor:pointer}'
+    + '.nb-antwoord-bij:hover{background:#0284c7;border-color:#0284c7;color:#fff}'
     + '.nb-gereedschap .nb-soorten{display:flex;gap:0;border-radius:999px;box-shadow:0 1px 2px rgba(0,0,0,.06)}'
     + '.nb-gereedschap .nb-soorten button{border-radius:0;box-shadow:none;margin-left:-1px}'
     + '.nb-gereedschap .nb-soorten button:first-child{border-radius:999px 0 0 999px;margin-left:0}'
@@ -369,7 +371,7 @@
   }
 
   function eenRegel(veld) {
-    return veld === 'title' || veld === 'question' || veld === 'heading' || /^options\.\d+\.label$/.test(veld);
+    return veld === 'title' || veld === '@title' || veld === 'question' || veld === 'heading' || /^options\.\d+\.label$/.test(veld);
   }
 
   var VRAAG_KINDS = ['question', 'statement', 'poll'];
@@ -400,7 +402,8 @@
         var veld = el.getAttribute('data-nb-veld');
         var waarde = eenRegel(veld) ? el.textContent.replace(/\s+/g, ' ').trim() : htmlNaarTekst(el);
         NB.state.inlineVuil = true;
-        NB.stukjeZet('content.' + veld, waarde, { stil: true });
+        // `@naam` = een veld van het stukje zelf (bv. het labeltje), anders de inhoud.
+        NB.stukjeZet(veld.charAt(0) === '@' ? veld.slice(1) : 'content.' + veld, waarde, { stil: true });
         // Een beeld tussen de tekst schuift mee: tel de alinea's ervoor.
         var eiland = veld === 'text' && el.querySelector('[data-nb-eiland]');
         if (eiland && NB.stukjeLees('content.beeld')) {
@@ -575,7 +578,7 @@
    */
   function bewerkbaar(doc) {
     doc.querySelectorAll('[contenteditable]').forEach(function (x) { x.removeAttribute('contenteditable'); });
-    doc.querySelectorAll('.nb-gereedschap,.nb-plus-cel').forEach(function (x) { x.remove(); });
+    doc.querySelectorAll('.nb-gereedschap,.nb-plus-cel,.nb-optie-weg,.nb-antwoord-bij').forEach(function (x) { x.remove(); });
     doc.querySelectorAll('[data-nb-beeld][data-nb-knop]').forEach(function (x) { x.removeAttribute('data-nb-knop'); });
     var s = NB.state.stukje;
     if (!s || NB.state.stukjeHost !== 'paneel' || !s.can_edit || NB.state.voorbeeldStand === 'test' || opmaak()) return;
@@ -595,9 +598,17 @@
       }).join('');
       var aantal = ((NB.state.concept.content || {}).options || []).length;
       vbar.innerHTML = '<span class="nb-soorten">' + soorten + '</span>'
-        + (aantal < 6 ? '<button type="button" data-nb-knop="optie-bij">+ Antwoord</button>' : '')
         + '<button type="button" data-nb-knop="ai">\u2728 AI</button>';
       vcel.appendChild(vbar);
+      // "+ Antwoord" onder de antwoorden, waar je het verwacht.
+      var antwoorden = rij.querySelector('[data-nb-antwoorden]');
+      if (antwoorden && aantal < 6) {
+        var bij = doc.createElement('div');
+        bij.className = 'nb-antwoord-bij';
+        bij.setAttribute('data-nb-knop', 'optie-bij');
+        bij.textContent = '+ Antwoord toevoegen';
+        antwoorden.appendChild(bij);
+      }
       // Een antwoord weghalen: een kruisje naast elk antwoord (zolang er meer dan twee zijn).
       if (aantal > 2) {
         rij.querySelectorAll('[data-nb-veld^="options."]').forEach(function (x) {
