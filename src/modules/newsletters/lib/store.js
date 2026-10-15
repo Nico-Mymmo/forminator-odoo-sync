@@ -107,6 +107,16 @@ export async function listEditions(env, { seriesId = null, statuses = null, limi
   return data || [];
 }
 
+/** Edities voor de kalender: verzenddag OF inleverdatum in [van, tot]. */
+export async function listEditionsRange(env, { from, to }) {
+  const vanRuim = new Date(new Date(from).getTime() - 21 * 86400000).toISOString();
+  const { data, error } = await db(env).from(TABLES.editions).select('*')
+    .gte('send_at', vanRuim).lte('send_at', to).neq('status', EDITION_STATUS.CANCELLED)
+    .order('send_at').limit(200);
+  check(error, 'Edities lezen');
+  return (data || []).filter((e) => (e.send_at >= from && e.send_at <= to) || (e.deadline_at >= from && e.deadline_at <= to));
+}
+
 export async function getEdition(env, id) {
   const { data, error } = await db(env).from(TABLES.editions).select('*').eq('id', id).maybeSingle();
   check(error, 'Editie lezen');

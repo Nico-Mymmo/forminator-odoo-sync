@@ -5431,6 +5431,7 @@ https://claude.ai/artifact/4KzZk1KM5JWNg32Pa1WRgW
 | Publieke bedankpagina na een klik | `public-api.js` + blok `/t/_v/` in `src/router/public-routes.js`, pagina `public/nieuwsbrief-antwoord.html` |
 | Checklist "klaar om te verzenden?" (EEN lijst voor scherm en inplan-route) | `lib/checklist.js` |
 | Scherm | `public/newsletters.html` + `newsletters-{core,overview,edition,contribution,series,bootstrap}.js` |
+| Het overzicht als kalender (FullCalendar, zoals Events): edities op hun verzenddag, inleverdatum als stippellijn, events als laag, nieuwe editie op een dag, verslepen | `newsletters-overview.js` + `GET /api/kalender?from&to` (`listEditionsRange`, `eventsTussen`) |
 | Redactietafel: kop met stappen, de brief, de "+"-lijn, de werkbalk, het venster Iets toevoegen (`SJABLONEN`) | `newsletters-edition.js`; het gekozen blok in het paneel rechts: `newsletters-contribution.js` (`render`) |
 
 Afspraken die bewust zo zijn:
@@ -5463,6 +5464,21 @@ Afspraken die bewust zo zijn:
   dat blok gekozen; een idee in de voorraad is enkel titel en steekwoorden
   (het venster `dlgIdee`, ook om aan te passen): er is GEEN aparte
   schrijfpagina meer.
+- **Het overzicht is een kalender, zoals bij Events** (2026-10-15): dezelfde
+  kop, wissel Kalender | Lijst, legende (vulkleur = reeks: KLEUREN per
+  reekscode in newsletters-overview.js, bolletje = stand), kalender links
+  (7/12), paneel rechts (5/12). Elke editie staat op haar VERZENDDAG; de
+  INLEVERDATUM staat er als stippellijn (`nb-inlever`) bij en is doorgelinkt:
+  klikken opent dezelfde editie. De events uit Eventbeheer staan er als
+  grijze laag onder (`eventsTussen()` in lib/sources.js, via `listEvents()`,
+  nooit een eigen Odoo-query). Klik op een lege dag (niet in het verleden) =
+  nieuwe editie op die dag (venster `dlgEditie` met reeks en datum).
+  Verslepen van een verzenddag = `PUT /api/editions/:id { send_at,
+  schuif_inleverdatum: true }`: de inleverdatum schuift evenveel mee; een
+  ingeplande editie verplaatst enkel haar moment. Rechts: de gekozen editie
+  met "Voor jou nog in te vullen" en (hoofdredactie) "Nog open bij collega's",
+  of zonder keuze "Voor jou" en de voorraad. De reeksinstellingen zitten
+  achter het tandwieltje in de legende.
 - **De checklist is de enige waarheid over "klaar om te verzenden"**:
   `checklist()` in `lib/checklist.js` geeft punten met `blokkeert`; `GET
   /api/editions/:id` stuurt ze mee, de knop Inplannen staat uit zolang er een
