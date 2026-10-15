@@ -5491,8 +5491,17 @@ Afspraken die bewust zo zijn:
   (`rechts`/`links`; de titel blijft over de hele breedte en de tekst loopt rond
   het beeld; in de mail met `align` op het `<img>`, dat volgen ook Outlook en
   Gmail), halve blok tot de rand (`kolom-rechts`/`kolom-links`), tussen de
-  alinea's (`tekst`). `na_alinea` = het aantal alinea's ervoor (0 = bij de
-  eerste); video en link hebben een vaste plek. Het blok "Afbeelding" (`image`)
+  alinea's (`tekst`), en **rechtsboven in de hoek** van het blok
+  (`hoek-rechts`, boven het labeltje en de titel; de tekst loopt er links
+  van, 2026-10-15). `na_alinea` = het aantal alinea's ervoor (0 = bij de
+  eerste); video en link hebben een vaste plek. **Een tekening heeft een
+  grootte** (`beeld.maat`: klein, middel, groot = TEKENING_MATEN in
+  lib/constants.js, via bootstrap `tekening_maten`), een foto volgt het kader
+  van haar plek. Tekeningen zijn onze herkenbare iconen: ze mogen groot. Let
+  op in het voorbeeld: het beeld zit in een eiland (`data-nb-eiland`) dat zo
+  breed is als het beeld in de mail; het beeld erin krijgt `max-width:100%`,
+  NIET het percentage van de kolom (anders staat het als postzegel in het
+  voorbeeld terwijl het in de mail groot is; zo ging het tot 2026-10-15). Het blok "Afbeelding" (`image`)
   is één beeld over de volle breedte, rand tot rand (`vol`), met een
   bijschrift en een link; het staat niet in de inhoudstafel. Breedte en verhouding per plek staan EEN keer in `BEELD_KADERS`
   (lib/constants.js); de renderer schikt ermee en het scherm snijdt ermee bij.

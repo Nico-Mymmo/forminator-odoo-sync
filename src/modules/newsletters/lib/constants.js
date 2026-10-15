@@ -247,7 +247,16 @@ export const BEELD_KADERS = {
   link: { breedte: 558, verhouding: 1.91 },
   compact: { breedte: 150, verhouding: 1 },
   vol: { breedte: 560, verhouding: 16 / 9 },
+  // Rechtsboven in de hoek van het blok, boven de titel; de tekst loopt eromheen.
+  'hoek-rechts': { breedte: 150, verhouding: 1 },
 };
+
+/**
+ * De grootte van een tekening (thingie) in de mail, in px breed. Tekeningen
+ * zijn onze herkenbare iconen: ze mogen groot staan. Geldt naast een alinea,
+ * in de hoek en tussen de tekst; een foto volgt de kaders hierboven.
+ */
+export const TEKENING_MATEN = { klein: 110, middel: 170, groot: 240 };
 
 /**
  * De merkkleuren (palet van de huisstijl, aangeleverd door marketing op
@@ -280,7 +289,7 @@ export function isDonker(hex) {
 }
 
 /** De plekken die je zelf kiest (video en link hebben een vaste plek). */
-export const BEELD_PLAATSEN = ['rechts', 'links', 'kolom-rechts', 'kolom-links', 'tekst'];
+export const BEELD_PLAATSEN = ['rechts', 'links', 'kolom-rechts', 'kolom-links', 'tekst', 'hoek-rechts'];
 
 /** De merktekeningen ("thingies") in R2, via het publieke /assets/-pad. */
 export const ASSET_ORIGIN = 'https://link.openvme.be';

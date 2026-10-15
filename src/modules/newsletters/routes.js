@@ -15,7 +15,7 @@ import {
 } from './lib/store.js';
 import {
   KINDS, isKind, DEFAULT_OPTIONS, EDITION_STATUS, CONTRIBUTION_STATUS, LOG_PREFIX, ASSET_ORIGIN,
-  sendMode, testEmails, BRAND, BEELD_KADERS, BEELD_PLAATSEN, MERKKLEUREN, merkkleur, BERICHT_VORMEN,
+  sendMode, testEmails, BRAND, BEELD_KADERS, BEELD_PLAATSEN, TEKENING_MATEN, MERKKLEUREN, merkkleur, BERICHT_VORMEN,
   VRAAG_SOORTEN, VRAAG_STIJLEN, VRAAG_STANDAARD, VRAAG_OUDE_KLEUREN, NIEUWS_VORMEN, NIEUWS_MAX,
 } from './lib/constants.js';
 import { renderEdition, renderContribution, heeftInhoud, kopVan } from './lib/render.js';
@@ -143,6 +143,8 @@ function normaliseerBeeld(b, vastePlaats = null) {
     vulling: !thingie && b.vulling === 'vullen' ? 'vullen' : 'heel',
     focus: { x: getal(b.focus?.x), y: getal(b.focus?.y) },
     uitsnede: thingie ? '' : url(b.uitsnede),
+    // Enkel een tekening heeft een grootte; een foto volgt het kader van haar plek.
+    ...(thingie ? { maat: Object.prototype.hasOwnProperty.call(TEKENING_MATEN, b.maat) ? b.maat : 'middel' } : {}),
   };
 }
 
@@ -382,6 +384,7 @@ export const routes = {
           kinds: KINDS,
           brands: BRAND,
           beeld_kaders: BEELD_KADERS,
+          tekening_maten: TEKENING_MATEN,
           merkkleuren: MERKKLEUREN,
           bericht_vormen: BERICHT_VORMEN,
           nieuws_vormen: NIEUWS_VORMEN,
