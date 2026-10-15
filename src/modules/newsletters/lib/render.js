@@ -148,7 +148,7 @@ function typbaar(id, naam, waarde, { tag = 'div', stijl = '', plaatshouder = '',
 
 function rij(inhoud, { padding = '40px 40px 0', id = null } = {}) {
   const attr = id ? ` data-nb-id="${esc(id)}"` : '';
-  return `<tr${attr}><td style="padding:${padding}">${inhoud}</td></tr>`;
+  return `<tr${attr}><td class="nb-cel" style="padding:${padding}">${inhoud}</td></tr>`;
 }
 
 /**
@@ -157,7 +157,7 @@ function rij(inhoud, { padding = '40px 40px 0', id = null } = {}) {
  */
 function paneel(inhoud, bg, { padding = '36px 32px 30px', margin = '32px 40px 0', id = null } = {}) {
   const attr = id ? ` data-nb-id="${esc(id)}"` : '';
-  return `<tr${attr}><td style="padding:${margin}"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:${bg};border-radius:18px"><tr><td style="padding:${padding}">${inhoud}</td></tr></table></td></tr>`;
+  return `<tr${attr}><td class="nb-cel" style="padding:${margin}"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:${bg};border-radius:18px"><tr><td style="padding:${padding}">${inhoud}</td></tr></table></td></tr>`;
 }
 
 // ─── Beelden: één manier voor elke plek ─────────────────────────────────────
@@ -254,10 +254,10 @@ function schikBeeld({ b, ctx, id, inhoud, padding, bg = '' }) {
     const hoek = id
       ? `<div data-nb-eiland="1" data-nb-beeld="1" contenteditable="false" style="float:right;width:${breedte}px;max-width:46%;margin:0 0 14px 24px">${tag}</div>`
       : tag.replace('<img ', `<img align="right" `).replace('style="display:block;', 'style="display:block;float:right;margin:0 0 14px 24px;');
-    return `<tr${attr}><td style="padding:${padding};${bgStijl}">${hoek}${inhoud}<div style="clear:both;font-size:0;line-height:0">&nbsp;</div></td></tr>`;
+    return `<tr${attr}><td class="nb-cel" style="padding:${padding};${bgStijl}">${hoek}${inhoud}<div style="clear:both;font-size:0;line-height:0">&nbsp;</div></td></tr>`;
   }
   if (!b || !k || !pl.startsWith('kolom') || !beeldSrc(b, ctx)) {
-    return `<tr${attr}><td style="padding:${padding};${bgStijl}">${inhoud}</td></tr>`;
+    return `<tr${attr}><td class="nb-cel" style="padding:${padding};${bgStijl}">${inhoud}</td></tr>`;
   }
   const bAttr = id ? ' data-nb-beeld="1"' : '';
   const delen = String(padding).trim().split(/\s+/);
@@ -265,9 +265,10 @@ function schikBeeld({ b, ctx, id, inhoud, padding, bg = '' }) {
   const onder = delen[2] || boven;
   const links = pl === 'kolom-links';
   const tabel = (cellen) => `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>${cellen}</tr></table>`;
-  const beeldCel = `<td width="${k.breedte}" valign="top" style="width:${k.breedte}px;padding:0"${bAttr}>${beeldTag(b, ctx, k.breedte)}</td>`;
-  const tekstCel = `<td valign="top" style="padding:0 ${links ? 0 : 24}px 0 ${links ? 24 : 0}px">${inhoud}</td>`;
-  return `<tr${attr}><td style="padding:${boven} 40px ${onder};${bgStijl}">${tabel(links ? beeldCel + tekstCel : tekstCel + beeldCel)}</td></tr>`;
+  // Op een smal scherm vallen de twee kolommen onder elkaar (nb-kol); het beeld komt dan bovenaan.
+  const beeldCel = `<td class="nb-kol" width="${k.breedte}" valign="top" style="width:${k.breedte}px;padding:0"${bAttr}>${beeldTag(b, ctx, k.breedte).replace('max-width:' + k.breedte + 'px', 'max-width:' + k.breedte + 'px" class="nb-gsm-vol')}</td>`;
+  const tekstCel = `<td class="nb-kol${links ? ' nb-kol-na' : ''}" valign="top" style="padding:0 ${links ? 0 : 24}px 0 ${links ? 24 : 0}px">${inhoud}</td>`;
+  return `<tr${attr}><td class="nb-cel" style="padding:${boven} 40px ${onder};${bgStijl}">${tabel(links ? beeldCel + tekstCel : tekstCel + beeldCel)}</td></tr>`;
 }
 
 // ─── Datums (Europe/Brussels) ───────────────────────────────────────────────
@@ -356,6 +357,20 @@ export function opties(item) {
 function eventsVoor(item, ctx) {
   const uit = new Set((item?.content?.exclude_ids || []).map(Number));
   return (ctx.events || []).filter((e) => !uit.has(Number(e.id))).slice(0, 6);
+}
+
+/**
+ * Staat dit blok in de inhoudstafel? Marketing beslist per blok (knopje in
+ * de werkbalk, `content.in_toc`): true = erin, false = eruit. Zonder keuze:
+ * alles erin behalve de inhoudstafel zelf, het woordje vooraf, een losse
+ * afbeelding en de afsluiting.
+ */
+export function inToc(item) {
+  if (item?.kind === 'toc') return false;
+  const v = item?.content?.in_toc;
+  if (v === true) return true;
+  if (v === false) return false;
+  return !['closing', 'intro', 'image'].includes(item?.kind);
 }
 
 /** De kop waaronder een stukje in de inhoudstafel staat. */
@@ -617,8 +632,8 @@ function blokVraag(item, ctx, id) {
     const knop = `display:block;background-color:${kind === 'poll' ? '#ffffff' : k.sterk};${kind === 'poll' ? `border:1.5px solid ${k.rand};` : ''}color:${kind === 'poll' ? k.accentTekst : k.opTekst};font-family:${S.fontBody};font-size:15px;font-weight:700;padding:12px 14px;border-radius:8px;text-decoration:none;text-align:${kind === 'poll' ? 'left' : 'center'}`;
     const knoppen = omhul(ops.map((o, i) => `<div style="margin-bottom:8px">${antwoordA(item, o, ctx, knop, `${letter(i, k.sterk, k.opTekst)}${opschrift(o, i)}`)}</div>`).join(''));
     const inhoud = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
-<td width="55%" valign="top" style="width:55%;padding-right:22px">${kopje}${vraag(26, S.heading)}${intro(S.text)}${door}</td>
-<td width="45%" valign="middle" style="width:45%">${knoppen}</td></tr></table>`;
+<td class="nb-kol" width="55%" valign="top" style="width:55%;padding-right:22px">${kopje}${vraag(26, S.heading)}${intro(S.text)}${door}</td>
+<td class="nb-kol nb-kol-na" width="45%" valign="middle" style="width:45%">${knoppen}</td></tr></table>`;
     return paneel(inhoud, k.licht, { padding: '30px 28px 22px', id });
   }
 
@@ -716,9 +731,12 @@ function blokNews(item, ctx, id) {
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td style="padding:14px 16px 16px">${bron(n)}
 <div style="font-family:${S.fontBody};font-size:${aantal === 3 ? 15 : 17}px;font-weight:700;line-height:1.3;color:${S.headingSoft}">${esc(n.title)}</div>
 ${n.note ? `<div style="font-family:${S.fontBody};font-size:14px;line-height:1.5;color:${S.text};margin-top:6px">${esc(kortje(n.note, aantal === 3 ? 110 : 160))}</div>` : ''}${meer(n)}</td></tr></table>`;
-      return `${i ? `<td width="${gat}" style="width:${gat}px;font-size:0;line-height:0">&nbsp;</td>` : ''}<td width="${breedte}" valign="top" style="width:${breedte}px;border:1px solid ${S.border};border-radius:12px;border-collapse:separate;overflow:hidden;background-color:#ffffff">${kaart}</td>`;
+      // Breedte als percentage, zodat de tabel nooit breder wordt dan het scherm;
+      // de pixels staan enkel in `width=` voor Outlook. Op een gsm: onder elkaar.
+      const pct = Math.floor(100 / aantal) - (aantal > 1 ? 2 : 0);
+      return `${i ? `<td class="nb-gat" width="${gat}" style="width:${gat}px;font-size:0;line-height:0">&nbsp;</td>` : ''}<td class="nb-kol${i ? ' nb-kol-na' : ''}" width="${breedte}" valign="top" style="width:${pct}%;border:1px solid ${S.border};border-radius:12px;border-collapse:separate;overflow:hidden;background-color:#ffffff">${kaart}</td>`;
     }).join('');
-    lijf = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:separate"><tr>${cellen}</tr></table>`;
+    lijf = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:separate;table-layout:fixed">${aantal > 1 ? '' : ''}<tr>${cellen}</tr></table>`;
   } else if (vorm === 'lijst') {
     const metBeeld = lijst.some(heeftBeeld);
     lijf = lijst.map((n, i) => `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="${i ? `border-top:1px solid ${S.line};` : ''}"><tr>
@@ -773,23 +791,18 @@ function blokHeading(item, ctx, id) {
   return rij(`${balk}${kern}`, { padding: `${h3 ? 36 : 52}px 40px 0`, id });
 }
 
-/** Een regel van de inhoudstafel: een tekst, of { t, kop } (kop = een titelblok). */
-function tocRegel(x) {
-  return typeof x === 'string' ? { t: x, kop: false } : { t: String(x?.t || ''), kop: Boolean(x?.kop) };
-}
-
+/**
+ * De inhoudstafel: EEN vlakke lijst, doorlopend genummerd, alles in dezelfde
+ * stijl, zonder kopjes of inspringen. Welke blokken erin staan, beslist
+ * marketing per blok (inToc), welk soort blok ook.
+ */
 function blokToc(item, ctx, id) {
-  const lijst = (ctx.toc || []).map(tocRegel).filter((x) => x.t).slice(0, 12);
+  const lijst = (ctx.toc || []).map((x) => (typeof x === 'string' ? x : String(x?.t || ''))).filter(Boolean).slice(0, 15);
   if (!lijst.length) return '';
-  let nr = 0;
-  const rijen = lijst.map((x, i) => {
-    const lijn = i && !x.kop ? `border-top:1px solid ${S.line};` : '';
-    if (x.kop) {
-      return `<tr><td colspan="2" style="padding:${i ? 24 : 10}px 0 6px;font-family:${S.fontHead};font-size:20px;line-height:1.2;color:${S.heading}">${esc(x.t)}</td></tr>`;
-    }
-    nr += 1;
-    return `<tr><td width="34" valign="baseline" style="padding:12px 0;${lijn}font-family:${S.fontHead};font-size:22px;color:${S.primary}">${nr}</td>
-<td valign="baseline" style="padding:12px 0;${lijn}font-family:${S.fontBody};font-size:16px;font-weight:600;color:${S.headingSoft}">${esc(x.t)}</td></tr>`;
+  const rijen = lijst.map((t, i) => {
+    const lijn = i ? `border-top:1px solid ${S.line};` : '';
+    return `<tr><td width="34" valign="baseline" style="padding:12px 0;${lijn}font-family:${S.fontHead};font-size:22px;color:${S.primary}">${i + 1}</td>
+<td valign="baseline" style="padding:12px 0;${lijn}font-family:${S.fontBody};font-size:16px;font-weight:600;color:${S.headingSoft}">${esc(t)}</td></tr>`;
   }).join('');
   return rij(`${label(item.title || 'In deze editie', S.primary)}
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:8px">${rijen}</table>`, { padding: '36px 40px 0', id });
@@ -933,7 +946,9 @@ function voet(series, ctx, mode) {
 
 function huls(rijen, { tint, preheader, voetRij }) {
   return `<div style="margin:0;padding:0;background-color:${tint}">
-<style>@import url('${S.rethinkCss}');@font-face{font-family:'Gelica';src:url('${S.gelicaUrl}') format('opentype');font-weight:400;font-style:normal}</style>
+<style>@import url('${S.rethinkCss}');@font-face{font-family:'Gelica';src:url('${S.gelicaUrl}') format('opentype');font-weight:400;font-style:normal}
+/* Smalle schermen (Apple Mail, iOS, de Gmail-apps): kolommen onder elkaar, minder marge. Outlook negeert dit en houdt de vaste breedtes. */
+@media only screen and (max-width:480px){.nb-cel{padding-left:20px!important;padding-right:20px!important}.nb-kol{display:block!important;width:100%!important;max-width:100%!important;box-sizing:border-box!important;padding-left:0!important;padding-right:0!important}.nb-kol-na{padding-top:14px!important}.nb-gat{display:none!important}.nb-gsm-vol{width:100%!important;max-width:100%!important}}</style>
 ${preheader ? `<div style="display:none;max-height:0;max-width:0;overflow:hidden;opacity:0;mso-hide:all;font-size:1px;line-height:1px;color:${tint}">${esc(preheader)}</div>` : ''}
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:${tint}"><tr><td align="center" style="padding:28px 12px 36px">
 <table role="presentation" width="${WIDTH}" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:${WIDTH}px;background-color:#ffffff;border-radius:20px;border-collapse:separate;overflow:hidden">
@@ -959,17 +974,10 @@ export function renderEdition({ series, edition, items, mode = 'preview', ctx = 
   const mee = items.filter((it) => doetMee(it, mode, ctx));
   const meeIds = new Set(mee.map((it) => it.id));
 
-  // Inhoudstafel en afsluiting kijken naar wat ECHT meegaat. Een titelblok is
-  // een kopje; een blok dat marketing eruit hield (`in_toc: false`) valt weg.
-  // Enkel wat NA de inhoudstafel komt (een kop die erboven staat, is de kop
-  // van de brief, geen hoofdstuk), en een kop zonder stukjes eronder valt weg.
-  const tocIndex = items.findIndex((it) => it.kind === 'toc');
-  const naToc = new Set(items.slice(tocIndex + 1).map((it) => it.id));
-  const ruw = mee
-    .filter((it) => !['toc', 'closing', 'intro', 'image'].includes(it.kind) && it.content?.in_toc !== false && (tocIndex < 0 || naToc.has(it.id)))
-    .map((it) => ({ t: kopVan(it), kop: it.kind === 'heading' }))
-    .filter((x) => x.t);
-  const toc = ruw.filter((x, i) => !x.kop || ruw.slice(i + 1).some((y, j) => !y.kop && !ruw.slice(i + 1, i + 1 + j).some((z) => z.kop)));
+  // Inhoudstafel en afsluiting kijken naar wat ECHT meegaat. Welke blokken
+  // erin staan, beslist marketing per blok (inToc): een vlakke, doorlopend
+  // genummerde lijst in de volgorde van de brief.
+  const toc = mee.filter(inToc).map(kopVan).filter(Boolean);
   const authors = [];
   const gezien = new Set();
   // Enkel wie in DEZE versie echt iets bijdroeg: een stukje dat wegvalt, telt niet mee.

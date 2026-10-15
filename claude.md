@@ -3811,14 +3811,15 @@ bleken drie dingen niet te kloppen. Alle drie zijn gefixt in `lib/sync.js`,
   deelde. Een nieuw beeld (andere `imageVersion`) wordt één keer opnieuw
   gehost en bewaard (`beeld_versie`).
 - **Titel** (`heading`): een kop boven een reeks blokken, door marketing
-  (meteen bevestigd). Komt in de inhoudstafel als kopje. **Drie niveaus**
+  (meteen bevestigd). Komt in de inhoudstafel als gewone, genummerde regel
+  (als marketing ze erin laat). **Drie niveaus**
   (`content.niveau`: h1, h2, h3 = TITEL_NIVEAUS in lib/constants.js, via
   bootstrap `titel_niveaus`; h3 is Rethink Sans vet zonder mintstreep) en
   optioneel **een tekening als icoon** links van de titel (`content.icoon`,
   een thingie-naam; venster `dlgIcoon`). Allebei in de werkbalk boven het
   blok en in het paneel (2026-10-15).
-- **In de inhoudstafel**: per blok aan/uit in de opmaakstand
-  (`content.in_toc === false`, `POST /api/contributions/:id/in-toc`).
+- **In de inhoudstafel**: per blok aan/uit (`content.in_toc`, `POST
+  /api/contributions/:id/in-toc`), zie de regel over de vlakke lijst.
 - **Kort nieuws** (`news` met `vorm` uit NIEUWS_VORMEN: naast elkaar, lijstje,
   enkel tekst): twee of drie berichten (`POST /api/snippets/:id/kort` = kaartje
   met gehost beeld). Een oud nieuwsblok zonder vorm blijft "enkel tekst".
@@ -3835,9 +3836,15 @@ bleken drie dingen niet te kloppen. Alle drie zijn gefixt in `lib/sync.js`,
   op de site. Faalt zacht: de brief heeft het beeld al. Daarna verandert de
   `imageVersion` van het bericht en neemt `lib/berichten.js` het beeld over
   zoals elk ander beeld.
-- **De inhoudstafel lijst enkel wat NA de inhoudstafel komt** (2026-10-15):
-  een kop boven de inhoudstafel is de kop van de brief, geen hoofdstuk. Een
-  kop zonder stukjes eronder valt weg, in elke modus.
+- **De inhoudstafel is EEN vlakke lijst** (beslissing Nico, 2026-10-15):
+  doorlopend genummerd, alles in dezelfde stijl, geen kopjes, geen inspringen.
+  Welke blokken erin staan, beslist marketing per blok, welk soort ook (het
+  knopje Inhoudstafel in de werkbalk, `content.in_toc` true/false; zonder
+  keuze: alles behalve de inhoudstafel zelf, het woordje vooraf, een losse
+  afbeelding en de afsluiting). EEN regel: `inToc()` in render.js en
+  `NB.inToc()` in newsletters-core.js. Een uitdrukkelijke keuze (ook `true`)
+  blijft bij elke PUT bewaard. Geen regel meer over "enkel na de
+  inhoudstafel" of lege koppen: wie een kop niet wil, zet ze uit.
 
 ## Nieuwsbrief: vaste breedte, merkkleuren, drie opbouwen voor een vraag (2026-10-15)
 

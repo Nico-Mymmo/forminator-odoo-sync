@@ -606,8 +606,8 @@
       knoppen.push('<button type="button" data-nb-knop="omlaag" title="Lager"' + (i >= ids.length - 1 ? ' disabled' : '') + '>↓</button>');
       var bg = (NB.state.concept.content || {}).achtergrond;
       knoppen.push('<button type="button" data-nb-knop="kleur" title="Achtergrondkleur van dit blok"><span class="nb-kleurbol" style="background:' + e(bg || '#ffffff') + '"></span></button>');
-      if (['toc', 'closing', 'intro', 'image'].indexOf(soort) < 0) {
-        var inToc = (NB.state.concept.content || {}).in_toc !== false;
+      if (soort !== 'toc') {
+        var inToc = NB.inToc(s.item, NB.state.concept.content);
         knoppen.push('<button type="button" data-nb-knop="toc"' + (inToc ? ' class="nb-aan"' : '') + ' title="' + (inToc ? 'Staat in de inhoudstafel; klik om het eruit te halen' : 'Staat niet in de inhoudstafel; klik om het erin te zetten') + '">' + (inToc ? '✓ ' : '') + 'Inhoudstafel</button>');
       }
       if (!NB.isAuto(soort)) knoppen.push('<button type="button" class="nb-weg" data-nb-knop="weg" title="Uit de brief halen">\u{1F5D1}</button>');
@@ -719,13 +719,13 @@
   async function zetInToc(id) {
     var it = itemVan(id);
     if (!it) return;
-    var aan = it.content && it.content.in_toc === false;
+    var aan = !NB.inToc(it, it.content);
     try {
       var bij = await NB.api('/api/contributions/' + id + '/in-toc', { method: 'POST', body: { in_toc: aan } });
       it.content = bij.content;
       if (NB.state.stukje && NB.state.stukje.item.id === id) {
         NB.state.stukje.item.content = bij.content;
-        if (NB.state.concept) NB.state.concept.content.in_toc = bij.content.in_toc === false ? false : undefined;
+        if (NB.state.concept) NB.state.concept.content.in_toc = aan;
       }
       laadBrief();
     } catch (err) { NB.fout(err); }
