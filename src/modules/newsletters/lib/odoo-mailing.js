@@ -48,10 +48,6 @@ async function modelId(env, model) {
   return rijen[0].id;
 }
 
-function odooTijd(date) {
-  return new Date(date).toISOString().replace('T', ' ').slice(0, 19);
-}
-
 function afzender(series) {
   const naam = String(series.from_name || '').replace(/"/g, '');
   return naam ? `"${naam}" <${series.from_email}>` : series.from_email;
@@ -192,38 +188,30 @@ export async function verstuurTest(env, { series, edition, html, subject, prehea
 }
 
 /**
- * De ECHTE mailing naar de lijsten van de reeks, ingepland op het
- * verzendmoment. Kan enkel met NEWSLETTER_SEND_MODE=live; de route vraagt
- * daarnaast een expliciete bevestiging.
+ * De ECHTE mailing naar de lijsten van de reeks, en METEEN vertrekken. Wordt
+ * enkel door de cron aangeroepen op het verzendmoment (lib/verzending.js):
+ * er staat nooit een nieuwsbrief vooraf "geplaatst" in Odoo. Kan enkel met
+ * NEWSLETTER_SEND_MODE=live.
  */
-export async function planEchteMailing(env, { series, edition, html, subject, preheader }) {
+export async function verstuurEchteMailing(env, { series, edition, html, subject, preheader }) {
   if (sendMode(env) !== 'live') {
     throw new NewsletterError('Echte verzending staat uit (NEWSLETTER_SEND_MODE is niet "live"). Enkel testen kan.', 403);
   }
   const listIds = (series.odoo_list_ids || []).map(Number).filter((n) => n > 0);
   if (!listIds.length) throw new NewsletterError('Deze reeks heeft geen Odoo-lijst.', 409);
-
-  const ontbreekt = await vulTokens(env, listIds, { max: 300 });
-  if (ontbreekt > 0) {
-    throw new NewsletterError(`Nog ${ontbreekt} contacten zonder antwoordtoken. Probeer over enkele minuten opnieuw (de OM vult ze aan).`, 409);
-  }
-
   const mailingId = await maakMailing(env, {
     series, edition, html, subject, preheader, listIds,
     naam: `${series.name} ${edition.title}`,
   });
-  const wanneer = new Date(edition.send_at) > new Date() ? edition.send_at : new Date().toISOString();
-  await write(env, {
-    model: 'mailing.mailing', ids: [mailingId],
-    values: { schedule_type: 'scheduled', schedule_date: odooTijd(wanneer) },
-  });
   try {
-    await executeKw(env, { model: 'mailing.mailing', method: 'action_put_in_queue', args: [[mailingId]] });
+    await executeKw(env, { model: 'mailing.mailing', method: 'action_send_mail', args: [[mailingId]] });
+    return { mailingId, queued: false };
   } catch (error) {
-    console.warn(`${LOG_PREFIX} action_put_in_queue mislukt, state rechtstreeks:`, error?.message);
-    await write(env, { model: 'mailing.mailing', ids: [mailingId], values: { state: 'in_queue' } });
+    // Lukt meteen versturen niet, dan in de wachtrij: Odoo's cron stuurt ze binnen het uur.
+    console.warn(`${LOG_PREFIX} action_send_mail mislukt, in de wachtrij:`, error?.message);
+    await executeKw(env, { model: 'mailing.mailing', method: 'action_launch', args: [[mailingId]] });
+    return { mailingId, queued: true };
   }
-  return { mailingId };
 }
 
 export async function leesCijfers(env, mailingId) {

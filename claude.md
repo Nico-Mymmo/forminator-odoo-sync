@@ -5396,9 +5396,10 @@ https://claude.ai/artifact/4KzZk1KM5JWNg32Pa1WRgW
 | Edities: datums (Europe/Brussels), automatisch aanmaken, alles verzamelen | `lib/editions.js` |
 | Bronnen: events (`listEvents`), nieuws (`listSnippets`), links (`fetchArticle`), collega's, tekeningen | `lib/sources.js` |
 | Vragen in de mail: token, antwoorden, doorzetten naar een koppeling | `lib/answers.js` |
-| Naar Odoo: testlijst, test, echte mailing, cijfers | `lib/odoo-mailing.js` |
+| Naar Odoo: testlijst, test, echte mailing (meteen vertrekken), cijfers | `lib/odoo-mailing.js` |
+| De verzending blijft in de OM tot het moment zelf: voorgesteld moment, claimen, versturen via de cron | `lib/verzending.js` |
 | AI-hulp (`askAI`, source `newsletters`) | `lib/ai.js` |
-| Cron (15-min-tak): edities, herinneringen, antwoorden | `lib/cron.js` |
+| Cron (15-min-tak): edities, herinneringen, antwoorden, ingeplande edities versturen op hun moment | `lib/cron.js` |
 | Publieke bedankpagina na een klik | `public-api.js` + blok `/t/_v/` in `src/router/public-routes.js`, pagina `public/nieuwsbrief-antwoord.html` |
 | Checklist "klaar om te verzenden?" (EEN lijst voor scherm en inplan-route) | `lib/checklist.js` |
 | Scherm | `public/newsletters.html` + `newsletters-{core,overview,edition,contribution,series,bootstrap}.js` |
@@ -5557,9 +5558,22 @@ Afspraken die bewust zo zijn:
 - **Elke test is een nieuwe `mailing.mailing`** ("[OM-test] ..."): een verstuurde
   mailing kan in Odoo niet opnieuw. Bewerk die mailings NOOIT in de editor van
   Odoo -- die herschrijft `body_arch`.
-- **Een echte verzending** vraagt `live`, de hoofdredactie, een onderwerp, ELK
-  stukje met inhoud goedgekeurd, en "VERSTUREN" getypt. Ze wordt ingepland op
-  het verzendmoment (`schedule_date` + `action_put_in_queue`).
+- **Er staat NOOIT een nieuwsbrief vooraf "geplaatst" in Odoo** (beslissing
+  Nico, 2026-10-15). "Verzenden" in de OM (`POST /schedule`, enkel `live`,
+  hoofdredactie, checklist groen, "VERSTUREN" getypt) zet de editie op
+  Ingepland met een verzendmoment (`send_at`; voorgesteld: de verzenddag als
+  die nog een uur weg is, anders morgen op het uur van de reeks; minstens een
+  kwartier vooruit). Tot dat moment staat ze enkel in de OM: de hoofdredactie
+  kan ze **terughalen** (`POST /unschedule`, terug naar Nalezen) of het moment
+  **verplaatsen** (`PUT` met enkel `send_at`). Een ingeplande editie is
+  vergrendeld (`isActiveEdition` = verzamelen of nalezen): eerst terughalen,
+  dan wijzigen. Op het moment zelf claimt de cron ze (`claimVerzending`,
+  `odoo_mailing_id = -1`, zodat twee crons nooit twee keer versturen), bouwt
+  de mail (`bouwEchteMail`: live-renderer, beelden gehost, tokens), maakt de
+  `mailing.mailing` en laat ze METEEN vertrekken (`action_send_mail`, anders
+  `action_launch`). Mislukt dat, dan gaat de editie terug naar Nalezen met de
+  reden in het verloop en in de chat, en vertrekt er niets. Daarna leest de
+  cron de cijfers tot Odoo `done` meldt (status Verzonden).
 - **De opmaak komt uit de huisstijl van de sites** (Gelica 400 voor titels met
   Georgia als terugval, Rethink Sans, #0369a1, mint #99f6e4), NIET uit de
   Dynapps-module `openvme_mail_snippets`. Tabellen met `width`, nooit de

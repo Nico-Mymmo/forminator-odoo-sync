@@ -106,17 +106,22 @@
     <form method="dialog" class="modal-backdrop"><button>sluiten</button></form>
   </dialog>
 
-  <!-- Echt versturen (enkel in live-stand) -->
+  <!-- Verzenden (enkel in live-stand): het moment kiezen; tot dan kan je terughalen -->
   <dialog id="dlgInplannen" class="modal">
     <div class="modal-box max-w-md">
-      <h3 class="font-bold text-lg mb-2">Editie inplannen</h3>
-      <p id="inplannenTekst" class="text-sm mb-4"></p>
-      <label class="form-control">
+      <h3 id="inplannenKop" class="font-bold text-lg mb-2">Verzenden</h3>
+      <p id="inplannenTekst" class="text-sm mb-3"></p>
+      <label class="form-control mb-3">
+        <span class="label-text mb-1">Vertrekt op</span>
+        <input id="inplannenMoment" type="datetime-local" class="input input-bordered input-sm">
+        <span class="label-text-alt opacity-60 mt-1">Tot dat moment kan je de editie nog terughalen of verplaatsen. Er staat niets vooraf klaar in Odoo.</span>
+      </label>
+      <label id="inplannenBevestigVeld" class="form-control">
         <span class="label-text mb-1">Typ VERSTUREN om te bevestigen</span>
-        <input id="inplannenBevestig" type="text" class="input input-bordered" autocomplete="off">
+        <input id="inplannenBevestig" type="text" class="input input-bordered input-sm" autocomplete="off">
       </label>
       <div class="modal-action">
-        <button class="btn btn-error btn-sm" data-action="bevestig-inplannen">Inplannen</button>
+        <button id="inplannenKnop" class="btn btn-error btn-sm" data-action="bevestig-inplannen">Verzenden</button>
         <button class="btn btn-ghost btn-sm" data-action="sluit-dialoog" data-dialoog="dlgInplannen">Annuleren</button>
       </div>
     </div>

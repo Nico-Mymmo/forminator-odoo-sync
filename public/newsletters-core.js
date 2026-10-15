@@ -173,7 +173,7 @@
     { key: 'collecting', label: 'Verzamelen', icoon: 'pen-line' },
     { key: 'review', label: 'Nalezen', icoon: 'glasses' },
     { key: 'test', label: 'Testen', icoon: 'flask-conical' },
-    { key: 'scheduled', label: 'Inplannen', icoon: 'calendar-check' },
+    { key: 'scheduled', label: 'Verzenden', icoon: 'calendar-check' },
     { key: 'sent', label: 'Verzonden', icoon: 'send' },
   ];
 

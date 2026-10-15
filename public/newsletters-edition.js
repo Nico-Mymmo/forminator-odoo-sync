@@ -77,7 +77,7 @@
     var klaar = function (i) { return i < nu || ed.status === 'sent' || (ed.status === 'scheduled' && i <= 3); };
     return '<div class="nb-stappen" title="Waar deze editie staat">' + NB.STAPPEN.map(function (s, i) {
       var k = klaar(i) ? 'nb-stap-klaar' : i === nu ? 'nb-stap-nu' : '';
-      var label = s.key === 'scheduled' && ed.status === 'scheduled' ? 'Ingepland' : s.label;
+      var label = s.key === 'scheduled' && ed.status === 'scheduled' ? 'Vertrekt ' + NB.datum(ed.send_at, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : s.label;
       return (i ? '<i data-lucide="chevron-right" class="w-3 h-3 nb-pijl"></i>' : '')
         + '<span class="nb-stap ' + k + '"><i data-lucide="' + (klaar(i) ? 'check' : s.icoon) + '" class="w-3.5 h-3.5"></i>' + e(label) + '</span>';
     }).join('') + '</div>';
@@ -93,7 +93,9 @@
     var p = voortgang();
     var stats = ed.stats;
     var t = NB.teller(ed.deadline_at);
-    var wanneer = !actief() ? ''
+    var wanneer = ed.status === 'scheduled'
+      ? (ed.odoo_mailing_id ? '<span class="font-semibold">Aan Odoo gegeven</span> · vertrekt of is vertrokken' : 'Vertrekt op <strong>' + e(NB.datum(ed.send_at, { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })) + '</strong> · tot dan kan je terughalen')
+      : !actief() ? ''
       : t.voorbij ? '<span class="text-warning font-semibold">Inleverdatum voorbij</span> · nalezen en bevestigen'
         : 'Inleverdatum ' + e(NB.datum(ed.deadline_at, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })) + ' · <span class="nb-teller">' + e(NB.tellerTekst(ed.deadline_at)) + '</span>';
     var knoppen = [];
@@ -111,7 +113,11 @@
     if (editor() && actief()) {
       var tegen = blokkades();
       var kan = !tegen.length;
-      knoppen.push('<button class="btn btn-sm btn-error" data-action="open-inplannen"' + (kan ? '' : ' disabled title="' + e('Nog niet klaar: ' + tegen.map(function (x) { return x.label; }).join('; ')) + '"') + '><i data-lucide="calendar-check" class="w-4 h-4"></i> Inplannen</button>');
+      knoppen.push('<button class="btn btn-sm btn-error" data-action="open-inplannen"' + (kan ? '' : ' disabled title="' + e('Nog niet klaar: ' + tegen.map(function (x) { return x.label; }).join('; ')) + '"') + '><i data-lucide="send" class="w-4 h-4"></i> Verzenden</button>');
+    }
+    if (editor() && ed.status === 'scheduled' && !ed.odoo_mailing_id) {
+      knoppen.push('<button class="btn btn-sm btn-outline" data-action="open-moment"><i data-lucide="calendar-clock" class="w-4 h-4"></i> Moment wijzigen</button>');
+      knoppen.push('<button class="btn btn-sm btn-warning" data-action="terughalen"><i data-lucide="undo-2" class="w-4 h-4"></i> Terughalen</button>');
     }
     return '<div class="min-w-0 mr-auto">'
       + '<div class="text-xs opacity-60"><a class="hover:underline" href="#/">Nieuwsbrieven</a> / ' + e(d().series.name) + '</div>'
@@ -189,6 +195,7 @@
       + '<label class="form-control"><span class="label-text text-xs">Inleverdatum</span><input id="edDeadline" type="datetime-local" class="input input-bordered input-sm" value="' + e(NB.lokaal(ed.deadline_at)) + '"' + (mag ? '' : ' disabled') + '></label>'
       + '<label class="form-control"><span class="label-text text-xs">Verzenddag</span><input id="edSend" type="datetime-local" class="input input-bordered input-sm" value="' + e(NB.lokaal(ed.send_at)) + '"' + (mag ? '' : ' disabled') + '></label></div>'
       + (mag ? '<div class="flex gap-2 items-center"><span class="text-xs opacity-60">Verzenden gebeurt pas na "Inplannen".</span><button class="btn btn-sm btn-ghost ml-auto" data-action="bewaar-datums">Bewaren</button></div>' : '')
+      + (ed.status === 'scheduled' ? '<div class="alert alert-info text-sm py-2"><i data-lucide="calendar-clock" class="w-4 h-4"></i><span>Vertrekt op <strong>' + e(NB.datum(ed.send_at)) + '</strong>. Tot dan: Terughalen of Moment wijzigen, bovenaan.</span></div>' : '')
       + '<div class="divider my-1"></div>'
       + '<div class="text-sm"><span class="text-xs opacity-60 block">Ontvangers</span>' + (sm === 'live' ? lijstNamen() : '<span class="opacity-80">Teststand: enkel naar ' + e((d().test_emails || []).join(', ') || 'niemand') + '.</span><span class="block text-xs opacity-60">Bij een echte verzending: ' + lijstNamen() + '</span>') + '</div>'
       + (d().series.chat_channel && mag ? '<button class="btn btn-sm btn-ghost self-start" data-action="herinner"><i data-lucide="bell" class="w-4 h-4"></i> Herinner iedereen in de chat</button>' : '')
@@ -1185,21 +1192,56 @@
     } catch (err) { NB.fout(err); }
   };
 
+  /** Het venster Verzenden: kies het moment; tot dan kan je nog terughalen. */
   NB.actions['open-inplannen'] = function () {
     var x = d();
-    document.getElementById('inplannenTekst').textContent = 'De editie gaat op ' + NB.datum(x.edition.send_at) + ' naar ' + lijstNamen().replace(/<[^>]+>/g, '')
-      + ' van ' + x.series.name + '. Dit kan je in de OM niet terugdraaien.';
+    NB.state.inplanStand = 'verzenden';
+    document.getElementById('inplannenKop').textContent = 'Verzenden';
+    document.getElementById('inplannenTekst').textContent = 'De editie gaat naar ' + lijstNamen().replace(/<[^>]+>/g, '') + ' van ' + x.series.name
+      + '. Tot het gekozen moment staat ze klaar in de OM en kan je ze terughalen; daarna vertrekt ze via Odoo en is er geen weg terug.';
+    document.getElementById('inplannenMoment').value = NB.lokaal(x.voorgesteld_moment || x.edition.send_at);
+    document.getElementById('inplannenBevestigVeld').classList.remove('hidden');
     document.getElementById('inplannenBevestig').value = '';
+    document.getElementById('inplannenKnop').textContent = 'Verzenden';
+    NB.dialoog('dlgInplannen').showModal();
+  };
+
+  /** Hetzelfde venster om enkel het moment te verplaatsen (ingepland). */
+  NB.actions['open-moment'] = function () {
+    var x = d();
+    NB.state.inplanStand = 'moment';
+    document.getElementById('inplannenKop').textContent = 'Moment wijzigen';
+    document.getElementById('inplannenTekst').textContent = 'Kies wanneer ' + x.series.name + ' ' + x.edition.title + ' vertrekt.';
+    document.getElementById('inplannenMoment').value = NB.lokaal(x.edition.send_at);
+    document.getElementById('inplannenBevestigVeld').classList.add('hidden');
+    document.getElementById('inplannenKnop').textContent = 'Bewaren';
     NB.dialoog('dlgInplannen').showModal();
   };
 
   NB.actions['bevestig-inplannen'] = async function () {
+    var moment = NB.vanLokaal(document.getElementById('inplannenMoment').value);
+    if (!moment) { NB.toast('Kies een verzendmoment.', 'warning'); return; }
     try {
-      await NB.api('/api/editions/' + d().edition.id + '/schedule', {
-        method: 'POST', body: { confirm: document.getElementById('inplannenBevestig').value.trim() },
-      });
+      if (NB.state.inplanStand === 'moment') {
+        await NB.api('/api/editions/' + d().edition.id, { method: 'PUT', body: { send_at: moment } });
+        NB.toast('Verzendmoment verplaatst.');
+      } else {
+        await NB.api('/api/editions/' + d().edition.id + '/schedule', {
+          method: 'POST', body: { confirm: document.getElementById('inplannenBevestig').value.trim(), send_at: moment },
+        });
+        NB.toast('Klaargezet. Vertrekt op ' + NB.datum(moment) + '; tot dan kan je terughalen.');
+      }
       NB.dialoog('dlgInplannen').close();
-      NB.toast('Ingepland in Odoo.');
+      herlaad();
+    } catch (err) { NB.fout(err); }
+  };
+
+  NB.actions['terughalen'] = async function () {
+    var ja = await NB.bevestig({ titel: 'Terughalen?', tekst: 'De editie vertrekt dan niet en gaat terug naar Nalezen. Je kan ze nadien opnieuw verzenden.', knop: 'Terughalen', soort: 'primary' });
+    if (!ja) return;
+    try {
+      await NB.api('/api/editions/' + d().edition.id + '/unschedule', { method: 'POST' });
+      NB.toast('Teruggehaald.');
       herlaad();
     } catch (err) { NB.fout(err); }
   };

@@ -1,6 +1,6 @@
 # Nieuwsbrieven: nazicht en voorstel (2026-10-15)
 
-Status: **fase 1 gebouwd (2026-10-15): de maak-ervaring (3.2), de checklist (3.3), dezelfde woorden (3.4), de reeksinstellingen (3.5). De koppelingen blijven zoals ze zijn (3.8 is bewust NIET gebouwd). Nog te doen: de kalender (fase 2), het inhaken (fase 3), leren (fase 4).** Dit is een nazicht van de module
+Status: **fase 1 gebouwd (2026-10-15): de maak-ervaring (3.2), de checklist en het verzenden met bedenktijd (3.3), dezelfde woorden (3.4), de reeksinstellingen (3.5). De koppelingen blijven zoals ze zijn (3.8 is bewust NIET gebouwd). Nog te doen: de kalender (fase 2), het inhaken (fase 3), leren (fase 4).** Dit is een nazicht van de module
 `/nieuwsbrieven` zoals ze op 15 oktober 2026 staat, met wat ik zou verbeteren
 en in welke volgorde. Het ontwerp waarop de module gebouwd is:
 `docs/ontwerp-om-nieuwsbrieven.md`. De afspraken die vastliggen: CLAUDE.md,
@@ -248,11 +248,15 @@ stap toont wat er nog ontbreekt, in gewone woorden, met een knop ernaast:
 Pas als alles groen is, staat "Inplannen" aan. Dezelfde controles die nu op
 de server zitten, maar zichtbaar vooraf.
 
-Inplannen zelf blijft zoals het is (teststand, "VERSTUREN" typen). Nieuw: een
-ingeplande editie kan in de OM **verplaatst of teruggehaald** worden tot een
-uur voor het verzendmoment. De OM annuleert dan de mailing in Odoo en zet ze
-opnieuw klaar op de nieuwe dag. Zonder dit kan de kalender geen edities
-verslepen.
+**Verzenden blijft in de OM tot het moment zelf** (beslissing Nico,
+2026-10-15: geen nieuwsbrieven die vooraf in Odoo "geplaatst" staan). "Verzenden"
+kiest een moment (voorgesteld: de verzenddag, of morgen op het uur van de
+reeks) en zet de editie op Ingepland. Tot dat moment kan marketing ze
+**terughalen** of het **moment wijzigen**; de brief is dan vergrendeld. Op het
+moment zelf maakt de OM de mail in Odoo en laat ze meteen vertrekken. Lukt
+dat niet, dan gaat de editie terug naar Nalezen met de reden in het verloop en
+in de chat. Zo kan de kalender later edities verslepen zonder dat Odoo erbij
+komt kijken. Gebouwd in fase 1.
 
 ### 3.4 Dezelfde woorden overal
 
@@ -394,9 +398,9 @@ maakt ze wel instelbaar zonder hulp.
 
 ## 5. Wat ik nodig heb om te beginnen
 
-1. Mag de OM een ingeplande mailing in Odoo annuleren en opnieuw klaarzetten
-   wanneer iemand een editie op de kalender verschuift? Zonder dat kan de
-   kalender enkel edities tonen, niet verplaatsen.
+1. ~~Mag de OM een ingeplande mailing in Odoo annuleren en opnieuw
+   klaarzetten?~~ Beantwoord: niets vooraf in Odoo; de OM verstuurt op het
+   moment zelf, met bedenktijd om terug te halen (zie 3.3).
 2. Een kleur per reeks (Syndicoach roze, OpenVME blauw, Pro: te kiezen).
 3. Akkoord dat "Opmaak" als aparte stand verdwijnt en slepen altijd aan staat
    voor de hoofdredactie.

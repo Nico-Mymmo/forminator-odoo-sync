@@ -6,9 +6,11 @@
  *   - herinneringen in het chatkanaal van de reeks, 3 en 1 dag voor de deadline
  *     (enkel als er een kanaal ingesteld is -- standaard niet)
  *   - rijpe antwoorden op vragen in de mail naar de koppeling
- *   - bij een live mailing: tokens vullen en de cijfers bijhouden
+ *   - een ingeplande editie op haar verzendmoment via Odoo laten vertrekken
+ *     (lib/verzending.js), en de cijfers bijhouden
  *
- * Verstuurt NOOIT een nieuwsbrief. Dat gebeurt enkel na een klik in de OM.
+ * Verstuurt enkel wat marketing in de OM met "Verzenden" klaarzette, en pas
+ * op het gekozen moment. Vooraf staat er niets in Odoo.
  */
 
 import { naamVoor } from '../../../lib/medewerkers.js';
@@ -20,6 +22,7 @@ import { EDITION_STATUS, CONTRIBUTION_STATUS, KINDS, LOG_PREFIX, sendMode, appOr
 import { zorgVoorEdities } from './editions.js';
 import { zetAntwoordenDoor } from './answers.js';
 import { vulTokens, leesCijfers } from './odoo-mailing.js';
+import { verzendKlaargezette } from './verzending.js';
 
 const DAG_MS = 24 * 60 * 60 * 1000;
 
@@ -100,9 +103,10 @@ async function liveOnderhoud(env, reeksen, nu) {
     const series = reeksen.find((s) => s.id === editie.series_id);
     if (!series) continue;
     try {
-      if (new Date(editie.send_at).getTime() - nu.getTime() < 2 * DAG_MS) {
+      if (!editie.odoo_mailing_id && new Date(editie.send_at).getTime() - nu.getTime() < 2 * DAG_MS) {
         await vulTokens(env, series.odoo_list_ids || [], { max: 150 });
       }
+      if (!editie.odoo_mailing_id || editie.odoo_mailing_id < 0) continue;
       const cijfers = await leesCijfers(env, editie.odoo_mailing_id);
       if (cijfers && cijfers.state === 'done') {
         await updateEdition(env, editie.id, { status: EDITION_STATUS.SENT, sent_at: cijfers.sent_date || nu.toISOString(), stats: cijfers });
@@ -151,7 +155,12 @@ export async function runNewsletterCron(env, { scheduledTime } = {}) {
   } catch (error) {
     console.error(`${LOG_PREFIX} antwoorden doorzetten mislukt:`, error?.message);
   }
-  if (sendMode(env) === 'live' && eersteKwartier) {
-    await liveOnderhoud(env, reeksen, nu);
+  if (sendMode(env) === 'live') {
+    try {
+      await verzendKlaargezette(env, nu);
+    } catch (error) {
+      console.error(`${LOG_PREFIX} verzenden mislukt:`, error?.message);
+    }
+    if (eersteKwartier) await liveOnderhoud(env, reeksen, nu);
   }
 }
