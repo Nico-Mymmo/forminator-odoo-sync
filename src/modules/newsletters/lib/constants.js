@@ -40,6 +40,7 @@ export const CONTRIBUTION_STATUS = {
  */
 export const KINDS = {
   intro:     { label: 'Woordje vooraf' },
+  heading:   { label: 'Titel boven een reeks blokken' },
   article:   { label: 'Tekst en foto' },
   video:     { label: 'Video' },
   link:      { label: 'Link met voorbeeld' },
@@ -203,6 +204,17 @@ export const BERICHT_VORMEN = [
   { key: 'compact', label: 'Compact', uitleg: 'Een klein beeld naast een korte tekst.' },
   { key: 'citaat', label: 'Citaat', uitleg: 'Een zin uit het artikel in het groot, dan de link.' },
 ];
+
+/**
+ * Kort nieuws: twee of drie kleinere berichten uit Nieuws & updates in één
+ * blok. EEN bron voor renderer, scherm en server.
+ */
+export const NIEUWS_VORMEN = [
+  { key: 'kolommen', label: 'Naast elkaar', uitleg: 'Kleine kaartjes met beeld, naast elkaar.' },
+  { key: 'lijst', label: 'Lijstje', uitleg: 'Onder elkaar, met een klein beeld.' },
+  { key: 'tekst', label: 'Enkel tekst', uitleg: 'Kaders zonder beeld, twee per rij.' },
+];
+export const NIEUWS_MAX = 3;
 
 export const BEELD_KADERS = {
   rechts: { breedte: 180, verhouding: 1 },

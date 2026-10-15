@@ -16,7 +16,7 @@ import {
 import {
   KINDS, isKind, DEFAULT_OPTIONS, EDITION_STATUS, CONTRIBUTION_STATUS, LOG_PREFIX, ASSET_ORIGIN,
   sendMode, testEmails, BRAND, BEELD_KADERS, BEELD_PLAATSEN, MERKKLEUREN, merkkleur, BERICHT_VORMEN,
-  VRAAG_SOORTEN, VRAAG_STIJLEN, VRAAG_KLEUREN, VRAAG_STANDAARD,
+  VRAAG_SOORTEN, VRAAG_STIJLEN, VRAAG_KLEUREN, VRAAG_STANDAARD, NIEUWS_VORMEN, NIEUWS_MAX,
 } from './lib/constants.js';
 import { renderEdition, renderContribution, heeftInhoud, kopVan } from './lib/render.js';
 import { verzamel, maakEditieOp, vernieuwNieuws, ondertekenaarId, metOndertekening } from './lib/editions.js';
@@ -31,6 +31,7 @@ import { lijstTekeningen, pngSleutel, vergeetTekeningen } from '../av-slides/lib
 import { listIntegrations } from '../forminator-sync-v2/database.js';
 import { ArticleFetchError } from '../content-feed/lib/article-fetch.js';
 import { listSnippets, getSnippet, getSnippetImage, listTaxonomy } from '../content-feed/lib/content-service.js';
+import { hostBerichtBeeld, kaartjeVanBericht } from './lib/berichten.js';
 import { bedenkLabel } from '../content-feed/lib/article-ai.js';
 import { serializeAiError, httpStatusForAiError } from '../mini-apps/lib/ai-errors.js';
 import { sendSystemChannelMessage } from '../mini-apps/lib/chat.js';
@@ -148,6 +149,8 @@ export function normaliseerInhoud(kind, c = {}) {
   const uit = inhoudPerSoort(kind, c);
   const bg = merkkleur(c?.achtergrond);
   if (bg) uit.achtergrond = bg;
+  // Uit de inhoudstafel gehouden (opmaakstand). Standaard staat alles erin.
+  if (c?.in_toc === false) uit.in_toc = false;
   return uit;
 }
 
@@ -207,6 +210,8 @@ function normaliseerDoor(d) {
 
 function inhoudPerSoort(kind, c = {}) {
   switch (kind) {
+    case 'heading':
+      return { title: kort(c.title, 120), text: kort(c.text, 300) };
     case 'intro':
       return {
         title: kort(c.title, 160), text: kort(c.text, 4000),
@@ -229,6 +234,7 @@ function inhoudPerSoort(kind, c = {}) {
         snippet_id: Number.isInteger(Number(c.snippet_id)) && Number(c.snippet_id) > 0 ? Number(c.snippet_id) : null,
         // Het pilletje boven het bericht (Nieuws & updates stelt het voor).
         tag: kort(c.tag, 40),
+        beeld_versie: kort(c.beeld_versie, 40),
         vorm: BERICHT_VORMEN.some((v) => v.key === c.vorm) ? c.vorm : 'klassiek',
         title: kort(c.title, 160), text: kort(c.text, 4000),
         quote: kort(c.quote, 400), source: kort(c.source, 80),
@@ -271,10 +277,14 @@ function inhoudPerSoort(kind, c = {}) {
       };
     case 'news':
       return {
-        heading: kort(c.heading, 120) || 'Wat er speelt',
+        // Leeg mag (dan staat er geen kop); nooit ingevuld = de vroegere standaard.
+        heading: c.heading === undefined ? 'Wat er speelt' : kort(c.heading, 120),
+        // Zonder keuze: zoals een oud nieuwsblok eruitzag (kaders zonder beeld).
+        vorm: NIEUWS_VORMEN.some((v) => v.key === c.vorm) ? c.vorm : 'tekst',
         items: (Array.isArray(c.items) ? c.items : []).slice(0, 4).map((n) => ({
           snippet_id: Number.isInteger(Number(n?.snippet_id)) ? Number(n.snippet_id) : null,
           title: kort(n?.title, 200), note: kort(n?.note, 300), url: url(n?.url),
+          source: kort(n?.source, 80), beeld_url: url(n?.beeld_url), beeld_versie: kort(n?.beeld_versie, 40),
         })).filter((n) => n.title),
         suggestions: Array.isArray(c.suggestions) ? c.suggestions.slice(0, 12) : undefined,
       };
@@ -342,6 +352,8 @@ export const routes = {
           beeld_kaders: BEELD_KADERS,
           merkkleuren: MERKKLEUREN,
           bericht_vormen: BERICHT_VORMEN,
+          nieuws_vormen: NIEUWS_VORMEN,
+          nieuws_max: NIEUWS_MAX,
           vraag_soorten: VRAAG_SOORTEN,
           vraag_stijlen: VRAAG_STIJLEN,
           vraag_kleuren: VRAAG_KLEUREN,
@@ -607,7 +619,9 @@ export const routes = {
         title: kort(b.title, 120) || KINDS[kind].label,
         content: normaliseerInhoud(kind, b.content || {}),
         owner_user_id: eigenaar,
-        status: b.content ? CONTRIBUTION_STATUS.DRAFT : CONTRIBUTION_STATUS.OPEN,
+        // Een titel zet de hoofdredactie zelf: dat is opmaak, niets om nog te bevestigen.
+        status: kind === 'heading' && isEditorVan(user, series) ? CONTRIBUTION_STATUS.APPROVED
+          : b.content ? CONTRIBUTION_STATUS.DRAFT : CONTRIBUTION_STATUS.OPEN,
         source: kort(b.source, 300),
         created_by: user.id,
       }]);
@@ -773,6 +787,7 @@ export const routes = {
         const metOpmaak = { ...b.content };
         if (metOpmaak.stijl === undefined && item.content?.stijl) metOpmaak.stijl = item.content.stijl;
         if (metOpmaak.kleur === undefined && item.content?.kleur) metOpmaak.kleur = item.content.kleur;
+        if (metOpmaak.in_toc === undefined && item.content?.in_toc === false) metOpmaak.in_toc = false;
         w.content = normaliseerInhoud(kind, metOpmaak);
         // De achtergrond zet de hoofdredactie in de opmaakstand; een schrijver
         // die zijn tekst bewaart, wist ze niet.
@@ -834,6 +849,19 @@ export const routes = {
       const kleur = merkkleur((await leesBody(request)).kleur);
       const content = { ...(item.content || {}) };
       if (kleur) content.achtergrond = kleur; else delete content.achtergrond;
+      return json({ success: true, data: await updateContribution(env, item.id, { content }) });
+    } catch (err) { return fout(err); }
+  },
+
+  /** In de inhoudstafel of niet (opmaakstand), zoals de achtergrond. */
+  'POST /api/contributions/:id/in-toc': async ({ env, user, params, request }) => {
+    try {
+      const { item, edition, series } = await stukjeMetContext(env, params.id);
+      eisEditor(user, series);
+      if (edition && !isActiveEdition(edition)) throw new NewsletterError('Deze editie is al verstuurd.', 409);
+      const aan = (await leesBody(request)).in_toc !== false;
+      const content = { ...(item.content || {}) };
+      if (aan) delete content.in_toc; else content.in_toc = false;
       return json({ success: true, data: await updateContribution(env, item.id, { content }) });
     } catch (err) { return fout(err); }
   },
@@ -1056,6 +1084,9 @@ export const routes = {
         link_url: x.url || '',
         link_label: x.cta || 'Lees verder',
         beeld: null,
+        // Welke versie van het beeld we overnamen: verandert het in Nieuws &
+        // updates, dan neemt lib/berichten.js het nieuwe over.
+        beeld_versie: x.hasImage ? String(x.imageVersion || '') : '',
         door,
       };
       let beeld_data = null;
@@ -1073,6 +1104,27 @@ export const routes = {
         }
       }
       return json({ success: true, data: { inhoud, beeld_data } });
+    } catch (err) { return fout(err); }
+  },
+
+  /**
+   * Een bericht als klein kaartje in "Kort nieuws": titel, korte tekst, link,
+   * bron en een publieke kopie van het beeld (geen AI-label: daarvoor is het
+   * kaartje te klein).
+   */
+  'POST /api/snippets/:id/kort': async ({ env, params }) => {
+    try {
+      const x = await getSnippet(env, params.id);
+      if (!x) throw new NewsletterError('Dat bericht bestaat niet (meer).', 404);
+      const beeld = x.hasImage ? await hostBerichtBeeld(env, x.id).catch(() => null) : null;
+      return json({
+        success: true,
+        data: {
+          ...kaartjeVanBericht(x),
+          beeld_url: beeld || '',
+          beeld_versie: x.hasImage && beeld ? String(x.imageVersion || '') : '',
+        },
+      });
     } catch (err) { return fout(err); }
   },
 

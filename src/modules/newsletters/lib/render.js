@@ -82,7 +82,7 @@ function isTechnisch(naam) {
  * deelde, bij een blok dat zichzelf vult niemand, anders de schrijver.
  */
 function bijdrageVan(it) {
-  if (KINDS[it.kind]?.auto) return null;
+  if (KINDS[it.kind]?.auto || it.kind === 'heading') return null;
   const a = it.kind === 'snippet' ? it.content?.door : it.author;
   return a?.name && !isTechnisch(a.name) ? a : null;
 }
@@ -256,6 +256,8 @@ export function maandLabel(iso) {
 export function heeftInhoud(item, ctx = {}) {
   const c = item?.content || {};
   switch (item?.kind) {
+    case 'heading':
+      return Boolean(String(c.title || '').trim());
     case 'intro':
     case 'article':
     case 'snippet':
@@ -312,7 +314,7 @@ function eventsVoor(item, ctx) {
 /** De kop waaronder een stukje in de inhoudstafel staat. */
 export function kopVan(item) {
   const c = item?.content || {};
-  return String(c.title || c.question || item?.title || '').trim();
+  return String(c.title || c.question || (item?.kind === 'news' ? c.heading : '') || item?.title || '').trim();
 }
 
 // ─── Antwoordlinks ──────────────────────────────────────────────────────────
@@ -375,7 +377,15 @@ function blokIntro(item, ctx, id) {
 function blokArticle(item, ctx, id) {
   const c = item.content || {};
   const b = beeldVan(c, { plaats: 'tekst' });
-  const tekst = `${kop(c.title)}${tekstMetBeeld(alineas(c.text), b && b.plaats === 'tekst' && !c.beeld ? { ...b, na_alinea: 0 } : b, ctx, id)}${c.link_url ? `<div style="margin-top:18px">${leesLink(c.link_label, c.link_url)}</div>` : ''}`;
+  const tekstHtml = tekstMetBeeld(alineas(c.text), b && b.plaats === 'tekst' && !c.beeld ? { ...b, na_alinea: 0 } : b, ctx, id);
+  // In het voorbeeld typ je titel en tekst IN de brief (zoals het woordje vooraf).
+  const titel = id
+    ? `<h2 data-nb-veld="title" data-placeholder="Typ hier een titel" style="margin:14px 0 12px;font-family:${S.fontHead};font-weight:400;font-size:28px;line-height:1.15;color:${S.heading}">${esc(c.title || '')}</h2>`
+    : kop(c.title);
+  const lijf = id
+    ? `<div data-nb-veld="text" data-placeholder="Typ hier je tekst." style="font-family:${S.fontBody};font-size:16px;line-height:1.6;color:${S.text}">${tekstHtml}</div>`
+    : tekstHtml;
+  const tekst = `${titel}${lijf}${c.link_url ? `<div style="margin-top:18px">${leesLink(c.link_label, c.link_url)}</div>` : ''}`;
   return schikBeeld({ b, ctx, id, inhoud: `${pil(item.title, S.pink50, S.pink700)}${tekst}${byline(item.author)}`, padding: '44px 40px 4px' });
 }
 
@@ -570,29 +580,96 @@ ${link ? `<td align="right" valign="middle" style="padding:14px 18px 14px 0;whit
 ${kop(c.heading || 'Kom ons ontmoeten', { margin: '10px 0 20px' })}${rijen}`, S.sky50, { padding: '36px 32px 26px', id });
 }
 
+/**
+ * Kort nieuws: twee of drie kleinere berichten uit Nieuws & updates in één
+ * blok, in een van de NIEUWS_VORMEN. De kop is optioneel en typ je in de brief.
+ */
 function blokNews(item, ctx, id) {
   const c = item.content || {};
-  const kaarten = (c.items || []).filter((n) => String(n?.title || '').trim()).slice(0, 4).map((n, i) => `
+  const lijst = (c.items || []).filter((n) => String(n?.title || '').trim()).slice(0, 4);
+  const vorm = c.vorm || 'tekst';
+  const kortje = (t, max) => { const x = String(t || '').trim(); return x.length > max ? `${x.slice(0, max - 1).replace(/\s+\S*$/, '')}…` : x; };
+  const bron = (n) => (n.source ? `<div style="font-family:${S.fontBody};font-size:11px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:${S.muted};margin-bottom:6px">${esc(n.source)}</div>` : '');
+  const meer = (n, maat = 14) => (safeUrl(n.url) ? `<div style="margin-top:10px"><a href="${safeUrl(n.url)}" style="font-family:${S.fontBody};font-size:${maat}px;font-weight:700;color:${S.primary};text-decoration:none">Lees meer &rarr;</a></div>` : '');
+  const foto = (n, breedte, radius = 10) => {
+    const src = safeUrl(n.beeld_url);
+    if (!src) return '';
+    const img = `<img src="${esc(src)}" width="${breedte}" alt="${esc(n.title)}" style="display:block;width:100%;max-width:${breedte}px;height:auto;border:0;border-radius:${radius}px">`;
+    return safeUrl(n.url) ? `<a href="${safeUrl(n.url)}" style="text-decoration:none">${img}</a>` : img;
+  };
+  let lijf = '';
+  if (vorm === 'kolommen') {
+    const aantal = Math.max(1, Math.min(3, lijst.length));
+    const gat = 16;
+    const breedte = Math.floor((560 - gat * (aantal - 1)) / aantal);
+    const cellen = lijst.slice(0, 3).map((n, i) => `<td width="${breedte}" valign="top" style="width:${breedte}px;padding:0 ${i < aantal - 1 ? gat / 2 : 0}px 0 ${i ? gat / 2 : 0}px">
+${foto(n, breedte) ? `<div style="margin-bottom:12px">${foto(n, breedte)}</div>` : ''}${bron(n)}
+<div style="font-family:${S.fontBody};font-size:${aantal === 3 ? 15 : 17}px;font-weight:700;line-height:1.3;color:${S.headingSoft}">${esc(n.title)}</div>
+${n.note ? `<div style="font-family:${S.fontBody};font-size:14px;line-height:1.5;color:${S.text};margin-top:6px">${esc(kortje(n.note, aantal === 3 ? 110 : 160))}</div>` : ''}${meer(n)}</td>`).join('');
+    lijf = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>${cellen}</tr></table>`;
+  } else if (vorm === 'lijst') {
+    lijf = lijst.map((n, i) => {
+      const f = foto(n, 120, 8);
+      return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="${i ? `border-top:1px solid ${S.line};` : ''}"><tr>
+${f ? `<td width="120" valign="top" style="width:120px;padding:16px 18px 16px 0">${f}</td>` : ''}
+<td valign="top" style="padding:16px 0">${bron(n)}<div style="font-family:${S.fontBody};font-size:16px;font-weight:700;line-height:1.35;color:${S.headingSoft}">${esc(n.title)}</div>
+${n.note ? `<div style="font-family:${S.fontBody};font-size:14px;line-height:1.5;color:${S.text};margin-top:4px">${esc(kortje(n.note, 160))}</div>` : ''}${meer(n)}</td></tr></table>`;
+    }).join('');
+  } else {
+    const kaarten = lijst.map((n, i) => `
 <td width="50%" valign="top" style="padding:0 ${i % 2 === 0 ? 8 : 0}px 16px ${i % 2 === 1 ? 8 : 0}px">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border:1px solid ${S.border};border-radius:14px;border-collapse:separate"><tr><td style="padding:20px">
-<div style="font-family:${S.fontBody};font-size:15px;font-weight:700;line-height:1.35;color:${S.headingSoft}">${esc(n.title)}</div>
-${n.note ? `<div style="font-family:${S.fontBody};font-size:14px;line-height:1.55;color:${S.text};margin-top:10px">${esc(n.note)}</div>` : ''}
-${safeUrl(n.url) ? `<div style="margin-top:12px"><a href="${safeUrl(n.url)}" style="font-family:${S.fontBody};font-size:14px;font-weight:700;color:${S.primary};text-decoration:none">Lees meer &rarr;</a></div>` : ''}
+${bron(n)}<div style="font-family:${S.fontBody};font-size:15px;font-weight:700;line-height:1.35;color:${S.headingSoft}">${esc(n.title)}</div>
+${n.note ? `<div style="font-family:${S.fontBody};font-size:14px;line-height:1.55;color:${S.text};margin-top:10px">${esc(n.note)}</div>` : ''}${meer(n)}
 </td></tr></table></td>`);
-  const rijen = [];
-  for (let i = 0; i < kaarten.length; i += 2) {
-    rijen.push(`<tr>${kaarten[i]}${kaarten[i + 1] || '<td width="50%"></td>'}</tr>`);
+    const rijen = [];
+    for (let i = 0; i < kaarten.length; i += 2) rijen.push(`<tr>${kaarten[i]}${kaarten[i + 1] || '<td width="50%"></td>'}</tr>`);
+    lijf = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">${rijen.join('')}</table>`;
   }
+  const kopTekst = String(c.heading || '');
+  const kopHtml = id
+    ? `<h2 data-nb-veld="heading" data-placeholder="Een kop (optioneel)" style="margin:14px 0 18px;font-family:${S.fontHead};font-weight:400;font-size:28px;line-height:1.15;color:${S.heading}">${esc(kopTekst)}</h2>`
+    : kopTekst.trim() ? kop(kopTekst, { margin: '14px 0 18px' }) : '<div style="height:16px;line-height:16px;font-size:0">&nbsp;</div>';
+  const leeg = id && !lijst.length
+    ? `<div style="border:2px dashed #d1d5db;border-radius:14px;padding:18px 20px;font-family:${S.fontBody};font-size:14px;color:${S.muted}">Kies rechts twee of drie berichten uit Nieuws &amp; updates.</div>`
+    : '';
   return rij(`${pil(item.title, S.sky50, S.primary)}
-${kop(c.heading || 'Wat er speelt', { margin: '14px 0 18px' })}
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">${rijen.join('')}</table>`, { padding: '44px 40px 0', id });
+${kopHtml}${leeg}${lijf}`, { padding: '44px 40px 0', id });
+}
+
+/**
+ * Een titel boven een reeks blokken (door marketing gezet). Komt in de
+ * inhoudstafel als kopje, met de blokken eronder.
+ */
+function blokHeading(item, ctx, id) {
+  const c = item.content || {};
+  const titel = id
+    ? `<h2 data-nb-veld="title" data-placeholder="Typ hier de titel" style="margin:0;font-family:${S.fontHead};font-weight:400;font-size:34px;line-height:1.15;color:${S.heading}">${esc(c.title || '')}</h2>`
+    : kop(c.title, { size: 34, margin: '0' });
+  const sub = id
+    ? `<div data-nb-veld="text" data-placeholder="Een zinnetje erbij (optioneel)" style="font-family:${S.fontBody};font-size:16px;line-height:1.55;color:${S.muted};margin-top:10px">${esc(c.text || '')}</div>`
+    : String(c.text || '').trim() ? `<div style="font-family:${S.fontBody};font-size:16px;line-height:1.55;color:${S.muted};margin-top:10px">${esc(c.text)}</div>` : '';
+  return rij(`<div style="width:44px;height:4px;border-radius:2px;background-color:${S.mint};margin-bottom:16px;font-size:0;line-height:0">&nbsp;</div>${titel}${sub}`, { padding: '52px 40px 0', id });
+}
+
+/** Een regel van de inhoudstafel: een tekst, of { t, kop } (kop = een titelblok). */
+function tocRegel(x) {
+  return typeof x === 'string' ? { t: x, kop: false } : { t: String(x?.t || ''), kop: Boolean(x?.kop) };
 }
 
 function blokToc(item, ctx, id) {
-  const lijst = (ctx.toc || []).slice(0, 8);
+  const lijst = (ctx.toc || []).map(tocRegel).filter((x) => x.t).slice(0, 12);
   if (!lijst.length) return '';
-  const rijen = lijst.map((t, i) => `<tr><td width="34" valign="baseline" style="padding:12px 0;${i ? `border-top:1px solid ${S.line};` : ''}font-family:${S.fontHead};font-size:22px;color:${S.primary}">${i + 1}</td>
-<td valign="baseline" style="padding:12px 0;${i ? `border-top:1px solid ${S.line};` : ''}font-family:${S.fontBody};font-size:16px;font-weight:600;color:${S.headingSoft}">${esc(t)}</td></tr>`).join('');
+  let nr = 0;
+  const rijen = lijst.map((x, i) => {
+    const lijn = i && !x.kop ? `border-top:1px solid ${S.line};` : '';
+    if (x.kop) {
+      return `<tr><td colspan="2" style="padding:${i ? 24 : 10}px 0 6px;font-family:${S.fontHead};font-size:20px;line-height:1.2;color:${S.heading}">${esc(x.t)}</td></tr>`;
+    }
+    nr += 1;
+    return `<tr><td width="34" valign="baseline" style="padding:12px 0;${lijn}font-family:${S.fontHead};font-size:22px;color:${S.primary}">${nr}</td>
+<td valign="baseline" style="padding:12px 0;${lijn}font-family:${S.fontBody};font-size:16px;font-weight:600;color:${S.headingSoft}">${esc(x.t)}</td></tr>`;
+  }).join('');
   return rij(`${label(item.title || 'In deze editie', S.primary)}
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:8px">${rijen}</table>`, { padding: '36px 40px 0', id });
 }
@@ -637,6 +714,7 @@ function blokPlaatshouder(item, id) {
 
 const BLOKKEN = {
   intro: blokIntro,
+  heading: blokHeading,
   article: blokArticle,
   // Een bericht uit Nieuws & updates: in een van de BERICHT_VORMEN.
   snippet: blokSnippet,
@@ -675,6 +753,9 @@ function lichteTekst(html) {
     return `style="${uit}"`;
   });
 }
+
+/** De blokken die je in de brief zelf invult: in het voorbeeld staan ze er ook leeg. */
+const IN_DE_BRIEF = new Set(['intro', 'article', 'heading', 'question', 'statement', 'poll', 'news']);
 
 /** Blokken met een eigen gekleurd kader: daar blijft de tekst zoals ze is. */
 const MET_KADER = new Set(['quote', 'statement', 'question', 'poll', 'events']);
@@ -746,8 +827,12 @@ export function renderEdition({ series, edition, items, mode = 'preview', ctx = 
   const mee = items.filter((it) => doetMee(it, mode, ctx));
   const meeIds = new Set(mee.map((it) => it.id));
 
-  // Inhoudstafel en afsluiting kijken naar wat ECHT meegaat.
-  const toc = mee.filter((it) => !['toc', 'closing', 'intro', 'image'].includes(it.kind)).map(kopVan).filter(Boolean);
+  // Inhoudstafel en afsluiting kijken naar wat ECHT meegaat. Een titelblok is
+  // een kopje; een blok dat marketing eruit hield (`in_toc: false`) valt weg.
+  const toc = mee
+    .filter((it) => !['toc', 'closing', 'intro', 'image'].includes(it.kind) && it.content?.in_toc !== false)
+    .map((it) => ({ t: kopVan(it), kop: it.kind === 'heading' }))
+    .filter((x) => x.t);
   const authors = [];
   const gezien = new Set();
   // Enkel wie in DEZE versie echt iets bijdroeg: een stukje dat wegvalt, telt niet mee.
@@ -764,8 +849,8 @@ export function renderEdition({ series, edition, items, mode = 'preview', ctx = 
     if (meeIds.has(it.id)) {
       const maak = BLOKKEN[it.kind];
       if (maak) rijen.push(metAchtergrond(maak(it, blokCtx, id), it.content?.achtergrond, it.kind));
-    } else if (mode === 'preview' && (it.kind === 'intro' || KINDS[it.kind]?.interactive)) {
-      // Het woordje vooraf en een vraag vul je IN de brief: ook leeg staan ze er.
+    } else if (mode === 'preview' && IN_DE_BRIEF.has(it.kind)) {
+      // Wat je IN de brief invult, staat er ook leeg al (met plaatshouders).
       open.push(it);
       rijen.push(metAchtergrond(BLOKKEN[it.kind](it, blokCtx, id), it.content?.achtergrond, it.kind));
     } else if (mode === 'preview' && !KINDS[it.kind]?.auto) {

@@ -26,9 +26,11 @@
    * mail en mag nadien nog wijzigen.
    */
   var SJABLONEN = [
+    { key: 'titel', kind: 'heading', naam: 'Titel', titel: 'Titel', icoon: 'heading', uitleg: 'Een titel boven een reeks blokken; komt in de inhoudstafel.', enkelRedactie: true },
     { key: 'vooraf', kind: 'intro', titel: 'Woordje vooraf', icoon: 'hand-heart', uitleg: 'Een korte inleiding bovenaan, ondertekend met foto.' },
     // EEN vraagblok: korte vraag, stelling of keuze kies je daarna in de brief zelf.
     { key: 'vraag', kind: 'question', naam: 'Vraag aan de lezer', titel: 'Korte vraag', icoon: 'message-circle-question', uitleg: 'Een vraag, stelling of keuze; lezers antwoorden met één klik.' },
+    { key: 'kortnieuws', kind: 'news', naam: 'Kort nieuws', titel: 'Kort nieuws', icoon: 'newspaper', uitleg: 'Twee of drie kleinere berichten uit Nieuws & updates, naast elkaar.', inhoud: { vorm: 'kolommen', heading: '' } },
     { key: 'bericht', kind: 'snippet', titel: 'Interessant voor jou', icoon: 'rss', uitleg: 'Een bericht uit Nieuws & updates, meteen ingevuld.' },
     { key: 'linkedin', kind: 'linkedin', titel: 'Op LinkedIn', icoon: 'share-2', uitleg: 'Een post die het delen waard is.' },
     { key: 'tekst', kind: 'article', titel: 'Uit het team', icoon: 'file-text', uitleg: 'Een kort verhaal, met foto of tekening.' },
@@ -107,7 +109,7 @@
 
   function toevoegen() {
     if (!actief()) return '';
-    var lijst = SJABLONEN.map(function (s) {
+    var lijst = SJABLONEN.filter(function (s) { return !s.enkelRedactie || d().series.is_editor; }).map(function (s) {
       return '<button class="nb-sjabloon text-left rounded-xl border border-base-content/10 hover:border-primary/50 hover:bg-primary/5 p-2.5 flex gap-2 items-start" draggable="true" data-action="sjabloon" data-sjabloon="' + s.key + '">'
         + '<i data-lucide="' + s.icoon + '" class="w-4 h-4 mt-0.5 text-primary shrink-0"></i>'
         + '<span class="min-w-0"><span class="block text-sm font-medium">' + e(s.naam || s.titel) + '</span><span class="block text-xs opacity-60 leading-snug">' + e(s.uitleg) + '</span></span></button>';
@@ -183,7 +185,7 @@
   /** Opmaakstand, een blok gekozen: wie, hoe het heet, weghalen. */
   function paneelBlok(it) {
     var auto = NB.isAuto(it.kind);
-    var vasteNaam = auto || it.kind === 'intro';
+    var vasteNaam = auto || it.kind === 'intro' || it.kind === 'heading';
     return '<div class="flex flex-col gap-3">' + kaart(
       '<div class="flex items-center gap-2"><button class="btn btn-ghost btn-sm px-2" data-action="opmaak-terug"><i data-lucide="arrow-left" class="w-4 h-4"></i> Overzicht</button></div>'
       + '<div class="text-xs font-semibold uppercase tracking-wide opacity-60">' + e(NB.soort(it.kind)) + '</div>'
@@ -193,7 +195,7 @@
       + (auto ? '<p class="text-sm opacity-70">Dit blok vult zichzelf.</p>'
         : '<label class="form-control"><span class="label-text text-xs mb-1">Wie schrijft het?</span><select class="select select-bordered select-sm" data-change="eigenaar" data-id="' + e(it.id) + '">' + NB.gebruikersOpties(it.owner_user_id, true) + '</select></label>'
           + '<div class="flex items-center gap-2 text-sm">' + NB.statusBadge(it.status) + '</div>')
-      + vraagOpmaak(it)
+      + vraagOpmaak(it) + tocKeuze(it)
       + '<div class="flex items-center gap-3"><span class="label-text text-xs">Achtergrond</span><button type="button" class="btn btn-sm btn-ghost gap-2 px-2" data-action="kleur-blok" data-id="' + e(it.id) + '">' + NB.kleurBol(it.content && it.content.achtergrond) + '<span>' + ((it.content && it.content.achtergrond) ? e(it.content.achtergrond.toUpperCase()) : 'Standaard') + '</span></button></div>'
       + '<div class="flex flex-wrap gap-2 mt-1">'
       + (auto ? '' : '<button class="btn btn-sm" data-action="opmaak-inhoud" data-id="' + e(it.id) + '"><i data-lucide="pen-line" class="w-4 h-4"></i> Inhoud bewerken</button>')
@@ -222,6 +224,24 @@
       + '<div><span class="label-text text-xs">Stijl</span><div class="grid grid-cols-3 gap-2 mt-1">' + stijlen + '</div></div>'
       + '<div><span class="label-text text-xs">Kleur</span><div class="flex gap-2 mt-1">' + kleuren + '</div></div>';
   }
+
+  /** In de inhoudstafel of niet. Enkel voor blokken die er kunnen in staan. */
+  function tocKeuze(it) {
+    if (['toc', 'closing', 'intro', 'image'].indexOf(it.kind) >= 0) return '';
+    var aan = !(it.content && it.content.in_toc === false);
+    return '<label class="label cursor-pointer justify-start gap-3 p-0"><input type="checkbox" class="toggle toggle-sm toggle-primary" data-action="in-toc" data-id="' + e(it.id) + '"' + (aan ? ' checked' : '') + '>'
+      + '<span class="label-text">In de inhoudstafel' + (it.kind === 'heading' ? ' (als kopje)' : '') + '</span></label>';
+  }
+
+  NB.actions['in-toc'] = async function (el) {
+    var it = itemVan(el.dataset.id);
+    if (!it) return;
+    try {
+      var bij = await NB.api('/api/contributions/' + it.id + '/in-toc', { method: 'POST', body: { in_toc: el.checked } });
+      it.content = bij.content;
+      laadBrief();
+    } catch (err) { NB.fout(err); el.checked = !el.checked; }
+  };
 
   async function zetVraagOpmaak(id, wat) {
     var it = itemVan(id);
@@ -314,6 +334,8 @@
     + '.nb-gereedschap{position:absolute;top:8px;left:10px;z-index:3;display:flex;gap:6px}'
     + '.nb-gereedschap button,.nb-plus{font:600 12px/1 system-ui,-apple-system,"Segoe UI",sans-serif;border-radius:999px;padding:7px 11px;cursor:pointer;border:1px solid #bae6fd;background:#fff;color:#0369a1;box-shadow:0 1px 2px rgba(0,0,0,.06)}'
     + '.nb-gereedschap button:hover,.nb-gereedschap button.nb-aan{background:#0284c7;border-color:#0284c7;color:#fff}'
+    + '.nb-optie-weg{display:inline-block;margin-left:10px;width:20px;height:20px;line-height:18px;text-align:center;border-radius:50%;background:#fff;color:#b91c1c;border:1px solid #fecaca;font:700 14px/18px system-ui,sans-serif;cursor:pointer;vertical-align:middle}'
+    + '.nb-optie-weg:hover{background:#b91c1c;color:#fff}'
     + '.nb-gereedschap .nb-soorten{display:flex;gap:0;border-radius:999px;box-shadow:0 1px 2px rgba(0,0,0,.06)}'
     + '.nb-gereedschap .nb-soorten button{border-radius:0;box-shadow:none;margin-left:-1px}'
     + '.nb-gereedschap .nb-soorten button:first-child{border-radius:999px 0 0 999px;margin-left:0}'
@@ -347,7 +369,7 @@
   }
 
   function eenRegel(veld) {
-    return veld === 'title' || veld === 'question' || /^options\.\d+\.label$/.test(veld);
+    return veld === 'title' || veld === 'question' || veld === 'heading' || /^options\.\d+\.label$/.test(veld);
   }
 
   var VRAAG_KINDS = ['question', 'statement', 'poll'];
@@ -559,7 +581,7 @@
     if (!s || NB.state.stukjeHost !== 'paneel' || !s.can_edit || NB.state.voorbeeldStand === 'test' || opmaak()) return;
     var soort = NB.state.concept && NB.state.concept.kind;
     var isVraag = VRAAG_KINDS.indexOf(soort) >= 0;
-    if (soort !== 'intro' && soort !== 'image' && !isVraag) return;
+    if (['intro', 'image', 'article', 'heading', 'news'].indexOf(soort) < 0 && !isVraag) return;
     var rij = doc.querySelector('[data-nb-id="' + s.item.id + '"]');
     if (!rij) return;
     if (isVraag) {
@@ -576,6 +598,25 @@
         + (aantal < 6 ? '<button type="button" data-nb-knop="optie-bij">+ Antwoord</button>' : '')
         + '<button type="button" data-nb-knop="ai">\u2728 AI</button>';
       vcel.appendChild(vbar);
+      // Een antwoord weghalen: een kruisje naast elk antwoord (zolang er meer dan twee zijn).
+      if (aantal > 2) {
+        rij.querySelectorAll('[data-nb-veld^="options."]').forEach(function (x) {
+          var m = /^options\.(\d+)\.label$/.exec(x.getAttribute('data-nb-veld'));
+          if (!m) return;
+          var weg = doc.createElement('span');
+          weg.className = 'nb-optie-weg';
+          weg.setAttribute('data-nb-knop', 'optie-weg:' + m[1]);
+          weg.setAttribute('contenteditable', 'false');
+          weg.title = 'Dit antwoord weghalen';
+          weg.textContent = '\u00d7';
+          x.parentNode.insertBefore(weg, x.nextSibling);
+        });
+      }
+      return;
+    }
+    if (soort === 'heading' || soort === 'news') {
+      // Een titel, of de kop van kort nieuws: gewoon typen, geen werkbalk.
+      rij.querySelectorAll('[data-nb-veld]').forEach(function (x) { x.setAttribute('contenteditable', 'true'); x.setAttribute('spellcheck', 'true'); });
       return;
     }
     if (soort === 'image') {
@@ -687,6 +728,7 @@
     else if (wat === 'beeld') openBeeld();
     else if (wat.indexOf('soort:') === 0 && NB.wisselVraagSoort) NB.wisselVraagSoort(wat.slice(6));
     else if (wat === 'optie-bij' && NB.vraagOptieBij) NB.vraagOptieBij();
+    else if (wat.indexOf('optie-weg:') === 0 && NB.vraagOptieWeg) NB.vraagOptieWeg(Number(wat.slice(10)));
   }
 
   // ─── Schrijf met AI (venster) ─────────────────────────────────────────────
@@ -823,7 +865,7 @@
     try {
       await bewaarOpen();
       var rij = await NB.api('/api/editions/' + d().edition.id + '/contributions', {
-        method: 'POST', body: { kind: sj.kind, title: sj.titel, after_id: na || '' },
+        method: 'POST', body: { kind: sj.kind, title: sj.titel, after_id: na || '', content: sj.inhoud || undefined },
       });
       NB.state.scrolNa = rij.id;
       if (opmaak()) {
