@@ -10,6 +10,8 @@
   NB.state = NB.state || { boot: null };
   NB.actions = NB.actions || {};
   NB.views = NB.views || {};
+  NB.inputs = NB.inputs || {};
+  NB.changes = NB.changes || {};
 
   NB.esc = function (v) {
     return String(v === null || v === undefined ? '' : v)
@@ -64,6 +66,36 @@
     NB.toast(err && err.message ? err.message : String(err), 'error');
   };
 
+  /**
+   * Even bevestigen, in een gewoon venster (geen window.confirm, zie
+   * docs/design-system.md). Geeft een belofte: true = ja.
+   */
+  var bevestigAntwoord = null;
+  NB.bevestig = function (o) {
+    o = o || {};
+    document.getElementById('bevestigKop').textContent = o.titel || 'Zeker?';
+    document.getElementById('bevestigTekst').textContent = o.tekst || '';
+    var ja = document.getElementById('bevestigJa');
+    ja.textContent = o.knop || 'Ja';
+    ja.className = 'btn btn-sm ' + (o.soort === 'primary' ? 'btn-primary' : 'btn-error');
+    var dlg = document.getElementById('dlgBevestig');
+    return new Promise(function (ok) {
+      bevestigAntwoord = ok;
+      dlg.showModal();
+    });
+  };
+  NB.actions['bevestig-ja'] = function () {
+    document.getElementById('dlgBevestig').close();
+    var f = bevestigAntwoord; bevestigAntwoord = null;
+    if (f) f(true);
+  };
+  NB.actions['bevestig-nee'] = function () {
+    var dlg = document.getElementById('dlgBevestig');
+    if (dlg.open) dlg.close();
+    var f = bevestigAntwoord; bevestigAntwoord = null;
+    if (f) f(false);
+  };
+
   // ─── Datums ───────────────────────────────────────────────────────────────
 
   NB.datum = function (iso, opties) {
@@ -115,22 +147,35 @@
     return new Date(t).toISOString();
   };
 
-  // ─── Labels ───────────────────────────────────────────────────────────────
+  // ─── Woorden: EEN lijst, overal dezelfde ─────────────────────────────────
+  //
+  // Een stukje: Open · Bezig · Ingeleverd · Bevestigd
+  // Een editie: Verzamelen · Nalezen · Ingepland · Verzonden
+  // Datums:     Inleverdatum · Verzenddag
 
   NB.STATUS = {
-    open: { label: 'Open', klasse: 'badge-ghost', kleur: '#e5e7eb' },
-    draft: { label: 'Bezig', klasse: 'badge-warning', kleur: '#fdba74' },
-    submitted: { label: 'Ingeleverd', klasse: 'badge-info', kleur: '#38bdf8' },
-    approved: { label: 'Bevestigd', klasse: 'badge-success', kleur: '#14b8a6' },
+    open: { label: 'Open', klasse: 'badge-ghost', kleur: '#e5e7eb', zin: 'Nog in te vullen' },
+    draft: { label: 'Bezig', klasse: 'badge-warning', kleur: '#fdba74', zin: 'Bezig, nog niet ingeleverd' },
+    submitted: { label: 'Ingeleverd', klasse: 'badge-info', kleur: '#38bdf8', zin: 'Ingeleverd, wacht op bevestiging van marketing' },
+    approved: { label: 'Bevestigd', klasse: 'badge-success', kleur: '#14b8a6', zin: 'Bevestigd, gaat mee' },
   };
 
   NB.EDITIE_STATUS = {
-    collecting: { label: 'Stukjes verzamelen', klasse: 'badge-warning' },
+    collecting: { label: 'Verzamelen', klasse: 'badge-warning' },
     review: { label: 'Nalezen', klasse: 'badge-info' },
     scheduled: { label: 'Ingepland', klasse: 'badge-primary' },
     sent: { label: 'Verzonden', klasse: 'badge-success' },
     cancelled: { label: 'Geannuleerd', klasse: 'badge-ghost' },
   };
+
+  /** De stappen van een editie, in de kop van de redactietafel. */
+  NB.STAPPEN = [
+    { key: 'collecting', label: 'Verzamelen', icoon: 'pen-line' },
+    { key: 'review', label: 'Nalezen', icoon: 'glasses' },
+    { key: 'test', label: 'Testen', icoon: 'flask-conical' },
+    { key: 'scheduled', label: 'Verzenden', icoon: 'calendar-check' },
+    { key: 'sent', label: 'Verzonden', icoon: 'send' },
+  ];
 
   NB.statusBadge = function (status) {
     var s = NB.STATUS[status] || NB.STATUS.open;
@@ -169,6 +214,8 @@
     return (d[0][0] + (d.length > 1 ? d[d.length - 1][0] : '')).toUpperCase();
   };
 
+  NB.voornaam = function (naam) { return String(naam || '').split(' ')[0]; };
+
   NB.gezicht = function (naam, maat) {
     maat = maat || 'w-7';
     if (!naam) return '<div class="avatar placeholder"><div class="bg-base-300 text-base-content/50 rounded-full ' + maat + '"><span class="text-xs">?</span></div></div>';
@@ -180,7 +227,7 @@
     var echt = (items || []).filter(function (i) { return !NB.isAuto(i.kind); });
     if (!echt.length) return '';
     return '<div class="nb-balk">' + echt.map(function (i) {
-      return '<span title="' + NB.esc(i.title) + '" style="background:' + (NB.STATUS[i.status] || NB.STATUS.open).kleur + '"></span>';
+      return '<span title="' + NB.esc(NB.blokNaam(i)) + '" style="background:' + (NB.STATUS[i.status] || NB.STATUS.open).kleur + '"></span>';
     }).join('') + '</div>';
   };
 
@@ -209,6 +256,19 @@
 
   NB.ga = function (hash) {
     if (window.location.hash === hash) NB.route(); else window.location.hash = hash;
+  };
+
+  // ─── Berichten uit Nieuws & updates (één keer laden, overal gebruikt) ─────
+
+  /**
+   * Een fout wordt GETOOND (en niet onthouden): "geen berichten" zeggen
+   * terwijl het ophalen mislukte, zette mensen op het verkeerde been.
+   */
+  NB.laadBerichten = function (opnieuw) {
+    if (NB.state.berichten && !opnieuw) return Promise.resolve(NB.state.berichten);
+    NB.state.berichtenFout = null;
+    return NB.api('/api/snippets').then(function (r) { NB.state.berichten = r || []; return NB.state.berichten; })
+      .catch(function (err) { NB.state.berichten = null; NB.state.berichtenFout = err.message || String(err); return null; });
   };
 
   // ─── Beelden ──────────────────────────────────────────────────────────────

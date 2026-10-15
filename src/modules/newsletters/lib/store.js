@@ -239,6 +239,22 @@ export async function listUsers(env) {
   return data || [];
 }
 
+/**
+ * De verzending claimen: enkel als nog niemand ze aan Odoo gaf. Geeft de rij
+ * terug, of null als een andere cron ons voor was.
+ */
+export async function claimVerzending(env, id) {
+  const { data, error } = await db(env).from(TABLES.editions)
+    .update({ odoo_mailing_id: -1, updated_at: nu() }).eq('id', id).is('odoo_mailing_id', null)
+    .select('*').maybeSingle();
+  check(error, 'Verzending claimen');
+  return data || null;
+}
+
+/**
+ * Aan een editie kan je werken zolang ze verzamelt of nagelezen wordt. Een
+ * INGEPLANDE editie is vergrendeld: eerst terughalen, dan wijzigen.
+ */
 export function isActiveEdition(edition) {
-  return edition && ![EDITION_STATUS.SENT, EDITION_STATUS.CANCELLED].includes(edition.status);
+  return edition && [EDITION_STATUS.COLLECTING, EDITION_STATUS.REVIEW].includes(edition.status);
 }

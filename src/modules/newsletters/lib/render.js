@@ -126,6 +126,20 @@ function leesLink(tekst, href) {
   return `<a href="${url}" style="font-family:${S.fontBody};font-size:15px;font-weight:700;color:${S.primary};text-decoration:none;border-bottom:2px solid ${S.mint};padding-bottom:2px">${esc(tekst || 'Lees verder')} &rarr;</a>`;
 }
 
+/**
+ * Een veld dat je in het voorbeeld (`id` gezet) rechtstreeks in de brief
+ * typt: `data-nb-veld` + plaatshouder. In een test of echte mail: enkel de
+ * waarde, en niets als ze leeg is (tenzij `altijd`).
+ */
+function typbaar(id, naam, waarde, { tag = 'div', stijl = '', plaatshouder = '', optioneel = false, altijd = false, html = null } = {}) {
+  const inhoud = html !== null ? html : esc(waarde || '');
+  if (id) {
+    return `<${tag} data-nb-veld="${naam}"${optioneel ? ' data-nb-optioneel="1"' : ''} data-placeholder="${esc(plaatshouder)}" style="${stijl}">${inhoud}</${tag}>`;
+  }
+  if (!String(waarde || '').trim() && !altijd) return '';
+  return `<${tag} style="${stijl}">${inhoud}</${tag}>`;
+}
+
 function rij(inhoud, { padding = '40px 40px 0', id = null } = {}) {
   const attr = id ? ` data-nb-id="${esc(id)}"` : '';
   return `<tr${attr}><td style="padding:${padding}">${inhoud}</td></tr>`;
@@ -478,9 +492,15 @@ function blokVideo(item, ctx, id) {
   const c = item.content || {};
   const b = beeldVan(c, { fotoVeld: 'thumbnail_url', plaats: 'video' });
   const thumbTag = beeldTag(b, ctx, BEELD_KADERS.video.breedte, { href: c.video_url, alt: c.title || 'Video' });
-  const thumb = thumbTag ? `<div style="margin:16px 0 16px">${thumbTag}</div>` : '';
-  return rij(`${pil(item.title, S.sky50, S.primary)}${kop(c.title)}${thumb}${tekstNaarHtml(c.text)}
-<div style="margin-top:18px">${knop(c.button_label || 'Bekijk de video', c.video_url)}</div>${byline(item.author)}`, { padding: '44px 40px 4px', id });
+  const thumb = thumbTag ? `<div${id ? ' data-nb-beeld="1"' : ''} style="margin:16px 0 16px">${thumbTag}</div>`
+    : id ? `<div data-nb-beeld="1" style="margin:16px 0;border:2px dashed #d1d5db;border-radius:14px;padding:26px;text-align:center;font-family:${S.fontBody};font-size:14px;color:${S.muted}">Klik hier voor een stilstaand beeld van de video</div>` : '';
+  const titel = typbaar(id, 'title', c.title, { tag: 'h2', plaatshouder: 'Typ hier een titel', stijl: `margin:14px 0 12px;font-family:${S.fontHead};font-weight:400;font-size:28px;line-height:1.15;color:${S.heading}` });
+  const tekst = typbaar(id, 'text', c.text, { plaatshouder: 'Een paar zinnen over de video (optioneel)', optioneel: true, html: tekstNaarHtml(c.text), stijl: `font-family:${S.fontBody};font-size:16px;line-height:1.6;color:${S.text}` });
+  const knopHtml = id
+    ? `<a href="#" style="display:inline-block;background-color:${S.mint};color:${S.primary};font-family:${S.fontBody};font-size:15px;font-weight:700;padding:14px 22px;border-radius:8px;text-decoration:none"><span data-nb-veld="button_label" data-placeholder="Bekijk de video">${esc(c.button_label || '')}</span></a>`
+    : knop(c.button_label || 'Bekijk de video', c.video_url);
+  return rij(`${pil(item.title, S.sky50, S.primary)}${titel}${thumb}${tekst}
+<div style="margin-top:18px">${knopHtml}</div>${byline(item.author)}`, { padding: '44px 40px 4px', id });
 }
 
 function blokLink(item, ctx, id, { linkedin = false } = {}) {
@@ -488,11 +508,12 @@ function blokLink(item, ctx, id, { linkedin = false } = {}) {
   const bron = linkedin ? `Op LinkedIn${c.author_name ? ` · ${esc(c.author_name)}` : ''}` : esc(c.site_name || '');
   const foto = beeldTag(beeldVan(c, { plaats: 'link' }), ctx, BEELD_KADERS.link.breedte, { radius: 0, href: c.url });
   const kaart = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border:1px solid ${S.border};border-radius:14px;border-collapse:separate;overflow:hidden">
-${foto ? `<tr><td style="border-radius:14px 14px 0 0;overflow:hidden">${foto}</td></tr>` : ''}
+${foto ? `<tr><td${id ? ' data-nb-beeld="1"' : ''} style="border-radius:14px 14px 0 0;overflow:hidden">${foto}</td></tr>`
+    : id ? `<tr><td data-nb-beeld="1" style="padding:18px;text-align:center;font-family:${S.fontBody};font-size:13px;color:${S.muted};border-bottom:1px dashed ${S.border}">Klik hier voor een beeld bij de link</td></tr>` : ''}
 <tr><td style="padding:20px 22px 22px">
 ${bron ? `<div style="font-family:${S.fontBody};font-size:12px;font-weight:700;color:${S.muted};margin-bottom:6px">${bron}</div>` : ''}
-<div style="font-family:${S.fontBody};font-size:17px;font-weight:700;line-height:1.35;color:${S.headingSoft};margin-bottom:8px">${esc(c.title || c.url)}</div>
-${tekstNaarHtml(c.text, { size: 15, lineHeight: 1.55 })}
+${typbaar(id, 'title', c.title || (id ? '' : c.url), { plaatshouder: 'Titel van de link', altijd: true, stijl: `font-family:${S.fontBody};font-size:17px;font-weight:700;line-height:1.35;color:${S.headingSoft};margin-bottom:8px` })}
+${typbaar(id, 'text', c.text, { plaatshouder: 'Waarom we dit delen (optioneel)', optioneel: true, html: tekstNaarHtml(c.text, { size: 15, lineHeight: 1.55 }), stijl: '' })}
 <div style="margin-top:14px">${leesLink(c.link_label || (linkedin ? 'Lees de post' : 'Lees meer'), c.url)}</div>
 </td></tr></table>`;
   return rij(`${pil(item.title, S.sky50, S.primary)}<div style="margin-top:16px">${kaart}</div>${byline(item.author)}`, { padding: '44px 40px 4px', id });
@@ -500,11 +521,17 @@ ${tekstNaarHtml(c.text, { size: 15, lineHeight: 1.55 })}
 
 function blokQuote(item, ctx, id) {
   const c = item.content || {};
-  const wie = [c.person, c.role].filter(Boolean).map(esc).join(' · ');
-  return paneel(`${label(item.title, S.teal700)}
+  const wieStijl = `font-family:${S.fontBody};font-size:14px;color:${S.muted};margin-top:14px`;
+  const wie = id
+    ? `<div style="${wieStijl}"><span data-nb-veld="person" data-placeholder="Wie zei het?">${esc(c.person || '')}</span> &middot; <span data-nb-veld="role" data-nb-optioneel="1" data-placeholder="Functie of gebouw">${esc(c.role || '')}</span></div>`
+    : [c.person, c.role].filter(Boolean).length ? `<div style="${wieStijl}">${[c.person, c.role].filter(Boolean).map(esc).join(' · ')}</div>` : '';
+  const kopje = id
+    ? `<div data-nb-veld="@title" data-nb-optioneel="1" data-placeholder="Label (optioneel)" style="font-family:${S.fontBody};font-size:12px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:${S.teal700}">${esc(item.title || '')}</div>`
+    : label(item.title, S.teal700);
+  return paneel(`${kopje}
 <div style="font-family:${S.fontHead};font-size:56px;line-height:0.6;color:${S.teal700};margin:22px 0 4px">&ldquo;</div>
-<div style="font-family:${S.fontHead};font-size:23px;line-height:1.35;color:${S.heading}">${esc(c.quote)}</div>
-${wie ? `<div style="font-family:${S.fontBody};font-size:14px;color:${S.muted};margin-top:14px">${wie}</div>` : ''}`, S.teal50, { id });
+${typbaar(id, 'quote', c.quote, { plaatshouder: 'Typ hier wat de klant of collega zei', altijd: true, stijl: `font-family:${S.fontHead};font-size:23px;line-height:1.35;color:${S.heading}` })}
+${wie}`, S.teal50, { id });
 }
 
 /**
@@ -608,8 +635,11 @@ function blokEvents(item, ctx, id) {
 ${link ? `<td align="right" valign="middle" style="padding:14px 18px 14px 0;white-space:nowrap"><a href="${link}" style="font-family:${S.fontBody};font-size:14px;font-weight:700;color:${S.primary};text-decoration:none">${esc(e.cta || 'Inschrijven')} &rarr;</a></td>` : ''}
 </tr></table>`;
   }).join('');
+  const kopHtml = id
+    ? typbaar(id, 'heading', c.heading || 'Kom ons ontmoeten', { tag: 'h2', plaatshouder: 'Kom ons ontmoeten', stijl: `margin:10px 0 20px;font-family:${S.fontHead};font-weight:400;font-size:28px;line-height:1.15;color:${S.heading}` })
+    : kop(c.heading || 'Kom ons ontmoeten', { margin: '10px 0 20px' });
   return paneel(`${label(item.title, S.primary)}
-${kop(c.heading || 'Kom ons ontmoeten', { margin: '10px 0 20px' })}${rijen}`, S.sky50, { padding: '36px 32px 26px', id });
+${kopHtml}${rijen}`, S.sky50, { padding: '36px 32px 26px', id });
 }
 
 /**
@@ -718,9 +748,18 @@ function blokClosing(item, ctx, id) {
     ? `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:22px 0 4px"><tr>${gezichten}
 <td valign="middle" style="padding-left:14px;font-family:${S.fontBody};font-size:14px;line-height:1.5;color:${S.text}">${esc(c.together_label || 'Deze editie maakten we samen:')} ${esc(zin)}.</td></tr></table>`
     : '';
-  const knopHtml = knop(c.button_label, c.button_url);
-  return rij(`${kop(item.title || 'Tot de volgende', { size: 26, tag: 'h3', margin: '0 0 12px' })}
-${tekstNaarHtml(c.text || 'Een vraag, of een idee voor de volgende editie? Antwoord gewoon op deze mail, we lezen alles.')}
+  const standaardTekst = 'Een vraag, of een idee voor de volgende editie? Antwoord gewoon op deze mail, we lezen alles.';
+  const tekst = id
+    ? typbaar(id, 'text', c.text, { plaatshouder: standaardTekst, html: tekstNaarHtml(c.text), stijl: `font-family:${S.fontBody};font-size:16px;line-height:1.6;color:${S.text}` })
+    : tekstNaarHtml(c.text || standaardTekst);
+  const knopHtml = id
+    ? `<a href="#" style="display:inline-block;background-color:${S.mint};color:${S.primary};font-family:${S.fontBody};font-size:15px;font-weight:700;padding:14px 22px;border-radius:8px;text-decoration:none"><span data-nb-veld="button_label" data-nb-optioneel="1" data-placeholder="Knop (optioneel)">${esc(c.button_label || '')}</span></a>`
+    : knop(c.button_label, c.button_url);
+  const kopHtml = id
+    ? typbaar(id, '@title', item.title || 'Tot de volgende', { tag: 'h3', plaatshouder: 'Tot de volgende', stijl: `margin:0 0 12px;font-family:${S.fontHead};font-weight:400;font-size:26px;line-height:1.15;color:${S.heading}` })
+    : kop(item.title || 'Tot de volgende', { size: 26, tag: 'h3', margin: '0 0 12px' });
+  return rij(`${kopHtml}
+${tekst}
 ${samen}${knopHtml ? `<div style="margin-top:22px">${knopHtml}</div>` : ''}`, { padding: '44px 40px 44px', id });
 }
 
@@ -729,11 +768,13 @@ function blokImage(item, ctx, id) {
   const c = item.content || {};
   const b = beeldVan(c, { plaats: 'vol' });
   const k = BEELD_KADERS.vol;
-  const tag = beeldTag(b, ctx, k.breedte, { href: c.link_url, alt: c.bijschrift || '' });
-  if (!tag) return '';
-  const bijschrift = String(c.bijschrift || '').trim()
-    ? `<tr><td style="padding:10px 0 0;font-family:${S.fontBody};font-size:13px;line-height:1.5;color:${S.muted};text-align:center">${esc(c.bijschrift)}</td></tr>`
-    : '';
+  let tag = beeldTag(b, ctx, k.breedte, { href: c.link_url, alt: c.bijschrift || '' });
+  if (!tag && !id) return '';
+  if (!tag) tag = `<div style="border:2px dashed #d1d5db;border-radius:14px;padding:40px 20px;text-align:center;font-family:${S.fontBody};font-size:14px;color:${S.muted}">Klik hier om een afbeelding te kiezen</div>`;
+  const bijStijl = `padding:10px 0 0;font-family:${S.fontBody};font-size:13px;line-height:1.5;color:${S.muted};text-align:center`;
+  const bijschrift = id
+    ? `<tr><td style="${bijStijl}"><span data-nb-veld="bijschrift" data-nb-optioneel="1" data-placeholder="Bijschrift (optioneel)">${esc(c.bijschrift || '')}</span></td></tr>`
+    : String(c.bijschrift || '').trim() ? `<tr><td style="${bijStijl}">${esc(c.bijschrift)}</td></tr>` : '';
   const bAttr = id ? ' data-nb-beeld="1"' : '';
   return `<tr${id ? ` data-nb-id="${esc(id)}"` : ''}><td style="padding:36px 40px 0"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td${bAttr} style="padding:0">${tag}</td></tr>${bijschrift}</table></td></tr>`;
 }
@@ -787,7 +828,7 @@ function lichteTekst(html) {
 }
 
 /** De blokken die je in de brief zelf invult: in het voorbeeld staan ze er ook leeg. */
-const IN_DE_BRIEF = new Set(['intro', 'article', 'heading', 'question', 'statement', 'poll', 'news']);
+const IN_DE_BRIEF = new Set(['intro', 'article', 'heading', 'question', 'statement', 'poll', 'news', 'quote', 'video', 'link', 'linkedin', 'image']);
 
 /** Blokken met een eigen gekleurd kader: daar blijft de tekst zoals ze is. */
 const MET_KADER = new Set(['quote', 'statement', 'question', 'poll', 'events']);

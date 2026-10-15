@@ -21,7 +21,8 @@ import {
 import { renderEdition, renderContribution, heeftInhoud, kopVan } from './lib/render.js';
 import { verzamel, maakEditieOp, vernieuwNieuws, ondertekenaarId, metOndertekening } from './lib/editions.js';
 import { antwoordLinks, antwoordenVanEditie } from './lib/answers.js';
-import { tokenVeldBestaat, verstuurTest, planEchteMailing, leesCijfers } from './lib/odoo-mailing.js';
+import { tokenVeldBestaat, verstuurTest, leesCijfers } from './lib/odoo-mailing.js';
+import { voorgesteldMoment, controleerMoment, bouwEchteMail, datumKort } from './lib/verzending.js';
 import { stelStukjeVoor, stelOnderwerpVoor } from './lib/ai.js';
 import { linkVoorbeeld, eventsVoorEditie, auteurs, tekeningen } from './lib/sources.js';
 import { stuurHerinnering } from './lib/cron.js';
@@ -34,7 +35,9 @@ import { listSnippets, getSnippet, getSnippetImage, listTaxonomy } from '../cont
 import { hostBerichtBeeld, kaartjeVanBericht } from './lib/berichten.js';
 import { bedenkLabel } from '../content-feed/lib/article-ai.js';
 import { serializeAiError, httpStatusForAiError } from '../mini-apps/lib/ai-errors.js';
-import { sendSystemChannelMessage } from '../mini-apps/lib/chat.js';
+import { sendSystemChannelMessage, listChannels } from '../mini-apps/lib/chat.js';
+import { searchRead } from '../../lib/odoo.js';
+import { checklist } from './lib/checklist.js';
 
 function json(body, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -446,10 +449,16 @@ export const routes = {
       if (edition.odoo_mailing_id && edition.status === EDITION_STATUS.SENT) {
         stats = await leesCijfers(env, edition.odoo_mailing_id).catch(() => stats);
       }
+      // De checklist "klaar om te verzenden?": dezelfde als bij het inplannen.
+      const tokenVeld = isActiveEdition(edition) && items.some((i) => KINDS[i.kind]?.interactive)
+        ? await tokenVeldBestaat(env).catch(() => false) : true;
+      const lijst = checklist({ series, edition, items, ctx: { events: [{ id: 0 }] }, tokenVeld, env });
       return json({
         success: true,
         data: {
           edition: { ...edition, stats },
+          checklist: lijst,
+          voorgesteld_moment: isActiveEdition(edition) ? voorgesteldMoment(series, edition).toISOString() : null,
           series: { ...series, is_editor: isEditorVan(user, series) },
           items: items.map((i) => ({
             ...i,
@@ -472,8 +481,17 @@ export const routes = {
     try {
       const { edition, series } = await editieMetReeks(env, params.id);
       eisEditor(user, series);
-      if (!isActiveEdition(edition)) throw new NewsletterError('Deze editie is al verstuurd of geannuleerd.', 409);
       const b = await leesBody(request);
+      if (edition.status === EDITION_STATUS.SCHEDULED) {
+        // Ingepland: enkel het verzendmoment mag nog, en enkel zolang Odoo ze niet heeft.
+        if (edition.odoo_mailing_id) throw new NewsletterError('Deze editie is al aan Odoo gegeven en vertrekt.', 409);
+        if (b.send_at === undefined) throw new NewsletterError('Deze editie is ingepland. Haal ze eerst terug om iets te wijzigen.', 409);
+        const d = controleerMoment(b.send_at);
+        const bij = await updateEdition(env, edition.id, { send_at: d.toISOString() });
+        await logActivity(env, { editionId: edition.id, userId: user.id, kind: 'rescheduled', text: `Verzendmoment verplaatst naar ${datumKort(d)}` });
+        return json({ success: true, data: bij });
+      }
+      if (!isActiveEdition(edition)) throw new NewsletterError('Deze editie is al verstuurd of geannuleerd.', 409);
       const w = {};
       if (b.title !== undefined) w.title = kort(b.title, 120);
       if (b.subject !== undefined) w.subject = kort(b.subject, 200);
@@ -500,7 +518,7 @@ export const routes = {
       const { edition, series } = await editieMetReeks(env, params.id);
       eisEditor(user, series);
       if (edition.status === EDITION_STATUS.SENT) throw new NewsletterError('Een verstuurde editie kan niet geannuleerd worden.', 409);
-      if (edition.status === EDITION_STATUS.SCHEDULED) throw new NewsletterError('Deze editie staat ingepland in Odoo. Annuleer de mailing daar eerst.', 409);
+      if (edition.status === EDITION_STATUS.SCHEDULED) throw new NewsletterError('Deze editie is ingepland. Haal ze eerst terug.', 409);
       await updateEdition(env, edition.id, { status: EDITION_STATUS.CANCELLED });
       await logActivity(env, { editionId: edition.id, userId: user.id, kind: 'cancelled', text: 'Editie geannuleerd' });
       return json({ success: true });
@@ -689,6 +707,11 @@ export const routes = {
     } catch (err) { return fout(err); }
   },
 
+  /**
+   * "Verzenden": de editie op Ingepland zetten met een verzendmoment. Er
+   * wordt NIETS in Odoo klaargezet; de cron verstuurt op het moment zelf
+   * (lib/verzending.js). Tot dan kan marketing verplaatsen of terughalen.
+   */
   'POST /api/editions/:id/schedule': async ({ env, user, params, request }) => {
     try {
       const { edition, series } = await editieMetReeks(env, params.id);
@@ -696,29 +719,37 @@ export const routes = {
       if (sendMode(env) !== 'live') throw new NewsletterError('Echte verzending staat uit. Enkel testen kan.', 403);
       const b = await leesBody(request);
       if (b.confirm !== 'VERSTUREN') throw new NewsletterError('Bevestig met VERSTUREN.');
-      if (!isActiveEdition(edition) || edition.status === EDITION_STATUS.SCHEDULED) {
-        throw new NewsletterError('Deze editie is al ingepland, verstuurd of geannuleerd.', 409);
+      if (!isActiveEdition(edition)) throw new NewsletterError('Deze editie is al ingepland, verstuurd of geannuleerd.', 409);
+      const moment = controleerMoment(b.send_at || voorgesteldMoment(series, edition).toISOString());
+      // Dezelfde checklist als in het scherm: wat daar rood staat, houdt hier tegen.
+      const { items, ctx, tokenVeld, problemen } = await bouwEchteMail(env, series, edition);
+      const lijst = checklist({ series, edition, items, ctx, tokenVeld, env });
+      const tegen = lijst.items.filter((p) => p.blokkeert && !p.ok);
+      if (tegen.length) {
+        throw new NewsletterError(`Nog niet klaar om te verzenden: ${tegen.map((p) => p.label + (p.uitleg ? ` (${p.uitleg})` : '')).join('; ')}.`, 409);
       }
-      if (!edition.subject) throw new NewsletterError('Geef de editie eerst een onderwerp.');
-      const v = await verzamel(env, series, edition, { png: true });
-      const nietKlaar = v.items.filter((i) => !KINDS[i.kind]?.auto && heeftInhoud(i, v.ctx) && i.status !== CONTRIBUTION_STATUS.APPROVED);
-      if (nietKlaar.length) {
-        throw new NewsletterError(`Nog niet goedgekeurd: ${nietKlaar.map((i) => i.title).join(', ')}.`, 409);
+      // Een beeld dat niet op onze opslag kan, zou bij de lezer gebroken zijn: nu al zeggen.
+      if (problemen.length) {
+        throw new NewsletterError(`Deze beelden konden niet klaargezet worden voor de mail: ${problemen.join(', ')}. Laad ze opnieuw op als PNG of JPEG.`, 409);
       }
-      const { html } = renderEdition({
-        series, edition, items: v.items, mode: 'live',
-        ctx: { ...v.ctx, answerLink: antwoordLinks(series, 'live', await tokenVeldBestaat(env)) },
-      });
-      // Een beeld dat niet op onze opslag kan, zou bij de lezer gebroken zijn:
-      // dan niet inplannen.
-      const gehost = await hostBeelden(env, html, { series });
-      if (gehost.problemen.length) {
-        throw new NewsletterError(`Deze beelden konden niet klaargezet worden voor de mail: ${gehost.problemen.join(', ')}. Laad ze opnieuw op als PNG of JPEG.`, 409);
-      }
-      const r = await planEchteMailing(env, { series, edition, html: gehost.html, subject: edition.subject, preheader: edition.preheader });
-      await updateEdition(env, edition.id, { status: EDITION_STATUS.SCHEDULED, odoo_mailing_id: r.mailingId });
-      await logActivity(env, { editionId: edition.id, userId: user.id, kind: 'scheduled', text: 'Ingepland in Odoo' });
-      return json({ success: true, data: r });
+      const bij = await updateEdition(env, edition.id, { status: EDITION_STATUS.SCHEDULED, send_at: moment.toISOString(), odoo_mailing_id: null });
+      await logActivity(env, { editionId: edition.id, userId: user.id, kind: 'scheduled', text: `Verzenden ingepland op ${datumKort(moment)}` });
+      await meldInChat(env, series, `${series.name} ${edition.title} vertrekt op ${datumKort(moment)}. Tot dan kan marketing ze nog terughalen in de OM.`);
+      return json({ success: true, data: bij });
+    } catch (err) { return fout(err); }
+  },
+
+  /** Terughalen: terug naar Nalezen, zolang Odoo de mailing nog niet heeft. */
+  'POST /api/editions/:id/unschedule': async ({ env, user, params }) => {
+    try {
+      const { edition, series } = await editieMetReeks(env, params.id);
+      eisEditor(user, series);
+      if (edition.status !== EDITION_STATUS.SCHEDULED) throw new NewsletterError('Deze editie is niet ingepland.', 409);
+      if (edition.odoo_mailing_id) throw new NewsletterError('Te laat: deze editie is al aan Odoo gegeven en vertrekt.', 409);
+      const bij = await updateEdition(env, edition.id, { status: EDITION_STATUS.REVIEW });
+      await logActivity(env, { editionId: edition.id, userId: user.id, kind: 'unscheduled', text: 'Teruggehaald, terug naar Nalezen' });
+      await meldInChat(env, series, `${series.name} ${edition.title} is teruggehaald en vertrekt voorlopig niet.`);
+      return json({ success: true, data: bij });
     } catch (err) { return fout(err); }
   },
 
@@ -745,9 +776,17 @@ export const routes = {
           anonymous: eigen.filter((r) => !r.verified).length,
         };
       });
+      // Staat de koppeling aan? Zo niet, dan is "doorgezet" enkel bewaard, niets in Odoo.
+      let actieveKoppeling = false;
+      if (series.answers_integration_id) {
+        try {
+          const k = (await listIntegrations(env)).find((x) => x.id === series.answers_integration_id);
+          actieveKoppeling = Boolean(k?.is_active);
+        } catch { /* dan onbekend */ }
+      }
       return json({
         success: true,
-        data: { questions: vragen, answers: rijen, integration_id: series.answers_integration_id || null },
+        data: { questions: vragen, answers: rijen, integration_id: series.answers_integration_id || null, integration_active: actieveKoppeling },
       });
     } catch (err) { return fout(err); }
   },
@@ -829,7 +868,7 @@ export const routes = {
       const bij = await updateContribution(env, item.id, w);
       const wie = user.full_name || user.email;
       const tekst = doel === CONTRIBUTION_STATUS.SUBMITTED ? `${wie} leverde "${item.title}" in`
-        : doel === CONTRIBUTION_STATUS.APPROVED ? `${wie} keurde "${item.title}" goed`
+        : doel === CONTRIBUTION_STATUS.APPROVED ? `${wie} bevestigde "${item.title}"`
           : `"${item.title}" terug naar de schrijver`;
       if (edition) {
         await logActivity(env, { editionId: edition.id, contributionId: item.id, userId: user.id, kind: doel, text: tekst });
@@ -1171,6 +1210,29 @@ export const routes = {
       await env.R2_ASSETS.put(key, bytes, { httpMetadata: { contentType: 'image/png' } });
       vergeetTekeningen();
       return json({ success: true, data: { png: `/assets/${key}` } });
+    } catch (err) { return fout(err); }
+  },
+
+  /**
+   * De Odoo-lijsten (mailing.list) met hun aantal contacten, voor de
+   * keuzelijst bij een reeks: niemand typt nog nummers over.
+   */
+  'GET /api/mailing-lists': async ({ env }) => {
+    try {
+      let rijen;
+      try {
+        rijen = await searchRead(env, { model: 'mailing.list', domain: [['active', '=', true]], fields: ['id', 'name', 'contact_count'], limit: 100, order: 'name asc' });
+      } catch {
+        rijen = await searchRead(env, { model: 'mailing.list', domain: [['active', '=', true]], fields: ['id', 'name'], limit: 100, order: 'name asc' });
+      }
+      return json({ success: true, data: (rijen || []).map((r) => ({ id: r.id, name: r.name, contacts: Number.isFinite(Number(r.contact_count)) ? Number(r.contact_count) : null })) });
+    } catch (err) { return fout(err); }
+  },
+
+  /** De chatkanalen uit het kanaalregister (Mini-apps), enkel naam. */
+  'GET /api/chat-channels': async ({ env }) => {
+    try {
+      return json({ success: true, data: (await listChannels(env)).map((k) => ({ id: k.id, name: k.name })) });
     } catch (err) { return fout(err); }
   },
 
