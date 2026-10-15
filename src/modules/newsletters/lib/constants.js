@@ -49,7 +49,7 @@ export const KINDS = {
   snippet:   { label: 'Bericht uit Nieuws & updates' },
   statement: { label: 'Stelling', interactive: true },
   question:  { label: 'Korte vraag', interactive: true },
-  poll:      { label: 'Peiling', interactive: true },
+  poll:      { label: 'Jij beslist mee', interactive: true },
   events:    { label: 'Agenda (uit Eventbeheer)', auto: true },
   news:      { label: 'Uit het nieuws (Nieuws & updates)' },
   toc:       { label: 'In deze editie', auto: true },
@@ -151,6 +151,45 @@ export const STYLE = {
  *   video / link               vaste plek in dat soort blok
  *   vol                        een blok "Afbeelding": de hele breedte, rand tot rand
  */
+/**
+ * EEN blok "Vraag aan de lezer", drie soorten. De soort is de `kind` van het
+ * stukje (die sleutels liggen vast: ze staan in de database en bij de
+ * antwoorden); wisselen kan in de brief zelf. `titel` = het labeltje boven het
+ * blok zolang niemand het wijzigde.
+ */
+export const VRAAG_SOORTEN = [
+  { kind: 'question', label: 'Korte vraag', titel: 'Korte vraag', uitleg: 'Eén vraag, lezers antwoorden met een klik.' },
+  { kind: 'statement', label: 'Stelling', titel: 'Stelling', uitleg: 'Eens of oneens? Eén klik volstaat.' },
+  { kind: 'poll', label: 'Jij beslist mee', titel: 'Jij beslist mee', uitleg: 'Lezers kiezen tussen een paar opties.' },
+];
+
+/** Hoe opvallend een vraag in de brief staat: van klein tot een groot vlak. */
+export const VRAAG_STIJLEN = [
+  { key: 'subtiel', label: 'Subtiel', uitleg: 'Klein, tussen de tekst door.' },
+  { key: 'kaart', label: 'Kaart', uitleg: 'Een licht gekleurd vlak.' },
+  { key: 'opvallend', label: 'Opvallend', uitleg: 'Een groot, donker vlak.' },
+];
+
+/**
+ * De kleuren van een vraag: per merkkleurfamilie een licht vlak, een rand en
+ * een sterke kleur (voor het opvallende vlak, de knoppen en de tekst erop).
+ * `knop` = de knoppen op het opvallende vlak.
+ */
+export const VRAAG_KLEUREN = {
+  blauw: { label: 'Blauw', licht: '#f0f9ff', rand: '#bae6fd', sterk: '#0369a1', knop: '#99f6e4', knopTekst: '#0369a1' },
+  mint: { label: 'Mint', licht: '#f0fdfa', rand: '#99f6e4', sterk: '#0f766e', knop: '#ffffff', knopTekst: '#0f766e' },
+  oranje: { label: 'Oranje', licht: '#fff7ed', rand: '#fed7aa', sterk: '#c2410c', knop: '#ffffff', knopTekst: '#c2410c' },
+  roze: { label: 'Roze', licht: '#fdf2f8', rand: '#fbcfe8', sterk: '#be185d', knop: '#ffffff', knopTekst: '#be185d' },
+  grijs: { label: 'Grijs', licht: '#f9fafb', rand: '#e5e7eb', sterk: '#1f2937', knop: '#ffffff', knopTekst: '#1f2937' },
+};
+
+/** Zo stonden de vragen er vóór je kon kiezen: een oude vraag blijft er zo uitzien. */
+export const VRAAG_STANDAARD = {
+  question: { stijl: 'kaart', kleur: 'oranje' },
+  statement: { stijl: 'opvallend', kleur: 'blauw' },
+  poll: { stijl: 'opvallend', kleur: 'blauw' },
+};
+
 /**
  * Hoe een bericht uit Nieuws & updates in de brief staat. Meerdere vormen,
  * zodat drie artikels na elkaar niet drie keer hetzelfde blok zijn. EEN bron:

@@ -16,6 +16,7 @@ import {
 import {
   KINDS, isKind, DEFAULT_OPTIONS, EDITION_STATUS, CONTRIBUTION_STATUS, LOG_PREFIX, ASSET_ORIGIN,
   sendMode, testEmails, BRAND, BEELD_KADERS, BEELD_PLAATSEN, MERKKLEUREN, merkkleur, BERICHT_VORMEN,
+  VRAAG_SOORTEN, VRAAG_STIJLEN, VRAAG_KLEUREN, VRAAG_STANDAARD,
 } from './lib/constants.js';
 import { renderEdition, renderContribution, heeftInhoud, kopVan } from './lib/render.js';
 import { verzamel, maakEditieOp, vernieuwNieuws, ondertekenaarId, metOndertekening } from './lib/editions.js';
@@ -259,6 +260,9 @@ function inhoudPerSoort(kind, c = {}) {
       return {
         question: kort(c.question, 200), intro: kort(c.intro, 500), options: normaliseerOpties(c.options, kind),
         ask_comment: c.ask_comment !== false, show_results: c.show_results !== false,
+        // Hoe opvallend en in welke kleur (zonder keuze: zoals vroeger).
+        stijl: VRAAG_STIJLEN.some((s) => s.key === c.stijl) ? c.stijl : VRAAG_STANDAARD[kind].stijl,
+        kleur: Object.prototype.hasOwnProperty.call(VRAAG_KLEUREN, c.kleur) ? c.kleur : VRAAG_STANDAARD[kind].kleur,
       };
     case 'events':
       return {
@@ -338,6 +342,11 @@ export const routes = {
           beeld_kaders: BEELD_KADERS,
           merkkleuren: MERKKLEUREN,
           bericht_vormen: BERICHT_VORMEN,
+          vraag_soorten: VRAAG_SOORTEN,
+          vraag_stijlen: VRAAG_STIJLEN,
+          vraag_kleuren: VRAAG_KLEUREN,
+          vraag_standaard: VRAAG_STANDAARD,
+          default_options: DEFAULT_OPTIONS,
           asset_origin: ASSET_ORIGIN,
           series: series.map((s) => ({ ...s, is_editor: isEditorVan(user, s) })),
           users: users.map((u) => ({ id: u.id, name: naamVoor(null, u), email: u.email })),
@@ -759,7 +768,12 @@ export const routes = {
       if (kind !== item.kind) w.kind = kind;
       if (b.title !== undefined) w.title = kort(b.title, 120);
       if (b.content !== undefined) {
-        w.content = normaliseerInhoud(kind, b.content);
+        // Stijl en kleur van een vraag zet de hoofdredactie in de opmaakstand:
+        // wie zijn tekst bewaart zonder ze mee te sturen, wist ze niet.
+        const metOpmaak = { ...b.content };
+        if (metOpmaak.stijl === undefined && item.content?.stijl) metOpmaak.stijl = item.content.stijl;
+        if (metOpmaak.kleur === undefined && item.content?.kleur) metOpmaak.kleur = item.content.kleur;
+        w.content = normaliseerInhoud(kind, metOpmaak);
         // De achtergrond zet de hoofdredactie in de opmaakstand; een schrijver
         // die zijn tekst bewaart, wist ze niet.
         if (b.content.achtergrond === undefined && item.content?.achtergrond) w.content.achtergrond = item.content.achtergrond;
@@ -820,6 +834,24 @@ export const routes = {
       const kleur = merkkleur((await leesBody(request)).kleur);
       const content = { ...(item.content || {}) };
       if (kleur) content.achtergrond = kleur; else delete content.achtergrond;
+      return json({ success: true, data: await updateContribution(env, item.id, { content }) });
+    } catch (err) { return fout(err); }
+  },
+
+  /** Stijl en kleur van een vraag (opmaakstand), zoals de achtergrond. */
+  'POST /api/contributions/:id/vraagstijl': async ({ env, user, params, request }) => {
+    try {
+      const { item, edition, series } = await stukjeMetContext(env, params.id);
+      eisEditor(user, series);
+      if (edition && !isActiveEdition(edition)) throw new NewsletterError('Deze editie is al verstuurd.', 409);
+      if (!KINDS[item.kind]?.interactive) throw new NewsletterError('Enkel voor een vraag aan de lezer.');
+      const b = await leesBody(request);
+      const content = normaliseerInhoud(item.kind, {
+        ...(item.content || {}),
+        ...(b.stijl !== undefined ? { stijl: b.stijl } : {}),
+        ...(b.kleur !== undefined ? { kleur: b.kleur } : {}),
+      });
+      if (item.content?.achtergrond) content.achtergrond = item.content.achtergrond;
       return json({ success: true, data: await updateContribution(env, item.id, { content }) });
     } catch (err) { return fout(err); }
   },

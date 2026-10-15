@@ -20,7 +20,10 @@
  */
 
 import { esc, safeUrl } from '../../../lib/mail/render-blocks.js';
-import { STYLE as S, BRAND, KINDS, CONTRIBUTION_STATUS, BEELD_KADERS, merkkleur, isDonker } from './constants.js';
+import {
+  STYLE as S, BRAND, KINDS, CONTRIBUTION_STATUS, BEELD_KADERS, merkkleur, isDonker,
+  VRAAG_STIJLEN, VRAAG_KLEUREN, VRAAG_STANDAARD,
+} from './constants.js';
 
 const WIDTH = 640;
 
@@ -475,44 +478,79 @@ function blokQuote(item, ctx, id) {
 ${wie ? `<div style="font-family:${S.fontBody};font-size:14px;color:${S.muted};margin-top:14px">${wie}</div>` : ''}`, S.teal50, { id });
 }
 
-function blokStatement(item, ctx, id) {
+/**
+ * EEN blok voor elke vraag aan de lezer. De soort (`item.kind`: question,
+ * statement, poll) bepaalt de knoppen; `content.stijl` hoe opvallend het
+ * staat (VRAAG_STIJLEN) en `content.kleur` in welke merkkleur (VRAAG_KLEUREN).
+ * Zonder keuze: zoals de vragen er vroeger uitzagen (VRAAG_STANDAARD).
+ *
+ * In het voorbeeld (`id` gezet) zijn vraag, zinnetje en de opschriften van de
+ * knoppen aanwijsbaar met `data-nb-veld`: het scherm maakt ze daar bewerkbaar.
+ */
+function blokVraag(item, ctx, id) {
   const c = item.content || {};
+  const kind = item.kind;
+  const std = VRAAG_STANDAARD[kind] || VRAAG_STANDAARD.question;
+  const stijl = VRAAG_STIJLEN.some((x) => x.key === c.stijl) ? c.stijl : std.stijl;
+  const k = VRAAG_KLEUREN[c.kleur] || VRAAG_KLEUREN[std.kleur];
+  const donker = stijl === 'opvallend';
+  const standaardIntro = { question: '', statement: 'Eén klik volstaat.', poll: 'Eén klik is je stem.' }[kind] || '';
+  const veld = (naam, plaatshouder) => (id ? ` data-nb-veld="${naam}" data-placeholder="${esc(plaatshouder)}"` : '');
+
+  const tekstKleur = donker ? '#ffffff' : S.heading;
+  const zachteKleur = donker ? S.sky100 : S.text;
+  const vraagTekst = kind === 'statement' && String(c.question || '').trim() && !id ? `“${String(c.question).trim()}”` : String(c.question || '');
+  const maat = { subtiel: 22, kaart: kind === 'question' ? 25 : 28, opvallend: kind === 'statement' ? 32 : 30 }[stijl];
+  const vraag = id || vraagTekst
+    ? `<h3${veld('question', kind === 'statement' ? 'Typ hier de stelling' : 'Typ hier de vraag')} style="margin:10px 0 10px;font-family:${S.fontHead};font-weight:400;font-size:${maat}px;line-height:1.2;color:${tekstKleur}">${esc(vraagTekst)}</h3>`
+    : '';
+  const introWaarde = String(c.intro || '').trim();
+  const intro = id
+    ? `<div${veld('intro', standaardIntro || 'Een zinnetje erbij (optioneel)')} style="font-family:${S.fontBody};font-size:15px;line-height:1.55;color:${zachteKleur}">${esc(introWaarde)}</div>`
+    : (introWaarde || standaardIntro) ? tekstNaarHtml(introWaarde || standaardIntro, { size: 15, color: zachteKleur }) : '';
+
   const ops = opties(item);
-  const knopStijl = `display:block;text-align:center;background-color:${S.mint};color:${S.primary};font-family:${S.fontBody};font-size:16px;font-weight:700;padding:15px 6px;border-radius:8px;text-decoration:none`;
-  let knoppen;
-  if (ops.length <= 4) {
-    const breed = Math.floor(100 / ops.length);
-    knoppen = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:24px"><tr>${ops.map((o, i) =>
-      `<td width="${breed}%" style="padding:0 ${i === ops.length - 1 ? 0 : 6}px 0 ${i === 0 ? 0 : 6}px">${antwoordA(item, o, ctx, knopStijl, esc(o.label))}</td>`).join('')}</tr></table>`;
+  const opschrift = (o, i) => `<span${veld(`options.${i}.label`, 'Antwoord')}>${esc(o.label)}</span>`;
+  // De knoppen: op een donker vlak in de knopkleur, anders wit met de sterke kleur.
+  const vol = donker
+    ? `background-color:${k.knop};color:${k.knopTekst};`
+    : `background-color:${k.sterk};color:#ffffff;`;
+  const rand = donker ? '' : `border:1.5px solid ${k.rand};`;
+  let knoppen = '';
+  if (kind === 'statement') {
+    const knopStijl = `display:block;text-align:center;${vol}font-family:${S.fontBody};font-size:${stijl === 'subtiel' ? 15 : 16}px;font-weight:700;padding:${stijl === 'subtiel' ? 11 : 15}px 6px;border-radius:8px;text-decoration:none`;
+    if (ops.length <= 4) {
+      const breed = Math.floor(100 / ops.length);
+      knoppen = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:20px"><tr>${ops.map((o, i) =>
+        `<td width="${breed}%" style="padding:0 ${i === ops.length - 1 ? 0 : 6}px 0 ${i === 0 ? 0 : 6}px">${antwoordA(item, o, ctx, knopStijl, opschrift(o, i))}</td>`).join('')}</tr></table>`;
+    } else {
+      knoppen = `<div style="margin-top:20px">${ops.map((o, i) => `<div style="margin-bottom:10px">${antwoordA(item, o, ctx, knopStijl, opschrift(o, i))}</div>`).join('')}</div>`;
+    }
+  } else if (kind === 'poll') {
+    const letters = 'ABCDEF';
+    const rij = donker
+      ? `display:block;background-color:${k.knop};color:${k.knopTekst};`
+      : `display:block;background-color:#ffffff;${rand}color:${k.sterk};`;
+    const knopStijl = `${rij}font-family:${S.fontBody};font-size:${stijl === 'subtiel' ? 15 : 16}px;font-weight:700;padding:${stijl === 'subtiel' ? 10 : 14}px 18px;border-radius:8px;text-decoration:none`;
+    // Het letterbolletje moet afsteken tegen de knop: wit op een gekleurde knop, anders de sterke kleur.
+    const bol = donker && k.knop !== '#ffffff' ? `background-color:#ffffff;color:${k.knopTekst}` : `background-color:${k.sterk};color:#ffffff`;
+    knoppen = `<div style="margin-top:20px">${ops.map((o, i) => `<div style="margin-bottom:10px">${antwoordA(item, o, ctx, knopStijl,
+      `<span style="display:inline-block;width:26px;height:26px;line-height:26px;text-align:center;border-radius:50%;${bol};font-size:13px;margin-right:12px">${letters[i]}</span>${opschrift(o, i)}`)}</div>`).join('')}</div>`;
   } else {
-    knoppen = `<div style="margin-top:22px">${ops.map((o) => `<div style="margin-bottom:10px">${antwoordA(item, o, ctx, knopStijl, esc(o.label))}</div>`).join('')}</div>`;
+    const pil = donker
+      ? `background-color:${k.knop};color:${k.knopTekst};border:1.5px solid ${k.knop};`
+      : `background-color:#ffffff;border:1.5px solid ${k.rand};color:${k.sterk};`;
+    const knopStijl = `display:inline-block;${pil}font-family:${S.fontBody};font-size:15px;font-weight:600;padding:10px 16px;border-radius:999px;text-decoration:none;margin:0 8px 10px 0`;
+    knoppen = `<div style="margin-top:16px">${ops.map((o, i) => antwoordA(item, o, ctx, knopStijl, opschrift(o, i))).join('')}</div>`;
   }
-  return paneel(`${label(item.title, S.mint)}
-${kop(`“${String(c.question || '').trim()}”`, { size: 32, color: '#ffffff' })}
-${tekstNaarHtml(c.intro || 'Eén klik volstaat.', { size: 15, color: S.sky100 })}
-${knoppen}${byline(item.author, { onDark: true, prefix: 'Gesteld door' })}`, S.primary, { padding: '40px 36px 30px', id });
-}
 
-function blokQuestion(item, ctx, id) {
-  const c = item.content || {};
-  const stijl = `display:inline-block;background-color:#ffffff;border:1.5px solid ${S.orange200};color:${S.orange800};font-family:${S.fontBody};font-size:15px;font-weight:600;padding:10px 16px;border-radius:999px;text-decoration:none;margin:0 8px 10px 0`;
-  return paneel(`${label(item.title, S.orange700)}
-${kop(c.question, { size: 25, tag: 'h3', margin: '10px 0 10px' })}
-${c.intro ? tekstNaarHtml(c.intro, { size: 15 }) : ''}
-<div style="margin-top:16px">${opties(item).map((o) => antwoordA(item, o, ctx, stijl, esc(o.label))).join('')}</div>
-${byline(item.author, { prefix: 'Gesteld door' })}`, S.orange50, { padding: '32px 32px 24px', id });
-}
-
-function blokPoll(item, ctx, id) {
-  const c = item.content || {};
-  const letters = 'ABCDEF';
-  const stijl = `display:block;background-color:${S.mint};color:${S.primary};font-family:${S.fontBody};font-size:16px;font-weight:700;padding:14px 18px;border-radius:8px;text-decoration:none`;
-  const rijen = opties(item).map((o, i) => `<div style="margin-bottom:10px">${antwoordA(item, o, ctx, stijl,
-    `<span style="display:inline-block;width:26px;height:26px;line-height:26px;text-align:center;border-radius:50%;background-color:#ffffff;font-size:13px;margin-right:12px">${letters[i]}</span>${esc(o.label)}`)}</div>`).join('');
-  return paneel(`${label(item.title, S.mint)}
-${kop(c.question, { size: 30, color: '#ffffff', margin: '12px 0 8px' })}
-${tekstNaarHtml(c.intro || 'Eén klik is je stem.', { size: 15, color: S.sky100 })}
-<div style="margin-top:22px">${rijen}</div>${byline(item.author, { onDark: true, prefix: 'Gesteld door' })}`, S.primary, { padding: '38px 36px 30px', id });
+  const kopje = label(item.title, donker ? k.knop : k.sterk);
+  const door = byline(item.author, { onDark: donker, prefix: 'Gesteld door' });
+  const inhoud = `${kopje}\n${vraag}\n${intro}\n${knoppen}${door}`;
+  if (stijl === 'subtiel') {
+    return rij(`<div style="border-top:2px solid ${k.rand};padding-top:22px">${inhoud}</div>`, { padding: '36px 40px 4px', id });
+  }
+  return paneel(inhoud, donker ? k.sterk : k.licht, { padding: donker ? '38px 36px 30px' : '32px 32px 24px', id });
 }
 
 function blokEvents(item, ctx, id) {
@@ -607,9 +645,9 @@ const BLOKKEN = {
   linkedin: (item, ctx, id) => blokLink(item, ctx, id, { linkedin: true }),
   quote: blokQuote,
   image: blokImage,
-  statement: blokStatement,
-  question: blokQuestion,
-  poll: blokPoll,
+  statement: blokVraag,
+  question: blokVraag,
+  poll: blokVraag,
   events: blokEvents,
   news: blokNews,
   toc: blokToc,
@@ -726,10 +764,10 @@ export function renderEdition({ series, edition, items, mode = 'preview', ctx = 
     if (meeIds.has(it.id)) {
       const maak = BLOKKEN[it.kind];
       if (maak) rijen.push(metAchtergrond(maak(it, blokCtx, id), it.content?.achtergrond, it.kind));
-    } else if (mode === 'preview' && it.kind === 'intro') {
-      // Het woordje vooraf vul je IN de brief: ook leeg staat het er.
+    } else if (mode === 'preview' && (it.kind === 'intro' || KINDS[it.kind]?.interactive)) {
+      // Het woordje vooraf en een vraag vul je IN de brief: ook leeg staan ze er.
       open.push(it);
-      rijen.push(metAchtergrond(blokIntro(it, blokCtx, id), it.content?.achtergrond, it.kind));
+      rijen.push(metAchtergrond(BLOKKEN[it.kind](it, blokCtx, id), it.content?.achtergrond, it.kind));
     } else if (mode === 'preview' && !KINDS[it.kind]?.auto) {
       open.push(it);
       rijen.push(blokPlaatshouder(it, id));

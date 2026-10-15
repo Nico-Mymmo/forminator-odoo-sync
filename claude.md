@@ -3786,6 +3786,24 @@ bleken drie dingen niet te kloppen. Alle drie zijn gefixt in `lib/sync.js`,
   eerder bericht in die draad op. Zonder die aanpassing zou een antwoord op een mail die
   destijds naar twee leads ging, alsnog maar bij één van de twee terechtkomen.
 
+## Nieuwsbrief: EEN vraagblok (2026-10-15)
+
+- In de lijst staat nog één sjabloon, **Vraag aan de lezer**. De soort (korte
+  vraag, stelling, jij beslist mee) blijft de `kind` van het stukje (question,
+  statement, poll: die sleutels liggen vast, de antwoorden hangen eraan) en
+  wissel je IN de brief (werkbalk boven het blok) of in het paneel
+  (`NB.wisselVraagSoort`). Standaardantwoorden en het standaardlabel wisselen
+  mee; eigen antwoorden en een eigen label blijven.
+- Vraag, zinnetje en de opschriften van de knoppen typ je in de brief
+  (`data-nb-veld="question" | "intro" | "options.N.label"`). Een lege vraag
+  staat er in het voorbeeld al (zoals het woordje vooraf).
+- Opmaakstand: `content.stijl` (VRAAG_STIJLEN: subtiel, kaart, opvallend) en
+  `content.kleur` (VRAAG_KLEUREN: per merkkleurfamilie licht/rand/sterk/knop),
+  via `POST /api/contributions/:id/vraagstijl` (enkel hoofdredactie). Zonder
+  keuze: VRAAG_STANDAARD (zoals de vragen er vroeger uitzagen). Een schrijver
+  die bewaart, wist ze niet (PUT neemt ze over als ze ontbreken).
+- EEN renderer: `blokVraag()` in render.js.
+
 ## Nieuwsbrief: berichten uit Nieuws & updates (2026-10-13)
 
 - **Label**: het pilletje boven een bericht is `content.tag`, voorgesteld door

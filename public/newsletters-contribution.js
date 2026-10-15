@@ -259,6 +259,59 @@
       + '</div></div>';
   }
 
+  // ─── Vraag aan de lezer: EEN blok, drie soorten ───────────────────────────
+
+  function zelfdeOpties(a, b) {
+    var l = function (x) { return (x || []).map(function (o) { return String(o.label || '').trim().toLowerCase(); }).join('|'); };
+    return l(a) === l(b);
+  }
+
+  /**
+   * Een andere soort vraag. De antwoorden die nog de standaard waren, worden
+   * de standaard van de nieuwe soort; eigen antwoorden blijven staan. Zo ook
+   * het labeltje boven het blok: enkel als niemand het wijzigde.
+   */
+  NB.wisselVraagSoort = function (kind) {
+    var cc = c();
+    if (!cc || cc.kind === kind || !NB.state.stukje || !NB.state.stukje.can_edit) return;
+    var soorten = NB.state.boot.vraag_soorten || [];
+    var oud = soorten.find(function (v) { return v.kind === cc.kind; });
+    var nieuw = soorten.find(function (v) { return v.kind === kind; });
+    if (!nieuw) return;
+    var std = NB.state.boot.default_options || {};
+    var huidige = (cc.content && cc.content.options) || [];
+    if (!huidige.length || zelfdeOpties(huidige, std[cc.kind])) zet('content.options', JSON.parse(JSON.stringify(std[kind] || [])));
+    if (!String(cc.title || '').trim() || (oud && cc.title === oud.titel)) cc.title = nieuw.titel;
+    cc.kind = kind;
+    gewijzigd();
+    render();
+  };
+
+  NB.vraagOptieBij = function () {
+    var lijst = (lees('content.options') || []).slice();
+    if (lijst.length >= 6) return;
+    // Meteen een eigen waarde: anders telt de knop in het voorbeeld niet mee
+    // tot de server er een gaf.
+    var waarde = 'optie-' + Date.now().toString(36);
+    lijst.push({ value: waarde, label: 'Nieuw antwoord' });
+    zet('content.options', lijst);
+    gewijzigd();
+    render();
+  };
+
+  NB.actions['vraag-soort'] = function (el) { NB.wisselVraagSoort(el.dataset.kind); };
+
+  function vraagSoortKeuze() {
+    var soorten = NB.state.boot.vraag_soorten || [];
+    var nu = c().kind;
+    var mag = NB.state.stukje.can_edit;
+    return '<div><span class="label-text">Soort vraag</span><div class="join w-full mt-1">'
+      + soorten.map(function (v) {
+        return '<button type="button" class="btn btn-sm join-item flex-1 ' + (v.kind === nu ? 'btn-primary' : '') + '" data-action="vraag-soort" data-kind="' + e(v.kind) + '" title="' + e(v.uitleg) + '"' + (mag ? '' : ' disabled') + '>' + e(v.label) + '</button>';
+      }).join('')
+      + '</div><p class="text-xs opacity-60 mt-1">Typ de vraag en de antwoorden gerust meteen in de brief. Hoe opvallend en in welke kleur kiest marketing in de opmaakstand.</p></div>';
+  }
+
   function opties() {
     var lijst = lees('content.options') || [];
     var mag = NB.state.stukje.can_edit;
@@ -343,7 +396,8 @@
       case 'statement':
       case 'question':
       case 'poll':
-        return veld(kind === 'statement' ? 'De stelling' : 'De vraag', 'content.question')
+        return vraagSoortKeuze()
+          + veld(kind === 'statement' ? 'De stelling' : 'De vraag', 'content.question')
           + veld('Een zinnetje erbij (optioneel)', 'content.intro', { rijen: 2 })
           + opties() + vinkje('Vraag na de klik om een korte toelichting', 'content.ask_comment') + vinkje('Toon de tussenstand na het antwoorden', 'content.show_results')
           + '<p class="text-xs opacity-60">Elk antwoord gaat naar de koppeling van deze reeks. Daar beslis je wat er in Odoo mee gebeurt (notitie, label, activiteit).</p>';
@@ -655,12 +709,7 @@
     render();
   };
 
-  NB.actions['optie-bij'] = function () {
-    var lijst = lees('content.options') || [];
-    lijst.push({ label: 'Nieuwe knop' });
-    zet('content.options', lijst);
-    gewijzigd(); render();
-  };
+  NB.actions['optie-bij'] = function () { NB.vraagOptieBij(); };
 
   NB.actions['optie-weg'] = function (el) {
     var lijst = lees('content.options') || [];
