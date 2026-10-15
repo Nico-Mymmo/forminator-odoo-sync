@@ -172,28 +172,66 @@ op reeks met klikbare chips, zoals het typefilter bij Events.
 Later, niet nu: ook de eventmails (aankondigingen) uit Events op de kalender,
 zodat een lezer niet drie mails op één dag krijgt.
 
-### 3.2 Eén redactietafel, één paneel met vaste tabbladen
+### 3.2 De maak-ervaring: alles in de brief, rechts enkel de regie
 
-De brief links blijft zoals hij is. Rechts komt één paneel met vaste
-tabbladen in plaats van de wisselende gedaantes en de twee standen:
+Dit is de kern van wat vandaag overweldigt. De redactietafel is nu een
+webpagina die meescrolt met de brief, met rechts een paneel dat zijn eigen
+scrollbar heeft en van gedaante wisselt. Het gevolg: twee scrollbars die
+elkaar een tikje afnemen, een brief waarin je typt en daarnaast toch nog
+velden, en per blok drie plekken waar iets kan (in de brief, in het paneel,
+in een venster).
 
-| Tabblad | Wat erin staat |
+Het principe wordt: **wat de lezer ziet, maak je in de brief. Wat de lezer
+niet ziet, staat rechts.** Concreet:
+
+**Eén werkvenster, geen meescrollende pagina.** De redactietafel vult het
+scherm, zoals een mailprogramma: bovenaan een vaste balk (naam van de editie,
+de stappenbalk uit 3.3, Testmail en Inplannen), daaronder links de brief in
+een eigen vak dat scrolt, rechts een paneel in een eigen vak dat scrolt. De
+pagina zelf scrolt niet meer. Elk vak heeft precies één scrollbar, en scrollen
+boven de brief scrolt altijd de brief.
+
+**In de brief (wysiwyg, voor iedereen):**
+
+- Typen: titel, tekst, vraag, antwoorden, kop. Dat werkt al; het blijft.
+- Een beeld: klikken op het beeld of op de lege beeldplek opent het
+  beeldvenster. Geen aparte knop rechts.
+- **Een blok toevoegen: een "+"-lijn tussen twee blokken** zodra je er met
+  de muis over gaat (zoals in de blokeditor van WordPress). Klik erop en je
+  krijgt een klein keuzevenster met dezelfde groepen als nu (opbouw, uit
+  Nieuws & updates, de lezer laten reageren, verhalen, beeld en media) en
+  daarnaast de bronnen (events in de periode, berichten sinds de vorige
+  editie, ideeën in de voorraad). Het blok komt op die plek. Geen slepen
+  vanuit het paneel meer, geen "blauwe plekken" kiezen.
+- **Een zwevende werkbalk boven het gekozen blok** met alles wat je snel
+  doet: Schrijf met AI, beeld, soort vraag, en voor marketing: omhoog,
+  omlaag, kleurbolletje, in de inhoudstafel, weghalen. Het handvat om te
+  slepen blijft, maar altijd zichtbaar voor marketing; geen aparte stand.
+- Wat nog niet bevestigd is, blijft gemarkeerd zoals nu (gele streep en
+  label). Dat is goed en verdwijnt pas met het oogje.
+
+**Rechts (de regie, enkel wat de lezer niet ziet):**
+
+| Als er een blok gekozen is | Als er geen blok gekozen is |
 |---|---|
-| **Blok** | Het gekozen blok: instellingen, wie schrijft het, stand, opmerkingen, bevestigen. Zonder gekozen blok: "Voor jou" en "Te bevestigen". |
-| **Editie** | Onderwerp en voorbeeldtekst (met AI-voorstel), verzenddag en inleverdatum, ontvangers (de lijsten met hun aantal), en de **checklist** (3.3). |
-| **Toevoegen** | De blokjes, gegroepeerd zoals nu, plus de **bronnen**: events in de periode, berichten sinds de vorige editie, ideeën uit de voorraad, de uitslag van de vorige stelling. Eén klik zet het in de brief. |
-| **Verloop** | Wat er gebeurde, wie herinnerd werd, de testmails, en na verzending de antwoorden en cijfers. |
+| **Opmaak van het blok** (marketing): de opbouw (bv. de drie vormen van een vraag, de vijf vormen van een bericht), de kleur, de plek en de vulling van het beeld, de naam boven het blok, in de inhoudstafel. | **Editie**: onderwerp en voorbeeldtekst met AI-voorstel, verzenddag, inleverdatum, ontvangers met aantal. |
+| **Wie en stand**: wie schrijft het, open/bezig/ingeleverd/bevestigd, de knop Inleveren of Bevestigen, de richtlijn van de rubriek ("wat hoort erin"). | **Checklist** (3.3). |
+| **Opmerkingen** bij dit blok. | **Voor jou** en **Te bevestigen** (lijstjes die naar het blok springen). |
+| Bij een bericht uit Nieuws & updates: welk bericht, het label, de vorm. | **Verloop**: wat er gebeurde, testmails, na verzending de cijfers. |
 
-De stand "Opmaak" verdwijnt. Slepen aan het handvat, het kleurbolletje en
-"in de inhoudstafel" blijven, maar staan altijd aan voor de hoofdredactie,
-ook terwijl ze typt. "Zoals de lezer het ziet" wordt één knop met een oogje
-boven de brief, die de brief tijdelijk toont zonder lege blokken en
-markeringen. Geen stand meer, dus ook geen tweede manier om het typen uit te
-zetten.
+Een schrijver ziet rechts enkel de tweede rij (wie en stand, opmerkingen):
+voor hem is het paneel klein en rustig. Marketing ziet de opmaak erbij. Zo
+heeft marketing de hand op de lay-out, zonder dat een collega ermee lastig
+gevallen wordt.
 
-De aparte pagina voor een idee in de voorraad verdwijnt ook. Een idee is
-enkel titel plus steekwoorden (het venster dat er al is). Het echte schrijven
-gebeurt pas in de brief, altijd op dezelfde manier.
+**Kijken zoals de lezer**: een oogje in de vaste balk, met daarnaast
+"desktop" en "gsm" (de brief op 375 px breed). Geen stand, een knop die je
+aan en uit zet.
+
+**Wat verdwijnt**: de stand Opmaak, de wissel Werkblad/Lezer, het tabblad
+Antwoorden (gaat naar Verloop), het slepen vanuit het paneel, de blauwe
+plekken, de aparte pagina voor een idee in de voorraad (een idee is titel plus
+steekwoorden; schrijven doe je in de brief).
 
 ### 3.3 Verzenden: een checklist in plaats van een foutmelding
 
@@ -272,6 +310,59 @@ LinkedIn.
 
 ---
 
+### 3.8 De koppelingen: hoe het werkt, en waarom het nog niet duidelijk is
+
+Hoe het vandaag zit, nagekeken in de code:
+
+1. Een lezer klikt op een antwoord in de mail. De bedankpagina bewaart het.
+2. Na tien minuten rust zet de OM het antwoord door naar **één koppeling per
+   reeks**, "Nieuwsbrief-antwoorden <reeks>", als een inzending met de velden
+   vraag, soort, antwoord, toelichting, e-mail, naam, reeks, editie, rubriek.
+3. Die koppeling **bestaat pas vanaf het eerste antwoord** en staat dan
+   **uit**: de inzendingen worden bewaard, maar in Odoo gebeurt niets.
+4. Wil marketing dat een antwoord een notitie, label of activiteit wordt in
+   Odoo, dan moet ze naar Koppelingen, tabblad "Nieuwsbrief-antwoorden", zelf
+   de stappen bouwen (contact opzoeken op e-mail, dan de notitie), en de
+   koppeling aanzetten. Een voorwaarde per stap (op "vraag" of "rubriek")
+   kan, dus "stelling A geeft label X" is mogelijk, maar je moet weten dat
+   dat kan.
+
+Technisch is dat solide: dezelfde weg als elk formulier, dezelfde
+veiligheidsklep (uit = niets in Odoo), antwoorden rijpen zodat één lezer één
+inzending geeft. Maar voor een marketeer is het **niet duidelijk**:
+
+- In de nieuwsbrief staat enkel "Elk antwoord gaat naar de koppeling van
+  deze reeks. Daar beslis je wat er in Odoo mee gebeurt." Niemand weet wat
+  "de koppeling" is of dat ze pas na het eerste antwoord verschijnt.
+- Je moet naar een andere module om iets te doen wat bij de vraag hoort.
+- In de reeksinstellingen staat een keuzelijst met koppelingen; dat is
+  techniek.
+- Het tabblad Antwoorden zegt per antwoord "naar de koppeling", ook als die
+  uit staat en er dus niets in Odoo gebeurde. Dat leest als "gelukt".
+- Dezelfde antwoorden staan twee keer: in de nieuwsbrief en als inzendingen
+  in Koppelingen.
+
+Wat ik zou doen: **de koppeling wordt een keuze bij de vraag, niet een module
+ernaast.** Rechts bij een vraagblok (de regie, enkel marketing):
+
+> **Wat gebeurt er met een antwoord?**
+> ( ) Enkel tellen in de OM
+> (x) Notitie op het contact in Odoo
+> ( ) Label op het contact: [ keuzelijst van labels ]
+> ( ) Activiteit voor [ collega ] : "Bel terug over <vraag>"
+> ( ) Eigen stappen (opent Koppelingen)
+
+De OM maakt dan zelf de koppeling aan, meteen, met de juiste stappen en een
+voorwaarde op die vraag, en zet ze aan. De koppeling blijft bestaan en blijft
+in Koppelingen zichtbaar voor wie meer wil, maar niemand hoeft er nog heen.
+In het tabblad Verloop staat per antwoord wat er echt gebeurde: "geteld",
+"notitie gezet op Jan Peeters", "label gezet", of "uit: niets in Odoo", met
+de fout als het misliep.
+
+Twee dingen die vastliggen en zo blijven: een antwoord gaat nooit buiten een
+koppeling om naar Odoo, en een antwoord telt nooit als aanvraag in
+Marketing.
+
 ## 4. Volgorde
 
 Elke fase levert op zich iets op en kan apart live.
@@ -309,6 +400,9 @@ maakt ze wel instelbaar zonder hulp.
 2. Een kleur per reeks (Syndicoach roze, OpenVME blauw, Pro: te kiezen).
 3. Akkoord dat "Opmaak" als aparte stand verdwijnt en slepen altijd aan staat
    voor de hoofdredactie.
+4. Welke twee of drie standaardkeuzes volstaan bij "Wat gebeurt er met een
+   antwoord?" (notitie, label, activiteit) zodat de koppeling onzichtbaar
+   kan worden.
 
 ---
 
