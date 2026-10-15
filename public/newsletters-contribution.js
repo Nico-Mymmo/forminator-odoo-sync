@@ -168,7 +168,7 @@
       + lijst.map(function (b) {
         return '<option value="' + b.id + '"' + (b.id === gekozen ? ' selected' : '') + '>' + e(b.title) + e(datum(b.published_on)) + '</option>';
       }).join('')
-      + '</select><span class="label-text-alt opacity-60 mt-1">Titel, tekst, beeld en link worden ingevuld uit het bericht.</span></label>';
+      + '</select></label>';
   }
 
   /**
@@ -208,6 +208,12 @@
           + '<span class="font-semibold">' + e(v.label) + '</span><span class="text-[11px] leading-tight opacity-70">' + e(v.uitleg) + '</span></button>';
       }).join('')
       + '</div><p class="text-xs opacity-60 mt-1">Wissel af: twee artikels na elkaar lezen beter in een andere vorm.</p></div>';
+  }
+
+  /** De tekst aanpassen kan enkel op het bericht zelf. */
+  function berichtBron() {
+    return '<div class="rounded-xl bg-base-200 p-3 text-sm flex items-start gap-2"><i data-lucide="info" class="w-4 h-4 mt-0.5 shrink-0"></i><span>Titel, tekst, beeld en link komen uit Nieuws &amp; updates en zijn altijd de laatste versie. Iets aanpassen? Doe het op het bericht zelf. '
+      + '<a class="link link-primary" href="/content-feed" target="_blank" rel="noopener">Open Nieuws &amp; updates</a></span></div>';
   }
 
   /** Wie het deelde: komt uit Nieuws & updates (de eigenaar van het bericht). */
@@ -299,6 +305,15 @@
     render();
   };
 
+  NB.vraagOptieWeg = function (i) {
+    var lijst = (lees('content.options') || []).slice();
+    if (lijst.length <= 2 || !lijst[i]) return;
+    lijst.splice(i, 1);
+    zet('content.options', lijst);
+    gewijzigd();
+    render();
+  };
+
   NB.actions['vraag-soort'] = function (el) { NB.wisselVraagSoort(el.dataset.kind); };
 
   function vraagSoortKeuze() {
@@ -372,12 +387,9 @@
           + beeldRij({ plaatsen: true, fotoVeld: 'image_url', label: 'Beeld (optioneel)' })
           + '<div class="grid sm:grid-cols-2 gap-3">' + veld('Link (optioneel)', 'content.link_url', { hint: 'https://' }) + veld('Tekst van de link', 'content.link_label', { hint: 'Lees verder' }) + '</div>';
       case 'snippet':
+        // De tekst is van Nieuws & updates: hier enkel wat van de BRIEF is.
         return berichtKeuze()
-          + (lees('content.snippet_id') ? labelVeld() + vormKeuze() + doorRegel() : '')
-          + veld('Titel', 'content.title')
-          + veld('Tekst', 'content.text', { rijen: 8, uitleg: 'Overgenomen uit Nieuws & updates; je kan het hier inkorten of aanpassen. Het bericht zelf verandert niet.' })
-          + beeldRij({ plaatsen: true, fotoVeld: 'image_url', label: 'Beeld' })
-          + '<div class="grid sm:grid-cols-2 gap-3">' + veld('Link', 'content.link_url', { hint: 'https://' }) + veld('Tekst van de link', 'content.link_label', { hint: 'Lees verder' }) + '</div>';
+          + (lees('content.snippet_id') ? labelVeld() + vormKeuze() + doorRegel() + berichtBron() : '');
       case 'video':
         return veld('Titel', 'content.title') + veld('Link naar de video', 'content.video_url', { hint: 'https://vimeo.com/… of YouTube' })
           + beeldRij({ vast: 'video', fotoVeld: 'thumbnail_url', label: 'Stilstaand beeld (een mail kan geen video afspelen)' })
@@ -496,6 +508,87 @@
    * titel en tekst daar bewerkbaar, met bovenaan het blok AI en een beeld).
    * Het paneel houdt enkel de instellingen.
    */
+  /**
+   * Blokken die je IN de brief invult: rechts staat enkel nog wat geen tekst
+   * is (instellingen, wat je kiest uit Nieuws & updates). De tekst, AI en het
+   * beeld zitten in de brief zelf.
+   */
+  var IN_DE_BRIEF = { article: 1, heading: 1, question: 1, statement: 1, poll: 1, news: 1 };
+
+  function typUitleg(tekst) {
+    return NB.state.stukje.can_edit
+      ? '<div class="flex gap-2 text-sm bg-base-200 rounded-xl p-3"><i data-lucide="mouse-pointer-click" class="w-4 h-4 shrink-0 mt-0.5"></i><span>' + tekst + '</span></div>'
+      : '';
+  }
+
+  function inBriefInstellingen(kind) {
+    switch (kind) {
+      case 'article':
+        return typUitleg('Typ de titel en de tekst <strong>rechtstreeks in de brief</strong>. Bovenaan het blok staan <strong>Schrijf met AI</strong> en <strong>+ Tekening of foto</strong>.')
+          + '<div class="grid sm:grid-cols-2 gap-3">' + veld('Link (optioneel)', 'content.link_url', { hint: 'https://' }) + veld('Tekst van de link', 'content.link_label', { hint: 'Lees verder' }) + '</div>';
+      case 'heading':
+        return typUitleg('Typ de titel <strong>rechtstreeks in de brief</strong>. Ze komt als kopje in de inhoudstafel, met de blokken eronder.');
+      case 'question':
+      case 'statement':
+      case 'poll':
+        return typUitleg('Kies bovenaan het blok de <strong>soort vraag</strong> en typ de vraag en de antwoorden <strong>rechtstreeks in de brief</strong>. Een antwoord weg? Klik op het kruisje ernaast.')
+          + vinkje('Vraag na de klik om een korte toelichting', 'content.ask_comment') + vinkje('Toon de tussenstand na het antwoorden', 'content.show_results')
+          + '<p class="text-xs opacity-60">Elk antwoord gaat naar de koppeling van deze reeks. Daar beslis je wat er in Odoo mee gebeurt.</p>';
+      case 'news':
+        return kortNieuwsKeuze();
+      default:
+        return velden(kind);
+    }
+  }
+
+  /** Kort nieuws: welke berichten (2 of 3) en hoe ze naast elkaar staan. */
+  function kortNieuwsKeuze() {
+    if (NB.state.berichtenFout) return berichtKeuze();
+    var boot = NB.state.boot;
+    var max = boot.nieuws_max || 3;
+    var items = lees('content.items') || [];
+    var lijst = NB.state.berichten || [];
+    var mag = NB.state.stukje.can_edit;
+    var nu = lees('content.vorm') || 'tekst';
+    var vormen = (boot.nieuws_vormen || []).map(function (v) {
+      return '<button type="button" class="btn btn-sm h-auto min-h-0 py-2 flex-col items-start text-left gap-0 normal-case font-normal ' + (v.key === nu ? 'btn-primary' : 'btn-outline border-base-content/20') + '" data-action="nieuws-vorm" data-vorm="' + e(v.key) + '"' + (mag ? '' : ' disabled') + '>'
+        + '<span class="font-semibold">' + e(v.label) + '</span><span class="text-[11px] leading-tight opacity-70">' + e(v.uitleg) + '</span></button>';
+    }).join('');
+    var gekozen = items.map(function (n) { return Number(n.snippet_id); });
+    var keuze = function (i) {
+      var huidig = items[i] ? Number(items[i].snippet_id) : 0;
+      return '<div class="flex gap-2 items-center"><select class="select select-bordered select-sm flex-1 min-w-0" data-change="nieuws-kies" data-i="' + i + '"' + (mag ? '' : ' disabled') + '>'
+        + '<option value="">' + (lijst.length ? 'Kies een bericht…' : 'Geen gepubliceerde berichten gevonden') + '</option>'
+        + lijst.map(function (b) {
+          var al = b.id !== huidig && gekozen.indexOf(b.id) >= 0;
+          return '<option value="' + b.id + '"' + (b.id === huidig ? ' selected' : '') + (al ? ' disabled' : '') + '>' + e(b.title) + '</option>';
+        }).join('') + '</select>'
+        + (mag && items[i] ? '<button class="btn btn-sm btn-ghost px-2" data-action="nieuws-weg" data-i="' + i + '" aria-label="Weghalen"><i data-lucide="x" class="w-4 h-4"></i></button>' : '') + '</div>';
+    };
+    var rijen = [];
+    for (var i = 0; i < Math.min(max, items.length + 1); i++) rijen.push(keuze(i));
+    return '<div><span class="label-text">Vorm</span><div class="grid grid-cols-3 gap-2 mt-1">' + vormen + '</div></div>'
+      + '<div class="flex flex-col gap-2"><span class="label-text">Berichten uit Nieuws &amp; updates (twee of drie)</span>' + rijen.join('') + '</div>'
+      + berichtBron();
+  }
+
+  NB.actions['nieuws-vorm'] = function (el) { zet('content.vorm', el.dataset.vorm); gewijzigd(); render(); };
+
+  NB.changes['nieuws-kies'] = async function (el) {
+    var i = Number(el.dataset.i);
+    var id = el.value;
+    var items = (lees('content.items') || []).slice();
+    if (!id) { items.splice(i, 1); zet('content.items', items); gewijzigd(); render(); return; }
+    el.disabled = true;
+    try {
+      var kaart = await NB.api('/api/snippets/' + id + '/kort', { method: 'POST' });
+      items[i] = kaart;
+      zet('content.items', items);
+      gewijzigd();
+      render();
+    } catch (err) { NB.fout(err); el.disabled = false; }
+  };
+
   function introInstellingen() {
     var uitleg = NB.state.stukje.can_edit
       ? '<div class="flex gap-2 text-sm bg-base-200 rounded-xl p-3"><i data-lucide="mouse-pointer-click" class="w-4 h-4 shrink-0 mt-0.5"></i><span>Typ de titel en de tekst <strong>rechtstreeks in de brief</strong>. Bovenaan het blok staan <strong>Schrijf met AI</strong> en <strong>+ Tekening of foto</strong>.</span></div>'
@@ -540,15 +633,17 @@
       + '<div class="card bg-base-100 border border-primary/40"><div class="card-body p-4 gap-3">'
       + '<div class="flex items-center gap-2"><button class="btn btn-ghost btn-sm px-2" data-action="paneel-sluit"><i data-lucide="arrow-left" class="w-4 h-4"></i> Overzicht</button>'
       + '<span id="stBewaard" class="text-xs opacity-60 ml-auto">' + (s.can_edit ? 'Bewaart vanzelf' : 'Alleen lezen') + '</span></div>'
-      + '<div>' + (c().kind === 'intro'
-        ? '<div class="text-lg font-bold px-1">' + e(NB.soort('intro')) + '</div>'
+      + '<div>' + (c().kind === 'intro' || c().kind === 'heading'
+        ? '<div class="text-lg font-bold px-1">' + e(NB.soort(c().kind)) + '</div>'
         : '<input class="input input-ghost input-sm text-lg font-bold px-1 w-full" data-veld="title" value="' + e(c().title) + '" aria-label="Naam boven het blok" title="Het labeltje boven het blok in de mail"' + (s.can_edit ? '' : ' disabled') + '>')
       + '<div class="flex flex-wrap items-center gap-2 text-sm mt-1 px-1"><span id="stStatus">' + (auto ? '<span class="badge badge-sm badge-ghost">Automatisch</span>' : NB.statusBadge(it.status)) + '</span><span class="opacity-70">' + e(stand) + '</span></div>'
       + '<div class="text-xs opacity-70 px-1 mt-1">' + e(wie) + '</div>' + (tegen ? '<div class="px-1">' + tegen + '</div>' : '') + '</div>'
       + hint
       + (c().kind === 'intro'
         ? introInstellingen()
-        : aiBlok(true) + '<div class="flex flex-col gap-4">' + velden(c().kind) + '</div>')
+        : IN_DE_BRIEF[c().kind]
+          ? '<div class="flex flex-col gap-4">' + inBriefInstellingen(c().kind) + '</div>'
+          : aiBlok(true) + '<div class="flex flex-col gap-4">' + velden(c().kind) + '</div>')
       + '</div></div>'
       + (knoppen.length ? '<div class="sticky bottom-0 z-10 bg-base-100 border border-base-content/10 rounded-xl p-3 flex flex-wrap gap-2 shadow-sm">' + knoppen.join('') + '</div>' : '')
       + beheer + praat
@@ -602,7 +697,7 @@
 
   function laadExtra(d) {
     var wacht = [NB.laadTekeningen()];
-    if (d.item.kind === 'snippet' && !NB.state.berichten) wacht.push(laadBerichten());
+    if ((d.item.kind === 'snippet' || d.item.kind === 'news') && !NB.state.berichten) wacht.push(laadBerichten());
     if (d.item.kind === 'events' && d.edition) {
       wacht.push(NB.api('/api/editions/' + d.edition.id + '/suggestions').then(function (r) { NB.state.stukjeEvents = r.events || []; }).catch(function () { NB.state.stukjeEvents = []; }));
     }
@@ -664,7 +759,7 @@
           inhoud.beeld = { url: up.url, plaats: 'tekst', na_alinea: 0, vulling: 'heel' };
         } catch (err) { NB.toast('Het beeld van het bericht kon niet omgezet worden; kies er zelf een.', 'warning'); }
       }
-      ['snippet_id', 'tag', 'title', 'text', 'quote', 'source', 'link_url', 'link_label', 'beeld', 'door'].forEach(function (k) { zet('content.' + k, inhoud[k]); });
+      ['snippet_id', 'tag', 'title', 'text', 'quote', 'source', 'link_url', 'link_label', 'beeld', 'beeld_versie', 'door'].forEach(function (k) { zet('content.' + k, inhoud[k]); });
       // Een nieuwe brief krijgt afwisseling: de vorm na die van het vorige bericht.
       if (!lees('content.vorm')) zet('content.vorm', volgendeVorm());
       zet('content.image_url', '');

@@ -3786,6 +3786,28 @@ bleken drie dingen niet te kloppen. Alle drie zijn gefixt in `lib/sync.js`,
   eerder bericht in die draad op. Zonder die aanpassing zou een antwoord op een mail die
   destijds naar twee leads ging, alsnog maar bij één van de twee terechtkomen.
 
+## Nieuwsbrief: rechts enkel instellingen, titelblok, kort nieuws (2026-10-15)
+
+- **Regel: tekst typ je IN de brief, rechts staat enkel wat geen tekst is**
+  (opmaak, keuzes, wat je uit Nieuws & updates kiest). In de brief bewerkbaar:
+  woordje vooraf, tekst en foto (`article`), titel (`heading`), vraag, en de
+  kop van kort nieuws. `IN_DE_BRIEF` in render.js (ook leeg zichtbaar in het
+  voorbeeld) en in newsletters-contribution.js (paneel = `inBriefInstellingen`).
+  Op de losse stukjespagina (zonder brief) blijven de gewone velden.
+- **Berichten uit Nieuws & updates zijn altijd de laatste versie**
+  (`lib/berichten.js`, via `verzamel()`): titel, tekst, link, citaat, bron en
+  beeld komen bij elke weergave van het bericht zelf. Aanpassen = op het
+  bericht in Nieuws & updates. Van de brief blijven: label, vorm, wie het
+  deelde. Een nieuw beeld (andere `imageVersion`) wordt één keer opnieuw
+  gehost en bewaard (`beeld_versie`).
+- **Titel** (`heading`): een kop boven een reeks blokken, door marketing
+  (meteen bevestigd). Komt in de inhoudstafel als kopje.
+- **In de inhoudstafel**: per blok aan/uit in de opmaakstand
+  (`content.in_toc === false`, `POST /api/contributions/:id/in-toc`).
+- **Kort nieuws** (`news` met `vorm` uit NIEUWS_VORMEN: naast elkaar, lijstje,
+  enkel tekst): twee of drie berichten (`POST /api/snippets/:id/kort` = kaartje
+  met gehost beeld). Een oud nieuwsblok zonder vorm blijft "enkel tekst".
+
 ## Nieuwsbrief: EEN vraagblok (2026-10-15)
 
 - In de lijst staat nog één sjabloon, **Vraag aan de lezer**. De soort (korte

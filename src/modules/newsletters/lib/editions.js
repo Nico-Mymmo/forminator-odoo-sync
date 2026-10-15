@@ -3,6 +3,7 @@
  * zetten wat de renderer nodig heeft.
  */
 
+import { metActueleBerichten } from './berichten.js';
 import {
   listSeries, listEditions, insertEdition, insertContributions, listContributions,
   logActivity, listUsers, updateContribution, NewsletterError,
@@ -206,7 +207,7 @@ export function metOndertekening(item, perUser) {
  */
 export async function verzamel(env, series, editie, { png = true, items = null } = {}) {
   const [bijdragen, users, events, comp, tek] = await Promise.all([
-    items ? Promise.resolve(items) : listContributions(env, editie.id),
+    (items ? Promise.resolve(items) : listContributions(env, editie.id)).then((lijst) => metActueleBerichten(env, lijst)),
     listUsers(env),
     eventsVoorEditie(env, series, editie),
     bedrijf(env),
