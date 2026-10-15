@@ -584,6 +584,13 @@
     var knoppen = [];
     if (editor()) knoppen.push('<span class="nb-greep" data-nb-greep="' + e(s.item.id) + '" title="Sleep om te verplaatsen">⠿</span>');
     if (mag && NB.kanAI(soort)) knoppen.push('<button type="button" data-nb-knop="ai">✨ Schrijf met AI</button>');
+    if (mag && soort === 'heading') {
+      var nuNiveau = (NB.state.concept.content || {}).niveau || 'h1';
+      knoppen.push('<span class="nb-soorten">' + (NB.state.boot.titel_niveaus || []).map(function (n) {
+        return '<button type="button" data-nb-knop="niveau:' + n.key + '"' + (n.key === nuNiveau ? ' class="nb-aan"' : '') + ' title="' + e(n.uitleg) + '">' + e(n.label) + '</button>';
+      }).join('') + '</span>');
+      knoppen.push('<button type="button" data-nb-knop="icoon">' + ((NB.state.concept.content || {}).icoon ? '\u270E Tekening' : '+ Tekening') + '</button>');
+    }
     if (mag && soort === 'video') knoppen.push('<button type="button" data-nb-knop="video">\u25B6 ' + (NB.state.concept.content && NB.state.concept.content.video_url ? 'Andere video' : 'Video kiezen') + '</button>');
     if (mag && NB.kanBeeld(soort) && (soort !== 'video' || (NB.state.concept.content && NB.state.concept.content.video_url))) knoppen.push('<button type="button" data-nb-knop="beeld">' + (rij.querySelector('[data-nb-beeld] img') ? '\u{1F5BC} Beeld' : '+ Beeld') + '</button>');
     if (mag && isVraag) {
@@ -678,6 +685,8 @@
     if (wat === 'ai') NB.openAI();
     else if (wat === 'beeld') NB.openBeeld();
     else if (wat === 'video') NB.openVideo();
+    else if (wat.indexOf('niveau:') === 0 && NB.zetNiveau) NB.zetNiveau(wat.slice(7));
+    else if (wat === 'icoon' && NB.openIcoon) NB.openIcoon();
     else if (wat.indexOf('soort:') === 0 && NB.wisselVraagSoort) NB.wisselVraagSoort(wat.slice(6));
     else if (wat === 'optie-bij' && NB.vraagOptieBij) NB.vraagOptieBij();
     else if (wat.indexOf('optie-weg:') === 0 && NB.vraagOptieWeg) NB.vraagOptieWeg(Number(wat.slice(10)));

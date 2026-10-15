@@ -542,6 +542,62 @@
   }
   NB.actions['beeld-open'] = function () { NB.openBeeld(); };
 
+  // ─── Titel: niveau (H1, H2, H3) en een tekening als icoon ──────────────────
+
+  function niveauKeuze() {
+    var niveaus = (NB.state.boot && NB.state.boot.titel_niveaus) || [];
+    var nu = lees('content.niveau') || 'h1';
+    return '<div><span class="label-text text-xs">Grootte</span><div class="join mt-1">' + niveaus.map(function (n) {
+      return '<button type="button" class="btn btn-sm join-item' + (n.key === nu ? ' btn-primary' : '') + '" data-action="niveau-zet" data-niveau="' + e(n.key) + '" title="' + e(n.uitleg) + '"' + (s().can_edit ? '' : ' disabled') + '>' + e(n.label) + '</button>';
+    }).join('') + '</div></div>';
+  }
+
+  function icoonRij() {
+    var naam = lees('content.icoon');
+    var t = naam ? (NB.state.tekeningen || []).find(function (x) { return x.name === naam; }) : null;
+    return '<div class="flex flex-col gap-1"><span class="label-text text-xs">Tekening voor de titel</span><div class="flex items-center gap-3">'
+      + (t ? '<img src="' + e(t.svg) + '" alt="" class="w-12 h-12 rounded-lg border border-base-content/10 object-contain">' : '<div class="w-12 h-12 rounded-lg border-2 border-dashed border-base-content/20 flex items-center justify-center text-xl opacity-50">+</div>')
+      + (s().can_edit ? '<button class="btn btn-sm" data-action="icoon-open">' + (t ? 'Andere' : 'Kiezen') + '</button>' : '')
+      + (t && s().can_edit ? '<button class="btn btn-sm btn-ghost" data-action="icoon-weg">Weg</button>' : '')
+      + '</div></div>';
+  }
+
+  NB.zetNiveau = function (niveau) {
+    if (!c() || !s().can_edit) return;
+    zet('content.niveau', niveau);
+    gewijzigd();
+    render();
+  };
+  NB.actions['niveau-zet'] = function (el) { NB.zetNiveau(el.dataset.niveau); };
+
+  NB.openIcoon = async function () {
+    if (!c() || !s().can_edit) return;
+    var bak = document.getElementById('icoonLijst');
+    bak.innerHTML = '<div class="col-span-full flex justify-center py-6"><span class="loading loading-spinner"></span></div>';
+    NB.dialoog('dlgIcoon').showModal();
+    var lijst = await NB.laadTekeningen();
+    var nu = lees('content.icoon');
+    bak.innerHTML = lijst.length ? lijst.map(function (t) {
+      return '<button type="button" class="rounded-xl border p-2 hover:border-primary ' + (t.name === nu ? 'border-primary bg-primary/10' : 'border-base-content/10') + '" data-action="icoon-kies" data-naam="' + e(t.name) + '" title="' + e(t.label) + '"><img src="' + e(t.svg) + '" alt="' + e(t.label) + '" class="w-full aspect-square object-contain"></button>';
+    }).join('') : '<p class="col-span-full text-sm opacity-60">Geen tekeningen gevonden in Assetbeheer.</p>';
+  };
+  NB.actions['icoon-open'] = function () { return NB.openIcoon(); };
+  NB.actions['icoon-kies'] = function (el) {
+    var naam = el.dataset.naam;
+    NB.zorgVoorPng(naam).catch(function (err) { NB.toast('PNG van de tekening maken mislukt: ' + err.message, 'warning'); });
+    zet('content.icoon', naam);
+    NB.dialoog('dlgIcoon').close();
+    gewijzigd();
+    render();
+  };
+  NB.actions['icoon-weg'] = function () {
+    zet('content.icoon', '');
+    var dlg = NB.dialoog('dlgIcoon');
+    if (dlg.open) dlg.close();
+    gewijzigd();
+    render();
+  };
+
   // ─── Video: dezelfde Vimeo-kiezer als bij de events ───────────────────────
 
   NB.openVideo = async function () {
@@ -678,7 +734,8 @@
       case 'intro':
         return uitleg('Titel en tekst typ je <strong>in de brief</strong>. Boven het blok: Schrijf met AI en Tekening of foto.') + ondertekenaarKeuze();
       case 'heading':
-        return uitleg('Typ de titel <strong>in de brief</strong>. Ze komt als kopje in de inhoudstafel.');
+        return uitleg('Typ de titel <strong>in de brief</strong>. Ze komt als kopje in de inhoudstafel.')
+          + niveauKeuze() + icoonRij();
       case 'article':
         return uitleg('Label, titel en tekst typ je <strong>in de brief</strong>. Boven het blok: Schrijf met AI en Tekening of foto.')
           + '<div class="grid grid-cols-2 gap-2">' + veld('Link (optioneel)', 'content.link_url', { hint: 'https://' }) + veld('Tekst van de link', 'content.link_label', { hint: 'Lees verder' }) + '</div>';
@@ -833,6 +890,7 @@
   function laadExtra(d) {
     var wacht = [NB.laadTekeningen()];
     if (d.item.kind === 'snippet' || d.item.kind === 'news') wacht.push(NB.laadBerichten());
+    if (d.item.kind === 'heading') wacht.push(NB.laadTekeningen());
     if (d.item.kind === 'events' && d.edition) {
       wacht.push(NB.api('/api/editions/' + d.edition.id + '/suggestions').then(function (r) { NB.state.stukjeEvents = r.events || []; }).catch(function () { NB.state.stukjeEvents = []; }));
     }
