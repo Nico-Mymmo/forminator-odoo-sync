@@ -33,7 +33,7 @@ import { lijstTekeningen, pngSleutel, vergeetTekeningen } from '../av-slides/lib
 import { listIntegrations } from '../forminator-sync-v2/database.js';
 import { listVimeoVideos, getVimeoVideo, idFromVimeoUrl, resolveVideoWithoutToken } from '../event-operations-v2/lib/vimeo.js';
 import { ArticleFetchError } from '../content-feed/lib/article-fetch.js';
-import { listSnippets, getSnippet, getSnippetImage, listTaxonomy } from '../content-feed/lib/content-service.js';
+import { listSnippets, getSnippet, getSnippetImage, listTaxonomy, importImageFromUrl } from '../content-feed/lib/content-service.js';
 import { hostBerichtBeeld, kaartjeVanBericht } from './lib/berichten.js';
 import { bedenkLabel } from '../content-feed/lib/article-ai.js';
 import { serializeAiError, httpStatusForAiError } from '../mini-apps/lib/ai-errors.js';
@@ -293,6 +293,8 @@ function inhoudPerSoort(kind, c = {}) {
           snippet_id: Number.isInteger(Number(n?.snippet_id)) ? Number(n.snippet_id) : null,
           title: kort(n?.title, 200), note: kort(n?.note, 300), url: url(n?.url),
           source: kort(n?.source, 80), beeld_url: url(n?.beeld_url), beeld_versie: kort(n?.beeld_versie, 40),
+          // Een tekening als beeld, wanneer het bericht zelf geen foto heeft.
+          beeld_thingie: /^[a-z0-9-]{1,60}$/.test(String(n?.beeld_thingie || '')) ? n.beeld_thingie : '',
         })).filter((n) => n.title),
         suggestions: Array.isArray(c.suggestions) ? c.suggestions.slice(0, 12) : undefined,
       };
@@ -1210,6 +1212,24 @@ export const routes = {
           beeld_versie: x.hasImage && beeld ? String(x.imageVersion || '') : '',
         },
       });
+    } catch (err) { return fout(err); }
+  },
+
+  /**
+   * Een beeld dat in de brief bij een bericht gekozen werd, ook op het
+   * bericht zelf zetten in Nieuws & updates (en dus op de site). Een
+   * tekening gaat als haar PNG-kopie. Faalt zacht: de brief heeft het beeld
+   * al; het bericht krijgt het bij een volgende poging.
+   */
+  'POST /api/snippets/:id/beeld': async ({ env, params, request, user }) => {
+    try {
+      const adres = url((await leesBody(request)).url);
+      if (!adres) throw new NewsletterError('Geen geldig beeld.');
+      const x = await getSnippet(env, params.id);
+      if (!x) throw new NewsletterError('Dat bericht bestaat niet (meer).', 404);
+      const gelukt = await importImageFromUrl(env, x.id, adres);
+      if (gelukt) console.log(`${LOG_PREFIX} beeld op bericht ${x.id} gezet door ${user?.email || '?'}`);
+      return json({ success: true, data: { gelukt } });
     } catch (err) { return fout(err); }
   },
 

@@ -276,9 +276,17 @@
     var lijst = NB.state.berichten || [];
     var mag = s().can_edit;
     var gekozen = items.map(function (n) { return Number(n.snippet_id); });
+    var beeldKnop = function (i) {
+      var n = items[i];
+      if (!n || !mag) return '';
+      var t = n.beeld_thingie ? (NB.state.tekeningen || []).find(function (x) { return x.name === n.beeld_thingie; }) : null;
+      var src = t ? t.svg : (n.beeld_url || '');
+      return '<button type="button" class="btn btn-sm btn-ghost px-1 gap-1" data-action="nieuws-beeld" data-i="' + i + '" title="' + (src ? 'Beeld aanpassen' : 'Geen foto bij dit bericht: kies een tekening of beeld (komt ook op het bericht zelf)') + '">'
+        + (src ? '<img src="' + e(src) + '" alt="" class="w-9 h-6 rounded object-cover border border-base-content/10">' : '<span class="w-9 h-6 rounded border-2 border-dashed border-warning/70 flex items-center justify-center text-warning text-xs">+</span>') + '</button>';
+    };
     var keuze = function (i) {
       var huidig = items[i] ? Number(items[i].snippet_id) : 0;
-      return '<div class="flex gap-2 items-center"><select class="select select-bordered select-sm flex-1 min-w-0" data-change="nieuws-kies" data-i="' + i + '"' + (mag ? '' : ' disabled') + '>'
+      return '<div class="flex gap-2 items-center">' + beeldKnop(i) + '<select class="select select-bordered select-sm flex-1 min-w-0" data-change="nieuws-kies" data-i="' + i + '"' + (mag ? '' : ' disabled') + '>'
         + '<option value="">' + (lijst.length ? 'Kies een bericht…' : 'Geen gepubliceerde berichten gevonden') + '</option>'
         + lijst.map(function (b) {
           var al = b.id !== huidig && gekozen.indexOf(b.id) >= 0;
@@ -288,9 +296,55 @@
     };
     var rijen = [];
     for (var i = 0; i < Math.min(max, items.length + 1); i++) rijen.push(keuze(i));
-    return '<div class="flex flex-col gap-2"><span class="label-text text-xs">Berichten uit Nieuws &amp; updates (twee of drie)</span>' + rijen.join('') + '</div>'
-      + berichtBron();
+    return '<div class="flex flex-col gap-2"><span class="label-text text-xs">Berichten uit Nieuws &amp; updates (twee of drie)</span>' + rijen.join('')
+      + (items.some(function (n) { return !n.beeld_url && !n.beeld_thingie; }) ? '<p class="text-[11px] opacity-60">Een bericht zonder foto (oranje vakje): kies er een tekening of beeld voor. Dat komt ook op het bericht zelf in Nieuws &amp; updates.</p>' : '')
+      + '</div>' + berichtBron();
   }
+
+  /**
+   * Een beeld bij EEN kaartje van Kort nieuws: een tekening (gecentreerd op
+   * een tint) of een foto (vult het vak). Het gaat ook naar het bericht in
+   * Nieuws & updates, zodat de site hetzelfde beeld toont.
+   */
+  NB.actions['nieuws-beeld'] = function (el) {
+    var i = Number(el.dataset.i);
+    var n = (lees('content.items') || [])[i];
+    if (!n) return;
+    var huidig = n.beeld_thingie ? { thingie: n.beeld_thingie, plaats: 'tekst', vulling: 'heel' } : n.beeld_url ? { url: n.beeld_url, plaats: 'tekst', vulling: 'heel' } : null;
+    NB.beeld.open({
+      beeld: huidig,
+      vast: 'nieuws',
+      opslaan: async function (b) {
+        var items = (lees('content.items') || []).slice();
+        if (!items[i]) return;
+        if (!b) { items[i] = Object.assign({}, items[i], { beeld_thingie: '', beeld_url: '' }); }
+        else if (b.thingie) { items[i] = Object.assign({}, items[i], { beeld_thingie: b.thingie, beeld_url: '' }); }
+        else { items[i] = Object.assign({}, items[i], { beeld_thingie: '', beeld_url: b.vulling === 'vullen' && b.uitsnede ? b.uitsnede : b.url }); }
+        zet('content.items', items);
+        gewijzigd();
+        render();
+        if (b && items[i].snippet_id) NB.beeldNaarBericht(items[i].snippet_id, b);
+      },
+    });
+  };
+
+  /** Hetzelfde beeld ook op het bericht in Nieuws & updates (een tekening als PNG). Faalt zacht. */
+  NB.beeldNaarBericht = async function (snippetId, b) {
+    try {
+      var adres;
+      if (b.thingie) {
+        await NB.zorgVoorPng(b.thingie);
+        var t = (NB.state.tekeningen || []).find(function (x) { return x.name === b.thingie; });
+        var origin = (NB.state.boot && NB.state.boot.asset_origin) || '';
+        adres = t && t.png ? origin + t.png : '';
+      } else {
+        adres = b.vulling === 'vullen' && b.uitsnede ? b.uitsnede : b.url;
+      }
+      if (!adres) return;
+      var r = await NB.api('/api/snippets/' + snippetId + '/beeld', { method: 'POST', body: { url: adres } });
+      NB.toast(r.gelukt ? 'Het beeld staat nu ook op het bericht in Nieuws & updates.' : 'Het beeld staat in de brief, maar kon niet op het bericht gezet worden.', r.gelukt ? 'success' : 'warning');
+    } catch (err) { NB.toast('Het beeld staat in de brief, maar niet op het bericht: ' + err.message, 'warning'); }
+  };
 
   function nieuwsVormKeuze() {
     var vormen = (NB.state.boot && NB.state.boot.nieuws_vormen) || [];
@@ -448,7 +502,7 @@
 
   // ─── Beeld (gedeeld venster, newsletters-beeld.js) ─────────────────────────
 
-  var MET_EIGEN_BEELD = { intro: 1, article: 1, video: 1, link: 1, linkedin: 1, image: 1 };
+  var MET_EIGEN_BEELD = { intro: 1, article: 1, video: 1, link: 1, linkedin: 1, image: 1, snippet: 1 };
   NB.kanBeeld = function (kind) { return Boolean(MET_EIGEN_BEELD[kind]); };
   NB.kanAI = function (kind) { return !NB.isAuto(kind) && ['news', 'link', 'linkedin', 'image', 'snippet', 'heading'].indexOf(kind) < 0; };
 
@@ -470,6 +524,8 @@
           NB.stukjeZet('content.' + fotoVeld, '', { stil: true });
         }
         NB.stukjeZet('content.beeld', b);
+        // Een bericht uit Nieuws & updates zonder foto: het beeld ook op het bericht zetten.
+        if (kind === 'snippet' && b && cc.content.snippet_id && !cc.content.beeld_versie) NB.beeldNaarBericht(cc.content.snippet_id, b);
       },
     });
   };
@@ -627,7 +683,11 @@
         return uitleg('Label, titel en tekst typ je <strong>in de brief</strong>. Boven het blok: Schrijf met AI en Tekening of foto.')
           + '<div class="grid grid-cols-2 gap-2">' + veld('Link (optioneel)', 'content.link_url', { hint: 'https://' }) + veld('Tekst van de link', 'content.link_label', { hint: 'Lees verder' }) + '</div>';
       case 'snippet':
-        return berichtKeuze() + (lees('content.snippet_id') ? labelVeld() + doorRegel() + berichtBron() : '');
+        return berichtKeuze() + (lees('content.snippet_id')
+          ? labelVeld() + doorRegel()
+            + (!lees('content.beeld_versie') ? uitleg('Dit bericht heeft geen foto in Nieuws &amp; updates. Kies er met <strong>+ Beeld</strong> boven het blok een tekening of beeld voor: dat komt ook op het bericht zelf.') : '')
+            + berichtBron()
+          : '');
       case 'video':
         return uitleg('In de brief staat enkel het stilstaand beeld; klikken opent de video. Een titel of tekst erbij? Zet er een tekstblok naast.')
           + '<div class="flex items-center gap-2">' + (s().can_edit ? '<button class="btn btn-sm btn-primary" data-action="video-open"><i data-lucide="circle-play" class="w-4 h-4"></i> ' + (lees('content.video_url') ? 'Andere video' : 'Video kiezen') + '</button>' : '')

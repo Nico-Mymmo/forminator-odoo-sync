@@ -249,6 +249,8 @@ export const BEELD_KADERS = {
   vol: { breedte: 560, verhouding: 16 / 9 },
   // Rechtsboven in de hoek van het blok, boven de titel; de tekst loopt eromheen.
   'hoek-rechts': { breedte: 150, verhouding: 1 },
+  // Een kaartje in "Kort nieuws" (drie naast elkaar is 176 px breed).
+  nieuws: { breedte: 272, verhouding: 16 / 9 },
 };
 
 /**

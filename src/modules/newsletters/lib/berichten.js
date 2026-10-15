@@ -67,6 +67,7 @@ async function actueelNieuws(env, it) {
     try {
       const x = await getSnippet(env, id);
       if (!x) return n;
+      // Wat van de brief is, blijft: de tekening die iemand koos (beeld_thingie).
       const uit = { ...n, ...kaartjeVanBericht(x) };
       const versie = x.hasImage ? String(x.imageVersion || '') : '';
       if (versie !== String(n.beeld_versie || '')) {
