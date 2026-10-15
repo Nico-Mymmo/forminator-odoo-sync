@@ -58,6 +58,23 @@ export async function eventsVoorEditie(env, series, edition) {
   }
 }
 
+/** Alle gepubliceerde events (beide merken) in een periode, als laag op de kalender. Faalt zacht. */
+export async function eventsTussen(env, van, tot) {
+  try {
+    const { events } = await listEvents(env, {
+      filters: { publication_states: [PUBLICATION_STATE.PUBLISHED], from: new Date(van).toISOString(), to: new Date(tot).toISOString() },
+      limit: 80, offset: 0, order: 'x_studio_event_datetime asc',
+    });
+    return (events || []).map((e) => {
+      const origin = resolvePublicOrigin(env, e.brand);
+      return { id: e.id, title: e.title, starts_at: e.starts_at, brand: e.brand || '', url: e.slug && origin ? `${origin}${PUBLIC_EVENT_PATH}/${e.slug}/?owid=${Number(e.id)}` : '' };
+    });
+  } catch (error) {
+    console.error(`${LOG_PREFIX} events voor de kalender niet gelezen:`, error?.message);
+    return [];
+  }
+}
+
 // ─── Nieuws & updates ───────────────────────────────────────────────────────
 
 /** Gepubliceerde berichten sinds `sinds` (JJJJ-MM-DD), nieuwste eerst. */

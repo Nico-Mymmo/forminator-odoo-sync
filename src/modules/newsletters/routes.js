@@ -9,7 +9,7 @@
 
 import {
   NewsletterError, listSeries, getSeries, updateSeries, normalizeSeriesPayload,
-  listEditions, getEdition, updateEdition, listContributions, listContributionsForEditions,
+  listEditions, listEditionsRange, getEdition, updateEdition, listContributions, listContributionsForEditions,
   listPool, listMine, getContribution, insertContributions, updateContribution, deleteContribution,
   listComments, countComments, addComment, logActivity, listActivity, listUsers, isActiveEdition,
 } from './lib/store.js';
@@ -24,7 +24,7 @@ import { antwoordLinks, antwoordenVanEditie } from './lib/answers.js';
 import { tokenVeldBestaat, verstuurTest, leesCijfers } from './lib/odoo-mailing.js';
 import { voorgesteldMoment, controleerMoment, bouwEchteMail, datumKort } from './lib/verzending.js';
 import { stelStukjeVoor, stelOnderwerpVoor } from './lib/ai.js';
-import { linkVoorbeeld, eventsVoorEditie, auteurs, tekeningen } from './lib/sources.js';
+import { linkVoorbeeld, eventsVoorEditie, auteurs, tekeningen, eventsTussen } from './lib/sources.js';
 import { stuurHerinnering } from './lib/cron.js';
 import { hostBeelden, BEELDEN_MAP } from './lib/beelden-hosten.js';
 import { naamVoor, medewerkerVoorOdooGebruiker, medewerkersVoorGebruikers } from '../../lib/medewerkers.js';
@@ -439,6 +439,36 @@ export const routes = {
     } catch (err) { return fout(err); }
   },
 
+  /**
+   * De kalender: edities (verzenddag en inleverdatum) in een periode, over
+   * alle reeksen heen, met wat er nog open staat, plus de events uit
+   * Eventbeheer als laag eronder.
+   */
+  'GET /api/kalender': async ({ env, user, request }) => {
+    try {
+      const u = new URL(request.url);
+      const from = new Date(u.searchParams.get('from') || Date.now() - 31 * 86400000);
+      const to = new Date(u.searchParams.get('to') || Date.now() + 62 * 86400000);
+      if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) throw new NewsletterError('Ongeldige periode.');
+      const [series, users, edities] = await Promise.all([listSeries(env), listUsers(env), listEditionsRange(env, { from: from.toISOString(), to: to.toISOString() })]);
+      const items = await listContributionsForEditions(env, edities.map((e) => e.id));
+      const perEditie = {};
+      for (const it of items) (perEditie[it.edition_id] ||= []).push(it);
+      const editions = edities.map((e) => {
+        const lijst = (perEditie[e.id] || []).sort((a, b) => (a.position || 0) - (b.position || 0));
+        const s = series.find((x) => x.id === e.series_id);
+        const open = lijst.filter((i) => !KINDS[i.kind]?.auto && i.status !== CONTRIBUTION_STATUS.APPROVED)
+          .map((i) => ({ id: i.id, title: i.title || KINDS[i.kind]?.label || 'Stukje', kind: i.kind, status: i.status, owner_user_id: i.owner_user_id, owner_name: naamVan(users, i.owner_user_id), mine: i.owner_user_id === user.id }));
+        return {
+          ...e, series_name: s?.name || '', series_code: s?.code || '', brand: s?.brand || '',
+          is_editor: isEditorVan(user, s), progress: voortgang(lijst), open,
+        };
+      });
+      const events = await eventsTussen(env, from, to);
+      return json({ success: true, data: { editions, events, series: series.filter((s) => s.is_active).map((s) => ({ id: s.id, code: s.code, name: s.name, brand: s.brand, is_editor: isEditorVan(user, s) })) } });
+    } catch (err) { return fout(err); }
+  },
+
   // ─── Reeksen ──────────────────────────────────────────────────────────────
 
   'GET /api/series/:id': async ({ env, params }) => {
@@ -542,6 +572,11 @@ export const routes = {
           if (Number.isNaN(d.getTime())) throw new NewsletterError('Ongeldige datum.');
           w[k] = d.toISOString();
         }
+      }
+      // Verslepen op de kalender: enkel een nieuwe verzenddag; de inleverdatum schuift evenveel mee.
+      if (w.send_at && !w.deadline_at && b.schuif_inleverdatum) {
+        const delta = new Date(w.send_at).getTime() - new Date(edition.send_at).getTime();
+        w.deadline_at = new Date(new Date(edition.deadline_at).getTime() + delta).toISOString();
       }
       if (w.deadline_at || w.send_at) {
         const deadline = new Date(w.deadline_at || edition.deadline_at);

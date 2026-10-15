@@ -1,6 +1,6 @@
 # Nieuwsbrieven: nazicht en voorstel (2026-10-15)
 
-Status: **fase 1 gebouwd (2026-10-15): de maak-ervaring (3.2), de checklist en het verzenden met bedenktijd (3.3), dezelfde woorden (3.4), de reeksinstellingen (3.5). De koppelingen blijven zoals ze zijn (3.8 is bewust NIET gebouwd). Nog te doen: de kalender (fase 2), het inhaken (fase 3), leren (fase 4).** Dit is een nazicht van de module
+Status: **fase 1 gebouwd (2026-10-15): de maak-ervaring (3.2), de checklist en het verzenden met bedenktijd (3.3), dezelfde woorden (3.4), de reeksinstellingen (3.5). De koppelingen blijven zoals ze zijn (3.8 is bewust NIET gebouwd). Fase 2 (de kalender) gebouwd op 2026-10-15. Nog te doen: het inhaken (fase 3), leren (fase 4).** Dit is een nazicht van de module
 `/nieuwsbrieven` zoals ze op 15 oktober 2026 staat, met wat ik zou verbeteren
 en in welke volgorde. Het ontwerp waarop de module gebouwd is:
 `docs/ontwerp-om-nieuwsbrieven.md`. De afspraken die vastliggen: CLAUDE.md,
