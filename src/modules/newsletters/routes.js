@@ -34,7 +34,9 @@ import { listSnippets, getSnippet, getSnippetImage, listTaxonomy } from '../cont
 import { hostBerichtBeeld, kaartjeVanBericht } from './lib/berichten.js';
 import { bedenkLabel } from '../content-feed/lib/article-ai.js';
 import { serializeAiError, httpStatusForAiError } from '../mini-apps/lib/ai-errors.js';
-import { sendSystemChannelMessage } from '../mini-apps/lib/chat.js';
+import { sendSystemChannelMessage, listChannels } from '../mini-apps/lib/chat.js';
+import { searchRead } from '../../lib/odoo.js';
+import { checklist } from './lib/checklist.js';
 
 function json(body, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -446,10 +448,15 @@ export const routes = {
       if (edition.odoo_mailing_id && edition.status === EDITION_STATUS.SENT) {
         stats = await leesCijfers(env, edition.odoo_mailing_id).catch(() => stats);
       }
+      // De checklist "klaar om te verzenden?": dezelfde als bij het inplannen.
+      const tokenVeld = isActiveEdition(edition) && items.some((i) => KINDS[i.kind]?.interactive)
+        ? await tokenVeldBestaat(env).catch(() => false) : true;
+      const lijst = checklist({ series, edition, items, ctx: { events: [{ id: 0 }] }, tokenVeld, env });
       return json({
         success: true,
         data: {
           edition: { ...edition, stats },
+          checklist: lijst,
           series: { ...series, is_editor: isEditorVan(user, series) },
           items: items.map((i) => ({
             ...i,
@@ -699,15 +706,17 @@ export const routes = {
       if (!isActiveEdition(edition) || edition.status === EDITION_STATUS.SCHEDULED) {
         throw new NewsletterError('Deze editie is al ingepland, verstuurd of geannuleerd.', 409);
       }
-      if (!edition.subject) throw new NewsletterError('Geef de editie eerst een onderwerp.');
       const v = await verzamel(env, series, edition, { png: true });
-      const nietKlaar = v.items.filter((i) => !KINDS[i.kind]?.auto && heeftInhoud(i, v.ctx) && i.status !== CONTRIBUTION_STATUS.APPROVED);
-      if (nietKlaar.length) {
-        throw new NewsletterError(`Nog niet goedgekeurd: ${nietKlaar.map((i) => i.title).join(', ')}.`, 409);
+      const tokenVeld = await tokenVeldBestaat(env);
+      // Dezelfde checklist als in het scherm: wat daar rood staat, houdt hier tegen.
+      const lijst = checklist({ series, edition, items: v.items, ctx: v.ctx, tokenVeld, env });
+      const tegen = lijst.items.filter((p) => p.blokkeert && !p.ok);
+      if (tegen.length) {
+        throw new NewsletterError(`Nog niet klaar om te verzenden: ${tegen.map((p) => p.label + (p.uitleg ? ` (${p.uitleg})` : '')).join('; ')}.`, 409);
       }
       const { html } = renderEdition({
         series, edition, items: v.items, mode: 'live',
-        ctx: { ...v.ctx, answerLink: antwoordLinks(series, 'live', await tokenVeldBestaat(env)) },
+        ctx: { ...v.ctx, answerLink: antwoordLinks(series, 'live', tokenVeld) },
       });
       // Een beeld dat niet op onze opslag kan, zou bij de lezer gebroken zijn:
       // dan niet inplannen.
@@ -745,9 +754,17 @@ export const routes = {
           anonymous: eigen.filter((r) => !r.verified).length,
         };
       });
+      // Staat de koppeling aan? Zo niet, dan is "doorgezet" enkel bewaard, niets in Odoo.
+      let actieveKoppeling = false;
+      if (series.answers_integration_id) {
+        try {
+          const k = (await listIntegrations(env)).find((x) => x.id === series.answers_integration_id);
+          actieveKoppeling = Boolean(k?.is_active);
+        } catch { /* dan onbekend */ }
+      }
       return json({
         success: true,
-        data: { questions: vragen, answers: rijen, integration_id: series.answers_integration_id || null },
+        data: { questions: vragen, answers: rijen, integration_id: series.answers_integration_id || null, integration_active: actieveKoppeling },
       });
     } catch (err) { return fout(err); }
   },
@@ -829,7 +846,7 @@ export const routes = {
       const bij = await updateContribution(env, item.id, w);
       const wie = user.full_name || user.email;
       const tekst = doel === CONTRIBUTION_STATUS.SUBMITTED ? `${wie} leverde "${item.title}" in`
-        : doel === CONTRIBUTION_STATUS.APPROVED ? `${wie} keurde "${item.title}" goed`
+        : doel === CONTRIBUTION_STATUS.APPROVED ? `${wie} bevestigde "${item.title}"`
           : `"${item.title}" terug naar de schrijver`;
       if (edition) {
         await logActivity(env, { editionId: edition.id, contributionId: item.id, userId: user.id, kind: doel, text: tekst });
@@ -1171,6 +1188,29 @@ export const routes = {
       await env.R2_ASSETS.put(key, bytes, { httpMetadata: { contentType: 'image/png' } });
       vergeetTekeningen();
       return json({ success: true, data: { png: `/assets/${key}` } });
+    } catch (err) { return fout(err); }
+  },
+
+  /**
+   * De Odoo-lijsten (mailing.list) met hun aantal contacten, voor de
+   * keuzelijst bij een reeks: niemand typt nog nummers over.
+   */
+  'GET /api/mailing-lists': async ({ env }) => {
+    try {
+      let rijen;
+      try {
+        rijen = await searchRead(env, { model: 'mailing.list', domain: [['active', '=', true]], fields: ['id', 'name', 'contact_count'], limit: 100, order: 'name asc' });
+      } catch {
+        rijen = await searchRead(env, { model: 'mailing.list', domain: [['active', '=', true]], fields: ['id', 'name'], limit: 100, order: 'name asc' });
+      }
+      return json({ success: true, data: (rijen || []).map((r) => ({ id: r.id, name: r.name, contacts: Number.isFinite(Number(r.contact_count)) ? Number(r.contact_count) : null })) });
+    } catch (err) { return fout(err); }
+  },
+
+  /** De chatkanalen uit het kanaalregister (Mini-apps), enkel naam. */
+  'GET /api/chat-channels': async ({ env }) => {
+    try {
+      return json({ success: true, data: (await listChannels(env)).map((k) => ({ id: k.id, name: k.name })) });
     } catch (err) { return fout(err); }
   },
 

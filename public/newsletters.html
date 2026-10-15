@@ -18,11 +18,37 @@
     .nb-teller { font-variant-numeric: tabular-nums; }
     .nb-balk { display: flex; gap: 3px; }
     .nb-balk > span { flex: 1; height: 8px; border-radius: 3px; }
-    .nb-voorbeeld { width: 100%; border: 0; border-radius: 12px; min-height: 600px; background: #fff; }
-    .nb-kaart-actief { outline: 2px solid oklch(var(--p)); outline-offset: 1px; }
-    .nb-sjabloon { cursor: grab; }
-    .nb-sjabloon:active { cursor: grabbing; }
+    .nb-voorbeeld { width: 100%; border: 0; border-radius: 12px; min-height: 400px; background: #fff; display: block; }
     .nb-toast { position: fixed; right: 1rem; bottom: 1rem; z-index: 1000; display: flex; flex-direction: column; gap: .5rem; }
+
+    /* De redactietafel vult het scherm: één vaste kop, links de brief in een
+       eigen vak dat scrolt, rechts de regie in een eigen vak dat scrolt. De
+       pagina zelf scrolt niet meer: elk vak heeft precies één scrollbar. */
+    body.nb-werk { overflow: hidden; }
+    body.nb-werk #nbBanner { display: none; }
+    body.nb-werk main { max-width: none; padding: 0; padding-top: 48px !important; height: 100vh; box-sizing: border-box; }
+    .nb-werkvenster { height: calc(100vh - 48px); display: flex; flex-direction: column; min-height: 0; }
+    .nb-kop { flex: none; background: oklch(var(--b1)); border-bottom: 1px solid oklch(var(--bc) / .1); padding: .6rem 1.25rem; display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1.25rem; }
+    .nb-werkvlak { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 420px; }
+    .nb-briefvak { overflow-y: auto; overflow-x: hidden; padding: 1.25rem 1.25rem 4rem; scroll-behavior: smooth; }
+    .nb-briefkader { margin: 0 auto; max-width: 700px; transition: max-width .2s; }
+    .nb-briefkader.nb-gsm { max-width: 375px; }
+    .nb-regie { overflow-y: auto; border-left: 1px solid oklch(var(--bc) / .1); background: oklch(var(--b2)); padding: 1rem; }
+    .nb-regie-klein .card-body { padding: 1rem; }
+    .nb-stappen { display: flex; align-items: center; gap: .25rem; font-size: .75rem; }
+    .nb-stap { display: flex; align-items: center; gap: .3rem; padding: .25rem .6rem; border-radius: 999px; white-space: nowrap; color: oklch(var(--bc) / .55); }
+    .nb-stap-klaar { color: oklch(var(--su)); }
+    .nb-stap-nu { background: oklch(var(--p) / .12); color: oklch(var(--p)); font-weight: 600; }
+    .nb-stap + .nb-stap::before { content: ''; }
+    .nb-pijl { opacity: .3; }
+    @media (max-width: 1023px) {
+      body.nb-werk { overflow: auto; }
+      body.nb-werk main { height: auto; }
+      .nb-werkvenster { height: auto; }
+      .nb-werkvlak { display: block; }
+      .nb-briefvak, .nb-regie { overflow: visible; }
+      .nb-regie { border-left: 0; border-top: 1px solid oklch(var(--bc) / .1); }
+    }
   </style>
 </head>
 <body class="bg-base-200 min-h-screen">
@@ -36,11 +62,11 @@
     </div>
   </main>
 
-  <!-- Idee in de voorraad -->
+  <!-- Idee in de voorraad (nieuw of aanpassen) -->
   <dialog id="dlgIdee" class="modal">
     <div class="modal-box max-w-lg">
-      <h3 class="font-bold text-lg mb-1">Idee voor de nieuwsbrief</h3>
-      <p class="text-sm opacity-70 mb-4">Iets wat je hoorde, zag of leerde. Het komt in de voorraad, en de hoofdredactie neemt het op in een editie.</p>
+      <h3 id="ideeKop" class="font-bold text-lg mb-1">Idee voor de nieuwsbrief</h3>
+      <p class="text-sm opacity-70 mb-4">Iets wat je hoorde, zag of leerde. Een titel en een paar steekwoorden volstaan: het komt in de voorraad, en de hoofdredactie neemt het op in een editie. Het echte schrijven doe je dan in de brief.</p>
       <div class="space-y-3">
         <label class="form-control">
           <span class="label-text mb-1">Titel</span>
@@ -56,8 +82,8 @@
         </div>
       </div>
       <div class="modal-action">
-        <button class="btn btn-ghost" data-action="sluit-dialoog" data-dialoog="dlgIdee">Annuleren</button>
-        <button class="btn btn-primary" data-action="bewaar-idee">In de voorraad</button>
+        <button class="btn btn-primary btn-sm" data-action="bewaar-idee">In de voorraad</button>
+        <button class="btn btn-ghost btn-sm" data-action="sluit-dialoog" data-dialoog="dlgIdee">Annuleren</button>
       </div>
     </div>
     <form method="dialog" class="modal-backdrop"><button>sluiten</button></form>
@@ -67,14 +93,14 @@
   <dialog id="dlgEditie" class="modal">
     <div class="modal-box max-w-md">
       <h3 class="font-bold text-lg mb-1">Nieuwe editie</h3>
-      <p class="text-sm opacity-70 mb-4">De inleverdatum valt vanzelf een paar werkdagen ervoor. Elke rubriek krijgt meteen een opdracht bij haar eigenaar.</p>
+      <p class="text-sm opacity-70 mb-4">De inleverdatum valt vanzelf een paar werkdagen voor de verzenddag. Elke rubriek krijgt meteen een opdracht bij haar eigenaar.</p>
       <label class="form-control">
         <span class="label-text mb-1">Verzenddag</span>
         <input id="editieDatum" type="date" class="input input-bordered">
       </label>
       <div class="modal-action">
-        <button class="btn btn-ghost" data-action="sluit-dialoog" data-dialoog="dlgEditie">Annuleren</button>
-        <button class="btn btn-primary" data-action="maak-editie">Aanmaken</button>
+        <button class="btn btn-primary btn-sm" data-action="maak-editie">Aanmaken</button>
+        <button class="btn btn-ghost btn-sm" data-action="sluit-dialoog" data-dialoog="dlgEditie">Annuleren</button>
       </div>
     </div>
     <form method="dialog" class="modal-backdrop"><button>sluiten</button></form>
@@ -90,10 +116,35 @@
         <input id="inplannenBevestig" type="text" class="input input-bordered" autocomplete="off">
       </label>
       <div class="modal-action">
-        <button class="btn btn-ghost" data-action="sluit-dialoog" data-dialoog="dlgInplannen">Annuleren</button>
-        <button class="btn btn-error" data-action="bevestig-inplannen">Inplannen</button>
+        <button class="btn btn-error btn-sm" data-action="bevestig-inplannen">Inplannen</button>
+        <button class="btn btn-ghost btn-sm" data-action="sluit-dialoog" data-dialoog="dlgInplannen">Annuleren</button>
       </div>
     </div>
+    <form method="dialog" class="modal-backdrop"><button>sluiten</button></form>
+  </dialog>
+
+  <!-- Iets toevoegen aan de brief (vanuit de "+"-lijn tussen twee blokken) -->
+  <dialog id="dlgToevoegen" class="modal">
+    <div id="dlgToevoegenInhoud" class="modal-box max-w-2xl"></div>
+    <form method="dialog" class="modal-backdrop"><button>sluiten</button></form>
+  </dialog>
+
+  <!-- Even bevestigen (geen window.confirm) -->
+  <dialog id="dlgBevestig" class="modal">
+    <div class="modal-box max-w-md">
+      <h3 id="bevestigKop" class="font-bold text-lg mb-2"></h3>
+      <p id="bevestigTekst" class="text-sm"></p>
+      <div class="modal-action">
+        <button id="bevestigJa" class="btn btn-sm btn-error" data-action="bevestig-ja">Ja</button>
+        <button class="btn btn-ghost btn-sm" data-action="bevestig-nee">Annuleren</button>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button data-action="bevestig-nee">sluiten</button></form>
+  </dialog>
+
+  <!-- De antwoorden op de vragen in de mail -->
+  <dialog id="dlgAntwoorden" class="modal">
+    <div id="dlgAntwoordenInhoud" class="modal-box max-w-5xl"></div>
     <form method="dialog" class="modal-backdrop"><button>sluiten</button></form>
   </dialog>
 
