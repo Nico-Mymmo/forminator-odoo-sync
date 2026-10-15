@@ -395,6 +395,15 @@ Uitzetten per site: `define('MYMMO_CARDS_GEEN_AUTO_UPDATE', true);` in
 
 ## Versies
 
+**1.13.2** — de kostencalculator kan een wit vak krijgen. Het palet van het
+thema heeft geen wit, dus onder **Uitzicht** staat nu eerst **Achtergrond van
+de calculator**: grijs (zoals voorheen, de standaard) of wit, de kleur van de
+pagina uit de huisstijl. Een kleur uit het palet kan nog altijd en gaat voor.
+
+Ook: de terugval voor de grootte van het totaal uit 1.13.1 geldt nu enkel als
+het thema geen maat geeft. Met twee klassen won die regel van de maat van het
+thema, waardoor €300 net klein bleef.
+
 **1.13.1** — het totaal van de kostencalculator staat weer groot. Op een
 site waar het thema geen eigen lettergroottes doorgeeft, kreeg €300 geen klasse
 en stond het even groot als de tekst ernaast. Nu valt het terug op de maten die

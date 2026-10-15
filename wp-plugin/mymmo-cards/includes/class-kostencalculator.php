@@ -41,6 +41,21 @@ final class Mymmo_Cards_Kostencalculator {
     public const MIN = 2;
     public const MAX = 200;
 
+    /**
+     * Het vlak van de calculator, als gesloten lijst. Wit staat bewust los van
+     * het palet: het palet van het thema heeft geen wit, en op een pagina met
+     * een gekleurde achtergrond is een wit vak de gewone keuze. Wit is de
+     * kleur van de pagina uit de huisstijl.
+     *
+     * @return array<string,string>
+     */
+    public static function vlakken(): array {
+        return [
+            'grijs' => 'Grijs (het vlak van de huisstijl)',
+            'wit'   => 'Wit',
+        ];
+    }
+
     public static function init(): void {
         add_action('init', [self::class, 'register']);
         add_action('enqueue_block_assets', [self::class, 'assets']);
@@ -68,6 +83,7 @@ final class Mymmo_Cards_Kostencalculator {
 
         wp_localize_script('mymmo-kostencalculator-editor', 'MymmoKostencalculator', [
             'opvullingen' => self::keuzes(mymmo_cards_opvullingen()),
+            'vlakken'     => self::keuzes(self::vlakken()),
             'groottes'    => Mymmo_Cards_Stappen::lettergroottes(),
             'min'         => self::MIN,
             'max'         => self::MAX,
@@ -99,7 +115,9 @@ final class Mymmo_Cards_Kostencalculator {
             'kavels'        => ['type' => 'number', 'default' => 4],
             // Een lettergrootte van het thema (slug). Leeg = de grootste.
             'totaalGrootte' => ['type' => 'string', 'default' => ''],
-            // Een kleur uit het palet (slug). Leeg = het vlak van de huisstijl.
+            // Grijs of wit; een kleur uit het palet hieronder gaat voor.
+            'vlak'          => ['type' => 'string', 'default' => 'grijs'],
+            // Een kleur uit het palet (slug). Leeg = het vlak hierboven.
             'achtergrond'   => ['type' => 'string', 'default' => ''],
             'opvulling'     => ['type' => 'string', 'default' => 'normaal'],
         ];
@@ -130,7 +148,9 @@ final class Mymmo_Cards_Kostencalculator {
         $opvulling = mymmo_cards_keuze((string) ($attrs['opvulling'] ?? ''), mymmo_cards_opvullingen(), 'normaal');
         $intro     = mymmo_cards_heeft_inhoud($content);
 
-        $klassen = ['mymmo-kosten', 'mymmo-kosten--pad-' . $opvulling];
+        $vlak      = mymmo_cards_keuze((string) ($attrs['vlak'] ?? ''), self::vlakken(), 'grijs');
+
+        $klassen = ['mymmo-kosten', 'mymmo-kosten--pad-' . $opvulling, 'mymmo-kosten--vlak-' . $vlak];
         if ($intro) {
             $klassen[] = 'mymmo-kosten--met-tekst';
         }

@@ -1,8 +1,8 @@
 {
   "plugin": "mymmo-cards",
-  "versie": "1.13.1",
-  "hash": "c08720c29e1f7d16",
-  "datum": "2026-10-15T12:24:12.000Z",
+  "versie": "1.13.2",
+  "hash": "1fe6821242042c9c",
+  "datum": "2026-10-15T12:29:40.000Z",
   "door": "Claude",
-  "samenvatting": "Kostencalculator 1.13.1: enkel een terugval voor de grootte van het totaal via de presetvariabelen van WordPress (xx-large, x-large, large). Geen nieuwe kleur, rand of maat; de klasse van het thema wint nog altijd waar ze bestaat."
+  "samenvatting": "Kostencalculator 1.13.2: keuze grijs of wit voor het vak (wit = --mymmo-kleur-pagina, gesloten lijst, palet gaat voor) en de terugval voor de grootte van het totaal enkel zonder klasse van het thema. Bekeken op 375, 768 en 1280 px op een gekleurde sectie; teller blijft zichtbaar op wit door de lijn."
 }
