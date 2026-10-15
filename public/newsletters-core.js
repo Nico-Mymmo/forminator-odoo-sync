@@ -147,6 +147,12 @@
     return k ? k.label : kind;
   };
 
+  /** De naam van een blok in de lijsten; een tekstblok zonder labeltje heet naar zijn titel of soort. */
+  NB.blokNaam = function (it) {
+    if (!it) return '';
+    return String(it.title || '').trim() || String(it.heading || (it.content && it.content.title) || '').trim() || NB.soort(it.kind);
+  };
+
   NB.isAuto = function (kind) {
     var k = NB.state.boot && NB.state.boot.kinds && NB.state.boot.kinds[kind];
     return Boolean(k && k.auto);

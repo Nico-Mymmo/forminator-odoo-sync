@@ -12,7 +12,7 @@
     var dringend = deadline && NB.teller(deadline).d < 3;
     return '<a href="#/stukje/' + e(m.id) + '" class="card bg-base-100 border border-base-content/10 hover:border-primary/40 transition-colors">'
       + '<div class="card-body p-4 gap-1">'
-      + '<div class="flex items-center justify-between gap-2"><span class="font-semibold">' + e(m.title) + '</span>' + NB.statusBadge(m.status) + '</div>'
+      + '<div class="flex items-center justify-between gap-2"><span class="font-semibold">' + e(NB.blokNaam(m)) + '</span>' + NB.statusBadge(m.status) + '</div>'
       + '<div class="text-sm opacity-70">' + e(m.series_name) + (m.edition ? ' · ' + e(m.edition.title) : '') + '</div>'
       + (deadline ? '<div class="text-sm ' + (dringend ? 'text-warning font-semibold' : 'opacity-70') + '">Inleveren ' + e(NB.datum(deadline)) + ' · ' + e(NB.tellerTekst(deadline)) + '</div>' : '')
       + '</div></a>';
@@ -56,7 +56,7 @@
     var magWeg = p.owner_user_id === boot.me.id || boot.me.is_editor;
     return '<div class="flex items-center gap-3 py-2 border-b border-base-content/10 last:border-0">'
       + NB.gezicht(p.owner_name)
-      + '<div class="flex-1 min-w-0"><a class="font-medium hover:underline" href="#/stukje/' + e(p.id) + '">' + e(p.title) + '</a>'
+      + '<div class="flex-1 min-w-0"><a class="font-medium hover:underline" href="#/stukje/' + e(p.id) + '">' + e(NB.blokNaam(p)) + '</a>'
       + '<div class="text-xs opacity-60">' + e(p.owner_name || '') + (reeksen.length ? ' · voor ' + e(reeksen.join(', ')) : '') + '</div></div>'
       + (magWeg ? '<button class="btn btn-ghost btn-xs" data-action="verwijder-stukje" data-id="' + e(p.id) + '" data-terug="#/" aria-label="Verwijderen"><i data-lucide="trash-2" class="w-4 h-4"></i></button>' : '')
       + '</div>';

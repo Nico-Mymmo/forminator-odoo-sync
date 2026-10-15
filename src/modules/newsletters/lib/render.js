@@ -383,10 +383,20 @@ function blokArticle(item, ctx, id) {
     ? `<h2 data-nb-veld="title" data-placeholder="Typ hier een titel" style="margin:14px 0 12px;font-family:${S.fontHead};font-weight:400;font-size:28px;line-height:1.15;color:${S.heading}">${esc(c.title || '')}</h2>`
     : kop(c.title);
   const lijf = id
-    ? `<div data-nb-veld="text" data-placeholder="Typ hier je tekst." style="font-family:${S.fontBody};font-size:16px;line-height:1.6;color:${S.text}">${tekstHtml}</div>`
+    ? `<div data-nb-veld="text" data-placeholder="Typ hier je tekst. Een lege regel = een nieuwe alinea." style="font-family:${S.fontBody};font-size:16px;line-height:1.6;color:${S.text}">${tekstHtml}</div>`
     : tekstHtml;
-  const tekst = `${titel}${lijf}${c.link_url ? `<div style="margin-top:18px">${leesLink(c.link_label, c.link_url)}</div>` : ''}`;
-  return schikBeeld({ b, ctx, id, inhoud: `${pil(item.title, S.pink50, S.pink700)}${tekst}${byline(item.author)}`, padding: '44px 40px 4px' });
+  // Optioneel: een subtitel onder de titel. In het voorbeeld enkel zichtbaar
+  // als ze er staat of als het blok gekozen is (`data-nb-optioneel`).
+  const subStijl = `margin:-4px 0 14px;font-family:${S.fontBody};font-size:18px;font-weight:600;line-height:1.4;color:${S.headingSoft}`;
+  const sub = id
+    ? `<div data-nb-veld="subtitle" data-nb-optioneel="1" data-placeholder="Subtitel (optioneel)" style="${subStijl}">${esc(c.subtitle || '')}</div>`
+    : String(c.subtitle || '').trim() ? `<div style="${subStijl}">${esc(c.subtitle)}</div>` : '';
+  // Het labeltje (naam van het blok) is ook optioneel en typ je in de brief.
+  const labeltje = id
+    ? `<div style="line-height:1"><span data-nb-veld="@title" data-nb-optioneel="1" data-placeholder="Label (optioneel)" style="display:inline-block;font-family:${S.fontBody};font-size:12px;font-weight:700;letter-spacing:0.02em;padding:5px 12px;border-radius:999px;background-color:${S.pink50};color:${S.pink700}">${esc(item.title || '')}</span></div>`
+    : pil(item.title, S.pink50, S.pink700);
+  const tekst = `${titel}${sub}${lijf}${c.link_url ? `<div style="margin-top:18px">${leesLink(c.link_label, c.link_url)}</div>` : ''}`;
+  return schikBeeld({ b, ctx, id, inhoud: `${labeltje}${tekst}${byline(item.author)}`, padding: '44px 40px 4px' });
 }
 
 /**
@@ -634,7 +644,7 @@ ${n.note ? `<div style="font-family:${S.fontBody};font-size:14px;line-height:1.5
   }
   const kopTekst = String(c.heading || '');
   const kopHtml = id
-    ? `<h2 data-nb-veld="heading" data-placeholder="Een kop (optioneel)" style="margin:14px 0 18px;font-family:${S.fontHead};font-weight:400;font-size:28px;line-height:1.15;color:${S.heading}">${esc(kopTekst)}</h2>`
+    ? `<h2 data-nb-veld="heading" data-nb-optioneel="1" data-placeholder="Een kop (optioneel)" style="margin:14px 0 18px;font-family:${S.fontHead};font-weight:400;font-size:28px;line-height:1.15;color:${S.heading}">${esc(kopTekst)}</h2>`
     : kopTekst.trim() ? kop(kopTekst, { margin: '14px 0 18px' }) : '<div style="height:16px;line-height:16px;font-size:0">&nbsp;</div>';
   const leeg = id && !lijst.length
     ? `<div style="border:2px dashed #d1d5db;border-radius:14px;padding:18px 20px;font-family:${S.fontBody};font-size:14px;color:${S.muted}">Kies rechts twee of drie berichten uit Nieuws &amp; updates.</div>`
@@ -653,7 +663,7 @@ function blokHeading(item, ctx, id) {
     ? `<h2 data-nb-veld="title" data-placeholder="Typ hier de titel" style="margin:0;font-family:${S.fontHead};font-weight:400;font-size:34px;line-height:1.15;color:${S.heading}">${esc(c.title || '')}</h2>`
     : kop(c.title, { size: 34, margin: '0' });
   const sub = id
-    ? `<div data-nb-veld="text" data-placeholder="Een zinnetje erbij (optioneel)" style="font-family:${S.fontBody};font-size:16px;line-height:1.55;color:${S.muted};margin-top:10px">${esc(c.text || '')}</div>`
+    ? `<div data-nb-veld="text" data-nb-optioneel="1" data-placeholder="Een zinnetje erbij (optioneel)" style="font-family:${S.fontBody};font-size:16px;line-height:1.55;color:${S.muted};margin-top:10px">${esc(c.text || '')}</div>`
     : String(c.text || '').trim() ? `<div style="font-family:${S.fontBody};font-size:16px;line-height:1.55;color:${S.muted};margin-top:10px">${esc(c.text)}</div>` : '';
   return rij(`<div style="width:44px;height:4px;border-radius:2px;background-color:${S.mint};margin-bottom:16px;font-size:0;line-height:0">&nbsp;</div>${titel}${sub}`, { padding: '52px 40px 0', id });
 }

@@ -224,7 +224,7 @@ function inhoudPerSoort(kind, c = {}) {
       };
     case 'article':
       return {
-        title: kort(c.title, 160), text: kort(c.text, 4000), image_url: url(c.image_url), image_alt: kort(c.image_alt, 160),
+        title: kort(c.title, 160), subtitle: kort(c.subtitle, 200), text: kort(c.text, 4000), image_url: url(c.image_url), image_alt: kort(c.image_alt, 160),
         thingie: /^[a-z0-9-]{1,60}$/.test(String(c.thingie || '')) ? c.thingie : '',
         link_url: url(c.link_url), link_label: kort(c.link_label, 60),
         beeld: normaliseerBeeld(c.beeld),
@@ -616,7 +616,8 @@ export const routes = {
         section_key: '',
         position: positie,
         kind,
-        title: kort(b.title, 120) || KINDS[kind].label,
+        // Een leeg labeltje mag (een gewoon tekstblok heeft er geen); geen titel = de soort.
+        title: b.title === '' ? '' : kort(b.title, 120) || KINDS[kind].label,
         content: normaliseerInhoud(kind, b.content || {}),
         owner_user_id: eigenaar,
         // Een titel zet de hoofdredactie zelf: dat is opmaak, niets om nog te bevestigen.

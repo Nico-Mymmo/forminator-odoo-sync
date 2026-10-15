@@ -26,18 +26,30 @@
    * mail en mag nadien nog wijzigen.
    */
   var SJABLONEN = [
-    { key: 'titel', kind: 'heading', naam: 'Titel', titel: 'Titel', icoon: 'heading', uitleg: 'Een titel boven een reeks blokken; komt in de inhoudstafel.', enkelRedactie: true },
-    { key: 'vooraf', kind: 'intro', titel: 'Woordje vooraf', icoon: 'hand-heart', uitleg: 'Een korte inleiding bovenaan, ondertekend met foto.' },
-    // EEN vraagblok: korte vraag, stelling of keuze kies je daarna in de brief zelf.
-    { key: 'vraag', kind: 'question', naam: 'Vraag aan de lezer', titel: 'Korte vraag', icoon: 'message-circle-question', uitleg: 'Een vraag, stelling of keuze; lezers antwoorden met één klik.' },
-    { key: 'kortnieuws', kind: 'news', naam: 'Kort nieuws', titel: 'Kort nieuws', icoon: 'newspaper', uitleg: 'Twee of drie kleinere berichten uit Nieuws & updates, naast elkaar.', inhoud: { vorm: 'kolommen', heading: '' } },
-    { key: 'bericht', kind: 'snippet', titel: 'Interessant voor jou', icoon: 'rss', uitleg: 'Een bericht uit Nieuws & updates, meteen ingevuld.' },
-    { key: 'linkedin', kind: 'linkedin', titel: 'Op LinkedIn', icoon: 'share-2', uitleg: 'Een post die het delen waard is.' },
-    { key: 'tekst', kind: 'article', titel: 'Uit het team', icoon: 'file-text', uitleg: 'Een kort verhaal, met foto of tekening.' },
-    { key: 'tip', kind: 'article', titel: 'Tip', icoon: 'lightbulb', uitleg: 'Eén tip die tijd bespaart.' },
-    { key: 'citaat', kind: 'quote', titel: 'Uit de praktijk', icoon: 'quote', uitleg: 'Wat een klant of collega zei.' },
-    { key: 'afbeelding', kind: 'image', titel: 'Afbeelding', icoon: 'image', uitleg: 'Een beeld over de hele breedte van de mail.' },
-    { key: 'video', kind: 'video', titel: 'Video', icoon: 'circle-play', uitleg: 'Een filmpje, met een stilstaand beeld.' },
+    // Opbouw van de brief
+    { key: 'titel', groep: 'opbouw', kind: 'heading', naam: 'Titel', titel: 'Titel', icoon: 'heading', uitleg: 'Een kop boven een reeks blokken; komt in de inhoudstafel.', enkelRedactie: true },
+    { key: 'vooraf', groep: 'opbouw', kind: 'intro', naam: 'Woordje vooraf', titel: 'Woordje vooraf', icoon: 'hand-heart', uitleg: 'Een korte inleiding bovenaan, ondertekend met foto.' },
+    { key: 'tekstblok', groep: 'opbouw', kind: 'article', naam: 'Tekstblok', titel: '', icoon: 'align-left', uitleg: 'Titel, subtitel, alinea\'s en een beeld.' },
+    // Uit Nieuws & updates
+    { key: 'bericht', groep: 'nieuws', kind: 'snippet', naam: 'Eén bericht', titel: 'Interessant voor jou', icoon: 'rss', uitleg: 'Een bericht uit Nieuws & updates, groot in beeld.' },
+    { key: 'kortnieuws', groep: 'nieuws', kind: 'news', naam: 'Kort nieuws', titel: 'Kort nieuws', icoon: 'newspaper', uitleg: 'Twee of drie kleinere berichten naast elkaar.', inhoud: { vorm: 'kolommen', heading: '' } },
+    // De lezer laten reageren. EEN vraagblok: de soort kies je daarna in de brief.
+    { key: 'vraag', groep: 'lezer', kind: 'question', naam: 'Vraag aan de lezer', titel: 'Korte vraag', icoon: 'message-circle-question', uitleg: 'Een vraag, stelling of keuze; antwoorden met één klik.' },
+    // Verhalen (een tekstblok met een vast labeltje, of een citaat)
+    { key: 'tekst', groep: 'verhaal', kind: 'article', naam: 'Uit het team', titel: 'Uit het team', icoon: 'users', uitleg: 'Een kort verhaal, met foto of tekening.' },
+    { key: 'tip', groep: 'verhaal', kind: 'article', naam: 'Tip', titel: 'Tip', icoon: 'lightbulb', uitleg: 'Eén tip die tijd bespaart.' },
+    { key: 'citaat', groep: 'verhaal', kind: 'quote', naam: 'Uit de praktijk', titel: 'Uit de praktijk', icoon: 'quote', uitleg: 'Wat een klant of collega zei.' },
+    // Beeld en media
+    { key: 'afbeelding', groep: 'media', kind: 'image', naam: 'Afbeelding', titel: 'Afbeelding', icoon: 'image', uitleg: 'Een beeld over de hele breedte van de mail.' },
+    { key: 'video', groep: 'media', kind: 'video', naam: 'Video', titel: 'Video', icoon: 'circle-play', uitleg: 'Een filmpje, met een stilstaand beeld.' },
+    { key: 'linkedin', groep: 'media', kind: 'linkedin', naam: 'Op LinkedIn', titel: 'Op LinkedIn', icoon: 'share-2', uitleg: 'Een post die het delen waard is.' },
+  ];
+  var GROEPEN = [
+    { key: 'opbouw', naam: 'Opbouw' },
+    { key: 'nieuws', naam: 'Uit Nieuws & updates' },
+    { key: 'lezer', naam: 'De lezer laten reageren' },
+    { key: 'verhaal', naam: 'Verhalen' },
+    { key: 'media', naam: 'Beeld en media' },
   ];
   var SJ = {};
   SJABLONEN.forEach(function (s) { SJ[s.key] = s; });
@@ -89,7 +101,7 @@
   function blokRij(it, rechts) {
     return '<div class="flex items-center gap-2 py-1.5 border-b border-base-content/10 last:border-0">'
       + '<button class="flex-1 min-w-0 text-left hover:text-primary" data-action="kies-blok" data-id="' + e(it.id) + '">'
-      + '<div class="text-sm font-medium truncate">' + e(it.title) + '</div>'
+      + '<div class="text-sm font-medium truncate">' + e(NB.blokNaam(it)) + '</div>'
       + '<div class="text-xs opacity-60 truncate">' + e(it.heading && it.heading !== it.title ? it.heading : NB.soort(it.kind)) + '</div></button>'
       + (rechts || NB.statusBadge(it.status)) + '</div>';
   }
@@ -109,14 +121,21 @@
 
   function toevoegen() {
     if (!actief()) return '';
-    var lijst = SJABLONEN.filter(function (s) { return !s.enkelRedactie || d().series.is_editor; }).map(function (s) {
-      return '<button class="nb-sjabloon text-left rounded-xl border border-base-content/10 hover:border-primary/50 hover:bg-primary/5 p-2.5 flex gap-2 items-start" draggable="true" data-action="sjabloon" data-sjabloon="' + s.key + '">'
-        + '<i data-lucide="' + s.icoon + '" class="w-4 h-4 mt-0.5 text-primary shrink-0"></i>'
-        + '<span class="min-w-0"><span class="block text-sm font-medium">' + e(s.naam || s.titel) + '</span><span class="block text-xs opacity-60 leading-snug">' + e(s.uitleg) + '</span></span></button>';
+    var zichtbaar = SJABLONEN.filter(function (s) { return !s.enkelRedactie || d().series.is_editor; });
+    var tegel = function (s) {
+      return '<button class="nb-sjabloon text-left rounded-lg border border-base-content/10 hover:border-primary/50 hover:bg-primary/5 px-2.5 py-2 flex gap-2 items-center min-w-0" draggable="true" data-action="sjabloon" data-sjabloon="' + s.key + '" title="' + e(s.uitleg) + '">'
+        + '<i data-lucide="' + s.icoon + '" class="w-4 h-4 text-primary shrink-0"></i>'
+        + '<span class="min-w-0"><span class="block text-sm font-medium leading-tight truncate">' + e(s.naam || s.titel) + '</span><span class="block text-[11px] opacity-60 leading-tight truncate">' + e(s.uitleg) + '</span></span></button>';
+    };
+    var groepen = GROEPEN.map(function (g) {
+      var lijst = zichtbaar.filter(function (s) { return s.groep === g.key; });
+      if (!lijst.length) return '';
+      return '<div><div class="text-[11px] font-semibold uppercase tracking-wide opacity-50 mb-1.5">' + e(g.naam) + '</div>'
+        + '<div class="grid grid-cols-2 gap-1.5">' + lijst.map(tegel).join('') + '</div></div>';
     }).join('');
     return kaart('<h3 class="font-semibold flex items-center gap-2"><i data-lucide="plus" class="w-4 h-4"></i> Iets toevoegen</h3>'
-      + '<p class="text-sm opacity-70">Sleep een blokje naar de brief, of klik erop en kies daarna de plek. Marketing bevestigt het nog; tot dan staat het als onbevestigd in de brief.</p>'
-      + '<div class="grid grid-cols-2 gap-2 mt-1">' + lijst + '</div>');
+      + '<p class="text-xs opacity-60 -mt-1">Sleep een blok naar de brief, of klik en kies de plek.</p>'
+      + '<div class="flex flex-col gap-3 mt-1">' + groepen + '</div>');
   }
 
   function teBevestigen() {
@@ -327,6 +346,10 @@
     + '.nb-plek:hover div,.nb-plek.nb-over div{background:#0284c7;border-color:#0284c7;color:#fff}'
     // Typen in de brief (het woordje vooraf)
     + '[data-nb-veld]:empty::before{content:attr(data-placeholder);color:#9ca3af;font-style:italic}'
+    // Optionele velden (subtitel, labeltje): leeg enkel zichtbaar in het gekozen blok.
+    + '[data-nb-optioneel]:empty{display:none!important}'
+    + '.nb-gekozen [data-nb-optioneel]:empty{display:block!important}'
+    + '.nb-gekozen span[data-nb-optioneel]:empty{display:inline-block!important}'
     + '[data-nb-veld][contenteditable]{outline:none;border-radius:6px;cursor:text;transition:box-shadow .15s}'
     + '[data-nb-veld][contenteditable]:hover{box-shadow:0 0 0 2px rgba(56,189,248,.35)}'
     + '[data-nb-veld][contenteditable]:focus{box-shadow:0 0 0 2px #38bdf8;background:rgba(255,255,255,.55)}'
@@ -371,7 +394,7 @@
   }
 
   function eenRegel(veld) {
-    return veld === 'title' || veld === '@title' || veld === 'question' || veld === 'heading' || /^options\.\d+\.label$/.test(veld);
+    return veld === 'title' || veld === '@title' || veld === 'question' || veld === 'heading' || veld === 'subtitle' || /^options\.\d+\.label$/.test(veld);
   }
 
   var VRAAG_KINDS = ['question', 'statement', 'poll'];
@@ -493,7 +516,7 @@
       g.setAttribute('data-nb-greep', it.id);
       g.title = 'Sleep om te verplaatsen';
       var wie = !NB.isAuto(it.kind) && it.owner_name ? ' \u00b7 ' + voornaam(it.owner_name) : '';
-      g.textContent = '\u283F  ' + it.title + wie;
+      g.textContent = '\u283F  ' + NB.blokNaam(it) + wie;
       var bol = doc.createElement('button');
       bol.type = 'button';
       bol.className = 'nb-kleurbol' + ((it.content && it.content.achtergrond) ? '' : ' nb-kleurbol-leeg');
