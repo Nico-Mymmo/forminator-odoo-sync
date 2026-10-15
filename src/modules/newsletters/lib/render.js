@@ -21,7 +21,7 @@
 
 import { esc, safeUrl } from '../../../lib/mail/render-blocks.js';
 import {
-  STYLE as S, BRAND, KINDS, CONTRIBUTION_STATUS, BEELD_KADERS, TEKENING_MATEN, merkkleur, isDonker,
+  STYLE as S, BRAND, KINDS, CONTRIBUTION_STATUS, BEELD_KADERS, TEKENING_MATEN, TITEL_NIVEAUS, merkkleur, isDonker,
   VRAAG_STIJLEN, VRAAG_STANDAARD, vraagThema,
 } from './constants.js';
 
@@ -753,13 +753,24 @@ ${kopHtml}${leeg}${lijf}`, { padding: '44px 40px 0', id });
  */
 function blokHeading(item, ctx, id) {
   const c = item.content || {};
+  const n = TITEL_NIVEAUS.find((x) => x.key === c.niveau) || TITEL_NIVEAUS[0];
+  const h3 = n.key === 'h3';
+  const stijl = h3
+    ? `margin:0;font-family:${S.fontBody};font-weight:700;font-size:${n.size}px;line-height:1.25;color:${S.heading}`
+    : `margin:0;font-family:${S.fontHead};font-weight:400;font-size:${n.size}px;line-height:1.15;color:${S.heading}`;
   const titel = id
-    ? `<h2 data-nb-veld="title" data-placeholder="Typ hier de titel" style="margin:0;font-family:${S.fontHead};font-weight:400;font-size:34px;line-height:1.15;color:${S.heading}">${esc(c.title || '')}</h2>`
-    : kop(c.title, { size: 34, margin: '0' });
+    ? `<h2 data-nb-veld="title" data-placeholder="Typ hier de titel" style="${stijl}">${esc(c.title || '')}</h2>`
+    : `<h2 style="${stijl}">${esc(c.title || '')}</h2>`;
   const sub = id
-    ? `<div data-nb-veld="text" data-nb-optioneel="1" data-placeholder="Een zinnetje erbij (optioneel)" style="font-family:${S.fontBody};font-size:16px;line-height:1.55;color:${S.muted};margin-top:10px">${esc(c.text || '')}</div>`
-    : String(c.text || '').trim() ? `<div style="font-family:${S.fontBody};font-size:16px;line-height:1.55;color:${S.muted};margin-top:10px">${esc(c.text)}</div>` : '';
-  return rij(`<div style="width:44px;height:4px;border-radius:2px;background-color:${S.mint};margin-bottom:16px;font-size:0;line-height:0">&nbsp;</div>${titel}${sub}`, { padding: '52px 40px 0', id });
+    ? `<div data-nb-veld="text" data-nb-optioneel="1" data-placeholder="Een zinnetje erbij (optioneel)" style="font-family:${S.fontBody};font-size:16px;line-height:1.55;color:${S.muted};margin-top:${h3 ? 6 : 10}px">${esc(c.text || '')}</div>`
+    : String(c.text || '').trim() ? `<div style="font-family:${S.fontBody};font-size:16px;line-height:1.55;color:${S.muted};margin-top:${h3 ? 6 : 10}px">${esc(c.text)}</div>` : '';
+  // Een tekening als icoon links van de titel, verticaal gecentreerd.
+  const icoon = c.icoon && ctx.thingieUrl ? ctx.thingieUrl(c.icoon) || '' : '';
+  const kern = icoon
+    ? `<table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr><td width="${n.icoon}" valign="middle" style="width:${n.icoon}px;padding-right:${Math.round(n.icoon / 4)}px"><img src="${esc(icoon)}" width="${n.icoon}" height="${n.icoon}" alt="" style="display:block;width:${n.icoon}px;height:${n.icoon}px;border:0"></td><td valign="middle">${titel}${sub}</td></tr></table>`
+    : `${titel}${sub}`;
+  const balk = n.balk ? `<div style="width:44px;height:4px;border-radius:2px;background-color:${S.mint};margin-bottom:16px;font-size:0;line-height:0">&nbsp;</div>` : '';
+  return rij(`${balk}${kern}`, { padding: `${h3 ? 36 : 52}px 40px 0`, id });
 }
 
 /** Een regel van de inhoudstafel: een tekst, of { t, kop } (kop = een titelblok). */

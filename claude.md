@@ -3811,7 +3811,12 @@ bleken drie dingen niet te kloppen. Alle drie zijn gefixt in `lib/sync.js`,
   deelde. Een nieuw beeld (andere `imageVersion`) wordt één keer opnieuw
   gehost en bewaard (`beeld_versie`).
 - **Titel** (`heading`): een kop boven een reeks blokken, door marketing
-  (meteen bevestigd). Komt in de inhoudstafel als kopje.
+  (meteen bevestigd). Komt in de inhoudstafel als kopje. **Drie niveaus**
+  (`content.niveau`: h1, h2, h3 = TITEL_NIVEAUS in lib/constants.js, via
+  bootstrap `titel_niveaus`; h3 is Rethink Sans vet zonder mintstreep) en
+  optioneel **een tekening als icoon** links van de titel (`content.icoon`,
+  een thingie-naam; venster `dlgIcoon`). Allebei in de werkbalk boven het
+  blok en in het paneel (2026-10-15).
 - **In de inhoudstafel**: per blok aan/uit in de opmaakstand
   (`content.in_toc === false`, `POST /api/contributions/:id/in-toc`).
 - **Kort nieuws** (`news` met `vorm` uit NIEUWS_VORMEN: naast elkaar, lijstje,

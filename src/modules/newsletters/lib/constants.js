@@ -261,6 +261,16 @@ export const BEELD_KADERS = {
 export const TEKENING_MATEN = { klein: 110, middel: 170, groot: 240 };
 
 /**
+ * De niveaus van een Titel-blok (H1, H2, H3), met de grootte van de titel en
+ * van de tekening ervoor. EEN bron voor renderer, server en scherm.
+ */
+export const TITEL_NIVEAUS = [
+  { key: 'h1', label: 'H1', uitleg: 'Groot, met een mintstreep', size: 34, icoon: 60, balk: true },
+  { key: 'h2', label: 'H2', uitleg: 'Middelgroot, met een mintstreep', size: 26, icoon: 46, balk: true },
+  { key: 'h3', label: 'H3', uitleg: 'Klein, vet, zonder streep', size: 19, icoon: 34, balk: false },
+];
+
+/**
  * De merkkleuren (palet van de huisstijl, aangeleverd door marketing op
  * 2026-10-13), per kleurfamilie van licht naar donker. EEN bron: de
  * kleurkiezer in het scherm krijgt ze via /api/bootstrap, en de server

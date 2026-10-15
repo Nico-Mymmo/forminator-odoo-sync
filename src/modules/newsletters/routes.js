@@ -15,7 +15,7 @@ import {
 } from './lib/store.js';
 import {
   KINDS, isKind, DEFAULT_OPTIONS, EDITION_STATUS, CONTRIBUTION_STATUS, LOG_PREFIX, ASSET_ORIGIN,
-  sendMode, testEmails, BRAND, BEELD_KADERS, BEELD_PLAATSEN, TEKENING_MATEN, MERKKLEUREN, merkkleur, BERICHT_VORMEN,
+  sendMode, testEmails, BRAND, BEELD_KADERS, BEELD_PLAATSEN, TEKENING_MATEN, TITEL_NIVEAUS, MERKKLEUREN, merkkleur, BERICHT_VORMEN,
   VRAAG_SOORTEN, VRAAG_STIJLEN, VRAAG_STANDAARD, VRAAG_OUDE_KLEUREN, NIEUWS_VORMEN, NIEUWS_MAX,
 } from './lib/constants.js';
 import { renderEdition, renderContribution, heeftInhoud, kopVan } from './lib/render.js';
@@ -218,7 +218,12 @@ function normaliseerDoor(d) {
 function inhoudPerSoort(kind, c = {}) {
   switch (kind) {
     case 'heading':
-      return { title: kort(c.title, 120), text: kort(c.text, 300) };
+      return {
+        title: kort(c.title, 120), text: kort(c.text, 300),
+        niveau: TITEL_NIVEAUS.some((n) => n.key === c.niveau) ? c.niveau : 'h1',
+        // Een tekening als icoon voor de titel (optioneel).
+        icoon: /^[a-z0-9-]{1,60}$/.test(String(c.icoon || '')) ? c.icoon : '',
+      };
     case 'intro':
       return {
         title: kort(c.title, 160), text: kort(c.text, 4000),
@@ -387,6 +392,7 @@ export const routes = {
           brands: BRAND,
           beeld_kaders: BEELD_KADERS,
           tekening_maten: TEKENING_MATEN,
+          titel_niveaus: TITEL_NIVEAUS,
           merkkleuren: MERKKLEUREN,
           bericht_vormen: BERICHT_VORMEN,
           nieuws_vormen: NIEUWS_VORMEN,
