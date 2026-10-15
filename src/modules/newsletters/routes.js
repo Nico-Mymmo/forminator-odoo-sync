@@ -19,7 +19,7 @@ import {
   VRAAG_SOORTEN, VRAAG_STIJLEN, VRAAG_STANDAARD, VRAAG_OUDE_KLEUREN, NIEUWS_VORMEN, NIEUWS_MAX,
 } from './lib/constants.js';
 import { renderEdition, renderContribution, heeftInhoud, kopVan, inToc } from './lib/render.js';
-import { verzamel, maakEditieOp, vernieuwNieuws, ondertekenaarId, metOndertekening } from './lib/editions.js';
+import { verzamel, maakEditieOp, vernieuwNieuws, ondertekenaarId, metOndertekening, isBlanco } from './lib/editions.js';
 import { antwoordLinks, antwoordenVanEditie } from './lib/answers.js';
 import { tokenVeldBestaat, verstuurTest, leesCijfers } from './lib/odoo-mailing.js';
 import { voorgesteldMoment, controleerMoment, bouwEchteMail, datumKort } from './lib/verzending.js';
@@ -499,7 +499,7 @@ export const routes = {
       if (!s) throw new NewsletterError('Reeks niet gevonden.', 404);
       eisEditor(user, s);
       const body = await leesBody(request);
-      return json({ success: true, data: await maakEditieOp(env, s, { date: body.date, userId: user.id }) }, 201);
+      return json({ success: true, data: await maakEditieOp(env, s, { date: body.date, userId: user.id, blanco: body.blanco === true, title: body.title }) }, 201);
     } catch (err) { return fout(err); }
   },
 
@@ -575,6 +575,11 @@ export const routes = {
           w[k] = d.toISOString();
         }
       }
+      // Een blanco mailing heeft geen inleverdag: die blijft gelijk aan het verzendmoment.
+      if (isBlanco(edition)) {
+        if (w.send_at) w.deadline_at = w.send_at;
+        else delete w.deadline_at;
+      }
       // Verslepen op de kalender: enkel een nieuwe verzenddag; de inleverdatum schuift evenveel mee.
       if (w.send_at && !w.deadline_at && b.schuif_inleverdatum) {
         const delta = new Date(w.send_at).getTime() - new Date(edition.send_at).getTime();
@@ -584,7 +589,7 @@ export const routes = {
         const deadline = new Date(w.deadline_at || edition.deadline_at);
         const send = new Date(w.send_at || edition.send_at);
         if (deadline > send) throw new NewsletterError('De inleverdatum moet voor het verzendmoment liggen.');
-        if (edition.status === EDITION_STATUS.REVIEW && deadline > new Date()) w.status = EDITION_STATUS.COLLECTING;
+        if (edition.status === EDITION_STATUS.REVIEW && deadline > new Date() && !isBlanco(edition)) w.status = EDITION_STATUS.COLLECTING;
       }
       return json({ success: true, data: await updateEdition(env, edition.id, w) });
     } catch (err) { return fout(err); }

@@ -182,6 +182,11 @@
     return '<span class="badge badge-sm ' + s.klasse + '">' + s.label + '</span>';
   };
 
+  /** Een blanco mailing heeft geen inleverdag: inleverdatum = verzendmoment (zelfde regel als isBlanco() op de server). */
+  NB.isBlanco = function (ed) {
+    return Boolean(ed && ed.deadline_at && ed.send_at && new Date(ed.deadline_at).getTime() === new Date(ed.send_at).getTime());
+  };
+
   NB.editieBadge = function (status) {
     var s = NB.EDITIE_STATUS[status] || NB.EDITIE_STATUS.collecting;
     return '<span class="badge ' + s.klasse + '">' + s.label + '</span>';

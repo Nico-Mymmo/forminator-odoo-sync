@@ -75,7 +75,14 @@
     if (ed.status === 'cancelled') return '';
     var nu = ed.status === 'collecting' ? 0 : ed.status === 'review' ? (ed.last_test_at ? 3 : 2) : ed.status === 'scheduled' ? 3 : 4;
     var klaar = function (i) { return i < nu || ed.status === 'sent' || (ed.status === 'scheduled' && i <= 3); };
+    var blanco = NB.isBlanco(ed);
+    if (blanco && ed.status === 'review') {
+      var bev = ((d().checklist || {}).items || []).filter(function (x) { return x.key === 'bevestigd'; })[0];
+      if (bev && !bev.ok) nu = 1;
+    }
     return '<div class="nb-stappen" title="Waar deze editie staat">' + NB.STAPPEN.map(function (s, i) {
+      if (blanco && s.key === 'collecting') return '';
+      if (blanco && s.key === 'review') { var kr = klaar(i) ? 'nb-stap-klaar' : i === nu ? 'nb-stap-nu' : ''; return '<span class="nb-stap ' + kr + '"><i data-lucide="' + (klaar(i) ? 'check' : 'layout-list') + '" class="w-3.5 h-3.5"></i>Opbouwen</span>'; }
       var k = klaar(i) ? 'nb-stap-klaar' : i === nu ? 'nb-stap-nu' : '';
       var label = s.key === 'scheduled' && ed.status === 'scheduled' ? 'Vertrekt ' + NB.datum(ed.send_at, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : s.label;
       return (i ? '<i data-lucide="chevron-right" class="w-3 h-3 nb-pijl"></i>' : '')
@@ -96,6 +103,7 @@
     var wanneer = ed.status === 'scheduled'
       ? (ed.odoo_mailing_id ? '<span class="font-semibold">Aan Odoo gegeven</span> · vertrekt of is vertrokken' : 'Vertrekt op <strong>' + e(NB.datum(ed.send_at, { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })) + '</strong> · tot dan kan je terughalen')
       : !actief() ? ''
+      : NB.isBlanco(ed) ? '<span class="font-semibold">Blanco mailing</span> · zelf opgebouwd, geen inleverdag'
       : t.voorbij ? '<span class="text-warning font-semibold">Inleverdatum voorbij</span> · nalezen en bevestigen'
         : 'Inleverdatum ' + e(NB.datum(ed.deadline_at, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })) + ' · <span class="nb-teller">' + e(NB.tellerTekst(ed.deadline_at)) + '</span>';
     var knoppen = [];
@@ -124,7 +132,7 @@
       + '<div class="flex flex-wrap items-center gap-2"><h1 class="text-lg font-bold leading-tight">' + e(ed.title) + '</h1>' + NB.editieBadge(ed.status)
       + (stats ? '<span class="text-xs opacity-70">' + (stats.sent || 0) + ' verzonden · ' + Math.round(stats.opened_ratio || 0) + '% geopend · ' + Math.round(stats.clicks_ratio || 0) + '% geklikt</span>' : '')
       + '</div>'
-      + '<div class="text-xs opacity-70 mt-0.5">' + wanneer + (actief() ? ' · verzenddag ' + e(NB.datum(ed.send_at, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })) + ' · <strong>' + (p.bevestigd + p.ingeleverd) + ' van ' + p.totaal + '</strong> binnen' : '') + '</div>'
+      + '<div class="text-xs opacity-70 mt-0.5">' + wanneer + (actief() ? ' · verzenddag ' + e(NB.datum(ed.send_at, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })) + (NB.isBlanco(ed) ? ' · <strong>' + p.totaal + '</strong> ' + (p.totaal === 1 ? 'blok' : 'blokken') : ' · <strong>' + (p.bevestigd + p.ingeleverd) + ' van ' + p.totaal + '</strong> binnen') : '') + '</div>'
       + '</div>'
       + stappen()
       + '<div class="flex flex-wrap items-center gap-2">' + knoppen.join('') + '</div>';
@@ -192,7 +200,7 @@
         + '<button class="btn btn-sm btn-primary ml-auto" data-action="bewaar-onderwerp">Bewaren</button></div>' : '')
       + '<div class="divider my-1"></div>'
       + '<div class="grid grid-cols-2 gap-2">'
-      + '<label class="form-control"><span class="label-text text-xs">Inleverdatum</span><input id="edDeadline" type="datetime-local" class="input input-bordered input-sm" value="' + e(NB.lokaal(ed.deadline_at)) + '"' + (mag ? '' : ' disabled') + '></label>'
+      + (NB.isBlanco(ed) ? '<div class="text-xs opacity-60 self-end pb-2">Blanco mailing: geen inleverdag.</div>' : '<label class="form-control"><span class="label-text text-xs">Inleverdatum</span><input id="edDeadline" type="datetime-local" class="input input-bordered input-sm" value="' + e(NB.lokaal(ed.deadline_at)) + '"' + (mag ? '' : ' disabled') + '></label>')
       + '<label class="form-control"><span class="label-text text-xs">Verzenddag</span><input id="edSend" type="datetime-local" class="input input-bordered input-sm" value="' + e(NB.lokaal(ed.send_at)) + '"' + (mag ? '' : ' disabled') + '></label></div>'
       + (mag ? '<div class="flex gap-2 items-center"><span class="text-xs opacity-60">Verzenden gebeurt pas na "Inplannen".</span><button class="btn btn-sm btn-ghost ml-auto" data-action="bewaar-datums">Bewaren</button></div>' : '')
       + (ed.status === 'scheduled' ? '<div class="alert alert-info text-sm py-2"><i data-lucide="calendar-clock" class="w-4 h-4"></i><span>Vertrekt op <strong>' + e(NB.datum(ed.send_at)) + '</strong>. Tot dan: Terughalen of Moment wijzigen, bovenaan.</span></div>' : '')
@@ -1157,7 +1165,9 @@
     try {
       await NB.api('/api/editions/' + d().edition.id, {
         method: 'PUT',
-        body: { deadline_at: NB.vanLokaal(document.getElementById('edDeadline').value), send_at: NB.vanLokaal(document.getElementById('edSend').value) },
+        body: NB.isBlanco(d().edition)
+          ? { send_at: NB.vanLokaal(document.getElementById('edSend').value) }
+          : { deadline_at: NB.vanLokaal(document.getElementById('edDeadline').value), send_at: NB.vanLokaal(document.getElementById('edSend').value) },
       });
       NB.toast('Datums bewaard.');
       herlaad();

@@ -3786,6 +3786,27 @@ bleken drie dingen niet te kloppen. Alle drie zijn gefixt in `lib/sync.js`,
   eerder bericht in die draad op. Zonder die aanpassing zou een antwoord op een mail die
   destijds naar twee leads ging, alsnog maar bij één van de twee terechtkomen.
 
+## Nieuwsbrief: een blanco mailing (2026-10-15)
+
+- **Wat**: marketing (hoofdredactie van de reeks) maakt in "Nieuwe editie" een
+  **blanco mailing**: een lege brief zonder opdrachten, die ze zelf opbouwt met
+  de "+"-lijn. Voor een extra mailing naast de gewone editie (bv. een
+  webinar-uitnodiging). Lezers, afzender en huisstijl komen van de reeks.
+- **Hoe**: `POST /api/series/:id/editions` met `{ date, blanco: true, title }`
+  -> `maakEditieOp()` -> `maakEditie(..., { blanco })` in lib/editions.js: geen
+  stukjes, status meteen `review`, titel (standaard "Extra mailing").
+- **Kenmerk = geen inleverdag**: `deadline_at` is gelijk aan `send_at`. EEN
+  regel: `isBlanco()` in lib/editions.js en `NB.isBlanco()` in
+  newsletters-core.js. Geen extra kolom. Gevolgen:
+  - de cron maakt de gewone maandeditie toch aan (`zorgVoorEdities` telt een
+    blanco niet mee), en stuurt geen herinneringen (enkel `collecting`);
+  - PUT houdt `deadline_at` gelijk aan `send_at` en zet een blanco nooit terug
+    op `collecting`;
+  - kalender: geen stippellijn "Inleveren"; kaartjes en kop zeggen "Blanco
+    mailing", het paneel toont geen inleverdatum; de stappenbalk toont
+    "Opbouwen" (i.p.v. Verzamelen/Nalezen) tot alle blokken bevestigd zijn.
+- De checklist blijft dezelfde: zonder bevestigde blokken kan ze niet vertrekken.
+
 ## Nieuwsbrief: rechts enkel instellingen, titelblok, kort nieuws (2026-10-15)
 
 - **Tekstblok** = `article` (label in KINDS: "Tekstblok"): titel, optionele

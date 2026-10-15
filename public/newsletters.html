@@ -140,14 +140,29 @@
   <dialog id="dlgEditie" class="modal">
     <div class="modal-box max-w-md">
       <h3 class="font-bold text-lg mb-1">Nieuwe editie</h3>
-      <p class="text-sm opacity-70 mb-4">De inleverdatum valt vanzelf een paar werkdagen voor de verzenddag. Elke rubriek krijgt meteen een opdracht bij haar eigenaar.</p>
+      <p class="text-sm opacity-70 mb-4">De lezers, de afzender en de huisstijl komen van de nieuwsbrief die je kiest.</p>
       <label class="form-control mb-3">
         <span class="label-text mb-1">Welke nieuwsbrief</span>
         <select id="editieReeks" class="select select-bordered select-sm"></select>
       </label>
-      <label class="form-control">
+      <label class="form-control mb-3">
         <span class="label-text mb-1">Verzenddag</span>
         <input id="editieDatum" type="date" class="input input-bordered input-sm">
+      </label>
+      <div class="mb-3">
+        <span class="label-text mb-1 block">Opbouw</span>
+        <label class="flex items-start gap-3 p-3 rounded-lg border border-base-300 cursor-pointer has-[:checked]:border-primary has-[:checked]:bg-primary/5 mb-2">
+          <input type="radio" name="editieOpbouw" value="vast" class="radio radio-primary radio-sm mt-0.5" checked>
+          <span class="text-sm"><strong>Vaste opbouw</strong><span class="block opacity-70">Elke rubriek krijgt meteen een opdracht bij haar eigenaar. De inleverdatum valt vanzelf een paar werkdagen voor de verzenddag.</span></span>
+        </label>
+        <label class="flex items-start gap-3 p-3 rounded-lg border border-base-300 cursor-pointer has-[:checked]:border-primary has-[:checked]:bg-primary/5">
+          <input type="radio" name="editieOpbouw" value="blanco" class="radio radio-primary radio-sm mt-0.5">
+          <span class="text-sm"><strong>Blanco mailing</strong><span class="block opacity-70">Een lege brief die je zelf opbouwt met blokken. Geen opdrachten, geen inleverdag. Voor een extra mailing naast de gewone editie.</span></span>
+        </label>
+      </div>
+      <label class="form-control">
+        <span class="label-text mb-1">Naam <span class="opacity-60">(zoals jullie ze intern noemen)</span></span>
+        <input id="editieNaam" type="text" class="input input-bordered input-sm" placeholder="Vanzelf: de maand, of &quot;Extra mailing&quot;" maxlength="120">
       </label>
       <div class="modal-action">
         <button class="btn btn-primary btn-sm" data-action="maak-editie">Aanmaken</button>
