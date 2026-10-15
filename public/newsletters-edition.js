@@ -552,6 +552,8 @@
       if (NB.kanBeeld(soort)) {
         rij.querySelectorAll('[data-nb-beeld]').forEach(function (x) { x.setAttribute('data-nb-knop', 'beeld'); x.title = 'Klik om het beeld aan te passen'; });
       }
+      // Een video zonder beeld: de lege plek opent de videokiezer.
+      rij.querySelectorAll('[data-nb-video]').forEach(function (x) { x.setAttribute('data-nb-knop', 'video'); x.style.cursor = 'pointer'; });
       if (isVraag) {
         var aantal = ((NB.state.concept.content || {}).options || []).length;
         var antwoorden = rij.querySelector('[data-nb-antwoorden]');
@@ -582,7 +584,8 @@
     var knoppen = [];
     if (editor()) knoppen.push('<span class="nb-greep" data-nb-greep="' + e(s.item.id) + '" title="Sleep om te verplaatsen">⠿</span>');
     if (mag && NB.kanAI(soort)) knoppen.push('<button type="button" data-nb-knop="ai">✨ Schrijf met AI</button>');
-    if (mag && NB.kanBeeld(soort)) knoppen.push('<button type="button" data-nb-knop="beeld">' + (rij.querySelector('[data-nb-beeld] img') ? '\u{1F5BC} Beeld' : '+ Beeld') + '</button>');
+    if (mag && soort === 'video') knoppen.push('<button type="button" data-nb-knop="video">\u25B6 ' + (NB.state.concept.content && NB.state.concept.content.video_url ? 'Andere video' : 'Video kiezen') + '</button>');
+    if (mag && NB.kanBeeld(soort) && (soort !== 'video' || (NB.state.concept.content && NB.state.concept.content.video_url))) knoppen.push('<button type="button" data-nb-knop="beeld">' + (rij.querySelector('[data-nb-beeld] img') ? '\u{1F5BC} Beeld' : '+ Beeld') + '</button>');
     if (mag && isVraag) {
       knoppen.push('<span class="nb-soorten">' + (NB.state.boot.vraag_soorten || []).map(function (v) {
         return '<button type="button" data-nb-knop="soort:' + v.kind + '"' + (v.kind === soort ? ' class="nb-aan"' : '') + ' title="' + e(v.uitleg) + '">' + e(v.label) + '</button>';
@@ -674,6 +677,7 @@
     var s = NB.state.stukje;
     if (wat === 'ai') NB.openAI();
     else if (wat === 'beeld') NB.openBeeld();
+    else if (wat === 'video') NB.openVideo();
     else if (wat.indexOf('soort:') === 0 && NB.wisselVraagSoort) NB.wisselVraagSoort(wat.slice(6));
     else if (wat === 'optie-bij' && NB.vraagOptieBij) NB.vraagOptieBij();
     else if (wat.indexOf('optie-weg:') === 0 && NB.vraagOptieWeg) NB.vraagOptieWeg(Number(wat.slice(10)));

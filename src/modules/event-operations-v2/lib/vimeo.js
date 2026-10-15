@@ -196,6 +196,64 @@ async function fetchVimeo(env, url) {
   }
 }
 
+// ─── Zonder token: een geplakte link (Vimeo of YouTube) ───────────────────────
+
+/** `https://vimeo.com/123456` → `123456`. @returns {string|null} */
+export function idFromVimeoUrl(url) {
+  const match = /vimeo\.com\/(?:video\/)?(\d+)/.exec(String(url || ''));
+  return match ? match[1] : null;
+}
+
+/**
+ * Titel + thumbnail zonder account-token.
+ *
+ * Vimeo heeft een publieke oEmbed per video; YouTube heeft vaste
+ * thumbnail-URL's. Dit is dezelfde aanpak als recap-service.js in v1, maar we
+ * bewaren hier de REMOTE url in plaats van het bestand naar R2 te kopiëren --
+ * een mailclient haalt de afbeelding toch zelf op.
+ *
+ * @param {string} url @returns {Promise<{url:string,title:string,thumbnail_url:string}|null>}
+ */
+export async function resolveVideoWithoutToken(url) {
+  const trimmed = String(url || '').trim();
+
+  const vimeoId = idFromVimeoUrl(trimmed);
+  if (vimeoId) {
+    try {
+      const response = await fetch(`https://vimeo.com/api/v2/video/${vimeoId}.json`, {
+        headers: { Accept: 'application/json' }
+      });
+      if (!response.ok) return null;
+      const payload = await response.json();
+      const record = Array.isArray(payload) ? payload[0] : payload;
+      const thumbnail = record?.thumbnail_large || record?.thumbnail_medium || record?.thumbnail_small || '';
+      if (!thumbnail) return null;
+      return {
+        url: `https://vimeo.com/${vimeoId}`,
+        title: String(record?.title || `Video ${vimeoId}`),
+        thumbnail_url: String(thumbnail).split('?')[0]
+      };
+    } catch (error) {
+      console.warn(`${LOG_PREFIX} vimeo oEmbed mislukt voor ${vimeoId}: ${error?.message}`);
+      return null;
+    }
+  }
+
+  const youtubeId =
+    /(?:youtube\.com\/watch[?&]v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/.exec(trimmed)?.[1] ||
+    /youtube\.com\/shorts\/([a-zA-Z0-9_-]{11})/.exec(trimmed)?.[1];
+
+  if (youtubeId) {
+    return {
+      url: `https://youtu.be/${youtubeId}`,
+      title: `YouTube ${youtubeId}`,
+      thumbnail_url: `https://img.youtube.com/vi/${youtubeId}/maxresdefault.jpg`
+    };
+  }
+
+  return null;
+}
+
 // ─── Cache (wegwerpbaar) ──────────────────────────────────────────────────────
 
 async function readCache(env, key) {
