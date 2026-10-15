@@ -1377,6 +1377,8 @@
   function rateBase(m) {
     return m.page ? 'de bezoeken met deze ' + focusWord() : m.back ? 'de bezoeken met ' + m.goal.kort : 'de bezoeken in het segment';
   }
+  /** Een kleine ratio: "<0,1%" in plaats van "0%" -- 1 op 2.500 is niet niets. */
+  function rateTxt(r) { return r > 0 && r < 0.05 ? '<0,1%' : pctTxt(r); }
   function actRateTxt(m, c, n) {
     var r = actRate(m, c, n);
     return r === null ? '' : ' Dat is ' + pctTxt(r) + ' van ' + rateBase(m) + ' (' + nf(m.total) + '), met de filters links.';
@@ -1392,7 +1394,7 @@
       + '<i data-lucide="' + (a ? a.icon : 'check') + '" class="w-4 h-4 shrink-0" style="color:oklch(var(--su))"></i>'
       + '<span class="flex-1 min-w-0 text-[13px] font-medium leading-4 line-clamp-2">' + esc(tokLabel(e.tok)) + '</span>'
       + '<span class="text-right leading-4 tabular-nums shrink-0"><span class="block text-sm font-semibold">' + nf(e.n) + '</span>'
-      + (r === null ? '' : '<span class="block text-[11px] text-base-content/70">' + pctTxt(r) + '</span>') + '</span></button>';
+      + (r === null ? '' : '<span class="block text-[11px] text-base-content/70">' + rateTxt(r) + '</span>') + '</span></button>';
   }
 
   /**
@@ -1411,10 +1413,13 @@
     return '<button type="button" class="w-full text-left rounded-lg border px-2.5 flex items-center gap-2 hover:brightness-95" style="' + style + '"'
       + ' data-flow-node="' + e.id + '" ' + k[0] + ' title="' + esc(uitleg) + '">'
       + '<i data-lucide="' + (a ? a.icon : 'check') + '" class="w-4 h-4 shrink-0" style="color:oklch(var(--su))"></i>'
-      + '<span class="flex-1 min-w-0 text-[13px] font-medium leading-4 truncate">' + esc(naam) + (e.geschat ? '<span class="text-base-content/50">*</span>' : '') + '</span>'
-      + '<span class="text-right leading-4 tabular-nums shrink-0"><span class="block text-[11px] text-base-content/70">' + nf(e.n) + ' gestart</span>'
-      + '<span class="block text-[13px] font-semibold">' + nf(verstuurd) + ' verstuurd'
-      + (r === null ? '' : '<span class="text-[11px] font-normal text-base-content/70"> · ' + pctTxt(r) + '</span>') + '</span></span></button>';
+      // Zelfde vorm als een gewone actiekaart: links de naam (met eronder hoeveel er
+      // begonnen), rechts het aantal VERSTUURD met de ratio eronder. Alles rechts op
+      // één regel ("32 verstuurd · 1,1%") liet voor de naam enkel "O…" over.
+      + '<span class="flex-1 min-w-0 leading-4"><span class="block text-[13px] font-medium truncate">' + esc(naam) + (e.geschat ? '<span class="text-base-content/50">*</span>' : '') + '</span>'
+      + '<span class="block text-[11px] text-base-content/60 truncate">' + nf(e.n) + ' gestart</span></span>'
+      + '<span class="text-right leading-4 tabular-nums shrink-0"><span class="block text-sm font-semibold">' + nf(verstuurd) + '</span>'
+      + (r === null ? '' : '<span class="block text-[11px] text-base-content/70">' + rateTxt(r) + '</span>') + '</span></button>';
   }
 
   function restCard(r, row, col) {
