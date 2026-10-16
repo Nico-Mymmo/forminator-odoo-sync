@@ -100,7 +100,12 @@ Volgorde (zelfstandig en klein eerst, wat alles raakt als laatste):
 
 ## Voortgang
 
-- [ ] Fundament: `om-core`, `core-db.js`, kopieerroute
+- [x] Fundament, deel 1 (2026-10-16): binding `CORE_DB` (`om-core`, nog zonder
+      id: de eerste deploy maakt de databank aan en schrijft het id terug in
+      `wrangler.jsonc` -- dat id daarna committen), `src/lib/core-db.js` met
+      46 controles in `src/lib/tests/core-db-test.mjs`, migratie `0001_init.sql`
+      (logboek van de verhuis), regel in CLAUDE.md.
+- [ ] Fundament, deel 2: de kopieerroute (bij de eerste module van fase A)
 - [ ] Fase A
 - [ ] Fase B
 - [ ] Fase C

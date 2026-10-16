@@ -148,6 +148,19 @@ const supabase = getSupabaseClient(env); // per-isolate singleton, persistSessio
 
 **Elke nieuwe tabel in `public` krijgt RLS aan** (`alter table ... enable row level security;` direct na de `create table`), zonder policies. De Worker gebruikt enkel de service-role-key (BYPASSRLS), dus er breekt niets; zonder RLS is de tabel via PostgREST open voor iedereen met de anon-key. Supabase meldde dit op 2026-09-19 (`rls_disabled_in_public`); rechtgezet in `20260925100000_enable_rls_all_public_tables.sql`, die ook een event trigger `om_rls_auto_enable` als vangnet zet.
 
+### Supabase wordt uitgefaseerd -> D1 `om-core` (besluit 2026-10-16)
+
+**Regel: een NIEUWE tabel komt in D1 `om-core`, niet meer in Supabase.** Toegang via
+`getCoreDb(env)` uit `src/lib/core-db.js`: dezelfde query-taal als de Supabase-client
+(`from().select().eq()...`, `{ data, error }`), op D1. Schema in
+`d1/om-core/migrations/` met de type-afspraken bovenaan `0001_init.sql`
+(`TIMESTAMPTZ`, `JSON_TEXT`, `BOOLEAN`); zonder die types zet de laag niets om.
+Bestaande modules verhuizen een voor een volgens `docs/plan-supabase-uitfaseren.md`
+(daar staat ook de voortgang); tot een module verhuisd is, blijft ze op
+`getSupabaseClient(env)`. Wat de laag niet kent (geneste selects, onbekende
+operatoren) geeft `CORE_DB_UNSUPPORTED`: herschrijf de query, breid de laag alleen uit
+met een test erbij (`node src/lib/tests/core-db-test.mjs`).
+
 ## Endpoint-tracking
 
 Elke succesvolle module-route-aanroep wordt geregistreerd in de tabel `endpoint_log` (`endpoint`, `last_called_at`, `call_count`) via `src/lib/endpoint-tracker.js` → SQL-functie `upsert_endpoint_log(p_endpoint)`. De module-router doet dit automatisch (fire-and-forget, route-patroon zoals `GET /admin/api/users/:id` — nooit raw paths met IDs). Publieke en auth-routes worden niet getrackt. Nieuwe modules hoeven hier niets voor te doen.
