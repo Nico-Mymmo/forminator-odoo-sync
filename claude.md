@@ -370,6 +370,7 @@ document.addEventListener('click', e => {
 | dashboards | `/dashboards` | `dashboards` | `public/dashboards.html` + `dashboards-*.js` + `dashboard-aanvragen/` | ✅ Correct (tabbladen Verkoop, Targets, Aanvragen, Marketing, Website-bezoeken, Kaart; Webgedrag is sinds 2026-10-09 het tabblad Marketing; Aanvragen is het terrein van David, zie "Dashboards — tabblad Aanvragen") |
 | av-slides | `/av-slides` | `av_slides` | `public/av-slides.html` + `.js` | ✅ Correct (zie "AV-slides") |
 | newsletters | `/nieuwsbrieven` | `newsletters` | `public/newsletters.html` + `newsletters-*.js` | ✅ Correct (zie "Nieuwsbrieven") |
+| odoo-controle | `/odoo-controle` | `odoo_controle` | `public/odoo-controle.html` + `.js` | ✅ Correct (zie "Odoo-controle") |
 
 **Legacy modules NIET aanraken tenzij expliciet gevraagd.** Bij aanpassingen aan legacy `ui.js`: string-concatenatie (+), geen geneste template literals, geen variabelen in inline event handlers. `src/lib/components/navbar.js` is de legacy server-rendered navbar voor deze ui.js-bestanden.
 
@@ -5817,6 +5818,80 @@ Afspraken die bewust zo zijn:
   renderer). Open vragen over de doelgroepen: `docs/ontwerp-om-nieuwsbrieven.md` §12.
 
 ---
+
+## Odoo-controle — de factuur-, abonnement- en CRM-controle (2026-10-16)
+
+**Regel: de cases, patronen en regels van de factuur-, abonnement- en
+CRM-controle leven in de OM (`/odoo-controle`, tabellen `controle_*` in
+Supabase), niet meer in de claude.ai-pagina. De status van een case wordt
+AFGELEID (`statusVan` in `lib/constants.js`; dezelfde functie staat in
+`public/odoo-controle.js` en de test vergelijkt ze letterlijk). De regel hoort
+bij het PATROON, niet bij de case; een case levert hoogstens een les aan.**
+
+Overgenomen van het claude.ai-artifact "Factuur-, abonnement- en CRM-controle"
+(pakket `controle-overdracht-om.zip` van 16/10/2026: 86 cases, 24 patronen
+plus het technische 'andere', 88 koppelingen). Waarom naar de OM: de opslag
+hing aan een artifact (geen back-up, geen historiek), Claude draaide op het
+account van wie klikte, en de pagina kon Odoo niet lezen.
+
+| Wat | Waar |
+|---|---|
+| Schema + module-registratie (toegang: beheerders, Nico, Maarten, Kobe; de rest via Beheer) | `supabase/migrations/20261016120000_odoo_controle.sql` |
+| Eerste lading uit de export (idempotent, `on conflict do update`) | `supabase/migrations/20261016120100_odoo_controle_import.sql` |
+| Export -> rijen (puur), gebruikt door migratie én import-knop | `src/modules/odoo-controle/lib/import.js`, `scripts/odoo-controle/export-naar-sql.mjs` |
+| Opslag, versies, historiek | `lib/store.js` |
+| De drie Claude-functies (prompts uit `controle.html`) | `lib/ai.js` (via `askAI()`, source `odoo_controle`) |
+| Live nakijken in Odoo (alleen lezen) | `lib/odoo-lookup.js` |
+| Skill-concept (SKILL.md) | `lib/skill.js`, `GET /odoo-controle/api/skill` |
+| Scherm | `public/odoo-controle.html` + `public/odoo-controle.js` |
+| Tests (zonder netwerk) | `node src/modules/odoo-controle/tests/odoo-controle-test.mjs` |
+
+Afspraken die bewust zo zijn:
+
+- **Status:** `geen_fout` -> geen fout; `onderzocht` én `rechtgezet` -> opgelost;
+  `vasthouden` -> wacht op goedkeuring (eigen status, buiten "Te doen"); één
+  stap -> bezig; anders open. "Rechtgezet" is in Odoo, of in OpenVME als
+  `in_openvme` aan staat.
+- **Meerdere patronen per case** (`controle_case_patterns`, `pos` = volgorde).
+  Het technische patroon 'andere' uit de oude opslag bestaat hier niet: een case
+  zonder koppelingen is een case zonder patroon (filter "Nog geen patroon").
+- **Gelijktijdig werken:** elke schrijfactie verhoogt `versie`. Het scherm stuurt
+  de versie mee die het kent; klopt die niet, dan 409 met de huidige rij, en het
+  scherm toont die. Het scherm kijkt elke halve minuut naar
+  `GET /api/changes?since=` (`rij_bijgewerkt`), ook voor verwijderde patronen
+  (`pattern_ids`).
+- **Historiek:** elke veldwijziging in `controle_history`, met `bron`
+  ('gebruiker', 'claude-voorstel-overgenomen', 'import'). `bijgewerkt` is de
+  laatste wijziging door het team, `tekst_bijgewerkt` enkel voor de vier
+  teksten, `geverifieerd` wanneer Claude's voorstel beslist is of iemand "Mijn
+  versie houden" koos. Een patroon is "gewijzigd, nog niet geverifieerd" zolang
+  `bijgewerkt > geverifieerd`.
+- **Claude bewaart nooit zelf.** De drie routes (`/review` op case en patroon,
+  `/pattern-search`) geven een voorstel terug; het scherm toont het naast de
+  huidige tekst en de gebruiker kiest per veld. Pas als alle herschreven velden
+  beslist zijn, gaat `geverifieerd` mee. Antwoorden via een JSON-schema
+  (`enum` voor oordeel en keuze), daarna nog server-side afgeklemd.
+  Bij "Verifieer en herschrijf" op een case kan de live Odoo-chatter mee
+  (`met_odoo: true`): dat kon in claude.ai niet.
+- **Odoo-links altijd met `debug=1`.** Documentnummers in teksten (S00514,
+  CFVK/2025/00201) worden links op basis van alle refs van alle cases; enkel
+  labels met een cijfer en minstens vijf tekens, dus geen klantnamen
+  (`refIndex` in `lib/skill.js` en `buildRefIndex` in het scherm).
+- **Odoo is alleen lezen,** via `src/lib/odoo.js` met de gewone
+  Worker-gebruiker (`UID`/`API_KEY`). Studio-velden die zouden ontbreken, laat
+  `odoo-lookup.js` vallen in plaats van te falen.
+- **Rechten:** wie de module heeft, leest en schrijft. Een patroon verwijderen
+  (enkel zonder cases) en een export importeren: beheerders.
+- **Niet gebouwd (bewust):** een nieuwe controle-run die zelf cases uit Odoo
+  afleidt. De analyse gebeurde in claude.ai door Claude; in de OM is er
+  voorlopig "Case toevoegen" (met de hand) en de import van een export.
+- **Overschakeling:** de claude.ai-pagina alleen-lezen zetten en de laatste
+  export (data.json) op die dag inladen via de knop onderaan het tabblad
+  Skill-concept (beheerder) of via het script. De export wint van wat er al
+  staat.
+
+Uitrol: `npm run db:push` (schema + eerste lading + module-registratie), daarna
+`npm run deploy` vanaf `master`. Geen nieuwe secrets.
 
 ## Bestandsstructuur
 

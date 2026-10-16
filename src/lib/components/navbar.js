@@ -35,7 +35,8 @@ export function navbar(user) {
     'cx_powerboard': 'layout-dashboard',
     'wp_form_schemas': 'file-code',
     'claude_integration': 'bot',
-    'mini_apps': 'puzzle'
+    'mini_apps': 'puzzle',
+    'odoo_controle': 'clipboard-check'
   };
 
   // Inline SVG's voor vaste navbar-iconen (onafhankelijk van lucide-init)

@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Odoo-controle - Operations Manager</title>
+  <script>
+    (function () {
+      var t = localStorage.getItem('selectedTheme') || 'light';
+      document.documentElement.setAttribute('data-theme', t);
+    })();
+  </script>
+  <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet" type="text/css" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script src="/shared-navbar.js"></script>
+  <style>
+    /* Statusbolletje voor een case: leeg = open, gevuld = afgehandeld. */
+    .oc-st { width: 16px; height: 16px; border-radius: 9999px; border: 2px solid oklch(var(--bc) / 0.3); flex: none; margin-top: 3px; position: relative; }
+    .oc-st.bezig { border-color: oklch(var(--wa)); background: linear-gradient(90deg, oklch(var(--wa)) 50%, transparent 50%); }
+    .oc-st.wacht { border-color: oklch(var(--in)); border-style: dashed; }
+    .oc-st.opgelost { border-color: oklch(var(--su)); background: oklch(var(--su)); }
+    .oc-st.opgelost::after { content: ""; position: absolute; left: 4px; top: 1px; width: 4px; height: 8px; border: solid oklch(var(--suc)); border-width: 0 2px 2px 0; transform: rotate(45deg); }
+    .oc-st.geenfout { border-color: oklch(var(--bc) / 0.4); background: oklch(var(--bc) / 0.4); }
+    .oc-st.geenfout::after { content: ""; position: absolute; left: 3px; right: 3px; top: 5px; height: 2px; background: oklch(var(--b1)); }
+    /* Lijnen tussen cases in een lijst (geen divide-base-content op het CDN). */
+    .oc-lijnen > * + * { border-top: 1px solid oklch(var(--bc) / 0.1); }
+    /* Linkerbalk per prioriteit. */
+    .oc-case { border-left: 3px solid transparent; }
+    .oc-case.p-dringend { border-left-color: oklch(var(--er)); }
+    .oc-case.p-hoog { border-left-color: oklch(var(--wa)); }
+    .oc-case.p-gemiddeld { border-left-color: oklch(var(--a)); }
+    .oc-case.p-beslissen { border-left-color: oklch(var(--in)); }
+    .oc-case.p-laag { border-left-color: oklch(var(--bc) / 0.3); }
+    .oc-row:hover { background: oklch(var(--bc) / 0.04); }
+    /* Odoo-links in teksten. */
+    .oc-tekst a { color: oklch(var(--p)); text-decoration: underline dotted; text-underline-offset: 2px; }
+    .oc-tekst { white-space: pre-wrap; overflow-wrap: anywhere; }
+    .oc-flash { animation: oc-flash 1.6s ease-out; }
+    @keyframes oc-flash { from { box-shadow: 0 0 0 3px oklch(var(--p) / 0.5); } to { box-shadow: 0 0 0 3px transparent; } }
+    .oc-stream { white-space: pre-wrap; max-height: 8rem; overflow: hidden; }
+    .oc-md { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; line-height: 1.5; }
+  </style>
+</head>
+<body class="bg-base-200 min-h-screen">
+
+  <div id="navbar"></div>
+
+  <main class="max-w-6xl mx-auto px-4 py-6" style="padding-top: calc(48px + 1.5rem);">
+
+    <div class="flex flex-wrap items-end justify-between gap-3 mb-4">
+      <div>
+        <div class="text-xs uppercase tracking-wider opacity-60" id="stand">Odoo · facturen, abonnementen, bedrijven en leads</div>
+        <h1 class="text-2xl font-bold mt-1">Factuur-, abonnement- en CRM-controle</h1>
+        <p class="text-sm opacity-70 mt-1 max-w-3xl">
+          Elke case is een fout of een open vraag in een offerte, abonnement, factuur, bedrijf of verkoopkans. Facturatie en abonnementen gaan voor;
+          bedrijven en leads volgen, want wat er verkeerd in gaat, komt er verkeerd uit. Zoek uit wat er gebeurde, zet het recht in Odoo of in OpenVME,
+          en hang de case aan het patroon met de regel die het voortaan voorkomt. Uit die regels ontstaat het concept voor een skill.
+        </p>
+      </div>
+      <span id="syncState" class="text-xs opacity-60"></span>
+    </div>
+
+    <div class="card bg-base-100 border border-base-content/10 mb-4">
+      <div class="card-body p-4">
+        <div id="stats" class="flex flex-wrap items-end gap-x-8 gap-y-3" aria-live="polite"></div>
+      </div>
+    </div>
+
+    <div id="notices" class="space-y-2 mb-4"></div>
+
+    <div role="tablist" class="tabs tabs-boxed mb-4 w-fit">
+      <button role="tab" class="tab tab-active" data-action="tab" data-tab="cases">Cases <span class="badge badge-sm ml-2" id="tc-cases"></span></button>
+      <button role="tab" class="tab" data-action="tab" data-tab="patronen">Patronen en regels <span class="badge badge-sm ml-2" id="tc-patronen"></span></button>
+      <button role="tab" class="tab" data-action="tab" data-tab="skill">Skill-concept</button>
+    </div>
+
+    <!-- Cases -->
+    <section id="p-cases">
+      <div class="card bg-base-100 border border-base-content/10 mb-4">
+        <div class="card-body p-4 gap-3">
+          <div class="flex flex-wrap items-center gap-x-5 gap-y-2">
+            <div class="flex flex-wrap items-center gap-1" id="f-status" aria-label="Status"></div>
+            <div class="w-px h-5 bg-base-content/10 hidden sm:block"></div>
+            <div class="flex flex-wrap items-center gap-1" id="f-prio" aria-label="Prioriteit"></div>
+            <div class="w-px h-5 bg-base-content/10 hidden sm:block"></div>
+            <div class="flex flex-wrap items-center gap-1" id="f-domein" aria-label="Domein"></div>
+          </div>
+          <div class="flex flex-wrap items-center gap-2">
+            <input id="f-q" type="search" class="input input-bordered input-sm flex-1 min-w-[14rem]" placeholder="Zoek klant, order, factuur of lead" aria-label="Zoeken" data-input="filter-q">
+            <select id="f-pat" class="select select-bordered select-sm max-w-xs" aria-label="Patroon" data-change="filter" data-key="pat"></select>
+            <select id="f-soort" class="select select-bordered select-sm max-w-xs" aria-label="Soort fout" data-change="filter" data-key="soort"></select>
+            <select id="f-zeker" class="select select-bordered select-sm max-w-[12rem]" aria-label="Zekerheid" data-change="filter" data-key="zeker"></select>
+            <button class="btn btn-outline btn-sm ml-auto" data-action="new-case">
+              <i data-lucide="plus" class="w-4 h-4"></i> Case toevoegen
+            </button>
+          </div>
+        </div>
+      </div>
+      <div id="caseList"></div>
+      <div id="caseEmpty" class="card bg-base-100 border border-base-content/10 hidden">
+        <div class="card-body items-center text-center py-12">
+          <i data-lucide="clipboard-check" class="w-12 h-12 opacity-40"></i>
+          <p class="text-base-content/60 text-sm" id="caseEmptyText">De cases worden geladen…</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Patronen -->
+    <section id="p-patronen" class="hidden">
+      <p class="text-sm opacity-70 max-w-3xl mb-4">
+        Een patroon is een fout die bij meerdere klanten terugkomt. De regel en de controle gelden voor het hele patroon en worden de kern van de skill.
+        Laat Claude ze opstellen of herbekijken uit alle cases van het patroon, en stuur zelf bij waar nodig.
+      </p>
+      <div id="patList" class="space-y-3"></div>
+    </section>
+
+    <!-- Skill -->
+    <section id="p-skill" class="hidden">
+      <div class="card bg-base-100 border border-base-content/10">
+        <div class="card-body p-4 gap-3">
+          <div class="flex flex-wrap items-center gap-2">
+            <button class="btn btn-primary btn-sm" data-action="copy-skill"><i data-lucide="copy" class="w-4 h-4"></i> Kopiëren</button>
+            <button class="btn btn-outline btn-sm" data-action="download-skill"><i data-lucide="download" class="w-4 h-4"></i> Bewaar als SKILL.md</button>
+            <span class="text-xs opacity-60">Gemaakt uit de patronen en uit de afgehandelde cases. Elke wijziging werkt hier meteen door.</span>
+          </div>
+          <pre class="oc-md bg-base-200 rounded-lg p-4 font-mono" id="skillMd">Laden…</pre>
+        </div>
+      </div>
+      <div class="card bg-base-100 border border-base-content/10 mt-4 hidden" id="adminCard">
+        <div class="card-body p-4 gap-2">
+          <h2 class="text-base font-semibold">Beheer: de export van de claude.ai-pagina inladen</h2>
+          <p class="text-xs opacity-70">
+            Voor de dag van de overschakeling: laad hier de laatste export (data.json) van de oude pagina. Bestaande cases en patronen met hetzelfde id
+            worden overschreven met wat in de export staat; de export is dan het recentste werk van het team.
+          </p>
+          <div class="flex flex-wrap items-center gap-2">
+            <input type="file" id="importFile" accept="application/json,.json" class="file-input file-input-bordered file-input-sm max-w-xs">
+            <button class="btn btn-outline btn-sm" data-action="import" id="importBtn"><i data-lucide="upload" class="w-4 h-4"></i> Importeren</button>
+            <span class="text-xs opacity-60" id="importResult"></span>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Case toevoegen -->
+  <dialog id="newCaseModal" class="modal">
+    <div class="modal-box max-w-2xl">
+      <h3 class="text-base font-semibold mb-3">Case toevoegen</h3>
+      <form id="newCaseForm" class="grid gap-3 sm:grid-cols-2" method="dialog" onsubmit="return false;">
+        <label class="form-control w-full">
+          <div class="label py-1"><span class="label-text">Klant <span class="text-error">*</span></span></div>
+          <input name="klant" type="text" class="input input-bordered input-sm w-full" placeholder="Residentie Da Vinci" required>
+        </label>
+        <label class="form-control w-full">
+          <div class="label py-1"><span class="label-text">Klanttype</span></div>
+          <input name="klanttype" type="text" list="klanttypes" class="input input-bordered input-sm w-full" placeholder="VME in advies">
+          <datalist id="klanttypes"></datalist>
+        </label>
+        <label class="form-control w-full sm:col-span-2">
+          <div class="label py-1"><span class="label-text">Titel</span></div>
+          <input name="titel" type="text" class="input input-bordered input-sm w-full" placeholder="Volgende factuur staat een jaar te ver">
+        </label>
+        <label class="form-control w-full">
+          <div class="label py-1"><span class="label-text">Domein <span class="text-error">*</span></span></div>
+          <select name="domein" class="select select-bordered select-sm w-full" id="nc-domein"></select>
+        </label>
+        <label class="form-control w-full">
+          <div class="label py-1"><span class="label-text">Prioriteit <span class="text-error">*</span></span></div>
+          <select name="prio" class="select select-bordered select-sm w-full" id="nc-prio"></select>
+        </label>
+        <label class="form-control w-full">
+          <div class="label py-1"><span class="label-text">Zekerheid</span></div>
+          <select name="zekerheid" class="select select-bordered select-sm w-full" id="nc-zeker"></select>
+        </label>
+        <label class="form-control w-full">
+          <div class="label py-1"><span class="label-text">Soort fout</span></div>
+          <select name="soort" class="select select-bordered select-sm w-full" id="nc-soort"></select>
+        </label>
+        <label class="form-control w-full">
+          <div class="label py-1"><span class="label-text">Bedrag (weergave)</span></div>
+          <input name="bedrag" type="text" class="input input-bordered input-sm w-full" placeholder="€ 981,84 ARR">
+        </label>
+        <label class="form-control w-full">
+          <div class="label py-1"><span class="label-text">Categorie</span></div>
+          <input name="categorie" type="text" class="input input-bordered input-sm w-full" placeholder="Volgende factuurdatum te ver">
+        </label>
+        <label class="form-control w-full">
+          <div class="label py-1"><span class="label-text">Deadline</span></div>
+          <input name="deadline" type="date" class="input input-bordered input-sm w-full">
+        </label>
+        <label class="form-control w-full">
+          <div class="label py-1"><span class="label-text">Vervaldag</span></div>
+          <input name="vervaldag" type="date" class="input input-bordered input-sm w-full">
+        </label>
+        <label class="form-control w-full sm:col-span-2">
+          <div class="label py-1"><span class="label-text">Bevinding</span></div>
+          <textarea name="bevinding" class="textarea textarea-bordered textarea-sm w-full" rows="3" placeholder="Wat stelde je vast in Odoo?"></textarea>
+        </label>
+        <label class="form-control w-full sm:col-span-2">
+          <div class="label py-1"><span class="label-text">Voorstel</span></div>
+          <textarea name="voorstel" class="textarea textarea-bordered textarea-sm w-full" rows="2" placeholder="Wat moet er gebeuren?"></textarea>
+        </label>
+        <label class="form-control w-full sm:col-span-2">
+          <div class="label py-1"><span class="label-text">Referenties in Odoo</span></div>
+          <textarea name="refs" class="textarea textarea-bordered textarea-sm w-full font-mono text-xs" rows="3" placeholder="sale.order 514 S00514&#10;account.move 17212 CFVK/2025/00197&#10;res.partner 906860 SBS 745"></textarea>
+          <div class="label py-1"><span class="label-text-alt text-xs text-base-content/50">Eén per regel: model, id en label. Modellen: res.partner, sale.order, account.move, crm.lead. Het id staat in de Odoo-URL.</span></div>
+        </label>
+        <div class="sm:col-span-2 text-xs text-error hidden" id="nc-error"></div>
+      </form>
+      <div class="modal-action">
+        <button class="btn btn-primary btn-sm" data-action="save-new-case" id="nc-save">Aanmaken</button>
+        <button class="btn btn-ghost btn-sm" data-action="close-new-case">Annuleren</button>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>sluiten</button></form>
+  </dialog>
+
+  <div id="toastContainer" class="toast toast-end z-50"></div>
+
+  <script src="/odoo-controle.js"></script>
+</body>
+</html>
