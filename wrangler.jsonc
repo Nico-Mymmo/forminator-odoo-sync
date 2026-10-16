@@ -73,11 +73,12 @@
 			// dezelfde taal spreekt als de Supabase-client. Plan en volgorde:
 			// docs/plan-supabase-uitfaseren.md.
 			//
-			// Bewust nog ZONDER database_id: de eerste `wrangler deploy` maakt de
-			// databank zelf aan (automatische provisioning, standaard aan sinds
-			// wrangler 4) en schrijft het id hier terug. Commit dat id daarna.
+			// Aangemaakt door de eerste `wrangler deploy` (automatische provisioning)
+			// op 2026-10-16; wrangler schreef het id niet zelf terug, dus het staat
+			// hier met de hand.
 			"binding": "CORE_DB",
 			"database_name": "om-core",
+			"database_id": "c4ff79bd-0d28-4c69-baa5-28fbf0126bba",
 			"migrations_dir": "d1/om-core/migrations"
 		}
 	],
