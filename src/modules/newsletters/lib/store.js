@@ -40,6 +40,7 @@ const SERIES_FIELDS = [
   'name', 'description', 'audience', 'tone', 'odoo_list_ids', 'from_name', 'from_email', 'reply_to',
   'logo_url', 'tint', 'cadence', 'send_day', 'send_hour', 'deadline_workdays', 'create_days_ahead',
   'chat_channel', 'answers_integration_id', 'editor_user_ids', 'sections', 'is_active',
+  'public_name', 'footer_reason', 'footer_line',
 ];
 
 export function normalizeSeriesPayload(body = {}) {

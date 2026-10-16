@@ -196,6 +196,7 @@
       + '<label class="form-control"><span class="label-text text-xs">Onderwerp</span><input id="edOnderwerp" class="input input-bordered input-sm" maxlength="200" placeholder="Onderwerp" value="' + e(ed.subject) + '"' + (mag ? '' : ' disabled') + '></label>'
       + '<label class="form-control"><span class="label-text text-xs">Voorbeeldtekst (de grijze regel in de inbox)</span><input id="edPreheader" class="input input-bordered input-sm" maxlength="200" placeholder="Voorbeeldtekst" value="' + e(ed.preheader) + '"' + (mag ? '' : ' disabled') + '></label>'
       + '<div id="edVoorstellen" class="flex flex-col gap-1"></div>'
+      + (mag && editor() ? '<button class="btn btn-sm btn-ghost self-start" data-action="open-kop"><i data-lucide="image" class="w-4 h-4"></i> Logo en teksten van de mail</button>' : '')
       + (mag ? '<div class="flex gap-2"><button class="btn btn-sm btn-ghost" data-action="ai-onderwerp"><i data-lucide="sparkles" class="w-4 h-4"></i> Stel voor</button>'
         + '<button class="btn btn-sm btn-primary ml-auto" data-action="bewaar-onderwerp">Bewaren</button></div>' : '')
       + '<div class="divider my-1"></div>'
@@ -336,6 +337,7 @@
     + '[data-nb-beeld][data-nb-knop]{cursor:pointer}[data-nb-beeld][data-nb-knop]:hover img{outline:3px solid #38bdf8;outline-offset:-3px}'
     + '[data-nb-beeld][data-nb-knop]:hover{outline:3px solid #38bdf8;outline-offset:-3px;border-radius:14px}'
     + '[data-nb-eiland]{user-select:none}'
+    + '[data-nb-kop],[data-nb-voet]{cursor:pointer}[data-nb-kop]:hover,[data-nb-voet]:hover{outline:3px solid #38bdf8;outline-offset:-3px;border-radius:14px}'
     // Het handvat op elk ander blok (hoofdredactie): enkel zichtbaar als je erover gaat
     + '.nb-greep-rij{position:absolute;left:10px;top:8px;z-index:4;opacity:0;transition:opacity .15s}'
     + '[data-nb-id]:hover .nb-greep-rij{opacity:1}'
@@ -377,6 +379,7 @@
         if (NB.kleur) NB.kleur.sluit();
         var knop = ev.target.closest('[data-nb-knop]');
         if (knop) { blokKnop(knop.getAttribute('data-nb-knop'), knop); return; }
+        if (ev.target.closest('[data-nb-kop]') || ev.target.closest('[data-nb-voet]')) { openKop(ev.target.closest('[data-nb-voet]') ? 'voet' : 'kop'); return; }
         var plus = ev.target.closest('.nb-plus-knop');
         if (plus) { openToevoegen(plus.closest('.nb-plus-lijn').getAttribute('data-na')); return; }
         if (ev.target.closest('.nb-werkbalk') || ev.target.closest('.nb-greep-rij')) return;
@@ -418,7 +421,89 @@
     }
     labels(doc);
     plusLijnen(doc);
+    // De kop en de voet zijn enkel klikbaar voor de hoofdredactie, en niet als lezer.
+    if (!editor() || !actief() || lezer()) {
+      doc.querySelectorAll('[data-nb-kop],[data-nb-voet]').forEach(function (x) { x.removeAttribute('data-nb-kop'); x.removeAttribute('data-nb-voet'); x.removeAttribute('title'); });
+    }
   }
+
+  /** Het venster Logo en teksten: de kop van deze mailing, de voet van het soort. */
+  var kopLogoUrl = null; // null = niets gewijzigd; '' = terug naar de standaard
+  function openKop(deel) {
+    if (!editor() || !actief()) return;
+    var k = d().kop || {}, v = d().voet || {}, s = d().series, h = d().edition.header || {};
+    var std = k.standaard || {};
+    kopLogoUrl = null;
+    document.getElementById('kopLogo').src = k.logo || '';
+    var titel = document.getElementById('kopTitel');
+    titel.value = typeof h.titel === 'string' ? h.titel : '';
+    titel.placeholder = std.titel || '';
+    var onder = document.getElementById('kopOndertitel');
+    onder.value = typeof h.ondertitel === 'string' ? h.ondertitel : '';
+    onder.placeholder = std.ondertitel || '';
+    var vs = v.standaard || {};
+    document.getElementById('voetReden').value = s.footer_reason || '';
+    document.getElementById('voetReden').placeholder = vs.reden || '';
+    document.getElementById('voetRegel').value = s.footer_line || '';
+    document.getElementById('voetRegel').placeholder = vs.regel || '';
+    NB.ikons();
+    NB.dialoog('dlgKop').showModal();
+    (deel === 'voet' ? document.getElementById('voetReden') : titel).focus();
+  }
+  NB.actions['open-kop'] = function () { openKop('kop'); };
+
+  NB.changes['kop-logo'] = async function (el) {
+    var bestand = el.files && el.files[0];
+    if (!bestand) return;
+    try {
+      // Een logo gaat ongewijzigd op (PNG met doorzichtige achtergrond blijft zo); andere soorten zet het scherm om naar PNG.
+      var blob = /^image\/(png|jpeg|gif)$/.test(bestand.type) ? bestand : await naarPng(bestand);
+      var r = await NB.upload('/api/upload', blob);
+      kopLogoUrl = r.url;
+      document.getElementById('kopLogo').src = r.url;
+    } catch (err) { NB.fout(err); }
+    el.value = '';
+  };
+  NB.actions['kop-logo-standaard'] = function () {
+    kopLogoUrl = '';
+    document.getElementById('kopLogo').src = ((d().kop || {}).standaard || {}).logo || '';
+  };
+  function naarPng(bestand) {
+    return new Promise(function (ok, nee) {
+      var img = new Image();
+      img.onload = function () {
+        var c = document.createElement('canvas');
+        c.width = img.naturalWidth; c.height = img.naturalHeight;
+        c.getContext('2d').drawImage(img, 0, 0);
+        c.toBlob(function (b) { b ? ok(b) : nee(new Error('Het beeld kon niet omgezet worden.')); }, 'image/png');
+      };
+      img.onerror = function () { nee(new Error('Dit bestand is geen beeld dat de browser kan lezen.')); };
+      img.src = URL.createObjectURL(bestand);
+    });
+  }
+
+  NB.actions['kop-bewaar'] = async function () {
+    try {
+      var h = Object.assign({}, d().edition.header || {});
+      var titel = document.getElementById('kopTitel').value.trim();
+      var onder = document.getElementById('kopOndertitel').value.trim();
+      var std = (d().kop || {}).standaard || {};
+      // Leeg gelaten of gelijk aan de standaard = geen eigen tekst.
+      if (titel && titel !== std.titel) h.titel = titel; else delete h.titel;
+      if (onder && onder !== std.ondertitel) h.ondertitel = onder; else delete h.ondertitel;
+      if (kopLogoUrl !== null) { if (kopLogoUrl) h.logo_url = kopLogoUrl; else delete h.logo_url; }
+      await NB.api('/api/editions/' + d().edition.id, { method: 'PUT', body: { header: h } });
+      var reden = document.getElementById('voetReden').value.trim();
+      var regel = document.getElementById('voetRegel').value.trim();
+      var s = d().series;
+      if (reden !== (s.footer_reason || '') || regel !== (s.footer_line || '')) {
+        await NB.api('/api/series/' + s.id, { method: 'PUT', body: { footer_reason: reden, footer_line: regel } });
+      }
+      NB.dialoog('dlgKop').close();
+      NB.toast('Logo en teksten bewaard.');
+      herlaad();
+    } catch (err) { NB.fout(err); }
+  };
 
   function labels(doc) {
     doc = doc || briefDoc();
