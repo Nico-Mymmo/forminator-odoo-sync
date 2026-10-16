@@ -264,6 +264,36 @@
   </dialog>
 
   <!-- Testmail: aanvinken welke collega's ze krijgen -->
+  <!-- Logo en teksten van de mail: de kop per mailing, de voet per soort mailing -->
+  <dialog id="dlgKop" class="modal">
+    <div class="modal-box max-w-lg">
+      <h3 class="font-bold text-lg mb-1">Logo en teksten</h3>
+      <p class="text-sm opacity-70 mb-4">Wat de lezer bovenaan en onderaan de mail ziet. Leeg laten = de standaard.</p>
+      <div class="text-xs font-semibold uppercase tracking-wide opacity-60 mb-2">Bovenaan, enkel deze mailing</div>
+      <div class="flex items-center gap-3 mb-3 p-3 rounded-lg bg-base-200/60">
+        <img id="kopLogo" alt="" class="h-8 w-auto max-w-[180px] object-contain bg-white rounded px-1">
+        <div class="flex flex-wrap gap-2 ml-auto">
+          <label class="btn btn-sm btn-outline"><i data-lucide="upload" class="w-4 h-4"></i> Ander logo<input type="file" accept="image/png,image/jpeg,image/gif,image/svg+xml,image/webp" class="hidden" data-change="kop-logo"></label>
+          <button type="button" class="btn btn-sm btn-ghost" data-action="kop-logo-standaard">Standaardlogo</button>
+        </div>
+      </div>
+      <div class="grid sm:grid-cols-2 gap-3 mb-4">
+        <label class="form-control"><span class="label-text text-xs">Regel rechtsboven</span><input id="kopTitel" class="input input-bordered input-sm" maxlength="120"></label>
+        <label class="form-control"><span class="label-text text-xs">Regel eronder</span><input id="kopOndertitel" class="input input-bordered input-sm" maxlength="120"></label>
+      </div>
+      <div id="kopVoet">
+        <div class="text-xs font-semibold uppercase tracking-wide opacity-60 mb-2">Onderaan, voor alle mailings van dit soort</div>
+        <label class="form-control mb-3"><span class="label-text text-xs">Waarom de lezer deze mail krijgt</span><textarea id="voetReden" class="textarea textarea-bordered textarea-sm" rows="2" maxlength="300"></textarea></label>
+        <label class="form-control"><span class="label-text text-xs">Onderste regel</span><input id="voetRegel" class="input input-bordered input-sm" maxlength="200"><span class="label-text-alt opacity-60 mt-1">De link Uitschrijven staat er altijd tussen; die kan niet weg.</span></label>
+      </div>
+      <div class="modal-action">
+        <button class="btn btn-primary btn-sm" data-action="kop-bewaar">Bewaren</button>
+        <button class="btn btn-ghost btn-sm" data-action="sluit-dialoog" data-dialoog="dlgKop">Annuleren</button>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>sluiten</button></form>
+  </dialog>
+
   <dialog id="dlgTest" class="modal">
     <div class="modal-box max-w-md">
       <h3 class="font-bold text-lg mb-1">Testmail</h3>

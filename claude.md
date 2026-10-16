@@ -3808,6 +3808,44 @@ bleken drie dingen niet te kloppen. Alle drie zijn gefixt in `lib/sync.js`,
     "Opbouwen" (i.p.v. Verzamelen/Nalezen) tot alle blokken bevestigd zijn.
 - De checklist blijft dezelfde: zonder bevestigde blokken kan ze niet vertrekken.
 
+## Nieuwsbrief: blokken die zichzelf vullen en events in de kijker (2026-10-16)
+
+- **Inhoudstafel, Agenda en Afsluiting staan in "Iets toevoegen"** (groep
+  "Vult zichzelf"), want een blanco mailing heeft ze niet. Enkel de
+  hoofdredactie, één per mailing (`eenmalig` in SJABLONEN; de server weigert
+  een tweede met 409 en zet een `auto`-blok meteen op bevestigd). Een lege
+  inhoudstafel blijft in de werkstand zichtbaar ("Vult zichzelf zodra …"), in
+  de mail valt ze weg.
+- **Tabblad Events** in "Iets toevoegen": de gepubliceerde events vanaf de
+  verzenddag (`suggesties.events`, met `summary` en `image_url` = hero-beeld
+  uit Eventbeheer). **Groot** = een `link`-kaart ("Event in de kijker":
+  datum · plaats, samenvatting, hero-beeld, knop Inschrijven/Meer info,
+  `content.event_id` onthouden voor "staat erin"). **Twee of drie aangevinkt
+  naast elkaar** = een `news`-blok (vorm kolommen) met per event een kaartje.
+  Geen nieuwe soort blok: de bestaande kaarten doen het werk.
+
+## Nieuwsbrief: logo, kop en voet instelbaar (2026-10-16)
+
+- **Wat de lezer ziet, beslist marketing**: de interne naam van een reeks is
+  niet de naam in de mail. Reeks: `public_name` (rechtsboven en in de voet;
+  leeg = `name`), `footer_reason` en `footer_line` (de twee voetzinnen; leeg =
+  de standaardzin). Mailing: `edition.header` = `{ logo_url, titel,
+  ondertitel }`; een sleutel die ontbreekt valt terug op de reeks. Migratie
+  `20261016090000_newsletters_kop_en_voet.sql`.
+- **EEN plek voor de waarden**: `kopWaarden(series, edition)`,
+  `voetWaarden(series, ctx)` en `lezersNaam(series)` in render.js; de
+  GET-editie geeft `kop` en `voet` (met `standaard`) mee voor het venster.
+- **Vanuit de brief**: in de werkstand dragen de kop en de voet `data-nb-kop`
+  / `data-nb-voet`; klikken opent het venster "Logo en teksten" (dlgKop):
+  bovenaan per mailing (`PUT /api/editions/:id { header }`), onderaan per soort
+  (`PUT /api/series/:id`). Ook via de knop in het paneel Editie en in de
+  instellingen van de reeks. Als lezer en voor wie geen hoofdredactie is,
+  zijn ze niet klikbaar.
+- **De link Uitschrijven blijft altijd staan** (Odoo herschrijft hem per
+  ontvanger); enkel de zinnen eromheen zijn instelbaar.
+- Een logo gaat ongewijzigd op (PNG met doorzichtige achtergrond blijft zo);
+  `/api/upload` neemt enkel PNG/JPEG/GIF, andere soorten zet het scherm om.
+
 ## Nieuwsbrief: soorten mailing (2026-10-15)
 
 - **Woorden (Nico)**: "mailing" is het overkoepelende woord. Een **soort

@@ -18,13 +18,13 @@ import {
   sendMode, testEmails, BRAND, BEELD_KADERS, BEELD_PLAATSEN, TEKENING_MATEN, TITEL_NIVEAUS, MERKKLEUREN, merkkleur, BERICHT_VORMEN,
   VRAAG_SOORTEN, VRAAG_STIJLEN, VRAAG_STANDAARD, VRAAG_OUDE_KLEUREN, NIEUWS_VORMEN, NIEUWS_MAX,
 } from './lib/constants.js';
-import { renderEdition, renderContribution, heeftInhoud, kopVan, inToc } from './lib/render.js';
+import { renderEdition, renderContribution, heeftInhoud, kopVan, inToc, kopWaarden, voetWaarden } from './lib/render.js';
 import { verzamel, maakEditieOp, vernieuwNieuws, ondertekenaarId, metOndertekening, isBlanco } from './lib/editions.js';
 import { antwoordLinks, antwoordenVanEditie } from './lib/answers.js';
 import { tokenVeldBestaat, verstuurTest, leesCijfers } from './lib/odoo-mailing.js';
 import { voorgesteldMoment, controleerMoment, bouwEchteMail, datumKort } from './lib/verzending.js';
 import { stelStukjeVoor, stelOnderwerpVoor } from './lib/ai.js';
-import { linkVoorbeeld, eventsVoorEditie, auteurs, tekeningen, eventsTussen } from './lib/sources.js';
+import { linkVoorbeeld, eventsVoorEditie, auteurs, tekeningen, eventsTussen, bedrijf } from './lib/sources.js';
 import { stuurHerinnering } from './lib/cron.js';
 import { hostBeelden, BEELDEN_MAP } from './lib/beelden-hosten.js';
 import { naamVoor, medewerkerVoorOdooGebruiker, medewerkersVoorGebruikers } from '../../lib/medewerkers.js';
@@ -267,6 +267,8 @@ function inhoudPerSoort(kind, c = {}) {
         title: kort(c.title, 200), text: kort(c.text, 1500), url: url(c.url), image_url: url(c.image_url),
         site_name: kort(c.site_name, 80), author_name: kort(c.author_name, 80), link_label: kort(c.link_label, 60),
         beeld: normaliseerBeeld(c.beeld, 'link'),
+        // Een event in de kijker onthoudt van welk event het komt (zodat het venster "staat erin" kan tonen).
+        ...(Number.isInteger(Number(c.event_id)) && Number(c.event_id) > 0 ? { event_id: Number(c.event_id) } : {}),
       };
     case 'quote':
       return { quote: kort(c.quote, 600), person: kort(c.person, 100), role: kort(c.role, 120) };
@@ -545,11 +547,15 @@ export const routes = {
       const tokenVeld = isActiveEdition(edition) && items.some((i) => KINDS[i.kind]?.interactive)
         ? await tokenVeldBestaat(env).catch(() => false) : true;
       const lijst = checklist({ series, edition, items, ctx: { events: [{ id: 0 }] }, tokenVeld, env });
+      const comp = await bedrijf(env).catch(() => null);
       return json({
         success: true,
         data: {
           edition: { ...edition, stats },
           checklist: lijst,
+          // Wat de kop en de voet nu tonen, en wat de standaard is (voor het venster "Logo en teksten").
+          kop: kopWaarden(series, edition),
+          voet: voetWaarden(series, { company: comp }),
           voorgesteld_moment: isActiveEdition(edition) ? voorgesteldMoment(series, edition).toISOString() : null,
           series: { ...series, is_editor: isEditorVan(user, series) },
           items: items.map((i) => ({
@@ -589,6 +595,15 @@ export const routes = {
       if (b.title !== undefined) w.title = kort(b.title, 120);
       if (b.subject !== undefined) w.subject = kort(b.subject, 200);
       if (b.preheader !== undefined) w.preheader = kort(b.preheader, 200);
+      // De kop van de mail: logo en de twee regels rechtsboven. null = terug naar de standaard van de reeks.
+      if (b.header !== undefined) {
+        const h = b.header && typeof b.header === 'object' ? b.header : {};
+        const nieuw = {};
+        if (typeof h.titel === 'string') nieuw.titel = kort(h.titel, 120);
+        if (typeof h.ondertitel === 'string') nieuw.ondertitel = kort(h.ondertitel, 120);
+        if (typeof h.logo_url === 'string' && url(h.logo_url)) nieuw.logo_url = url(h.logo_url);
+        w.header = nieuw;
+      }
       for (const k of ['send_at', 'deadline_at']) {
         if (b[k] !== undefined) {
           const d = new Date(b[k]);
@@ -730,6 +745,11 @@ export const routes = {
 
       const kind = String(b.kind || '');
       if (!isKind(kind)) throw new NewsletterError('Onbekende soort stukje.');
+      // Een blok dat zichzelf vult (inhoudstafel, agenda, afsluiting): enkel de hoofdredactie, en maar één per mailing.
+      if (KINDS[kind].auto) {
+        eisEditor(user, series);
+        if (items.some((i) => i.kind === kind)) throw new NewsletterError(`Er staat al een ${KINDS[kind].label.toLowerCase()} in deze mailing.`, 409);
+      }
       // Een schrijver mag zichzelf een stukje toevoegen; enkel de hoofdredactie
       // kan het iemand anders toewijzen.
       const eigenaar = isEditorVan(user, series) ? (b.owner_user_id === undefined ? user.id : b.owner_user_id || null) : user.id;
@@ -743,7 +763,7 @@ export const routes = {
         content: normaliseerInhoud(kind, b.content || {}),
         owner_user_id: eigenaar,
         // Een titel zet de hoofdredactie zelf: dat is opmaak, niets om nog te bevestigen.
-        status: kind === 'heading' && isEditorVan(user, series) ? CONTRIBUTION_STATUS.APPROVED
+        status: (kind === 'heading' || KINDS[kind].auto) && isEditorVan(user, series) ? CONTRIBUTION_STATUS.APPROVED
           : b.content ? CONTRIBUTION_STATUS.DRAFT : CONTRIBUTION_STATUS.OPEN,
         source: kort(b.source, 300),
         created_by: user.id,

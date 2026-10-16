@@ -40,6 +40,10 @@
     { key: 'afbeelding', groep: 'media', kind: 'image', naam: 'Afbeelding', titel: 'Afbeelding', icoon: 'image', uitleg: 'Een beeld over de volle tekstbreedte.' },
     { key: 'video', groep: 'media', kind: 'video', naam: 'Video', titel: 'Video', icoon: 'circle-play', uitleg: 'Een filmpje, met een stilstaand beeld.' },
     { key: 'linkedin', groep: 'media', kind: 'linkedin', naam: 'Op LinkedIn', titel: 'Op LinkedIn', icoon: 'share-2', uitleg: 'Een post die het delen waard is.' },
+    // Blokken die de OM zelf vult: één per mailing, enkel de hoofdredactie (een nieuwsbrief heeft ze al, een blanco mailing niet).
+    { key: 'inhoudstafel', groep: 'vanzelf', kind: 'toc', naam: 'Inhoudstafel', titel: 'In deze editie', icoon: 'list-ordered', uitleg: 'Genummerde lijst van de blokken; vult zichzelf.', enkelRedactie: true, eenmalig: true },
+    { key: 'agenda', groep: 'vanzelf', kind: 'events', naam: 'Agenda', titel: 'Agenda', icoon: 'calendar-days', uitleg: 'De komende events uit Eventbeheer; vult zichzelf.', enkelRedactie: true, eenmalig: true, inhoud: { heading: 'Kom ons ontmoeten', exclude_ids: [] } },
+    { key: 'afsluiting', groep: 'vanzelf', kind: 'closing', naam: 'Afsluiting', titel: 'Tot de volgende', icoon: 'hand', uitleg: 'Het slotwoord met wie meeschreef; altijd onderaan.', enkelRedactie: true, eenmalig: true, inhoud: { text: '', button_label: '', button_url: '' } },
   ];
   var GROEPEN = [
     { key: 'opbouw', naam: 'Opbouw' },
@@ -47,6 +51,7 @@
     { key: 'lezer', naam: 'De lezer laten reageren' },
     { key: 'verhaal', naam: 'Verhalen' },
     { key: 'media', naam: 'Beeld en media' },
+    { key: 'vanzelf', naam: 'Vult zichzelf' },
   ];
   var SJ = {};
   SJABLONEN.forEach(function (s) { SJ[s.key] = s; });
@@ -196,6 +201,7 @@
       + '<label class="form-control"><span class="label-text text-xs">Onderwerp</span><input id="edOnderwerp" class="input input-bordered input-sm" maxlength="200" placeholder="Onderwerp" value="' + e(ed.subject) + '"' + (mag ? '' : ' disabled') + '></label>'
       + '<label class="form-control"><span class="label-text text-xs">Voorbeeldtekst (de grijze regel in de inbox)</span><input id="edPreheader" class="input input-bordered input-sm" maxlength="200" placeholder="Voorbeeldtekst" value="' + e(ed.preheader) + '"' + (mag ? '' : ' disabled') + '></label>'
       + '<div id="edVoorstellen" class="flex flex-col gap-1"></div>'
+      + (mag && editor() ? '<button class="btn btn-sm btn-ghost self-start" data-action="open-kop"><i data-lucide="image" class="w-4 h-4"></i> Logo en teksten van de mail</button>' : '')
       + (mag ? '<div class="flex gap-2"><button class="btn btn-sm btn-ghost" data-action="ai-onderwerp"><i data-lucide="sparkles" class="w-4 h-4"></i> Stel voor</button>'
         + '<button class="btn btn-sm btn-primary ml-auto" data-action="bewaar-onderwerp">Bewaren</button></div>' : '')
       + '<div class="divider my-1"></div>'
@@ -336,6 +342,7 @@
     + '[data-nb-beeld][data-nb-knop]{cursor:pointer}[data-nb-beeld][data-nb-knop]:hover img{outline:3px solid #38bdf8;outline-offset:-3px}'
     + '[data-nb-beeld][data-nb-knop]:hover{outline:3px solid #38bdf8;outline-offset:-3px;border-radius:14px}'
     + '[data-nb-eiland]{user-select:none}'
+    + '[data-nb-kop],[data-nb-voet]{cursor:pointer}[data-nb-kop]:hover,[data-nb-voet]:hover{outline:3px solid #38bdf8;outline-offset:-3px;border-radius:14px}'
     // Het handvat op elk ander blok (hoofdredactie): enkel zichtbaar als je erover gaat
     + '.nb-greep-rij{position:absolute;left:10px;top:8px;z-index:4;opacity:0;transition:opacity .15s}'
     + '[data-nb-id]:hover .nb-greep-rij{opacity:1}'
@@ -377,6 +384,7 @@
         if (NB.kleur) NB.kleur.sluit();
         var knop = ev.target.closest('[data-nb-knop]');
         if (knop) { blokKnop(knop.getAttribute('data-nb-knop'), knop); return; }
+        if (ev.target.closest('[data-nb-kop]') || ev.target.closest('[data-nb-voet]')) { openKop(ev.target.closest('[data-nb-voet]') ? 'voet' : 'kop'); return; }
         var plus = ev.target.closest('.nb-plus-knop');
         if (plus) { openToevoegen(plus.closest('.nb-plus-lijn').getAttribute('data-na')); return; }
         if (ev.target.closest('.nb-werkbalk') || ev.target.closest('.nb-greep-rij')) return;
@@ -418,7 +426,89 @@
     }
     labels(doc);
     plusLijnen(doc);
+    // De kop en de voet zijn enkel klikbaar voor de hoofdredactie, en niet als lezer.
+    if (!editor() || !actief() || lezer()) {
+      doc.querySelectorAll('[data-nb-kop],[data-nb-voet]').forEach(function (x) { x.removeAttribute('data-nb-kop'); x.removeAttribute('data-nb-voet'); x.removeAttribute('title'); });
+    }
   }
+
+  /** Het venster Logo en teksten: de kop van deze mailing, de voet van het soort. */
+  var kopLogoUrl = null; // null = niets gewijzigd; '' = terug naar de standaard
+  function openKop(deel) {
+    if (!editor() || !actief()) return;
+    var k = d().kop || {}, v = d().voet || {}, s = d().series, h = d().edition.header || {};
+    var std = k.standaard || {};
+    kopLogoUrl = null;
+    document.getElementById('kopLogo').src = k.logo || '';
+    var titel = document.getElementById('kopTitel');
+    titel.value = typeof h.titel === 'string' ? h.titel : '';
+    titel.placeholder = std.titel || '';
+    var onder = document.getElementById('kopOndertitel');
+    onder.value = typeof h.ondertitel === 'string' ? h.ondertitel : '';
+    onder.placeholder = std.ondertitel || '';
+    var vs = v.standaard || {};
+    document.getElementById('voetReden').value = s.footer_reason || '';
+    document.getElementById('voetReden').placeholder = vs.reden || '';
+    document.getElementById('voetRegel').value = s.footer_line || '';
+    document.getElementById('voetRegel').placeholder = vs.regel || '';
+    NB.ikons();
+    NB.dialoog('dlgKop').showModal();
+    (deel === 'voet' ? document.getElementById('voetReden') : titel).focus();
+  }
+  NB.actions['open-kop'] = function () { openKop('kop'); };
+
+  NB.changes['kop-logo'] = async function (el) {
+    var bestand = el.files && el.files[0];
+    if (!bestand) return;
+    try {
+      // Een logo gaat ongewijzigd op (PNG met doorzichtige achtergrond blijft zo); andere soorten zet het scherm om naar PNG.
+      var blob = /^image\/(png|jpeg|gif)$/.test(bestand.type) ? bestand : await naarPng(bestand);
+      var r = await NB.upload('/api/upload', blob);
+      kopLogoUrl = r.url;
+      document.getElementById('kopLogo').src = r.url;
+    } catch (err) { NB.fout(err); }
+    el.value = '';
+  };
+  NB.actions['kop-logo-standaard'] = function () {
+    kopLogoUrl = '';
+    document.getElementById('kopLogo').src = ((d().kop || {}).standaard || {}).logo || '';
+  };
+  function naarPng(bestand) {
+    return new Promise(function (ok, nee) {
+      var img = new Image();
+      img.onload = function () {
+        var c = document.createElement('canvas');
+        c.width = img.naturalWidth; c.height = img.naturalHeight;
+        c.getContext('2d').drawImage(img, 0, 0);
+        c.toBlob(function (b) { b ? ok(b) : nee(new Error('Het beeld kon niet omgezet worden.')); }, 'image/png');
+      };
+      img.onerror = function () { nee(new Error('Dit bestand is geen beeld dat de browser kan lezen.')); };
+      img.src = URL.createObjectURL(bestand);
+    });
+  }
+
+  NB.actions['kop-bewaar'] = async function () {
+    try {
+      var h = Object.assign({}, d().edition.header || {});
+      var titel = document.getElementById('kopTitel').value.trim();
+      var onder = document.getElementById('kopOndertitel').value.trim();
+      var std = (d().kop || {}).standaard || {};
+      // Leeg gelaten of gelijk aan de standaard = geen eigen tekst.
+      if (titel && titel !== std.titel) h.titel = titel; else delete h.titel;
+      if (onder && onder !== std.ondertitel) h.ondertitel = onder; else delete h.ondertitel;
+      if (kopLogoUrl !== null) { if (kopLogoUrl) h.logo_url = kopLogoUrl; else delete h.logo_url; }
+      await NB.api('/api/editions/' + d().edition.id, { method: 'PUT', body: { header: h } });
+      var reden = document.getElementById('voetReden').value.trim();
+      var regel = document.getElementById('voetRegel').value.trim();
+      var s = d().series;
+      if (reden !== (s.footer_reason || '') || regel !== (s.footer_line || '')) {
+        await NB.api('/api/series/' + s.id, { method: 'PUT', body: { footer_reason: reden, footer_line: regel } });
+      }
+      NB.dialoog('dlgKop').close();
+      NB.toast('Logo en teksten bewaard.');
+      herlaad();
+    } catch (err) { NB.fout(err); }
+  };
 
   function labels(doc) {
     doc = doc || briefDoc();
@@ -902,14 +992,18 @@
   function tekenToevoegen() {
     var bak = document.getElementById('dlgToevoegenInhoud');
     var tab = NB.state.toevoegTab;
-    var tabs = [['blokken', 'Blokken', 'layout-grid'], ['nieuws', 'Nieuws & updates', 'rss']];
+    var tabs = [['blokken', 'Blokken', 'layout-grid'], ['nieuws', 'Nieuws & updates', 'rss'], ['events', 'Events', 'calendar-days']];
     if (editor()) tabs.push(['voorraad', 'Voorraad', 'lightbulb']);
     var tabHtml = '<div role="tablist" class="tabs tabs-boxed w-fit mb-3">' + tabs.map(function (t) {
       return '<button role="tab" class="tab gap-1' + (tab === t[0] ? ' tab-active' : '') + '" data-action="toevoeg-tab" data-tab="' + t[0] + '"><i data-lucide="' + t[2] + '" class="w-3.5 h-3.5"></i> ' + e(t[1]) + '</button>';
     }).join('') + '</div>';
     var inhoud = '';
     if (tab === 'blokken') {
-      var zichtbaar = SJABLONEN.filter(function (s) { return !s.enkelRedactie || editor(); });
+      var zichtbaar = SJABLONEN.filter(function (s) {
+        if (s.enkelRedactie && !editor()) return false;
+        if (s.eenmalig && d().items.some(function (i) { return i.kind === s.kind; })) return false;
+        return true;
+      });
       inhoud = GROEPEN.map(function (g) {
         var lijst = zichtbaar.filter(function (s) { return s.groep === g.key; });
         if (!lijst.length) return '';
@@ -937,6 +1031,19 @@
             }).join('') + '</div>'
           : '<p class="text-sm opacity-60">Geen gepubliceerde berichten gevonden.</p>';
       }
+    } else if (tab === 'events') {
+      var events = (d().suggesties && d().suggesties.events) || [];
+      var inBrief = d().items.filter(function (i) { return i.kind === 'link' && i.content && i.content.event_id; }).map(function (i) { return Number(i.content.event_id); });
+      inhoud = events.length
+        ? '<p class="text-xs opacity-60 mb-2">Gepubliceerde events vanaf de verzenddag. <strong>Groot</strong> = een kaart met beeld, tekst en knop. Vink er meerdere aan voor kleine kaartjes <strong>naast elkaar</strong> (max. 3). De agenda-lijst kies je bij Blokken.</p>'
+          + '<div class="max-h-80 overflow-y-auto">' + events.map(function (ev) {
+            var erin = inBrief.indexOf(Number(ev.id)) >= 0;
+            return '<label class="flex items-center gap-3 py-2 border-b border-base-content/10 last:border-0 cursor-pointer"><input type="checkbox" class="checkbox checkbox-sm" data-change="event-vink" value="' + e(ev.id) + '">'
+              + '<span class="flex-1 min-w-0"><span class="block text-sm font-medium truncate">' + e(ev.title) + '</span><span class="block text-xs opacity-60">' + e(NB.datum(ev.starts_at, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })) + (ev.location ? ' · ' + e(ev.location) : '') + '</span></span>'
+              + (erin ? '<span class="text-xs opacity-60">staat erin</span>' : '<button type="button" class="btn btn-xs btn-primary" data-action="toevoeg-event" data-id="' + e(ev.id) + '">Groot</button>') + '</label>';
+          }).join('') + '</div>'
+          + '<div class="mt-3"><button class="btn btn-sm btn-primary" id="eventsNaast" data-action="toevoeg-events-naast" disabled><i data-lucide="columns-3" class="w-4 h-4"></i> Gekozen naast elkaar</button></div>'
+        : '<p class="text-sm opacity-60">Geen gepubliceerde events in de zes weken na de verzenddag.</p>';
     } else {
       var pool = (d().suggesties && d().suggesties.pool) || [];
       inhoud = pool.length
@@ -961,6 +1068,44 @@
     if (!sj) return;
     NB.dialoog('dlgToevoegen').close();
     return plaats({ kind: sj.kind, title: sj.titel, content: sj.inhoud || undefined }, NB.state.plaatsNa);
+  };
+
+  /** Een event als inhoud voor een kaart: datum, plaats en samenvatting, met het hero-beeld en de knop van het event. */
+  function eventInhoud(ev) {
+    var wanneer = NB.datum(ev.starts_at, { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
+    return {
+      event_id: Number(ev.id), title: ev.title, url: ev.url, site_name: 'Event',
+      text: wanneer + (ev.location ? ' · ' + ev.location : '') + (ev.summary ? '\n\n' + ev.summary : ''),
+      image_url: ev.image_url || '', link_label: ev.cta || 'Inschrijven',
+      beeld: ev.image_url ? { url: ev.image_url, plaats: 'link', vulling: 'vullen', focus: { x: 0.5, y: 0.5 } } : undefined,
+    };
+  }
+  function eventVan(id) { return ((d().suggesties && d().suggesties.events) || []).filter(function (x) { return Number(x.id) === Number(id); })[0]; }
+
+  NB.changes['event-vink'] = function () {
+    var n = document.querySelectorAll('#dlgToevoegen input[data-change="event-vink"]:checked').length;
+    var knop = document.getElementById('eventsNaast');
+    if (knop) { knop.disabled = n < 2 || n > 3; knop.title = n > 3 ? 'Hoogstens drie naast elkaar' : ''; }
+  };
+
+  NB.actions['toevoeg-event'] = async function (el) {
+    var ev = eventVan(el.dataset.id);
+    if (!ev) return;
+    el.disabled = true;
+    NB.dialoog('dlgToevoegen').close();
+    await plaats({ kind: 'link', title: 'Event in de kijker', content: eventInhoud(ev) }, NB.state.plaatsNa);
+  };
+
+  NB.actions['toevoeg-events-naast'] = async function () {
+    var gekozen = Array.prototype.slice.call(document.querySelectorAll('#dlgToevoegen input[data-change="event-vink"]:checked')).map(function (x) { return eventVan(x.value); }).filter(Boolean).slice(0, 3);
+    if (gekozen.length < 2) return;
+    NB.dialoog('dlgToevoegen').close();
+    await plaats({
+      kind: 'news', title: 'Kom ons ontmoeten',
+      content: { vorm: 'kolommen', heading: 'Kom ons ontmoeten', items: gekozen.map(function (ev) {
+        return { title: ev.title, url: ev.url, source: NB.datum(ev.starts_at, { day: 'numeric', month: 'short' }), note: NB.datum(ev.starts_at, { weekday: 'long', hour: '2-digit', minute: '2-digit' }) + (ev.location ? ' · ' + ev.location : ''), beeld_url: ev.image_url || '' };
+      }) },
+    }, NB.state.plaatsNa);
   };
 
   NB.actions['toevoeg-bericht'] = async function (el) {
