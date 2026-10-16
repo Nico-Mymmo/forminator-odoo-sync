@@ -422,6 +422,15 @@ function inFilter(k, lijst, kol, negatief) {
   const waarden = Array.isArray(lijst) ? lijst : [];
   // IN () is in Postgres een fout en hier altijd onwaar: geen rijen.
   if (!waarden.length) return { sql: negatief ? '1 = 1' : '1 = 0', params: [] };
+  // Een lange lijst als EEN JSON-parameter: D1 aanvaardt maar 100 gebonden
+  // parameters per statement, en .in() met alle inzendingen van een maand
+  // komt daar ruim boven.
+  if (waarden.length > 20) {
+    return {
+      sql: `${ident(k)} ${negatief ? 'NOT IN' : 'IN'} (SELECT value FROM json_each(?))`,
+      params: [JSON.stringify(waarden.map((v) => naarDb(v, kol.get(k))))],
+    };
+  }
   return {
     sql: `${ident(k)} ${negatief ? 'NOT IN' : 'IN'} (${waarden.map(() => '?').join(', ')})`,
     params: waarden.map((v) => naarDb(v, kol.get(k))),

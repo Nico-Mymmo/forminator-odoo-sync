@@ -106,6 +106,12 @@ check('in() en order desc', r.data?.map((x) => x.naam).join() === 'Nieuwsbrief,C
 r = await db.from('integraties').select('naam').in('slug', []);
 check('in() met een lege lijst: geen rijen, geen fout', !r.error && r.data.length === 0);
 
+const veel = Array.from({ length: 500 }, (_, i) => 'x' + i).concat(['offerte']);
+r = await db.from('integraties').select('naam').in('slug', veel);
+check('in() met 501 waarden (boven de grens van 100 parameters van D1)', !r.error && r.data?.[0]?.naam === 'Offerte', JSON.stringify(r.error));
+r = await db.from('integraties').select('naam').not('slug', 'in', veel).order('naam');
+check('not in met een lange lijst', !r.error && r.data?.map((x) => x.naam).join() === 'Contact,Nieuwsbrief', JSON.stringify(r));
+
 r = await db.from('integraties').select('naam').gte('created_at', '2026-09-15').lt('created_at', '2026-10-02T00:00:00+00:00');
 check('tijdstippen vergelijken over vormen heen (Z, +00:00, enkel datum)', r.data?.map((x) => x.naam).join() === 'Nieuwsbrief', json(r));
 
