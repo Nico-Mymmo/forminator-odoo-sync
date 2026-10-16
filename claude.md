@@ -157,7 +157,15 @@ const supabase = getSupabaseClient(env); // per-isolate singleton, persistSessio
 (`TIMESTAMPTZ`, `JSON_TEXT`, `BOOLEAN`); zonder die types zet de laag niets om.
 Bestaande modules verhuizen een voor een volgens `docs/plan-supabase-uitfaseren.md`
 (daar staat ook de voortgang); tot een module verhuisd is, blijft ze op
-`getSupabaseClient(env)`. Wat de laag niet kent (geneste selects, onbekende
+`getSupabaseClient(env)`. Per tabel verloopt de verhuis via `dbVoor(env, tabel)` en
+Beheer -> Verhuis (`src/lib/verhuis.js`).
+
+**"Waar focussen we vandaag?"** Vraagt Nico dat (of iets gelijkaardigs: "wat
+refactoren we vandaag", "wat is de volgende stap"), lees dan het werkbord
+`docs/plan-supabase-uitfaseren.md` (tabel "Volgende stappen") en stel de bovenste
+open stap voor, in gewone taal: wat, waarom eerst, wat Nico daarna kan nakijken. De
+bevindingen per onderdeel staan in `docs/schouwing-modules.md`. Na elke afgewerkte
+stap: werkbord (status + logboek) en schouwing bijwerken, in dezelfde commit. Wat de laag niet kent (geneste selects, onbekende
 operatoren) geeft `CORE_DB_UNSUPPORTED`: herschrijf de query, breid de laag alleen uit
 met een test erbij (`node src/lib/tests/core-db-test.mjs`).
 
