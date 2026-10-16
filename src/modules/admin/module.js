@@ -37,6 +37,12 @@ import {
   handleGetModuleSettings,
   handleUpdateModuleSettings
 } from './department-routes.js';
+import {
+  handleGetVerhuis,
+  handleVerhuisKopieer,
+  handleVerhuisOverschakelen,
+  handleVerhuisTerugzetten
+} from './verhuis-routes.js';
 
 export default {
   // Module metadata
@@ -104,6 +110,12 @@ export default {
     'PUT /api/departments/order': handleReorderDepartments,
     'PUT /api/departments/:id': handleUpdateDepartment,
     'DELETE /api/departments/:id': handleDeleteDepartment,
+
+    // Verhuis Supabase -> D1 om-core (verhuis-routes.js, docs/plan-supabase-uitfaseren.md)
+    'GET /api/verhuis': handleGetVerhuis,
+    'POST /api/verhuis/:tabel/kopieer': handleVerhuisKopieer,
+    'POST /api/verhuis/:tabel/overschakelen': handleVerhuisOverschakelen,
+    'POST /api/verhuis/:tabel/terugzetten': handleVerhuisTerugzetten,
 
     // Google-werk-e-mailadres (Drive-koppeling mini-apps) — enkel admin@mymmo.com,
     // zie de GOOGLE_EMAIL_SETTING_ALLOWED_EMAIL-check in routes.js

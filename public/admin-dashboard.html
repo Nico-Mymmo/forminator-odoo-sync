@@ -141,6 +141,23 @@
             </div>
           </div>
 
+          <!-- ============ TAB: VERHUIS (Supabase -> D1 om-core, zie src/lib/verhuis.js) ============ -->
+          <input type="radio" name="admin_tabs" role="tab" class="tab" aria-label="Verhuis" id="tabVerhuis" />
+          <div role="tabpanel" class="tab-content bg-base-100 border-base-content/10 rounded-box p-6">
+            <div class="flex flex-wrap items-start justify-between gap-3 mb-4">
+              <div>
+                <h2 class="text-base font-semibold">Verhuis naar de nieuwe databank</h2>
+                <p class="text-sm text-base-content/60 mt-1 max-w-2xl">Per tabel: eerst kopi&euml;ren (mag zo vaak als nodig, het onderdeel blijft Supabase gebruiken), dan overschakelen als de aantallen gelijk zijn. Terugzetten is de noodrem.</p>
+              </div>
+              <button type="button" class="btn btn-ghost btn-sm" data-action="verhuisVernieuwen">Vernieuwen</button>
+            </div>
+            <div id="verhuisTable" class="overflow-x-auto">
+              <div class="flex justify-center py-10">
+                <span class="loading loading-spinner loading-md text-primary"></span>
+              </div>
+            </div>
+          </div>
+
           <!-- ============ TAB: GOOGLE-INSTELLINGEN (enkel zichtbaar voor admin@mymmo.com) ============ -->
           <input type="radio" name="admin_tabs" role="tab" class="tab hidden" id="tabGoogleSettings" />
           <div role="tabpanel" class="tab-content bg-base-100 border-base-content/10 rounded-box p-6" id="googleSettingsPanel">
@@ -224,5 +241,6 @@
     <div id="toastContainer" class="toast toast-end z-50"></div>
 
     <script src="/admin-dashboard.js"></script>
+    <script src="/admin-verhuis.js"></script>
 </body>
 </html>

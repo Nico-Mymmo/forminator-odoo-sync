@@ -6,7 +6,7 @@
  * knopen (kinderen op volgorde van position, dan naam).
  */
 
-import { getSupabaseClient } from '../../../lib/database.js';
+import { dbVoor } from '../../../lib/verhuis.js';
 import {
   TABLE, CATEGORIE_KEYS, VOORDEEL_KEYS, DOELGROEP_KEYS, PAKKET_KEYS, MERKEN, MAX_USPS,
 } from './constants.js';
@@ -19,7 +19,9 @@ export class FeatureError extends Error {
   }
 }
 
-const db = (env) => getSupabaseClient(env);
+// Supabase of D1 om-core, naargelang de stand in Beheer -> Verhuis
+// (src/lib/verhuis.js). Na de verhuis wordt dit rechtstreeks getCoreDb(env).
+const db = (env) => dbVoor(env, TABLE);
 const nu = () => new Date().toISOString();
 
 function check(error, wat) {
@@ -82,7 +84,7 @@ export function normaliseer(body = {}, { nieuw = false } = {}) {
 }
 
 export async function listFeatures(env, { activeOnly = false, brand = null } = {}) {
-  let q = db(env).from(TABLE).select('*').order('position').order('name');
+  let q = (await db(env)).from(TABLE).select('*').order('position').order('name');
   if (activeOnly) q = q.eq('is_active', true);
   if (brand) q = q.eq('brand', brand);
   const { data, error } = await q;
@@ -91,7 +93,7 @@ export async function listFeatures(env, { activeOnly = false, brand = null } = {
 }
 
 export async function getFeature(env, id) {
-  const { data, error } = await db(env).from(TABLE).select('*').eq('id', id).maybeSingle();
+  const { data, error } = await (await db(env)).from(TABLE).select('*').eq('id', id).maybeSingle();
   check(error, 'Feature lezen');
   return data || null;
 }
@@ -99,7 +101,7 @@ export async function getFeature(env, id) {
 /** Een unieke code uit de naam: bij een botsing komt er een cijfer achter. */
 async function vrijeCode(env, naam) {
   const basis = slug(naam);
-  const { data, error } = await db(env).from(TABLE).select('code').like('code', `${basis}%`);
+  const { data, error } = await (await db(env)).from(TABLE).select('code').like('code', `${basis}%`);
   check(error, 'Codes lezen');
   const bezet = new Set((data || []).map((r) => r.code));
   if (!bezet.has(basis)) return basis;
@@ -126,14 +128,14 @@ export async function controleerOuder(env, id, parentId) {
 
 export async function insertFeature(env, waarden, userId) {
   const code = await vrijeCode(env, waarden.name);
-  const { data, error } = await db(env).from(TABLE)
+  const { data, error } = await (await db(env)).from(TABLE)
     .insert({ ...waarden, code, updated_by: userId || null }).select('*').single();
   check(error, 'Feature aanmaken');
   return data;
 }
 
 export async function updateFeature(env, id, waarden, userId) {
-  const { data, error } = await db(env).from(TABLE)
+  const { data, error } = await (await db(env)).from(TABLE)
     .update({ ...waarden, updated_by: userId || null, updated_at: nu() }).eq('id', id).select('*').single();
   check(error, 'Feature bewaren');
   return data;
@@ -141,7 +143,7 @@ export async function updateFeature(env, id, waarden, userId) {
 
 export async function deleteFeature(env, id) {
   // Kinderen schuiven een niveau omhoog (ON DELETE SET NULL), dus niets gaat verloren.
-  const { error } = await db(env).from(TABLE).delete().eq('id', id);
+  const { error } = await (await db(env)).from(TABLE).delete().eq('id', id);
   check(error, 'Feature weghalen');
 }
 
@@ -149,7 +151,7 @@ export async function deleteFeature(env, id) {
 export async function herorden(env, ids) {
   let pos = 10;
   for (const id of ids) {
-    const { error } = await db(env).from(TABLE).update({ position: pos, updated_at: nu() }).eq('id', id);
+    const { error } = await (await db(env)).from(TABLE).update({ position: pos, updated_at: nu() }).eq('id', id);
     check(error, 'Volgorde bewaren');
     pos += 10;
   }
