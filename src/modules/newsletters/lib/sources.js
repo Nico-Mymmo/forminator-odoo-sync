@@ -51,6 +51,9 @@ export async function eventsVoorEditie(env, series, edition) {
       location: e.location?.name || '',
       url: e.slug && origin ? `${origin}${PUBLIC_EVENT_PATH}/${e.slug}/?owid=${Number(e.id)}` : '',
       cta: e.registration?.status?.open ? 'Inschrijven' : 'Meer info',
+      // Voor "Event in de kijker": de samenvatting en het hero-beeld van het event.
+      summary: String(e.summary || '').trim(),
+      image_url: String(e.hero_image_url || '').trim(),
     }));
   } catch (error) {
     console.error(`${LOG_PREFIX} events voor editie ${edition.id} niet gelezen:`, error?.message);

@@ -805,7 +805,10 @@ function blokHeading(item, ctx, id) {
  */
 function blokToc(item, ctx, id) {
   const lijst = (ctx.toc || []).map((x) => (typeof x === 'string' ? x : String(x?.t || ''))).filter(Boolean).slice(0, 15);
-  if (!lijst.length) return '';
+  // In de werkstand blijft een lege inhoudstafel zichtbaar (anders lijkt ze weg); in de mail valt ze weg.
+  if (!lijst.length) {
+    return id ? rij(`${label(item.title || 'In deze editie', S.primary)}<div style="margin-top:8px;font-family:${S.fontBody};font-size:14px;color:${S.muted}">Vult zichzelf zodra er blokken in de brief staan.</div>`, { padding: '36px 40px 0', id }) : '';
+  }
   const rijen = lijst.map((t, i) => {
     const lijn = i ? `border-top:1px solid ${S.line};` : '';
     return `<tr><td width="34" valign="baseline" style="padding:12px 0;${lijn}font-family:${S.fontHead};font-size:22px;color:${S.primary}">${i + 1}</td>
