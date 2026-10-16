@@ -1006,13 +1006,32 @@ export async function listMailEventsBySubmission(env, submissionId) {
  */
 export async function listMailEventTypesByIntegration(env, integrationId) {
   const supabase = getSupabase(env);
-  const { data, error } = await supabase
-    .from(TABLES.mailEvents)
-    .select('submission_id, event_type')
-    .eq('integration_id', integrationId);
 
-  if (error) throw new Error(`Failed to list mail event types for integration: ${error.message}`);
-  return ensureArray(data);
+  // IN PAGINA'S, NIET IN EEN KEER. Supabase (PostgREST) geeft per verzoek
+  // maximaal 1000 rijen terug en zegt daar niets bij. Elke heropening is een
+  // eigen rij (zie createMailEvent), dus een koppeling met een paar honderd
+  // mails zit daar zo overheen. Zonder paginering vielen de rijen boven die
+  // grens stil weg, en dat zag je als indieningen die op "Verstuurd" bleven
+  // staan terwijl Postmark een open en een klik had gemeld. Vaste volgorde
+  // op (occurred_at, id): zonder sortering kan een rij tussen twee pagina's
+  // van plaats wisselen en zo twee keer of nooit meekomen.
+  const PAGINA = 1000;
+  const alles = [];
+  for (let van = 0; ; van += PAGINA) {
+    const { data, error } = await supabase
+      .from(TABLES.mailEvents)
+      .select('submission_id, event_type')
+      .eq('integration_id', integrationId)
+      .order('occurred_at', { ascending: true })
+      .order('id', { ascending: true })
+      .range(van, van + PAGINA - 1);
+
+    if (error) throw new Error(`Failed to list mail event types for integration: ${error.message}`);
+    const rijen = ensureArray(data);
+    alles.push(...rijen);
+    if (rijen.length < PAGINA) break;
+  }
+  return alles;
 }
 
 export async function getLatestSubmissionTargetResultByTarget(env, submissionId, targetId) {
