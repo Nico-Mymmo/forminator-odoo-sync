@@ -1,10 +1,11 @@
 /**
  * Home Module
  *
- * Landing page with module tiles
+ * Landing page met moduletegels, gegroepeerd per departement:
+ * public/home.html + public/home.js. De gegevens komen uit
+ * GET /home/api/overview (./api-module.js).
  */
 
-import { homeDashboardUI } from './ui.js';
 import { veiligNextPad } from '../../router/auth-gate.js';
 
 /**
@@ -50,8 +51,9 @@ export default {
       const next = veiligNextPad(new URL(context.request.url).searchParams.get('next'));
       if (next) return Response.redirect(new URL(next, context.request.url).toString(), 302);
 
-      return new Response(homeDashboardUI(context.user), {
-        headers: { 'Content-Type': 'text/html' }
+      const res = await context.env.ASSETS.fetch(new Request(new URL('/home.html', context.request.url)));
+      return new Response(await res.text(), {
+        headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' }
       });
     }
   }

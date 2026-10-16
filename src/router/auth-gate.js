@@ -102,14 +102,16 @@ export async function authGate(request, env, module) {
       return json({ error: 'Forbidden', message: 'Admin access required' }, 403);
     }
 
-    // Profile is altijd toegankelijk voor ingelogde gebruikers; admins hebben overal toegang.
+    // Profile (en elke module met openToAllUsers) is altijd toegankelijk voor ingelogde
+    // gebruikers; admins hebben overal toegang.
     // Overige gebruikers hebben een user_modules entry nodig.
     if (
       user.role !== 'admin' &&
       !module.requiresAdmin &&
       module.requiresAuth !== false &&
       module.code !== 'home' &&
-      module.code !== 'profile'
+      module.code !== 'profile' &&
+      !module.openToAllUsers
     ) {
       const userModules = getUserModules(user);
       const hasAccess = userModules.some(m => m.code === module.code);

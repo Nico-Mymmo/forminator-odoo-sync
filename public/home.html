@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Home - OpenVME Operations Manager</title>
+  <script>
+    (function () {
+      var t = 'light';
+      try { t = localStorage.getItem('selectedTheme') || 'light'; } catch (e) {}
+      document.documentElement.setAttribute('data-theme', t);
+    })();
+  </script>
+  <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet" type="text/css" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script src="/shared-navbar.js"></script>
+  <style>
+    .home-tile { transition: border-color .15s, box-shadow .15s, transform .15s; }
+    .home-tile:hover { transform: translateY(-1px); box-shadow: 0 4px 14px -6px oklch(var(--bc) / 0.25); }
+    .home-gear { opacity: 0; transition: opacity .15s; }
+    .home-tile-wrap:hover .home-gear, .home-gear:focus-visible { opacity: 1; }
+    @media (hover: none) { .home-gear { opacity: 1; } }
+    .home-dept-actions { opacity: 0; }
+    .home-dept:hover .home-dept-actions, .home-dept-actions:focus-within { opacity: 1; }
+    @media (hover: none) { .home-dept-actions { opacity: 1; } }
+    .home-lijnen > * + * { border-top: 1px solid oklch(var(--bc) / 0.1); }
+    .home-icon-pick.is-active { background: oklch(var(--p) / 0.12); color: oklch(var(--p)); }
+  </style>
+</head>
+<body class="bg-base-200 min-h-screen">
+
+  <div id="navbar"></div>
+
+  <main class="container mx-auto px-4 sm:px-6 pb-10 max-w-7xl" style="padding-top: calc(48px + 1.75rem);">
+
+    <!-- Kop -->
+    <div class="flex flex-wrap items-end justify-between gap-3 mb-6">
+      <div>
+        <h1 class="text-2xl font-bold" id="welcome">Welkom</h1>
+        <p class="text-sm text-base-content/60 mt-1">Kies een module om te beginnen</p>
+      </div>
+      <label class="input input-bordered input-sm flex items-center gap-2 w-full sm:w-64">
+        <i data-lucide="search" class="w-3.5 h-3.5 shrink-0 opacity-50"></i>
+        <input id="homeSearch" type="search" class="grow" placeholder="Zoek een module..." autocomplete="off">
+      </label>
+    </div>
+
+    <div class="flex flex-col lg:flex-row gap-6 items-start">
+
+      <!-- Departementen -->
+      <aside class="w-full lg:w-60 shrink-0 lg:sticky" style="top: calc(48px + 1.5rem);">
+        <div class="flex items-center justify-between mb-2 px-1">
+          <p class="text-xs font-semibold text-base-content/50 uppercase tracking-wide">Departementen</p>
+          <button type="button" class="btn btn-ghost btn-xs hidden" data-action="add-dept" id="btnAddDept" title="Nieuw departement">
+            <i data-lucide="plus" class="w-3.5 h-3.5"></i>
+          </button>
+        </div>
+        <div id="deptList" class="space-y-0.5 text-sm">
+          <div class="skeleton h-7 w-full rounded-lg"></div>
+          <div class="skeleton h-7 w-full rounded-lg"></div>
+          <div class="skeleton h-7 w-full rounded-lg"></div>
+        </div>
+      </aside>
+
+      <!-- Modules -->
+      <section class="flex-1 min-w-0 w-full" id="moduleArea">
+        <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+          <div class="skeleton h-[72px] rounded-xl"></div>
+          <div class="skeleton h-[72px] rounded-xl"></div>
+          <div class="skeleton h-[72px] rounded-xl"></div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <!-- ====== Module-instellingen (enkel beheerders) ====== -->
+  <dialog id="moduleModal" class="modal">
+    <div class="modal-box max-w-xl">
+      <div class="flex items-start gap-3 mb-4">
+        <div class="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0" id="mmIconPreview"></div>
+        <div class="min-w-0">
+          <h3 class="font-bold text-lg leading-tight" id="mmTitle">Module</h3>
+          <p class="text-xs text-base-content/50 font-mono" id="mmRoute"></p>
+        </div>
+      </div>
+
+      <div role="tablist" class="tabs tabs-boxed mb-4 w-fit">
+        <button role="tab" type="button" class="tab tab-active" data-action="mm-tab" data-tab="algemeen">Algemeen</button>
+        <button role="tab" type="button" class="tab" data-action="mm-tab" data-tab="toegang">Toegang <span class="opacity-60 ml-1" id="mmAccessCount"></span></button>
+      </div>
+
+      <div id="mmPaneAlgemeen" class="space-y-4">
+        <label class="form-control w-full">
+          <div class="label pt-0"><span class="label-text font-medium">Departement</span></div>
+          <select id="mmDept" class="select select-bordered select-sm w-full"></select>
+        </label>
+        <div class="form-control w-full">
+          <div class="label pt-0">
+            <span class="label-text font-medium">Icoon</span>
+            <a class="label-text-alt link link-hover text-base-content/50" href="https://lucide.dev/icons/" target="_blank" rel="noopener">Alle iconen</a>
+          </div>
+          <input id="mmIcon" type="text" class="input input-bordered input-sm w-full font-mono" placeholder="bv. calendar-days" autocomplete="off">
+          <div id="mmIconPicks" class="flex flex-wrap gap-1 mt-2"></div>
+        </div>
+        <label class="form-control w-full">
+          <div class="label pt-0"><span class="label-text font-medium">Beschrijving</span></div>
+          <textarea id="mmDesc" class="textarea textarea-bordered textarea-sm w-full" rows="2" maxlength="300" placeholder="Wat doe je met deze module?"></textarea>
+        </label>
+      </div>
+
+      <div id="mmPaneToegang" class="hidden">
+        <div class="flex flex-wrap items-center gap-2 mb-3">
+          <input type="search" id="mmUserSearch" class="input input-bordered input-sm flex-1 min-w-[10rem]" placeholder="Zoek op naam of e-mail...">
+          <button type="button" class="btn btn-ghost btn-sm" data-action="mm-all" data-value="1">Iedereen</button>
+          <button type="button" class="btn btn-ghost btn-sm" data-action="mm-all" data-value="0">Niemand</button>
+        </div>
+        <div id="mmUsers" class="home-lijnen max-h-72 overflow-y-auto border border-base-content/10 rounded-lg"></div>
+        <p class="text-xs text-base-content/50 mt-2">Beheerders kunnen elke module openen, ook zonder vinkje. Het vinkje bepaalt of ze ze op hun homepage zien.</p>
+      </div>
+
+      <div class="modal-action items-center">
+        <a href="/admin" class="btn btn-ghost btn-sm mr-auto gap-1.5"><i data-lucide="external-link" class="w-3.5 h-3.5"></i>Beheer</a>
+        <button type="button" class="btn btn-ghost btn-sm" data-action="close-dialog" data-dialog="moduleModal">Annuleren</button>
+        <button type="button" class="btn btn-primary btn-sm" data-action="mm-save" id="mmSave">Opslaan</button>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>sluiten</button></form>
+  </dialog>
+
+  <!-- ====== Departement aanmaken/wijzigen (enkel beheerders) ====== -->
+  <dialog id="deptModal" class="modal">
+    <div class="modal-box max-w-md">
+      <h3 class="font-bold text-lg mb-4" id="dmTitle">Nieuw departement</h3>
+      <label class="form-control w-full mb-3">
+        <div class="label pt-0"><span class="label-text font-medium">Naam</span></div>
+        <input id="dmName" type="text" class="input input-bordered input-sm w-full" maxlength="60" placeholder="bv. Finance">
+      </label>
+      <div class="form-control w-full">
+        <div class="label pt-0"><span class="label-text font-medium">Icoon</span></div>
+        <input id="dmIcon" type="text" class="input input-bordered input-sm w-full font-mono" placeholder="bv. wallet" autocomplete="off">
+        <div id="dmIconPicks" class="flex flex-wrap gap-1 mt-2"></div>
+      </div>
+      <div class="modal-action">
+        <button type="button" class="btn btn-ghost btn-sm" data-action="close-dialog" data-dialog="deptModal">Annuleren</button>
+        <button type="button" class="btn btn-primary btn-sm" data-action="dm-save" id="dmSave">Opslaan</button>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>sluiten</button></form>
+  </dialog>
+
+  <div id="toasts" class="toast toast-end z-[100]"></div>
+
+  <script src="/home.js"></script>
+</body>
+</html>
