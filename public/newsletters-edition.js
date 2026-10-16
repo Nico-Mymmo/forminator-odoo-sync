@@ -992,7 +992,7 @@
   function tekenToevoegen() {
     var bak = document.getElementById('dlgToevoegenInhoud');
     var tab = NB.state.toevoegTab;
-    var tabs = [['blokken', 'Blokken', 'layout-grid'], ['nieuws', 'Nieuws & updates', 'rss'], ['events', 'Events', 'calendar-days']];
+    var tabs = [['blokken', 'Blokken', 'layout-grid'], ['nieuws', 'Nieuws & updates', 'rss'], ['events', 'Events', 'calendar-days'], ['features', 'Productfeatures', 'blocks']];
     if (editor()) tabs.push(['voorraad', 'Voorraad', 'lightbulb']);
     var tabHtml = '<div role="tablist" class="tabs tabs-boxed w-fit mb-3">' + tabs.map(function (t) {
       return '<button role="tab" class="tab gap-1' + (tab === t[0] ? ' tab-active' : '') + '" data-action="toevoeg-tab" data-tab="' + t[0] + '"><i data-lucide="' + t[2] + '" class="w-3.5 h-3.5"></i> ' + e(t[1]) + '</button>';
@@ -1030,6 +1030,27 @@
                 + (erin ? '<span class="text-xs opacity-60">staat erin</span>' : '<button class="btn btn-xs btn-primary" data-action="toevoeg-bericht" data-id="' + b.id + '">In de brief</button>') + '</div>';
             }).join('') + '</div>'
           : '<p class="text-sm opacity-60">Geen gepubliceerde berichten gevonden.</p>';
+      }
+    } else if (tab === 'features') {
+      if (NB.state.featuresFout) {
+        inhoud = '<div class="alert alert-warning text-sm"><span><strong>De bibliotheek kon niet geladen worden.</strong><br>' + e(NB.state.featuresFout) + '</span></div>';
+      } else if (!NB.state.features) {
+        inhoud = '<div class="flex justify-center py-8"><span class="loading loading-spinner"></span></div>';
+        NB.laadFeatures().then(function () { if (NB.dialoog('dlgToevoegen').open) tekenToevoegen(); });
+      } else {
+        var inBriefF = d().items.filter(function (i) { return i.kind === 'feature' && i.content && i.content.feature_id; }).map(function (i) { return i.content.feature_id; });
+        var cats = (NB.state.boot.feature_categorieen || []);
+        inhoud = NB.state.features.length
+          ? '<p class="text-xs opacity-60 mb-2">Uit de bibliotheek Productfeatures: feitelijk, van globaal naar fijn. Eén klik zet de feature als kaart in de brief; de vorm kies je daarna in het paneel.</p><div class="max-h-80 overflow-y-auto">'
+            + NB.state.features.map(function (f) {
+              var erin = inBriefF.indexOf(f.id) >= 0;
+              var cat = cats.filter(function (x) { return x.key === f.category; })[0];
+              return '<div class="flex items-center gap-3 py-1.5 border-b border-base-content/10 last:border-0" style="padding-left:' + (f.diepte * 16) + 'px">'
+                + '<span class="w-2 h-2 rounded-full shrink-0" style="background:' + (cat ? cat.kleur : '#9ca3af') + '" title="' + e(cat ? cat.label : '') + '"></span>'
+                + '<div class="flex-1 min-w-0"><div class="text-sm ' + (f.diepte ? '' : 'font-semibold') + ' truncate">' + e(f.name) + '</div>' + (f.summary ? '<div class="text-xs opacity-60 truncate">' + e(f.summary) + '</div>' : '') + '</div>'
+                + (erin ? '<span class="text-xs opacity-60">staat erin</span>' : '<button class="btn btn-xs btn-primary" data-action="toevoeg-feature" data-id="' + e(f.id) + '">In de brief</button>') + '</div>';
+            }).join('') + '</div>'
+          : '<p class="text-sm opacity-60">De bibliotheek is leeg. <a class="link" href="/productfeatures" target="_blank" rel="noopener">Open Productfeatures</a> om features toe te voegen.</p>';
       }
     } else if (tab === 'events') {
       var events = (d().suggesties && d().suggesties.events) || [];
@@ -1105,6 +1126,25 @@
       content: { vorm: 'kolommen', heading: 'Kom ons ontmoeten', items: gekozen.map(function (ev) {
         return { title: ev.title, url: ev.url, source: NB.datum(ev.starts_at, { day: 'numeric', month: 'short' }), note: NB.datum(ev.starts_at, { weekday: 'long', hour: '2-digit', minute: '2-digit' }) + (ev.location ? ' · ' + ev.location : ''), beeld_url: ev.image_url || '' };
       }) },
+    }, NB.state.plaatsNa);
+  };
+
+  /** Een productfeature als blok: een kopie van de bibliotheek, in een vorm die nog niet in de brief staat. */
+  NB.actions['toevoeg-feature'] = async function (el) {
+    var f = (NB.state.features || []).filter(function (x) { return x.id === el.dataset.id; })[0];
+    if (!f) return;
+    el.disabled = true;
+    var gebruikt = d().items.filter(function (i) { return i.kind === 'feature'; }).map(function (i) { return (i.content || {}).vorm || 'kaart'; });
+    var vormen = ((NB.state.boot.feature_vormen || []).map(function (v) { return v.key; })).filter(function (v) { return v !== 'lijst'; });
+    var vorm = vormen.filter(function (v) { return gebruikt.indexOf(v) < 0; })[0] || vormen[gebruikt.length % Math.max(1, vormen.length)] || 'kaart';
+    NB.dialoog('dlgToevoegen').close();
+    await plaats({
+      kind: 'feature', title: f.eyebrow || 'Functionaliteit',
+      content: {
+        feature_id: f.id, vorm: vorm, eyebrow: f.eyebrow || '', title: f.name, summary: f.summary || '', why: f.why || '',
+        usps: f.usps || [], url: f.url || '', link_label: 'Meer over deze functie', image_url: f.image_url || '',
+        toon_usps: true, toon_why: Boolean(f.why),
+      },
     }, NB.state.plaatsNa);
   };
 

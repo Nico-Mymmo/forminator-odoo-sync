@@ -327,6 +327,8 @@ export function heeftInhoud(item, ctx = {}) {
       return Boolean(String(c.question || '').trim()) && opties(item).length >= 2;
     case 'events':
       return eventsVoor(item, ctx).length > 0;
+    case 'feature':
+      return Boolean(String(c.title || '').trim());
     case 'news':
       return (c.items || []).some((n) => String(n?.title || '').trim());
     case 'toc':
@@ -867,8 +869,81 @@ function blokPlaatshouder(item, id) {
   return rij(`<div style="border:2px dashed #d1d5db;border-radius:14px;padding:18px 20px;font-family:${S.fontBody};font-size:14px;color:${S.muted}"><strong style="color:${S.headingSoft}">${esc(item.title || KINDS[item.kind]?.label || 'Stukje')}</strong>${wie} &middot; ${stand}</div>`, { padding: '24px 40px 0', id });
 }
 
+/**
+ * Een productfeature uit de bibliotheek, in een van de FEATURE_VORMEN
+ * (constants van product-features). Titel en korte uitleg zijn in de werkstand
+ * typbaar; de USP's, "waarom" en de knop regel je in het paneel. De inhoud is
+ * een kopie: de bibliotheek later aanpassen, verandert deze mail niet.
+ */
+function blokFeature(item, ctx, id) {
+  const c = item.content || {};
+  const label_ = String(c.eyebrow || '').trim() || item.title;
+  const b = beeldVan(c, { plaats: 'tekst' });
+  const usps = c.toon_usps !== false ? (c.usps || []).filter(Boolean) : [];
+  const why = c.toon_why !== false ? String(c.why || '').trim() : '';
+  const vink = (kleur) => `<td width="22" valign="top" style="padding:0 8px 0 0;font-family:${S.fontBody};font-size:15px;line-height:1.55;color:${kleur}">&#10003;</td>`;
+  const lijst = (kleur = S.primary, tekst = S.text, size = 15) => (usps.length
+    ? `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin-top:12px">${usps.map((u) => `<tr>${vink(kleur)}<td valign="top" style="padding:0 0 6px;font-family:${S.fontBody};font-size:${size}px;line-height:1.55;color:${tekst}">${esc(u)}</td></tr>`).join('')}</table>`
+    : '');
+  const titel = typbaar(id, 'title', c.title, { tag: 'div', plaatshouder: 'Titel van de feature', altijd: true, stijl: `font-family:${S.fontHead};font-size:24px;line-height:1.2;color:${S.heading};margin:12px 0 10px` });
+  const samenvatting = typbaar(id, 'summary', c.summary, { plaatshouder: 'Wat doet het, in één tot drie zinnen', optioneel: true, html: tekstNaarHtml(c.summary, { size: 15, lineHeight: 1.55 }), stijl: '' });
+  const waarom = why ? `<div style="margin-top:14px;padding:12px 14px;border-left:3px solid ${S.mint};font-family:${S.fontBody};font-size:14px;line-height:1.55;color:${S.muted}"><strong style="color:${S.headingSoft}">Waarom we dit maakten.</strong> ${esc(why)}</div>` : '';
+  const link = c.url ? `<div style="margin-top:16px">${leesLink(c.link_label || 'Meer over deze functie', c.url)}</div>` : '';
+
+  switch (c.vorm) {
+    case 'naast': {
+      const foto = beeldTag(b, ctx, 200, { radius: 12, href: c.url, alt: c.title || '' });
+      const tekst = `${pil(label_, S.sky100, S.primary)}${titel}${samenvatting}${lijst()}${waarom}${link}`;
+      const inhoud = foto
+        ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+<td class="nb-kol" valign="top">${tekst}</td>
+<td class="nb-gat" width="20" style="width:20px">&nbsp;</td>
+<td class="nb-kol nb-kol-na" width="200" valign="top" style="width:200px"${id ? ' data-nb-beeld="1"' : ''}>${foto}</td></tr></table>`
+        : tekst;
+      return rij(inhoud, { padding: '44px 40px 4px', id });
+    }
+    case 'uitgelicht': {
+      const foto = beeldTag(b, ctx, 496, { href: c.url, alt: c.title || '' });
+      return paneel(`${pil(label_, S.mint, S.primary)}
+${typbaar(id, 'title', c.title, { tag: 'div', plaatshouder: 'Titel van de feature', altijd: true, stijl: `font-family:${S.fontHead};font-size:32px;line-height:1.15;color:#ffffff;margin:16px 0 12px` })}
+${foto ? `<div${id ? ' data-nb-beeld="1"' : ''} style="margin:6px 0 18px">${foto}</div>` : ''}
+${typbaar(id, 'summary', c.summary, { plaatshouder: 'Wat doet het', optioneel: true, html: tekstNaarHtml(c.summary, { size: 16, color: S.sky100, linkColor: '#ffffff' }), stijl: '' })}
+${lijst('#ffffff', S.sky100, 15)}
+${why ? `<div style="margin-top:14px;font-family:${S.fontBody};font-size:14px;line-height:1.55;color:${S.sky100}"><strong style="color:#ffffff">Waarom we dit maakten.</strong> ${esc(why)}</div>` : ''}
+${c.url ? `<div style="margin-top:20px">${knop(c.link_label || 'Meer over deze functie', c.url)}</div>` : ''}`, S.primary, { padding: '36px 32px 30px', id });
+    }
+    case 'compact': {
+      const k = BEELD_KADERS.compact;
+      const foto = beeldTag(b, ctx, k.breedte, { radius: 12, href: c.url, alt: c.title || '' });
+      const tekst = `${pil(label_, S.sky100, S.primary)}
+${typbaar(id, 'title', c.title, { tag: 'div', plaatshouder: 'Titel van de feature', altijd: true, stijl: `font-family:${S.fontBody};font-size:18px;font-weight:700;line-height:1.3;color:${S.headingSoft};margin:10px 0 8px` })}
+${typbaar(id, 'summary', c.summary, { plaatshouder: 'Eén zin', optioneel: true, html: tekstNaarHtml(c.summary, { size: 15, lineHeight: 1.5 }), stijl: '' })}${c.url ? `<div style="margin-top:10px">${leesLink(c.link_label || 'Meer', c.url)}</div>` : ''}`;
+      const inhoud = foto
+        ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+<td class="nb-kol" width="${k.breedte}" valign="top" style="width:${k.breedte}px;padding:4px 20px 0 0"${id ? ' data-nb-beeld="1"' : ''}>${foto}</td>
+<td class="nb-kol nb-kol-na" valign="top">${tekst}</td></tr></table>`
+        : tekst;
+      return rij(inhoud, { padding: '40px 40px 4px', id });
+    }
+    case 'lijst':
+      return rij(`${pil(label_, S.sky100, S.primary)}${titel}${lijst()}${link}`, { padding: '40px 40px 4px', id });
+    default: {
+      // kaart
+      const foto = beeldTag(b, ctx, BEELD_KADERS.link.breedte, { radius: 0, href: c.url, alt: c.title || '' });
+      const kaart = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border:1px solid ${S.border};border-radius:14px;border-collapse:separate;overflow:hidden">
+${foto ? `<tr><td${id ? ' data-nb-beeld="1"' : ''} style="border-radius:14px 14px 0 0;overflow:hidden">${foto}</td></tr>`
+    : id ? `<tr><td data-nb-beeld="1" style="padding:18px;text-align:center;font-family:${S.fontBody};font-size:13px;color:${S.muted};border-bottom:1px dashed ${S.border}">Klik hier voor een beeld bij de feature</td></tr>` : ''}
+<tr><td style="padding:22px 24px 24px">
+${pil(label_, S.sky100, S.primary)}${titel}${samenvatting}${lijst()}${waarom}${link}
+</td></tr></table>`;
+      return rij(kaart, { padding: '44px 40px 4px', id });
+    }
+  }
+}
+
 const BLOKKEN = {
   intro: blokIntro,
+  feature: blokFeature,
   heading: blokHeading,
   article: blokArticle,
   // Een bericht uit Nieuws & updates: in een van de BERICHT_VORMEN.

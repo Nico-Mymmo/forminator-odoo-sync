@@ -16,8 +16,11 @@ import {
 import {
   KINDS, isKind, DEFAULT_OPTIONS, EDITION_STATUS, CONTRIBUTION_STATUS, LOG_PREFIX, ASSET_ORIGIN,
   sendMode, testEmails, BRAND, BEELD_KADERS, BEELD_PLAATSEN, TEKENING_MATEN, TITEL_NIVEAUS, MERKKLEUREN, merkkleur, BERICHT_VORMEN,
-  VRAAG_SOORTEN, VRAAG_STIJLEN, VRAAG_STANDAARD, VRAAG_OUDE_KLEUREN, NIEUWS_VORMEN, NIEUWS_MAX,
+  VRAAG_SOORTEN, VRAAG_STIJLEN, VRAAG_STANDAARD, VRAAG_OUDE_KLEUREN, NIEUWS_VORMEN, NIEUWS_MAX, FEATURE_VORMEN,
 } from './lib/constants.js';
+import { listFeatures as listProductFeatures } from '../product-features/lib/store.js';
+import { platteBoom as featureBoom } from '../product-features/lib/boom.js';
+import { CATEGORIEEN as FEATURE_CATEGORIEEN } from '../product-features/lib/constants.js';
 import { renderEdition, renderContribution, heeftInhoud, kopVan, inToc, kopWaarden, voetWaarden } from './lib/render.js';
 import { verzamel, maakEditieOp, vernieuwNieuws, ondertekenaarId, metOndertekening, isBlanco } from './lib/editions.js';
 import { antwoordLinks, antwoordenVanEditie } from './lib/answers.js';
@@ -307,6 +310,19 @@ function inhoudPerSoort(kind, c = {}) {
         })).filter((n) => n.title),
         suggestions: Array.isArray(c.suggestions) ? c.suggestions.slice(0, 12) : undefined,
       };
+    case 'feature': {
+      // Een kopie van de feature op het moment van kiezen: de mail verandert niet mee met de bibliotheek.
+      const vormen = FEATURE_VORMEN.map((v) => v.key);
+      return {
+        feature_id: /^[0-9a-f-]{36}$/i.test(String(c.feature_id || '')) ? c.feature_id : '',
+        vorm: vormen.includes(c.vorm) ? c.vorm : 'kaart',
+        eyebrow: kort(c.eyebrow, 60), title: kort(c.title, 120), summary: kort(c.summary, 600), why: kort(c.why, 800),
+        usps: (Array.isArray(c.usps) ? c.usps : []).map((u) => kort(u, 200)).filter(Boolean).slice(0, 6),
+        url: url(c.url), link_label: kort(c.link_label, 60), image_url: url(c.image_url),
+        beeld: normaliseerBeeld(c.beeld, 'tekst'),
+        toon_why: c.toon_why !== false, toon_usps: c.toon_usps !== false,
+      };
+    }
     case 'toc':
       return {};
     case 'closing':
@@ -399,6 +415,8 @@ export const routes = {
           titel_niveaus: TITEL_NIVEAUS,
           merkkleuren: MERKKLEUREN,
           bericht_vormen: BERICHT_VORMEN,
+          feature_vormen: FEATURE_VORMEN,
+          feature_categorieen: FEATURE_CATEGORIEEN,
           nieuws_vormen: NIEUWS_VORMEN,
           nieuws_max: NIEUWS_MAX,
           vraag_soorten: VRAAG_SOORTEN,
@@ -686,6 +704,20 @@ export const routes = {
         ctx: { ...v.ctx, answerLink: antwoordLinks(series, 'preview', false) },
       });
       return json({ success: true, data: { html, open: open.length } });
+    } catch (err) { return fout(err); }
+  },
+
+  /** De bibliotheek Productfeatures (actieve, als ingesprongen lijst) voor het tabblad Features. */
+  'GET /api/features': async ({ env }) => {
+    try {
+      const lijst = await listProductFeatures(env, { activeOnly: true });
+      return json({
+        success: true,
+        data: featureBoom(lijst).map((f) => ({
+          id: f.id, parent_id: f.parent_id, diepte: f.diepte, pad: f.pad, name: f.name, eyebrow: f.eyebrow, summary: f.summary, why: f.why,
+          usps: f.usps || [], url: f.url, image_url: f.image_url, category: f.category, plan: f.plan, benefits: f.benefits || [], audiences: f.audiences || [],
+        })),
+      });
     } catch (err) { return fout(err); }
   },
 

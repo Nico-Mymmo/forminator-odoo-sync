@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Productfeatures - Operations Manager</title>
+  <script>
+    (function () {
+      var t = localStorage.getItem('selectedTheme') || 'light';
+      document.documentElement.setAttribute('data-theme', t);
+    })();
+  </script>
+  <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet" type="text/css" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script src="/shared-navbar.js"></script>
+  <style>
+    .pf-knoop { display: flex; align-items: center; gap: .5rem; padding: .4rem .6rem; border-radius: .6rem; cursor: pointer; }
+    .pf-knoop:hover { background: oklch(var(--bc) / 0.06); }
+    .pf-knoop.pf-gekozen { background: oklch(var(--p) / 0.1); }
+    .pf-knoop .pf-acties { opacity: 0; display: flex; gap: .15rem; }
+    .pf-knoop:hover .pf-acties, .pf-knoop.pf-gekozen .pf-acties { opacity: 1; }
+    .pf-stip { width: .55rem; height: .55rem; border-radius: 999px; flex-shrink: 0; }
+    .pf-uit { opacity: .45; }
+    .pf-kinderen { margin-left: 1.1rem; border-left: 1px solid oklch(var(--bc) / 0.1); padding-left: .35rem; }
+    .pf-chip input { display: none; }
+    .pf-chip span { display: inline-flex; align-items: center; gap: .3rem; padding: .25rem .6rem; border-radius: 999px; border: 1px solid oklch(var(--bc) / 0.2); font-size: .8rem; cursor: pointer; }
+    .pf-chip input:checked + span { background: oklch(var(--p)); color: oklch(var(--pc)); border-color: oklch(var(--p)); }
+    .pf-chip input:disabled + span { cursor: default; opacity: .7; }
+  </style>
+</head>
+<body class="bg-base-200 min-h-screen">
+
+  <div id="navbar"></div>
+
+  <main class="max-w-7xl mx-auto px-4 py-6" style="padding-top: calc(48px + 1.5rem);">
+
+    <div class="flex flex-wrap items-start justify-between gap-3 mb-5">
+      <div>
+        <h1 class="text-2xl font-bold">Productfeatures</h1>
+        <p class="text-sm opacity-70 max-w-2xl">
+          Wat OpenVME kan, als bibliotheek: van globaal naar fijn. Elke feature is een blok dat je in een mail zet.
+          <strong>Feitelijk en concreet</strong>: wat het doet, voor wie, wat het kost. Geen reclametaal.
+        </p>
+      </div>
+      <div class="flex items-center gap-2 shrink-0" id="pfKnoppen"></div>
+    </div>
+
+    <div class="grid gap-5 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+      <section class="card bg-base-100 border border-base-content/10">
+        <div class="card-body p-4 gap-3">
+          <div class="flex items-center gap-2">
+            <input id="pfZoek" type="search" class="input input-bordered input-sm flex-1" placeholder="Zoek een feature…" data-change="zoek">
+            <select id="pfCategorie" class="select select-bordered select-sm" data-change="filter-categorie"></select>
+          </div>
+          <div id="pfBoom" class="text-sm"></div>
+        </div>
+      </section>
+
+      <section id="pfFormulier" class="min-w-0"></section>
+    </div>
+  </main>
+
+  <div id="pfToast" class="toast toast-end z-50"></div>
+
+  <script src="/productfeatures.js"></script>
+</body>
+</html>

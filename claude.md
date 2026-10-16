@@ -370,6 +370,7 @@ document.addEventListener('click', e => {
 | dashboards | `/dashboards` | `dashboards` | `public/dashboards.html` + `dashboards-*.js` + `dashboard-aanvragen/` | ✅ Correct (tabbladen Verkoop, Targets, Aanvragen, Marketing, Website-bezoeken, Kaart; Webgedrag is sinds 2026-10-09 het tabblad Marketing; Aanvragen is het terrein van David, zie "Dashboards — tabblad Aanvragen") |
 | av-slides | `/av-slides` | `av_slides` | `public/av-slides.html` + `.js` | ✅ Correct (zie "AV-slides") |
 | newsletters | `/nieuwsbrieven` | `newsletters` | `public/newsletters.html` + `newsletters-*.js` | ✅ Correct (zie "Nieuwsbrieven") |
+| product-features | `/productfeatures` | `product_features` | `public/productfeatures.html` + `.js` | ✅ Correct (zie "Productfeatures") |
 
 **Legacy modules NIET aanraken tenzij expliciet gevraagd.** Bij aanpassingen aan legacy `ui.js`: string-concatenatie (+), geen geneste template literals, geen variabelen in inline event handlers. `src/lib/components/navbar.js` is de legacy server-rendered navbar voor deze ui.js-bestanden.
 
@@ -3806,6 +3807,46 @@ bleken drie dingen niet te kloppen. Alle drie zijn gefixt in `lib/sync.js`,
     mailing", het paneel toont geen inleverdatum; de stappenbalk toont
     "Opbouwen" (i.p.v. Verzamelen/Nalezen) tot alle blokken bevestigd zijn.
 - De checklist blijft dezelfde: zonder bevestigde blokken kan ze niet vertrekken.
+
+## Productfeatures — de bibliotheek van wat OpenVME kan (2026-10-16)
+
+**Regel: wat OpenVME kan, staat EEN keer, feitelijk, in de bibliotheek
+Productfeatures; mails (en later pagina's) nemen er blokken uit. Toon:
+feitelijk en concreet (wat doet het, voor wie, wat kost of vraagt het), geen
+reclametaal (beslissing Nico). Een blok in een mail is een KOPIE: de
+bibliotheek later aanpassen, verandert een mail niet.**
+
+| Wat | Waar |
+|---|---|
+| Vaste lijsten: categorieen (de vier van Nico), voordelen, doelgroepen, pakketten, vormen in een mail | `src/modules/product-features/lib/constants.js` |
+| Opslag, normaliseren, unieke code, lus-controle van de boom | `lib/store.js` (tabel `product_features`) |
+| De boom (puur, geen databank): `boom()`, `platteBoom()` | `lib/boom.js` |
+| Routes (JSON): bootstrap, features, order, upload | `routes.js` |
+| Scherm: boom links, formulier rechts | `public/productfeatures.html` + `.js` |
+| Migratie (tabel, voorvulling uit openvme.be, module, rechten) | `supabase/migrations/20261016120000_product_features.sql` |
+
+- **Boom**: `parent_id`, van globaal (Algemene vergadering, Financieel beheer,
+  Communicatie, Documentenbeheer, Eigenaarsportaal, Technisch beheer,
+  Leveranciers, Cindy AI, Expertencentrum, OpenVME Pro) naar fijn (bv.
+  Financieel beheer > VME-rekening via Mollie). `controleerOuder()` weigert
+  een lus. Weghalen zet de kinderen een niveau omhoog (ON DELETE SET NULL).
+- **Velden**: name (titel), eyebrow (label), summary (korte uitleg), why
+  (waarom we dit gemaakt hebben), image_url, usps (max 6, één per regel),
+  url, category (technisch | communicatie | financieel | wettelijk), benefits
+  (VOORDELEN), audiences (DOELGROEPEN), plan (PAKKETTEN), brand, is_active.
+- **Rechten**: lezen = wie de module heeft; bewerken = admin of
+  `marketing_signature` (`magBewerken`). De migratie geeft de module aan die
+  twee rollen.
+- **In de nieuwsbrief**: soort `feature` (KINDS), tabblad "Productfeatures" in
+  "Iets toevoegen" (`GET /nieuwsbrieven/api/features`, leest de bibliotheek
+  rechtstreeks via lib/store.js, enkel actieve). Vormen = `FEATURE_VORMEN`
+  (kaart, naast, uitgelicht, compact, lijst), renderer `blokFeature()` in
+  render.js; titel en korte uitleg typbaar in de brief, USP's/waarom/link/
+  beeld in het paneel (`featureVelden()`), vorm in Opmaak. Geen AI-knop op
+  een feature (`NB.kanAI`): de tekst is feitelijk en komt uit de bibliotheek.
+  `content.feature_id` onthoudt de bron ("staat erin" in het venster).
+- **Later**: dezelfde bibliotheek dynamisch per klant (welke features die
+  nog niet gebruikt), daarom staan voordelen, doelgroepen en pakket erbij.
 
 ## Nieuwsbrief: blokken die zichzelf vullen en events in de kijker (2026-10-16)
 
