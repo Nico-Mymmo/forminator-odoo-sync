@@ -274,12 +274,16 @@ departementen via `+` en het `...`-menu in de linkerkolom.
 | Beheer (departementen, `/api/modules/:id/settings`) | `src/modules/admin/department-routes.js` |
 | Toegang per module | bestaande `GET/PUT /admin/api/modules/:id/users` |
 | Favorieten (ster, persoonlijk) | tabel `user_module_favorites` (`20261016170000_user_module_favorites.sql`), `PUT/DELETE /home/api/favorites/:moduleId`, `PUT /home/api/favorites/order` |
+| Departementen + favorieten ophalen (homepage EN Modules-menu in de navbar) | `src/lib/module-layout.js`, geladen in `validateSession` als `user.moduleLayout` (gooit nooit) |
 
 - **Wat op de homepage staat, komt uit de sessie** (`user.modules`, zoals de
   navbar). De API voegt enkel het departement toe. `session.js` is bewust NIET
   aangepast: faalt die query, dan verliest iedereen zijn modules.
 - **Icoon = `modules.icon`** (Lucide-naam), anders het `icon` uit `module.js`,
   anders `box`. Geen vaste lijst per code meer in de pagina.
+- **Het Modules-menu in de navbar volgt dezelfde indeling**: Favorieten
+  bovenaan (enkel daar, niet nog eens in hun departement), dan per departement,
+  dan "Overige". Icoon in het menu: `modules.icon`, anders `MODULE_ICONS`.
 - **Een nieuwe module krijgt een departement** door `department_id` in haar
   registratiemigratie te zetten, of later via het tandwiel. Zonder departement
   staat ze onder "Overige".

@@ -6,6 +6,7 @@
 
 import { getSupabaseClient } from '../database.js';
 import { getOrderedFavorites } from '../../modules/mini-apps/lib/favorites.js';
+import { getModuleLayout } from '../module-layout.js';
 import { randomToken, sha256Hex } from './crypto.js';
 import { mfaRequired } from './mfa.js';
 import { describeUserAgent } from './user-agent.js';
@@ -174,7 +175,16 @@ export async function validateSession(env, token) {
   // merge/sorteerlogica). Apps waar de user geen toegang meer toe heeft
   // (privé gemaakt, share ingetrokken) vallen er automatisch uit, tenzij
   // alsnog globaal favoriet.
-  const orderedFavorites = await getOrderedFavorites(supabase, session.user.id);
+  //
+  // Daarnaast de indeling van de modules (departementen + vastgepinde
+  // favorieten) voor het Modules-menu in de navbar en de homepage, zie
+  // src/lib/module-layout.js. Gooit nooit: zonder tabellen = lege indeling.
+  const [orderedFavorites, moduleLayout] = await Promise.all([
+    getOrderedFavorites(supabase, session.user.id),
+    getModuleLayout(supabase, session.user.id,
+      (userModules || []).map(um => um.module && um.module.id).filter(Boolean))
+  ]);
+  session.user.moduleLayout = moduleLayout;
   session.user.favoriteMiniApps = orderedFavorites.map(f => ({ id: f.id, title: f.title, icon: f.icon }));
 
   // Build modulePermissions map: { module_code: string[] }

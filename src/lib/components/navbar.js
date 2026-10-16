@@ -113,15 +113,62 @@ export function navbar(user) {
   const initials = initialsOf(displayName || (user && user.email) || '?');
 
   // ---------- Bouwstenen ----------
+  // Icoon: modules.icon (instelbaar via het tandwiel op de homepage), anders de
+  // vaste lijst hierboven, anders 'box'. Zelfde volgorde als de homepage.
   function moduleItem(m) {
-    const icon = MODULE_ICONS[m.code] || 'box';
+    const icon = /^[a-z0-9-]{1,40}$/.test(String(m.icon || '')) ? m.icon : (MODULE_ICONS[m.code] || 'box');
     return '<li><a href="' + m.route + '" data-role="moduleLink">'
       + '<i data-lucide="' + icon + '" class="w-4 h-4"></i>'
       + m.name
       + '</a></li>';
   }
 
-  const moduleItems = gridModules.map(moduleItem).join('');
+  function groupTitle(label, icon) {
+    return '<li class="menu-title flex-row items-center gap-1.5 text-[11px] uppercase tracking-wide pt-2 pb-1">'
+      + (icon ? '<i data-lucide="' + safeIconName(icon) + '" class="w-3 h-3"></i>' : '')
+      + escapeHtml(label) + '</li>';
+  }
+
+  // Indeling zoals op de homepage: eerst de vastgepinde favorieten, dan per
+  // departement, dan "Overige". user.moduleLayout komt uit session.js
+  // (src/lib/module-layout.js); zonder indeling blijft het een gewone lijst.
+  // Een favoriet staat enkel bij Favorieten, niet nog eens in zijn departement.
+  const layout = (user && user.moduleLayout) || null;
+  const sortedGrid = gridModules.slice().sort(function (a, b) {
+    return ((a.display_order || 0) - (b.display_order || 0)) || String(a.name).localeCompare(String(b.name), 'nl');
+  });
+  let isGrouped = false;
+  function buildModuleItems() {
+    if (!layout) return sortedGrid.map(moduleItem).join('');
+    const byId = {};
+    sortedGrid.forEach(function (m) { if (m.id) byId[m.id] = m; });
+    const favIds = (layout.favorites || []).filter(function (id) { return byId[id]; });
+    const rest = sortedGrid.filter(function (m) { return favIds.indexOf(m.id) === -1; });
+    const deps = layout.departments || [];
+    const depOf = layout.departmentOf || {};
+    if (!favIds.length && !deps.length) return sortedGrid.map(moduleItem).join('');
+
+    isGrouped = true;
+    let html = '';
+    if (favIds.length) {
+      html += groupTitle('Favorieten', 'star') + favIds.map(function (id) { return moduleItem(byId[id]); }).join('');
+    }
+    if (!deps.length) {
+      if (rest.length) html += groupTitle('Modules', 'layout-grid') + rest.map(moduleItem).join('');
+      return html;
+    }
+    const known = {};
+    deps.forEach(function (d) {
+      known[d.id] = true;
+      const list = rest.filter(function (m) { return depOf[m.id] === d.id; });
+      if (list.length) html += groupTitle(d.name, d.icon || 'folder') + list.map(moduleItem).join('');
+    });
+    const other = rest.filter(function (m) { return !known[depOf[m.id]]; });
+    if (other.length) html += groupTitle('Overige', 'inbox') + other.map(moduleItem).join('');
+    return html;
+  }
+
+  const moduleItems = buildModuleItems();
 
   // Modules-dropdown (desktop, klik via <details> — geen hover)
   const modulesMenu = gridModules.length > 0
@@ -129,7 +176,7 @@ export function navbar(user) {
       + '<summary class="btn btn-sm btn-ghost gap-2 font-normal">'
       + ICONS.grid + 'Modules' + '<span class="opacity-60">' + ICONS.chevron + '</span>'
       + '</summary>'
-      + '<ul class="dropdown-content z-[60] menu p-2 shadow-lg bg-base-100 rounded-box w-64 border border-base-content/10">'
+      + '<ul class="dropdown-content z-[60] menu flex-nowrap p-2 shadow-lg bg-base-100 rounded-box w-64 border border-base-content/10 overflow-y-auto" style="max-height: calc(100vh - 64px);">'
       + moduleItems
       + '</ul>'
       + '</details>'
@@ -150,9 +197,9 @@ export function navbar(user) {
     : '';
 
   const mobileMenu = hasMobileItems
-    ? '<nav data-role="mobileMenu" class="hidden md:hidden bg-base-100 border-b border-base-content/10 shadow-lg" style="position: fixed; top: 48px; left: 0; right: 0; z-index: 49;">'
+    ? '<nav data-role="mobileMenu" class="hidden md:hidden bg-base-100 border-b border-base-content/10 shadow-lg" style="position: fixed; top: 48px; left: 0; right: 0; z-index: 49; max-height: calc(100vh - 48px); overflow-y: auto;">'
       + '<ul class="menu p-2">'
-      + (gridModules.length > 0 ? '<li class="menu-title text-xs">Modules</li>' + moduleItems : '')
+      + (gridModules.length > 0 ? (isGrouped ? '' : '<li class="menu-title text-xs">Modules</li>') + moduleItems : '')
       + (mobileUtilityItems ? '<div class="divider my-1"></div>' + mobileUtilityItems : '')
       + '</ul>'
       + '</nav>'

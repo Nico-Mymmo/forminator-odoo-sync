@@ -18,6 +18,7 @@
 
 import { getSupabaseClient } from '../../lib/database.js';
 import { getModuleByCode } from '../registry.js';
+import { getModuleLayout } from '../../lib/module-layout.js';
 
 // Verwijderde modules en modules met een eigen knop in de navbar horen niet
 // tussen de tegels.
@@ -36,45 +37,12 @@ async function overview({ env, user }) {
     .map(um => um.module || um)
     .filter(m => m && !REMOVED_MODULES.includes(m.code) && !UTILITY_MODULES.includes(m.code));
 
-  let departments = [];
-  let extra = new Map();
-  let departmentsReady = true;
-
-  try {
-    const supabase = getSupabaseClient(env);
-    const ids = modules.map(m => m.id).filter(Boolean);
-    const [deps, mods] = await Promise.all([
-      supabase.from('module_departments').select('id, name, icon, display_order').order('display_order').order('name'),
-      ids.length
-        ? supabase.from('modules').select('id, department_id').in('id', ids)
-        : Promise.resolve({ data: [], error: null })
-    ]);
-    if (deps.error) throw deps.error;
-    if (mods.error) throw mods.error;
-    departments = deps.data || [];
-    extra = new Map((mods.data || []).map(m => [m.id, m]));
-  } catch (err) {
-    console.error('[home] departementen laden mislukt:', err && err.message);
-    departments = [];
-    departmentsReady = false;
-  }
-
-  let favorites = [];
-  let favoritesReady = true;
-  try {
-    const { data, error } = await getSupabaseClient(env)
-      .from('user_module_favorites')
-      .select('module_id, position')
-      .eq('user_id', user.id)
-      .order('position')
-      .order('created_at');
-    if (error) throw error;
-    const allowed = new Set(modules.map(m => m.id));
-    favorites = (data || []).map(f => f.module_id).filter(id => allowed.has(id));
-  } catch (err) {
-    console.error('[home] favorieten laden mislukt:', err && err.message);
-    favoritesReady = false;
-  }
+  // Al geladen door validateSession (session.js), samen met de navbar.
+  const layout = user.moduleLayout
+    || await getModuleLayout(getSupabaseClient(env), user.id, modules.map(m => m.id));
+  const visible = new Set(modules.map(m => m.id));
+  const { departments, departmentsReady, favoritesReady } = layout;
+  const favorites = layout.favorites.filter(id => visible.has(id));
 
   const result = modules.map(m => {
     const reg = getModuleByCode(m.code);
@@ -86,7 +54,7 @@ async function overview({ env, user }) {
       route: m.route,
       icon: m.icon || (reg && reg.icon) || 'box',
       display_order: m.display_order || 0,
-      department_id: (extra.get(m.id) || {}).department_id || null
+      department_id: layout.departmentOf[m.id] || null
     };
   });
 
