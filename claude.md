@@ -3824,7 +3824,7 @@ bibliotheek later aanpassen, verandert een mail niet.**
 | De boom (puur, geen databank): `boom()`, `platteBoom()` | `lib/boom.js` |
 | Routes (JSON): bootstrap, features, order, upload | `routes.js` |
 | Scherm: boom links, formulier rechts | `public/productfeatures.html` + `.js` |
-| Migratie (tabel, voorvulling uit openvme.be, module, rechten) | `supabase/migrations/20261016120000_product_features.sql` |
+| Migratie (tabel, voorvulling uit openvme.be, module, rechten) | `supabase/migrations/20261016120200_product_features.sql` |
 
 - **Boom**: `parent_id`, van globaal (Algemene vergadering, Financieel beheer,
   Communicatie, Documentenbeheer, Eigenaarsportaal, Technisch beheer,
