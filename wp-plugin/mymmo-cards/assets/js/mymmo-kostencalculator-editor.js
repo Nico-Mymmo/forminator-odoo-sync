@@ -24,7 +24,7 @@
 
   var el = element.createElement;
   var useState = element.useState;
-  var K = window.MymmoKostencalculator || { opvullingen: [], groottes: [], min: 2, max: 200 };
+  var K = window.MymmoKostencalculator || { opvullingen: [], vlakken: [], groottes: [], min: 2, max: 200 };
 
   var InnerBlocks = blockEditor.InnerBlocks;
   var InspectorControls = blockEditor.InspectorControls;
@@ -169,6 +169,7 @@
       prijsVast: { type: 'number', default: 9 },
       kavels: { type: 'number', default: 4 },
       totaalGrootte: { type: 'string', default: '' },
+      vlak: { type: 'string', default: 'grijs' },
       achtergrond: { type: 'string', default: '' },
       opvulling: { type: 'string', default: 'normaal' }
     },
@@ -189,7 +190,8 @@
       var jaar = maand * 12;
 
       var blockProps = useBlockProps({
-        className: 'mymmo-kosten mymmo-kosten--met-tekst mymmo-kosten--pad-' + (a.opvulling || 'normaal'),
+        className: 'mymmo-kosten mymmo-kosten--met-tekst mymmo-kosten--pad-' + (a.opvulling || 'normaal')
+          + ' mymmo-kosten--vlak-' + (a.vlak === 'wit' ? 'wit' : 'grijs'),
         style: { '--mk-kosten-bg': kleurCss(a.achtergrond) }
       });
 
@@ -319,9 +321,16 @@
                 __nextHasNoMarginBottom: true
               })
             : null,
+          el(SelectControl, {
+            label: 'Achtergrond van de calculator',
+            value: a.vlak,
+            options: K.vlakken,
+            onChange: function (w) { zet({ vlak: w, achtergrond: '' }); },
+            __nextHasNoMarginBottom: true
+          }),
           el(
             BaseControl,
-            { label: 'Achtergrond van de calculator', help: 'Leeg = het vlak van de huisstijl.', __nextHasNoMarginBottom: true },
+            { label: 'Of een kleur uit het palet', help: 'Een kleur hier gaat voor op grijs of wit. Wissen = terug naar grijs of wit.', __nextHasNoMarginBottom: true },
             el(ColorPalette, {
               colors: palet,
               value: naarHex(palet, a.achtergrond),

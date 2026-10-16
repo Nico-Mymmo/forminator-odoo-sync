@@ -55,8 +55,11 @@
   gap: var(--mymmo-ruimte-krap);
   padding: var(--mk-pad);
   border-radius: var(--mymmo-afronding-l);
-  background-color: var(--mk-kosten-bg, var(--mymmo-kleur-vlak));
+  background-color: var(--mk-kosten-bg, var(--mk-kosten-vlak, var(--mymmo-kleur-vlak)));
 }
+
+/* Wit: de kleur van de pagina, voor een vak op een gekleurde sectie. */
+.mymmo-kosten.mymmo-kosten--vlak-wit { --mk-kosten-vlak: var(--mymmo-kleur-pagina); }
 
 .mymmo-kosten .mymmo-kosten-rij {
   display: flex;
@@ -138,6 +141,14 @@
 
 .mymmo-kosten .mymmo-kosten-totaal > p {
   margin: 0;
+}
+
+/* Het totaal zonder maat van het thema: dan de maten die WordPress zelf
+   meegeeft. Enkel ZONDER klasse `has-<slug>-font-size` (gezet in
+   class-kostencalculator.php): met twee klassen zou deze regel anders winnen
+   van de maat van het thema, en dat liet het totaal in 1.13.1 klein staan. */
+.mymmo-kosten .mymmo-kosten-groot:not([class*="-font-size"]) {
+  font-size: var(--wp--preset--font-size--xx-large, var(--wp--preset--font-size--x-large, var(--wp--preset--font-size--large, inherit)));
 }
 
 /* De bijzin bij het totaal: de tekstkleur, zacht, zodat het totaal het enige

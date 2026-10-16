@@ -1,8 +1,8 @@
 {
   "plugin": "mymmo-cards",
-  "versie": "1.13.0",
-  "hash": "3fdfc1b086dc1520",
-  "datum": "2026-10-14T10:07:36.000Z",
+  "versie": "1.13.2",
+  "hash": "1fe6821242042c9c",
+  "datum": "2026-10-15T12:29:40.000Z",
   "door": "Claude",
-  "samenvatting": "Nieuw blok Kostencalculator nagekeken op hiërarchie, zwaarte, kleur, mobiel, Gutenberg en toegankelijkheid. Vak is een vlak zoals een kaart zonder schaduw, een lijn scheidt het totaal; totaal in een lettergrootte van het thema zoals de stappen; telefoon: naam breekt af, bedrag blijft rechts, teller 48px, focusring op min en plus. Bekeken op 375, 768 en 1280 px zonder horizontale schuifbalk."
+  "samenvatting": "Kostencalculator 1.13.2: keuze grijs of wit voor het vak (wit = --mymmo-kleur-pagina, gesloten lijst, palet gaat voor) en de terugval voor de grootte van het totaal enkel zonder klasse van het thema. Bekeken op 375, 768 en 1280 px op een gekleurde sectie; teller blijft zichtbaar op wit door de lijn."
 }

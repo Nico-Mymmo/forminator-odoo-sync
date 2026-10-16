@@ -29,6 +29,7 @@ import bookingLinksModule from './booking-links/module.js';
 import avSlidesModule from './av-slides/module.js';
 import newslettersModule from './newsletters/module.js';
 import productFeaturesModule from './product-features/module.js';
+import odooControleModule from './odoo-controle/module.js';
 
 /**
  * All registered modules
@@ -58,6 +59,7 @@ export const MODULES = [
   avSlidesModule,
   newslettersModule,
   productFeaturesModule,
+  odooControleModule,
 ];
 
 /**

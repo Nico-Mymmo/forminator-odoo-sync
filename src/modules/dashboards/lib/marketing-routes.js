@@ -26,6 +26,7 @@ import { getBehaviourCached } from '../../web-story/lib/behaviour.js';
 import { loadExclusions, dropExcluded, listRules, describeRules, addRule, removeRule } from '../../web-story/lib/exclusions.js';
 import { WEB_PERIODS } from './web-visits.js';
 import { hasModuleSubRoleAccess } from '../../registry.js';
+import { listViews, createView, updateView, deleteView } from './flow-views.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const STATUSSEN = new Set(['actief', 'bevestigd', 'afgewezen']);
@@ -98,6 +99,42 @@ export const marketingRoutes = {
     await removeRule(env, params.id);
     return json({ success: true });
   }),
+
+  // ── Bewaarde weergaven van de padverkenner, met een mini-doel (lib/flow-views.js) ──
+  // Gedeeld met iedereen die Dashboards heeft: lezen en bewaren. Geen D1 nodig.
+  'GET /api/marketing/views': async ({ env }) => {
+    try { return json({ success: true, data: await listViews(env) }); } catch (e) {
+      console.error('[dashboards/marketing] views', e);
+      return json({ success: false, error: e.message }, 500);
+    }
+  },
+
+  /** body: { name, state, target_pct?, baseline_pct? } */
+  'POST /api/marketing/views': async ({ env, user, request }) => {
+    const body = await request.json().catch(() => ({}));
+    try { return json({ success: true, data: await createView(env, user, body || {}) }); } catch (e) {
+      return json({ success: false, error: e.message }, 400);
+    }
+  },
+
+  /** body: { name?, state?, target_pct?, baseline_pct? } -- target_pct null haalt het doel weg. */
+  'PUT /api/marketing/views/:id': async ({ env, params, request }) => {
+    if (!UUID.test(params.id)) return json({ success: false, error: 'Onbekende weergave' }, 400);
+    const body = await request.json().catch(() => ({}));
+    try {
+      const data = await updateView(env, params.id, body || {});
+      return data ? json({ success: true, data }) : json({ success: false, error: 'Weergave niet gevonden' }, 404);
+    } catch (e) {
+      return json({ success: false, error: e.message }, 400);
+    }
+  },
+
+  'DELETE /api/marketing/views/:id': async ({ env, params }) => {
+    if (!UUID.test(params.id)) return json({ success: false, error: 'Onbekende weergave' }, 400);
+    try { await deleteView(env, params.id); return json({ success: true }); } catch (e) {
+      return json({ success: false, error: e.message }, 500);
+    }
+  },
 
   // ── Traject: één lead, actieblad of bezoeker ──────────────────────────────
   'GET /api/marketing/search': async ({ env, request }) => guard(env, async () => {
