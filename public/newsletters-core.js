@@ -278,6 +278,14 @@
    * Een fout wordt GETOOND (en niet onthouden): "geen berichten" zeggen
    * terwijl het ophalen mislukte, zette mensen op het verkeerde been.
    */
+  /** De bibliotheek Productfeatures (actieve features, ingesprongen), voor het tabblad Features. */
+  NB.laadFeatures = function (opnieuw) {
+    if (NB.state.features && !opnieuw) return Promise.resolve(NB.state.features);
+    NB.state.featuresFout = null;
+    return NB.api('/api/features').then(function (r) { NB.state.features = r || []; return NB.state.features; })
+      .catch(function (err) { NB.state.features = null; NB.state.featuresFout = err.message || String(err); return null; });
+  };
+
   NB.laadBerichten = function (opnieuw) {
     if (NB.state.berichten && !opnieuw) return Promise.resolve(NB.state.berichten);
     NB.state.berichtenFout = null;

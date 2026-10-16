@@ -209,6 +209,30 @@
     return rij.find(function (v) { return gebruikt.indexOf(v) < 0; }) || rij[gebruikt.length % rij.length];
   }
 
+  /** Hoe de feature in de brief staat (FEATURE_VORMEN, via /api/bootstrap). */
+  function featureVormKeuze() {
+    var vormen = (NB.state.boot && NB.state.boot.feature_vormen) || [];
+    if (!vormen.length) return '';
+    return '<div><span class="label-text text-xs">Vorm in de brief</span><div class="mt-1">'
+      + keuzeKnoppen(vormen, lees('content.vorm') || 'kaart', 'feature-vorm', 'vorm', s().can_edit)
+      + '</div></div>';
+  }
+  NB.actions['feature-vorm'] = function (el) { zet('content.vorm', el.dataset.vorm); gewijzigd(); render(); };
+
+  /** Het paneel van een productfeature: wat de lezer niet in de brief typt. */
+  function featureVelden() {
+    var usps = (lees('content.usps') || []).join('\n');
+    var uit = s().can_edit ? '' : ' disabled';
+    return uitleg('Label, titel en korte uitleg typ je <strong>in de brief</strong>. De inhoud is een kopie uit de bibliotheek: die later aanpassen, verandert deze mail niet.')
+      + '<label class="form-control w-full"><span class="label-text text-xs mb-1">USP\'s (één per regel, max. 6)</span><textarea class="textarea textarea-bordered textarea-sm w-full" rows="4" data-veld="content.usps" data-lijst="1"' + uit + '>' + e(usps) + '</textarea></label>'
+      + vinkje('Toon de USP\'s', 'content.toon_usps')
+      + veld('Waarom we dit gemaakt hebben', 'content.why', { rijen: 2 })
+      + vinkje('Toon "Waarom we dit maakten"', 'content.toon_why')
+      + '<div class="grid grid-cols-2 gap-2">' + veld('Link', 'content.url', { hint: 'https://' }) + veld('Tekst van de knop of link', 'content.link_label', { hint: 'Meer over deze functie' }) + '</div>'
+      + beeldRij('Beeld')
+      + '<a class="link text-xs" href="/productfeatures' + (lees('content.feature_id') ? '#/' + e(lees('content.feature_id')) : '') + '" target="_blank" rel="noopener">Open de bibliotheek Productfeatures</a>';
+  }
+
   NB.actions['bericht-vorm'] = function (el) {
     zet('content.vorm', el.dataset.vorm);
     gewijzigd();
@@ -524,6 +548,7 @@
     if (NB.isVraag(kind)) delen.push(vraagOpmaak());
     if (kind === 'snippet' && lees('content.snippet_id')) delen.push(vormKeuze());
     if (kind === 'news') delen.push(nieuwsVormKeuze());
+    if (kind === 'feature') delen.push(featureVormKeuze());
     var bg = lees('content.achtergrond');
     delen.push('<div class="flex items-center gap-3"><span class="label-text text-xs">Achtergrond van het blok</span><button type="button" class="btn btn-sm btn-ghost gap-2 px-2" data-action="achtergrond-kies">' + NB.kleurBol(bg) + '<span>' + (bg ? e(String(bg).toUpperCase()) : 'Standaard') + '</span></button></div>');
     if (kind !== 'toc') {
@@ -535,9 +560,10 @@
 
   // ─── Beeld (gedeeld venster, newsletters-beeld.js) ─────────────────────────
 
-  var MET_EIGEN_BEELD = { intro: 1, article: 1, video: 1, link: 1, linkedin: 1, image: 1, snippet: 1 };
+  var MET_EIGEN_BEELD = { intro: 1, article: 1, video: 1, link: 1, linkedin: 1, image: 1, snippet: 1, feature: 1 };
   NB.kanBeeld = function (kind) { return Boolean(MET_EIGEN_BEELD[kind]); };
-  NB.kanAI = function (kind) { return !NB.isAuto(kind) && ['news', 'link', 'linkedin', 'image', 'snippet', 'heading'].indexOf(kind) < 0; };
+  // Geen AI op een productfeature: die tekst is feitelijk en komt uit de bibliotheek.
+  NB.kanAI = function (kind) { return !NB.isAuto(kind) && ['news', 'link', 'linkedin', 'image', 'snippet', 'heading', 'feature'].indexOf(kind) < 0; };
 
   NB.openBeeld = function () {
     var cc = c();
@@ -804,6 +830,8 @@
         return uitleg('Het labeltje (bv. "Schrijf je in") en de kop typ je <strong>in de brief</strong>. Voor elke volgende editie pas je de naam van de rubriek aan in de instellingen van de reeks.') + eventsVeld();
       case 'news':
         return uitleg('De kop typ je <strong>in de brief</strong>.') + kortNieuwsKeuze();
+      case 'feature':
+        return featureVelden();
       case 'toc':
         return '<p class="text-sm opacity-70">De inhoudstafel maakt zichzelf uit de titels van de andere blokken.</p>';
       case 'closing':
@@ -952,6 +980,8 @@
   NB.inputs.veld = function (el) {
     var pad = el.dataset.veld;
     var waarde = el.type === 'checkbox' ? el.checked : el.value;
+    // Een lijstveld (bv. de USP's): één regel = één punt.
+    if (el.dataset.lijst) waarde = String(waarde).split('\n').map(function (x) { return x.trim(); }).filter(Boolean);
     zet(pad, waarde);
     // Notities voor de AI staan niet in de mail: de brief hoeft niet opnieuw.
     if (pad === 'raw_notes') { gewijzigdStil(); return; }

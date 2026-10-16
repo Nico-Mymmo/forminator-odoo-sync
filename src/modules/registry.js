@@ -28,6 +28,7 @@ import contentFeedModule from './content-feed/module.js';
 import bookingLinksModule from './booking-links/module.js';
 import avSlidesModule from './av-slides/module.js';
 import newslettersModule from './newsletters/module.js';
+import productFeaturesModule from './product-features/module.js';
 import odooControleModule from './odoo-controle/module.js';
 
 /**
@@ -57,6 +58,7 @@ export const MODULES = [
   dashboardsModule,
   avSlidesModule,
   newslettersModule,
+  productFeaturesModule,
   odooControleModule,
 ];
 

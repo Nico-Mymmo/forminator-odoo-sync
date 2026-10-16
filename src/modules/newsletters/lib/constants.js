@@ -53,6 +53,8 @@ export const KINDS = {
   poll:      { label: 'Jij beslist mee', interactive: true },
   events:    { label: 'Agenda (uit Eventbeheer)', auto: true },
   news:      { label: 'Uit het nieuws (Nieuws & updates)' },
+  // Een blok uit de bibliotheek Productfeatures (module product-features), in een van de FEATURE_VORMEN.
+  feature:   { label: 'Productfeature' },
   toc:       { label: 'In deze editie', auto: true },
   closing:   { label: 'Afsluiting', auto: true },
 };
@@ -218,6 +220,8 @@ export function vraagThema(hex) {
  * de renderer kiest ermee, het scherm toont ze (via /api/bootstrap) en de
  * server aanvaardt enkel deze sleutels.
  */
+export { FEATURE_VORMEN } from '../../product-features/lib/constants.js';
+
 export const BERICHT_VORMEN = [
   { key: 'klassiek', label: 'Klassiek', uitleg: 'Label, titel, tekst en het beeld waar je het zet.' },
   { key: 'kaart', label: 'Kaart', uitleg: 'Een kader met het beeld bovenaan en de bron.' },
