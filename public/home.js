@@ -441,6 +441,7 @@
       S.mm = null;
       await loadOverview();
       render();
+      refreshNavbar();
       toast('Instellingen bewaard.');
     } catch (e) {
       toast('Bewaren mislukt: ' + e.message, 'error');
@@ -483,6 +484,7 @@
       S.dm = null;
       await loadOverview();
       render();
+      refreshNavbar();
       toast('Departement bewaard.');
     } catch (e) {
       toast('Bewaren mislukt: ' + e.message, 'error');
@@ -502,6 +504,7 @@
       await api('DELETE', '/admin/api/departments/' + encodeURIComponent(id));
       await loadOverview();
       render();
+      refreshNavbar();
       toast('Departement verwijderd.');
     } catch (e) {
       toast('Verwijderen mislukt: ' + e.message, 'error');
@@ -519,11 +522,27 @@
     render();
     try {
       await api('PUT', '/admin/api/departments/order', { ids: ids });
+      refreshNavbar();
     } catch (e) {
       toast('Volgorde bewaren mislukt: ' + e.message, 'error');
       await loadOverview();
       render();
     }
+  }
+
+  // Het Modules-menu in de navbar volgt dezelfde indeling (server-gerenderd,
+  // src/lib/components/navbar.js): na een wijziging opnieuw ophalen.
+  var navbarTimer = null;
+  function refreshNavbar() {
+    clearTimeout(navbarTimer);
+    navbarTimer = setTimeout(async function () {
+      try {
+        var res = await fetch('/api/auth/me', { credentials: 'include' });
+        if (!res.ok) return;
+        var me = await res.json();
+        if (me.navbarHtml && window.renderSharedNavbar) window.renderSharedNavbar(me.navbarHtml);
+      } catch (e) { /* navbar is niet essentieel */ }
+    }, 400);
   }
 
   // ── Favorieten ───────────────────────────────────────────────────────────
@@ -535,6 +554,7 @@
     render();
     try {
       await api(was ? 'DELETE' : 'PUT', '/home/api/favorites/' + encodeURIComponent(id));
+      refreshNavbar();
     } catch (e) {
       S.favorites = vorige;
       render();
@@ -554,6 +574,7 @@
     render();
     try {
       await api('PUT', '/home/api/favorites/order', { ids: ids });
+      refreshNavbar();
     } catch (e) {
       S.favorites = vorige;
       render();
