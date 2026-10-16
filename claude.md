@@ -273,6 +273,7 @@ departementen via `+` en het `...`-menu in de linkerkolom.
 | Gegevens voor de pagina (`GET /home/api/overview`) | `src/modules/home/api-module.js` (`openToAllUsers`, zie auth-gate) |
 | Beheer (departementen, `/api/modules/:id/settings`) | `src/modules/admin/department-routes.js` |
 | Toegang per module | bestaande `GET/PUT /admin/api/modules/:id/users` |
+| Favorieten (ster, persoonlijk) | tabel `user_module_favorites` (`20261016170000_user_module_favorites.sql`), `PUT/DELETE /home/api/favorites/:moduleId`, `PUT /home/api/favorites/order` |
 
 - **Wat op de homepage staat, komt uit de sessie** (`user.modules`, zoals de
   navbar). De API voegt enkel het departement toe. `session.js` is bewust NIET
