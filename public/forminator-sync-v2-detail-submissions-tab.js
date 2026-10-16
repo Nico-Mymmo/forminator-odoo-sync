@@ -527,6 +527,142 @@
     // uitgeklapte rij (zie buildTimelineRow); ID, Mail en Actie zijn optioneel.
     var colCount = 2 + (isCalendly ? 1 : 0) + (showIdColumn ? 1 : 0) + (hasMailStep ? 1 : 0) + (anyActie ? 1 : 0) + listColumns.length;
 
+    // ── De uitgeklapte rij: wat er ingevuld werd, en wat er mee gebeurde ────
+    // Gemeld 2026-10-16: het openklapscherm was een slordige hoop. Bovenaan
+    // vijf willekeurige payload-sleutels (form_id, form_slug, ...) in plaats
+    // van wat de klant invulde, dan de stappen met hun ruwe modelnamen, en een
+    // rij van veertien gelijke "Geopend"-badges. Nu twee kolommen: links het
+    // formulier met de echte veldnamen, rechts de verwerking in Odoo (met een
+    // link naar elk record) en de mail als een korte samenvatting. Wat enkel
+    // voor wie debugt nuttig is, staat ingeklapt onderaan.
+
+    // Odoo-webadres voor de recordlinks. /web#id=...&model=... werkt in elke
+    // Odoo-versie (de nieuwere /odoo/-routes sturen het zelf door).
+    var ODOO_WEB = 'https://mymmo.odoo.com';
+    var modelNamen = {
+      'res.partner':   'Contact',
+      'crm.lead':      'Lead',
+      'mail.mail':     'Mail',
+      'mail.message':  'Notitie',
+      'mail.activity': 'Activiteit',
+      'calendar.event':'Afspraak',
+      'sale.order':    'Offerte',
+      'project.task':  'Taak',
+      'helpdesk.ticket': 'Ticket',
+    };
+    function odooLink(model, id) {
+      if (!model || !id || !/^[a-z_][a-z0-9_.]*$/i.test(String(model)) || !/^\d+$/.test(String(id))) return '';
+      return ODOO_WEB + '/web#id=' + encodeURIComponent(String(id)) + '&model=' + encodeURIComponent(String(model)) + '&view_type=form';
+    }
+
+    // Sleutels die de bron meestuurt maar die niemand ingevuld heeft: die
+    // horen bij "Overige gegevens", niet tussen de antwoorden van de klant.
+    var TECHNISCHE_SLEUTELS = ['form_id', 'form_name', 'form_slug', 'form_version', 'form_type', 'nonce',
+      'referer', 'referrer', '_wp_http_referer', 'action', 'page_id', 'render_id', 'entry_id', 'current_url',
+      'site_url', 'ip', 'user_agent', 'value_labels'];
+    function isTechnisch(k) {
+      var n = normalizeKey(k);
+      return TECHNISCHE_SLEUTELS.indexOf(n) !== -1 || n.indexOf('meta_') === 0 || n.indexOf('_') === 0;
+    }
+
+    function vindSleutel(payload, fid) {
+      if (!payload || !fid) return null;
+      if (payload[fid] !== undefined) return fid;
+      var n = normalizeKey(fid);
+      var keys = Object.keys(payload);
+      return keys.find(function (k) { return normalizeKey(k) === n; }) ||
+             keys.find(function (k) { return normalizeKey(k).indexOf(n + '_') === 0; }) ||
+             null;
+    }
+    function waardeTekst(v) {
+      if (v == null) return '';
+      if (Array.isArray(v)) return v.map(waardeTekst).filter(Boolean).join(', ');
+      if (typeof v === 'object') {
+        return Object.keys(v).map(function (k) { return waardeTekst(v[k]); }).filter(Boolean).join(' ');
+      }
+      return String(v).trim();
+    }
+    // Een e-mailadres, telefoonnummer of URL is meteen klikbaar: wie de
+    // inzending opvolgt, wil de klant mailen of bellen zonder te kopiëren.
+    function waardeHtml(tekst, ftype) {
+      var t = String(tekst);
+      if ((ftype === 'email' || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(t)) && t.indexOf(' ') === -1) {
+        return '<a class="link link-hover text-primary" href="mailto:' + esc(t) + '">' + esc(t) + '</a>';
+      }
+      if (ftype === 'tel' || ftype === 'phone') {
+        return '<a class="link link-hover text-primary" href="tel:' + esc(t.replace(/[^\d+]/g, '')) + '">' + esc(t) + '</a>';
+      }
+      if (/^https?:\/\/\S+$/.test(t)) {
+        return '<a class="link link-hover text-primary break-all" href="' + esc(t) + '" target="_blank" rel="noopener">' + esc(t) + '</a>';
+      }
+      return '<span class="whitespace-pre-line break-words">' + esc(t) + '</span>';
+    }
+
+    // De formuliervelden in hun volgorde, samengestelde velden opengevouwen.
+    var SKIP_T = (window.FSV2.SKIP_TYPES || ['page-break', 'group', 'html', 'section', 'captcha']);
+    var formVeldenPlat = [];
+    allFormFields.forEach(function (f) {
+      var ftype = String(f.field_type || f.type || 'text');
+      var kinderen = Array.isArray(f.children) ? f.children : [];
+      if (SKIP_T.indexOf(ftype) !== -1 && !kinderen.length) return;
+      formVeldenPlat.push(f);
+      kinderen.forEach(function (c) { formVeldenPlat.push(Object.assign({ _ouder: f }, c)); });
+    });
+
+    function formulierBlok(payload) {
+      var gebruikt = {};
+      var rijen = [];
+      var overige = [];
+      formVeldenPlat.forEach(function (f) {
+        var fid = String(f.field_id || '');
+        if (!fid) return;
+        var sleutel = vindSleutel(payload, fid);
+        if (!sleutel || gebruikt[sleutel]) return;
+        // Een samengesteld veld waarvan de kinderen apart staan: enkel de kinderen.
+        if (Array.isArray(f.children) && f.children.length &&
+            f.children.some(function (c) { return vindSleutel(payload, String(c.field_id || '')); })) return;
+        var tekst = waardeTekst(payload[sleutel]);
+        gebruikt[sleutel] = true;
+        if (!tekst) return;
+        var meta = fieldMeta[fid] || {};
+        var label = String(meta.alias || '').trim() || String(f.label || '').trim() || fid;
+        var ftype = String(f.field_type || f.type || 'text');
+        var rij = { label: label, html: waardeHtml(tekst, ftype) };
+        if (f.is_meta || meta.hidden || isTechnisch(fid)) overige.push(rij); else rijen.push(rij);
+      });
+      Object.keys(payload).forEach(function (k) {
+        if (gebruikt[k]) return;
+        var tekst = waardeTekst(payload[k]);
+        if (!tekst || normalizeKey(k) === 'nonce') return;
+        var rij = { label: k, html: waardeHtml(tekst, ''), mono: true };
+        // Zonder formulierdefinitie (nog niet geladen) toch de antwoorden
+        // vooraan, enkel de technische sleutels achteraan.
+        if (!formVeldenPlat.length && !isTechnisch(k)) rijen.push(rij); else overige.push(rij);
+      });
+
+      function dl(lijst) {
+        return '<dl class="grid grid-cols-[minmax(7rem,36%)_1fr] gap-x-3 gap-y-1.5 text-xs">' +
+          lijst.map(function (r) {
+            return '<dt class="text-base-content/50 break-words' + (r.mono ? ' font-mono' : '') + '">' + esc(r.label) + '</dt>' +
+                   '<dd class="text-base-content min-w-0">' + r.html + '</dd>';
+          }).join('') +
+        '</dl>';
+      }
+
+      return '<section class="rounded-box bg-base-100 border border-base-content/10 p-3 min-w-0">' +
+          '<h4 class="text-xs font-semibold uppercase tracking-wide text-base-content/50 mb-2 flex items-center gap-1.5">' +
+            '<i data-lucide="file-text" class="w-3.5 h-3.5"></i>Ingevuld formulier</h4>' +
+          (rijen.length ? dl(rijen) : '<p class="text-xs text-base-content/40 italic">Geen ingevulde velden gevonden.</p>') +
+          (overige.length
+            ? '<details class="mt-3 pt-2 border-t border-base-content/10">' +
+                '<summary class="text-xs cursor-pointer select-none text-base-content/50 hover:text-base-content">' +
+                  'Overige gegevens (' + overige.length + ')</summary>' +
+                '<div class="mt-2 opacity-80">' + dl(overige) + '</div>' +
+              '</details>'
+            : '') +
+        '</section>';
+    }
+
     function buildTimelineRow(sub) {
       var shortId = window.FSV2.shortId(sub.id);
       var ctx;
@@ -535,14 +671,6 @@
       try { ctx = (rc && typeof rc === 'object') ? rc : JSON.parse(rc || '{}'); } catch (e2) { ctx = {}; }
       var actions  = ctx.target_actions || [];
       var payload  = leesbarePayload(sub);
-      var pKeys    = Object.keys(payload).filter(function (k) { return payload[k] && k !== 'nonce'; }).slice(0, 5);
-      var payloadHtml = pKeys.length
-        ? '<div class="flex flex-wrap gap-x-3 gap-y-0.5 mb-2 text-xs text-base-content/60">' +
-            pKeys.map(function (k) {
-              return '<span><span class="font-mono text-base-content/30">' + esc(k) + ':</span> ' + esc(String(payload[k]).slice(0, 60)) + '</span>';
-            }).join('') +
-          '</div>'
-        : '';
       var isReplaySub = !!sub.replay_of_submission_id;
       var isFailed    = ['permanent_failed', 'retry_exhausted', 'partial_failed'].includes(String(sub.status || ''));
 
@@ -575,11 +703,27 @@
         stepsToShow = [];
       }
 
+      // Icoon per uitkomst: in één oogopslag zien wat er gebeurde, zonder
+      // elke badge te moeten lezen.
+      // Redenen die uitleggen in plaats van waarschuwen: er ging niets mis.
+      var INFO_REDENEN = ['mail_already_queued', 'calendly_phase_skipped'];
+      function uitkomstIcoon(a) {
+        var act = String(a.action || '');
+        if (a.skipped_reason === 'condition_not_met') return { icon: 'filter', kleur: 'text-warning' };
+        if (!act) return { icon: 'circle-dashed', kleur: 'text-base-content/30' };
+        if (act === 'failed' || /_failed$/.test(act)) return { icon: 'circle-x', kleur: 'text-error' };
+        if (act === 'created' || act === 'pdf_generated' || act === 'mail_queued' || act === 'posted') return { icon: 'circle-plus', kleur: 'text-success' };
+        if (act === 'updated' || act === 'mail_scheduled') return { icon: 'circle-check', kleur: 'text-info' };
+        return { icon: 'circle-minus', kleur: 'text-base-content/30' };
+      }
+
       var timelineHtml = stepsToShow.length
-        ? stepsToShow.map(function (a) {
+        ? '<ol class="space-y-0.5">' + stepsToShow.map(function (a) {
             var sl              = (a.skipped_reason && skipLabels[a.skipped_reason]) || '';
             var isReplaySkip    = a.skipped_reason === 'retry_skip_already_successful';
             var isConditionSkip = a.skipped_reason === 'condition_not_met';
+            var act             = String(a.action || '');
+            var isMislukt       = act === 'failed' || /_failed$/.test(act);
             // Een stap die intussen weg is, houdt zijn eigen volgnummer.
             var stepNum         = a.execution_order != null
               ? (stapPositie[Number(a.execution_order)] || Number(a.execution_order))
@@ -592,25 +736,46 @@
             var stepColor       = isConditionSkip
               ? 'badge-warning'
               : (a.action ? (actionColors[a.action] || 'badge-ghost') : 'badge-neutral');
-            return '<div class="flex flex-wrap items-start gap-1.5 text-xs py-1.5 border-b border-base-100/50 last:border-0">' +
-              (stepNum != null ? '<span class="badge badge-outline badge-xs font-mono w-5 text-center shrink-0 mt-0.5">' + esc(String(stepNum)) + '</span>' : '') +
-              '<div class="flex flex-col gap-0.5 min-w-0">' +
+            var ic   = uitkomstIcoon(a);
+            var naam = a.label || modelNamen[a.model] || a.model || 'Stap';
+            var link = odooLink(a.model, a.record_id);
+            var recordHtml = a.record_id
+              ? (link
+                  ? '<a class="link link-hover font-mono text-base-content/60 inline-flex items-center gap-0.5" href="' + esc(link) + '" target="_blank" rel="noopener" title="Openen in Odoo">#' +
+                      esc(String(a.record_id)) + '<i data-lucide="external-link" class="w-3 h-3"></i></a>'
+                  : '<span class="font-mono text-base-content/40">#' + esc(String(a.record_id)) + '</span>')
+              : '';
+            // Een uitleg bij een stap die gewoon lukte (pdf bestond al, mail
+            // stond al klaar) is geen fout: die hoort niet in het rood.
+            var detailHtml = '';
+            if (isConditionSkip && a.error_detail) {
+              detailHtml = '<div class="mt-1 flex items-start gap-1.5 p-1.5 rounded bg-warning/10 border border-warning/20 text-warning/90 font-mono break-all">' +
+                  '<i data-lucide="filter" class="w-3 h-3 shrink-0 mt-0.5"></i>' +
+                  '<span>' + esc(a.error_detail) + '</span>' +
+                '</div>';
+            } else if (a.error_detail) {
+              detailHtml = '<div class="' + (isMislukt ? 'text-error/80 font-mono break-all' : 'text-base-content/50 break-words') + '">' + esc(a.error_detail) + '</div>';
+            }
+            return '<li class="flex items-start gap-2 text-xs py-1.5 border-b border-base-content/5 last:border-0' + (isReplaySkip ? ' opacity-60' : '') + '">' +
+              '<i data-lucide="' + ic.icon + '" class="w-4 h-4 shrink-0 ' + ic.kleur + '"></i>' +
+              '<div class="flex flex-col gap-0.5 min-w-0 flex-1">' +
                 '<div class="flex flex-wrap items-center gap-1.5">' +
-                  (a.label ? '<span class="font-medium">' + esc(a.label) + '</span>' : '') +
-                  '<span class="font-mono text-base-content/40">' + esc(a.model || '-') + '</span>' +
+                  (stepNum != null ? '<span class="text-base-content/40 font-mono">' + esc(String(stepNum)) + '.</span>' : '') +
+                  '<span class="font-medium">' + esc(naam) + '</span>' +
+                  (a.model && naam !== a.model ? '<span class="font-mono text-[10px] text-base-content/35">' + esc(a.model) + '</span>' : '') +
                   '<span class="badge badge-xs ' + stepColor + '">' + stepLabel + '</span>' +
-                  (a.record_id ? '<span class="font-mono text-base-content/30">#' + esc(String(a.record_id)) + '</span>' : '') +
-                  (sl && !isConditionSkip ? '<span class="text-xs ' + (isReplaySkip ? 'text-base-content/30 italic' : 'text-warning') + '">' + esc(sl) + '</span>' : '') +
+                  recordHtml +
+                  // Bij een replay staat dit bij bijna elke stap: kort en op
+                  // dezelfde regel, anders wordt het spoor twee keer zo lang.
+                  (isReplaySkip ? '<span class="text-base-content/40 italic">al gedaan, niet opnieuw</span>' : '') +
                 '</div>' +
-                (isConditionSkip && a.error_detail
-                  ? '<div class="mt-1 flex items-start gap-1.5 p-1.5 rounded bg-warning/10 border border-warning/20 text-warning/90 font-mono break-all">' +
-                      '<i data-lucide="filter" class="w-3 h-3 shrink-0 mt-0.5"></i>' +
-                      '<span>' + esc(a.error_detail) + '</span>' +
-                    '</div>'
-                  : (a.error_detail ? '<span class="text-error/70 font-mono break-all">' + esc(a.error_detail) + '</span>' : '')) +
+                (sl && !isConditionSkip && !isReplaySkip
+                  ? '<div class="' + (INFO_REDENEN.indexOf(a.skipped_reason) !== -1 ? 'text-base-content/50' : 'text-warning') + '">' + esc(sl) + '</div>'
+                  : '') +
+                detailHtml +
               '</div>' +
-            '</div>';
-          }).join('')
+            '</li>';
+          }).join('') + '</ol>'
         : (String(sub.status || '') === 'received'
             ? '<div class="flex items-start gap-1.5 p-2 rounded bg-base-300/60 text-xs">' +
                 '<i data-lucide="pause" class="w-3.5 h-3.5 shrink-0 mt-0.5 opacity-60"></i>' +
@@ -624,18 +789,18 @@
       // een geval dat de meeste indieningen niet raakt) — wie de rij uitklapt ziet
       // de volledige foutmelding hier, ongeacht of de status uiteindelijk "mislukt" is.
       var errorHtml = sub.last_error
-        ? '<div class="mt-2 p-2 rounded bg-error/10 border border-error/20 text-xs text-error font-mono break-all">' +
+        ? '<div class="mb-2 p-2 rounded bg-error/10 border border-error/20 text-xs text-error font-mono break-all">' +
             '<span class="font-semibold mr-1">Fout:</span>' + esc(sub.last_error) +
           '</div>'
         : '';
 
       var mailSlotHtml = hasMailStep
-        ? '<div class="mt-3">' +
-            '<div class="text-xs font-semibold text-base-content/60 mb-1 flex items-center gap-1">' +
-              '<i data-lucide="mail" class="w-3 h-3"></i>Mail' +
-            '</div>' +
+        ? '<div class="mt-3 pt-3 border-t border-base-content/10">' +
+            '<h4 class="text-xs font-semibold uppercase tracking-wide text-base-content/50 mb-1.5 flex items-center gap-1.5">' +
+              '<i data-lucide="mail" class="w-3.5 h-3.5"></i>Mail' +
+            '</h4>' +
             '<div class="mail-status-slot" data-sub-id="' + esc(shortId) + '">' +
-              '<span class="text-xs text-base-content/30 italic">Klap open om te laden…</span>' +
+              '<span class="text-xs text-base-content/30 italic">Laden…</span>' +
             '</div>' +
           '</div>'
         : '';
@@ -648,33 +813,69 @@
           return JSON.stringify(obj, null, 2);
         } catch (e_) { return String(raw || ''); }
       }
-      var payloadDetailHtml =
-        '<div class="mt-3 space-y-2">' +
-          '<details>' +
-            '<summary class="text-xs font-semibold cursor-pointer select-none text-base-content/60 hover:text-base-content py-1">' +
-              '&#x25B6; Inkomende payload</summary>' +
-            '<pre class="text-xs font-mono bg-base-300 rounded p-2 mt-1 overflow-auto max-h-64 whitespace-pre-wrap break-all">' +
-              esc(safeJsonPretty(sub.source_payload)) + '</pre>' +
-          '</details>' +
-          '<details>' +
-            '<summary class="text-xs font-semibold cursor-pointer select-none text-base-content/60 hover:text-base-content py-1">' +
-              '&#x25B6; Verwerkte context (uitgaand naar Odoo)</summary>' +
-            // Een kale "{}" laat je raden of er iets stukging of dat er gewoon
-            // niets te sturen viel. Die twee zijn heel verschillende dingen.
-            (contextLeeg
-              ? '<p class="text-xs text-base-content/50 mt-1 mb-1">' +
-                  (String(sub.status || '') === 'received'
-                    ? 'Leeg omdat de koppeling uit stond toen deze inzending binnenkwam.'
-                    : 'Leeg: er zijn nog geen veldkoppelingen ingesteld, dus er valt niets naar Odoo te sturen.') +
-                '</p>'
-              : '') +
-            '<pre class="text-xs font-mono bg-base-300 rounded p-2 mt-1 overflow-auto max-h-64 whitespace-pre-wrap break-all">' +
-              esc(safeJsonPretty(sub.resolved_context)) + '</pre>' +
-          '</details>' +
+
+      // ── Kopregel: wat, wanneer, en via welke pagina ──────────────────────
+      var sm = statusMeta[sub.status] || { color: 'bg-base-content/30', label: sub.status || 'Onbekend' };
+      var ruw = parsePayload(sub);
+      var formNaam = waardeTekst(ruw.form_name);
+      var pagina   = waardeTekst(ruw.meta_page_url || ruw.page_url || ruw.current_url || ruw.referer || ruw._wp_http_referer);
+      var kopHtml =
+        '<div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs mb-3">' +
+          '<span class="inline-flex items-center gap-1.5 font-semibold">' +
+            '<span class="inline-block w-2.5 h-2.5 rounded-full ' + sm.color + '"></span>' + esc(sm.label) +
+          '</span>' +
+          '<span class="text-base-content/60 inline-flex items-center gap-1"><i data-lucide="clock" class="w-3.5 h-3.5"></i>' + esc(window.FSV2.fmt(sub.created_at)) + '</span>' +
+          (isReplaySub
+            ? '<span class="badge badge-xs badge-accent">Replay van ' + esc(window.FSV2.shortId(sub.replay_of_submission_id)) + '</span>'
+            : '') +
+          (formNaam ? '<span class="text-base-content/60 truncate max-w-[20rem]">' + esc(formNaam) + '</span>' : '') +
+          (pagina && /^https?:\/\//.test(pagina)
+            ? '<a class="link link-hover text-base-content/50 truncate max-w-[22rem] inline-flex items-center gap-1" href="' + esc(pagina) + '" target="_blank" rel="noopener">' +
+                '<i data-lucide="globe" class="w-3.5 h-3.5 shrink-0"></i>' + esc(pagina.replace(/^https?:\/\//, '')) + '</a>'
+            : '') +
+          '<span class="ml-auto font-mono text-base-content/30">' + esc(shortId) + '</span>' +
         '</div>';
 
+      var verwerkingHtml =
+        '<section class="rounded-box bg-base-100 border border-base-content/10 p-3 min-w-0">' +
+          '<h4 class="text-xs font-semibold uppercase tracking-wide text-base-content/50 mb-1.5 flex items-center gap-1.5">' +
+            '<i data-lucide="workflow" class="w-3.5 h-3.5"></i>Verwerking in Odoo</h4>' +
+          errorHtml + timelineHtml + mailSlotHtml +
+        '</section>';
+
+      var payloadDetailHtml =
+        '<details class="mt-3">' +
+          '<summary class="text-xs cursor-pointer select-none text-base-content/50 hover:text-base-content py-1 inline-flex items-center gap-1">' +
+            '<i data-lucide="code" class="w-3.5 h-3.5"></i>Technische details</summary>' +
+          '<div class="grid lg:grid-cols-2 gap-3 mt-1">' +
+            '<div class="min-w-0">' +
+              '<div class="text-xs font-semibold text-base-content/50 mb-1">Inkomende payload</div>' +
+              '<pre class="text-xs font-mono bg-base-300 rounded p-2 overflow-auto max-h-64 whitespace-pre-wrap break-all">' +
+                esc(safeJsonPretty(sub.source_payload)) + '</pre>' +
+            '</div>' +
+            '<div class="min-w-0">' +
+              '<div class="text-xs font-semibold text-base-content/50 mb-1">Verwerkte context (uitgaand naar Odoo)</div>' +
+              // Een kale "{}" laat je raden of er iets stukging of dat er gewoon
+              // niets te sturen viel. Die twee zijn heel verschillende dingen.
+              (contextLeeg
+                ? '<p class="text-xs text-base-content/50 mb-1">' +
+                    (String(sub.status || '') === 'received'
+                      ? 'Leeg omdat de koppeling uit stond toen deze inzending binnenkwam.'
+                      : 'Leeg: er zijn nog geen veldkoppelingen ingesteld, dus er valt niets naar Odoo te sturen.') +
+                  '</p>'
+                : '') +
+              '<pre class="text-xs font-mono bg-base-300 rounded p-2 overflow-auto max-h-64 whitespace-pre-wrap break-all">' +
+                esc(safeJsonPretty(sub.resolved_context)) + '</pre>' +
+            '</div>' +
+          '</div>' +
+        '</details>';
+
       return '<tr class="sub-timeline-row" id="stl-' + esc(shortId) + '" style="display:none">' +
-        '<td colspan="' + colCount + '" class="bg-base-200/40 px-4 py-3">' + payloadHtml + timelineHtml + errorHtml + mailSlotHtml + payloadDetailHtml + '</td>' +
+        '<td colspan="' + colCount + '" class="bg-base-200/60 px-4 py-3 whitespace-normal">' +
+          kopHtml +
+          '<div class="grid md:grid-cols-2 gap-3 items-start">' + formulierBlok(payload) + verwerkingHtml + '</div>' +
+          payloadDetailHtml +
+        '</td>' +
         '</tr>';
     }
 
@@ -905,12 +1106,30 @@
       return '<div class="text-xs text-base-content/50 italic py-0.5">' + esc(mailSkipLabels[s.skipped_reason]) + '</div>';
     }).join('');
 
+    // Events SAMENGEVAT per soort: "Geopend 13×, laatst ..." in plaats van
+    // dertien gelijke badges op een rij. Het precieze tijdstip van elk event
+    // staat nog in de tooltip.
+    var eventVolgorde = ['delivery', 'open', 'click', 'bounce', 'spamcomplaint', 'subscriptionchange'];
+    var perSoort = {};
+    events.forEach(function (e) {
+      var t = e.event_type || 'onbekend';
+      (perSoort[t] = perSoort[t] || []).push(e);
+    });
+    var soorten = Object.keys(perSoort).sort(function (a, b) {
+      var ia = eventVolgorde.indexOf(a), ib = eventVolgorde.indexOf(b);
+      return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+    });
     var eventsHtml = events.length
-      ? '<div class="flex flex-wrap items-center gap-1.5 mt-1">' +
-          events.map(function (e) {
-            return '<span class="badge badge-xs ' + (mailEventColors[e.event_type] || 'badge-ghost') + '" title="' + esc(window.FSV2.fmt(e.occurred_at)) + '">' +
-              esc(mailEventLabels[e.event_type] || e.event_type) +
-              (e.event_type === 'open' && e.first_open ? ' (1e)' : '') +
+      ? '<div class="flex flex-wrap items-center gap-1.5 mt-1.5">' +
+          soorten.map(function (t) {
+            var lijst = perSoort[t].slice().sort(function (a, b) { return new Date(a.occurred_at || 0) - new Date(b.occurred_at || 0); });
+            var eerste = lijst[0], laatste = lijst[lijst.length - 1];
+            var wanneer = lijst.length > 1
+              ? 'eerst ' + window.FSV2.fmt(eerste.occurred_at) + ', laatst ' + window.FSV2.fmt(laatste.occurred_at)
+              : window.FSV2.fmt(eerste.occurred_at);
+            return '<span class="badge badge-sm gap-1 ' + (mailEventColors[t] || 'badge-ghost') + '" title="' + esc(wanneer) + '">' +
+              esc(mailEventLabels[t] || t) +
+              (lijst.length > 1 ? '<span class="font-semibold">' + lijst.length + '&times;</span>' : '') +
             '</span>';
           }).join('') +
         '</div>'

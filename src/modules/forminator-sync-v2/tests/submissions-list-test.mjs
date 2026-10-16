@@ -235,6 +235,21 @@ check('de lege context krijgt een reden mee',
   html.includes('Leeg omdat de koppeling uit stond'),
   'een kale "{}" laat je raden of er iets stukging of dat er niets te sturen viel');
 
+console.log('\nDe uitgeklapte rij toont het formulier met zijn veldnamen');
+
+check('de veldnaam staat bij de waarde, niet de ruwe sleutel',
+  /<dt[^>]*>E-mailadres<\/dt>/.test(html) && !/<dt[^>]*>e_mailadres<\/dt>/.test(html));
+check('het e-mailadres is klikbaar om de klant te mailen',
+  html.includes('href="mailto:nico+test@mymmo.com"'));
+check('de technische sleutels staan apart, onder "Overige gegevens"',
+  (() => {
+    const deel = html.slice(html.indexOf('Ingevuld formulier'));
+    const overige = deel.indexOf('Overige gegevens');
+    const slug = deel.indexOf('>form_slug</dt>');
+    return overige !== -1 && slug > overige && deel.indexOf('>Naam</dt>') < overige;
+  })(),
+  'form_id/form_slug stonden vroeger bovenaan, voor de antwoorden van de klant');
+
 console.log('\nDe Replay-knop');
 
 check('een inzending met status "received" krijgt een Replay-knop',
