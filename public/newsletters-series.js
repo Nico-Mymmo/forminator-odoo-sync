@@ -70,12 +70,15 @@
     app.innerHTML = '<div class="text-sm opacity-70 mb-1"><a class="hover:underline" href="#/">Nieuwsbrieven</a> / Instellingen</div>'
       + '<h1 class="text-2xl font-bold mb-4">' + e(s.name) + '</h1>'
       + '<div class="grid gap-5 lg:grid-cols-2">'
-      + kaart('Wie en waarom', invoer('Naam', 'name', s.name) + invoer('Waarvoor dient ze', 'description', s.description, { rijen: 2 })
+      + kaart('Wie en waarom', invoer('Naam (intern)', 'name', s.name) + invoer('Naam zoals de lezer ze ziet', 'public_name', s.public_name || '', { uitleg: 'Rechtsboven in de mail en in de voet. Leeg = de interne naam.' })
+        + invoer('Waarvoor dient ze', 'description', s.description, { rijen: 2 })
         + invoer('Doelgroep (stuurt de AI)', 'audience', s.audience, { rijen: 3 }) + invoer('Toon (stuurt de AI)', 'tone', s.tone, { rijen: 2 }))
       + kaart('Ontvangers en afzender',
         '<div><span class="label-text">Naar welke Odoo-lijsten gaat ze?</span><div class="mt-1">' + lijstenHtml + '</div><span class="label-text-alt opacity-60">Enkel bij een echte verzending. In de teststand gaat alles naar de testadressen.</span></div>'
         + '<div class="grid sm:grid-cols-2 gap-3">' + invoer('Naam afzender', 'from_name', s.from_name) + invoer('Adres afzender', 'from_email', s.from_email) + '</div>'
         + invoer('Antwoorden op de mail gaan naar', 'reply_to', s.reply_to)
+        + invoer('Voet: waarom de lezer deze mail krijgt', 'footer_reason', s.footer_reason || '', { rijen: 2, uitleg: 'Leeg = "Je krijgt deze mail omdat je ingeschreven bent voor … van …". De link Uitschrijven staat er altijd bij.' })
+        + invoer('Voet: onderste regel', 'footer_line', s.footer_line || '', { uitleg: 'Leeg = "… is een merk van Mymmo BV · adres · © jaar".' })
         + '<div class="grid sm:grid-cols-2 gap-3">' + invoer('Logo (adres van het beeld)', 'logo_url', s.logo_url, { uitleg: 'Leeg = het logo van het merk.' }) + invoer('Achtergrondtint', 'tint', s.tint || '#f0f9ff', { type: 'color' }) + '</div>')
       + kaart('Ritme', '<label class="form-control"><span class="label-text mb-1">Hoe vaak</span><select class="select select-bordered select-sm" data-reeks="cadence"><option value="monthly"' + (s.cadence === 'monthly' ? ' selected' : '') + '>Elke maand, vanzelf</option><option value="none"' + (s.cadence === 'none' ? ' selected' : '') + '>Enkel met de hand (losse mailing)</option></select></label>'
         + '<div class="grid sm:grid-cols-2 gap-3">' + invoer('Verzenddag (dag van de maand)', 'send_day', s.send_day, { type: 'number', min: 1, max: 28 }) + invoer('Uur', 'send_hour', s.send_hour, { type: 'number', min: 6, max: 20 })
@@ -169,6 +172,7 @@
         logo_url: s.logo_url, tint: s.tint, cadence: s.cadence, send_day: s.send_day, send_hour: s.send_hour,
         deadline_workdays: s.deadline_workdays, create_days_ahead: s.create_days_ahead, chat_channel: s.chat_channel,
         answers_integration_id: s.answers_integration_id || null, is_active: s.is_active, sections: s.sections,
+        public_name: s.public_name || '', footer_reason: s.footer_reason || '', footer_line: s.footer_line || '',
       };
       if (NB.state.boot.me.role === 'admin') body.editor_user_ids = s.editor_user_ids || [];
       var bij = await NB.api('/api/series/' + s.id, { method: 'PUT', body: body });

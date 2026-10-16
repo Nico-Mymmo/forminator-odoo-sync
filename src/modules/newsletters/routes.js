@@ -18,13 +18,13 @@ import {
   sendMode, testEmails, BRAND, BEELD_KADERS, BEELD_PLAATSEN, TEKENING_MATEN, TITEL_NIVEAUS, MERKKLEUREN, merkkleur, BERICHT_VORMEN,
   VRAAG_SOORTEN, VRAAG_STIJLEN, VRAAG_STANDAARD, VRAAG_OUDE_KLEUREN, NIEUWS_VORMEN, NIEUWS_MAX,
 } from './lib/constants.js';
-import { renderEdition, renderContribution, heeftInhoud, kopVan, inToc } from './lib/render.js';
+import { renderEdition, renderContribution, heeftInhoud, kopVan, inToc, kopWaarden, voetWaarden } from './lib/render.js';
 import { verzamel, maakEditieOp, vernieuwNieuws, ondertekenaarId, metOndertekening, isBlanco } from './lib/editions.js';
 import { antwoordLinks, antwoordenVanEditie } from './lib/answers.js';
 import { tokenVeldBestaat, verstuurTest, leesCijfers } from './lib/odoo-mailing.js';
 import { voorgesteldMoment, controleerMoment, bouwEchteMail, datumKort } from './lib/verzending.js';
 import { stelStukjeVoor, stelOnderwerpVoor } from './lib/ai.js';
-import { linkVoorbeeld, eventsVoorEditie, auteurs, tekeningen, eventsTussen } from './lib/sources.js';
+import { linkVoorbeeld, eventsVoorEditie, auteurs, tekeningen, eventsTussen, bedrijf } from './lib/sources.js';
 import { stuurHerinnering } from './lib/cron.js';
 import { hostBeelden, BEELDEN_MAP } from './lib/beelden-hosten.js';
 import { naamVoor, medewerkerVoorOdooGebruiker, medewerkersVoorGebruikers } from '../../lib/medewerkers.js';
@@ -545,11 +545,15 @@ export const routes = {
       const tokenVeld = isActiveEdition(edition) && items.some((i) => KINDS[i.kind]?.interactive)
         ? await tokenVeldBestaat(env).catch(() => false) : true;
       const lijst = checklist({ series, edition, items, ctx: { events: [{ id: 0 }] }, tokenVeld, env });
+      const comp = await bedrijf(env).catch(() => null);
       return json({
         success: true,
         data: {
           edition: { ...edition, stats },
           checklist: lijst,
+          // Wat de kop en de voet nu tonen, en wat de standaard is (voor het venster "Logo en teksten").
+          kop: kopWaarden(series, edition),
+          voet: voetWaarden(series, { company: comp }),
           voorgesteld_moment: isActiveEdition(edition) ? voorgesteldMoment(series, edition).toISOString() : null,
           series: { ...series, is_editor: isEditorVan(user, series) },
           items: items.map((i) => ({
@@ -589,6 +593,15 @@ export const routes = {
       if (b.title !== undefined) w.title = kort(b.title, 120);
       if (b.subject !== undefined) w.subject = kort(b.subject, 200);
       if (b.preheader !== undefined) w.preheader = kort(b.preheader, 200);
+      // De kop van de mail: logo en de twee regels rechtsboven. null = terug naar de standaard van de reeks.
+      if (b.header !== undefined) {
+        const h = b.header && typeof b.header === 'object' ? b.header : {};
+        const nieuw = {};
+        if (typeof h.titel === 'string') nieuw.titel = kort(h.titel, 120);
+        if (typeof h.ondertitel === 'string') nieuw.ondertitel = kort(h.ondertitel, 120);
+        if (typeof h.logo_url === 'string' && url(h.logo_url)) nieuw.logo_url = url(h.logo_url);
+        w.header = nieuw;
+      }
       for (const k of ['send_at', 'deadline_at']) {
         if (b[k] !== undefined) {
           const d = new Date(b[k]);

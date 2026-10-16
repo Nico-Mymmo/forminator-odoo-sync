@@ -924,16 +924,40 @@ function metAchtergrond(html, kleur, kind) {
 
 // ─── Het geheel ─────────────────────────────────────────────────────────────
 
-function kopRij(series, edition) {
+/** De naam van de reeks zoals de lezer ze ziet (instelling), anders de interne naam. */
+export function lezersNaam(series) {
+  return String(series.public_name || '').trim() || series.name;
+}
+
+/**
+ * De kop van de mail. Per mailing instelbaar via `edition.header`
+ * ({ logo_url, titel, ondertitel }): een sleutel die ontbreekt (of null) valt
+ * terug op de reeks; een lege tekst is een bewuste keuze en blijft leeg.
+ */
+export function kopWaarden(series, edition) {
   const brand = BRAND[series.brand] || BRAND.openvme;
-  const logo = series.logo_url || brand.logo;
-  const standaard = logo === brand.logo;
+  const h = edition.header && typeof edition.header === 'object' ? edition.header : {};
+  const tekst = (eigen, standaard) => (typeof eigen === 'string' ? eigen : standaard);
+  const eigenLogo = /^https?:\/\//i.test(String(h.logo_url || '').trim()) ? String(h.logo_url).trim() : '';
+  return {
+    logo: eigenLogo || series.logo_url || brand.logo,
+    titel: tekst(h.titel, lezersNaam(series)),
+    ondertitel: tekst(h.ondertitel, edition.title || maandLabel(edition.send_at)),
+    standaard: { logo: series.logo_url || brand.logo, titel: lezersNaam(series), ondertitel: edition.title || maandLabel(edition.send_at) },
+  };
+}
+
+function kopRij(series, edition, mode) {
+  const brand = BRAND[series.brand] || BRAND.openvme;
+  const k = kopWaarden(series, edition);
+  const standaard = k.logo === brand.logo;
   const maat = standaard
     ? `width="${brand.logoWidth}" height="${brand.logoHeight}" style="display:block;width:${brand.logoWidth}px;height:${brand.logoHeight}px;border:0"`
     : `height="30" style="display:block;height:30px;width:auto;border:0"`;
-  return `<tr><td style="padding:26px 40px;border-bottom:1px solid ${S.line}"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
-<td valign="middle"><a href="${esc(brand.site)}" style="text-decoration:none"><img src="${safeUrl(logo)}" alt="${esc(brand.name)}" ${maat}></a></td>
-<td valign="middle" align="right" style="font-family:${S.fontBody}"><div style="font-size:13px;font-weight:700;color:${S.primary}">${esc(series.name)}</div><div style="font-size:12px;color:${S.muted};margin-top:2px">${esc(edition.title || maandLabel(edition.send_at))}</div></td>
+  const klik = mode === 'preview' ? ' data-nb-kop="1" title="Klik om logo en tekst aan te passen"' : '';
+  return `<tr><td${klik} style="padding:26px 40px;border-bottom:1px solid ${S.line}"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+<td valign="middle"><a href="${esc(brand.site)}" style="text-decoration:none"><img src="${safeUrl(k.logo)}" alt="${esc(brand.name)}" ${maat}></a></td>
+<td valign="middle" align="right" style="font-family:${S.fontBody}">${k.titel ? `<div style="font-size:13px;font-weight:700;color:${S.primary}">${esc(k.titel)}</div>` : ''}${k.ondertitel ? `<div style="font-size:12px;color:${S.muted};margin-top:2px">${esc(k.ondertitel)}</div>` : ''}</td>
 </tr></table></td></tr>`;
 }
 
@@ -942,13 +966,32 @@ function voet(series, ctx, mode) {
   // Odoo herschrijft /unsubscribe_from_list per ontvanger. In het voorbeeld
   // doet die link niets.
   const uitschrijven = mode === 'preview' ? '#' : '/unsubscribe_from_list';
-  const jaar = new Date(ctx.now || Date.now()).getUTCFullYear();
-  const bedrijf = [ctx.company?.name || 'Mymmo BV', ctx.company?.address].filter(Boolean).map(esc).join(' · ');
-  return `<tr><td align="center" style="padding:24px 40px 8px;font-family:${S.fontBody};font-size:13px;line-height:1.7;color:${S.muted}">
-<div>Je krijgt deze mail omdat je ingeschreven bent voor ${esc(series.name)} van ${esc(brand.name)}.</div>
+  const v = voetWaarden(series, ctx);
+  const klik = mode === 'preview' ? ' data-nb-voet="1" title="Klik om de voetteksten aan te passen"' : '';
+  return `<tr><td${klik} align="center" style="padding:24px 40px 8px;font-family:${S.fontBody};font-size:13px;line-height:1.7;color:${S.muted}">
+${v.reden ? `<div>${esc(v.reden)}</div>` : ''}
 <div><a href="${uitschrijven}" style="color:${S.primary}">Uitschrijven</a></div>
-<div style="font-size:12px;margin-top:6px">${esc(brand.name)} is een merk van ${bedrijf} &middot; &copy; ${jaar}</div>
+${v.regel ? `<div style="font-size:12px;margin-top:6px">${esc(v.regel)}</div>` : ''}
 </td></tr>`;
+}
+
+/**
+ * De twee voetteksten: ingesteld op de reeks (`footer_reason`, `footer_line`),
+ * anders de standaardzin. De link Uitschrijven staat er altijd tussen.
+ */
+export function voetWaarden(series, ctx = {}) {
+  const brand = BRAND[series.brand] || BRAND.openvme;
+  const jaar = new Date(ctx.now || Date.now()).getUTCFullYear();
+  const bedrijf = [ctx.company?.name || 'Mymmo BV', ctx.company?.address].filter(Boolean).join(' · ');
+  const standaard = {
+    reden: `Je krijgt deze mail omdat je ingeschreven bent voor ${lezersNaam(series)} van ${brand.name}.`,
+    regel: `${brand.name} is een merk van ${bedrijf} · © ${jaar}`,
+  };
+  return {
+    reden: String(series.footer_reason || '').trim() || standaard.reden,
+    regel: String(series.footer_line || '').trim() || standaard.regel,
+    standaard,
+  };
 }
 
 function huls(rijen, { tint, preheader, voetRij }) {
@@ -994,7 +1037,7 @@ export function renderEdition({ series, edition, items, mode = 'preview', ctx = 
   }
   const blokCtx = { ...ctx, toc, authors };
 
-  const rijen = [kopRij(series, edition)];
+  const rijen = [kopRij(series, edition, mode)];
   const open = [];
   for (const it of items) {
     const id = mode === 'preview' ? it.id : null;
