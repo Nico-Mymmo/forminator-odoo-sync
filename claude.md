@@ -259,6 +259,30 @@ Afspraken die bewust zo zijn:
 `AUTH_SECRET_KEY` -> deploy. Daarna logt iedereen een keer opnieuw in en stelt 2FA
 in; wie een tijdelijk wachtwoord had, kiest meteen een eigen.
 
+## Homepage — departementen (2026-10)
+
+De homepage (`public/home.html` + `home.js`) groepeert de modules per
+departement: links een kolom met departementen (zelfde opbouw als de mappen in
+Koppelingen/Assetbeheer), rechts compacte tegels. Beheerders zien een tandwiel
+per tegel (departement, icoon, beschrijving, wie heeft toegang) en beheren de
+departementen via `+` en het `...`-menu in de linkerkolom.
+
+| Wat | Waar |
+|---|---|
+| Tabel `module_departments` + `modules.department_id` | `supabase/migrations/20261016150000_module_departments.sql` |
+| Gegevens voor de pagina (`GET /home/api/overview`) | `src/modules/home/api-module.js` (`openToAllUsers`, zie auth-gate) |
+| Beheer (departementen, `/api/modules/:id/settings`) | `src/modules/admin/department-routes.js` |
+| Toegang per module | bestaande `GET/PUT /admin/api/modules/:id/users` |
+
+- **Wat op de homepage staat, komt uit de sessie** (`user.modules`, zoals de
+  navbar). De API voegt enkel het departement toe. `session.js` is bewust NIET
+  aangepast: faalt die query, dan verliest iedereen zijn modules.
+- **Icoon = `modules.icon`** (Lucide-naam), anders het `icon` uit `module.js`,
+  anders `box`. Geen vaste lijst per code meer in de pagina.
+- **Een nieuwe module krijgt een departement** door `department_id` in haar
+  registratiemigratie te zetten, of later via het tandwiel. Zonder departement
+  staat ze onder "Overige".
+
 ## Nieuwe module — template
 
 ```
@@ -353,7 +377,7 @@ document.addEventListener('click', e => {
 
 | Module | Route | Code | UI | Status |
 |---|---|---|---|---|
-| home | `/` | `home` | `src/modules/home/ui.js` | ⚠️ Legacy |
+| home | `/` (+ API op `/home`) | `home`, `home_api` | `public/home.html` + `home.js` | ✅ Correct (zie "Homepage — departementen") |
 | admin | `/admin` | `admin` | `public/admin-dashboard.html` | ✅ Correct |
 | profile | `/profile` | `profile` | `src/modules/profile/ui.js` | ⚠️ Legacy |
 | forminator-sync-v2 | `/forminator-v2` | `forminator_sync_v2` | `public/forminator-sync-v2.html` + dedicated JS | 🔄 Gerefactord (zie hieronder) |

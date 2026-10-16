@@ -6,6 +6,7 @@
  */
 
 import homeModule from './home/module.js';
+import homeApiModule from './home/api-module.js';
 import forminatorSyncV2Module from './forminator-sync-v2/module.js';
 import wpFormSchemasModule from './wp-form-schemas/module.js';
 import projectGeneratorModule from './project-generator/module.js';
@@ -36,6 +37,7 @@ import odooControleModule from './odoo-controle/module.js';
  */
 export const MODULES = [
   homeModule,
+  homeApiModule,
   forminatorSyncV2Module,
   wpFormSchemasModule,
   projectGeneratorModule,

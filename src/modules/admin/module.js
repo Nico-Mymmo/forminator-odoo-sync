@@ -29,6 +29,14 @@ import {
   handleRevokeUserSession,
   handleUnlockUser
 } from './security-routes.js';
+import {
+  handleCreateDepartment,
+  handleUpdateDepartment,
+  handleDeleteDepartment,
+  handleReorderDepartments,
+  handleGetModuleSettings,
+  handleUpdateModuleSettings
+} from './department-routes.js';
 
 export default {
   // Module metadata
@@ -88,6 +96,14 @@ export default {
     'DELETE /api/modules/:id': handleDeleteModule,
     'GET /api/modules/:id/users': handleGetModuleUsers,
     'PUT /api/modules/:id/users': handleUpdateModuleUsers,
+    'GET /api/modules/:id/settings': handleGetModuleSettings,
+    'PUT /api/modules/:id/settings': handleUpdateModuleSettings,
+
+    // Departementen (homepage, zie department-routes.js)
+    'POST /api/departments': handleCreateDepartment,
+    'PUT /api/departments/order': handleReorderDepartments,
+    'PUT /api/departments/:id': handleUpdateDepartment,
+    'DELETE /api/departments/:id': handleDeleteDepartment,
 
     // Google-werk-e-mailadres (Drive-koppeling mini-apps) — enkel admin@mymmo.com,
     // zie de GOOGLE_EMAIL_SETTING_ALLOWED_EMAIL-check in routes.js
