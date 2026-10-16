@@ -5836,7 +5836,7 @@ account van wie klikte, en de pagina kon Odoo niet lezen.
 
 | Wat | Waar |
 |---|---|
-| Schema + module-registratie (iedereen actief krijgt toegang) | `supabase/migrations/20261016120000_odoo_controle.sql` |
+| Schema + module-registratie (toegang: beheerders, Nico, Maarten, Kobe; de rest via Beheer) | `supabase/migrations/20261016120000_odoo_controle.sql` |
 | Eerste lading uit de export (idempotent, `on conflict do update`) | `supabase/migrations/20261016120100_odoo_controle_import.sql` |
 | Export -> rijen (puur), gebruikt door migratie én import-knop | `src/modules/odoo-controle/lib/import.js`, `scripts/odoo-controle/export-naar-sql.mjs` |
 | Opslag, versies, historiek | `lib/store.js` |

@@ -125,14 +125,21 @@ values (
 )
 on conflict (code) do nothing;
 
--- Iedereen die actief is: het team werkt er samen in (lezen en schrijven).
--- Verwijderen van patronen en importeren blijft voor beheerders (routes.js).
+-- Enkel het team dat de controle doet: de beheerder(s), Nico, Maarten en Kobe
+-- (op het stuk voor de @ van hun e-mailadres of hun gebruikersnaam). Anderen
+-- krijgen toegang via Beheer. Verwijderen van patronen en importeren blijft
+-- voor beheerders (routes.js).
 insert into public.user_modules (user_id, module_id, is_enabled, granted_by)
 select u.id, m.id, true, u.id
 from public.users u
 cross join public.modules m
 where m.code = 'odoo_controle'
   and u.is_active = true
+  and (
+    u.role = 'admin'
+    or lower(split_part(coalesce(u.email, ''), '@', 1)) in ('administrator', 'admin', 'nico', 'maarten', 'kobe')
+    or lower(coalesce(u.username, '')) in ('administrator', 'admin', 'nico', 'maarten', 'kobe')
+  )
   and not exists (
     select 1 from public.user_modules um
     where um.user_id = u.id and um.module_id = m.id
