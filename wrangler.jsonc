@@ -66,6 +66,19 @@
 			"database_id": "a33b235c-256e-40b9-8419-a1105b43a0e0",
 			"migrations_dir": "d1/om-sales/migrations",
 			"remote": true
+		},
+		{
+			// De opvolger van Supabase: hierheen verhuizen de gegevens van de OM,
+			// module per module. Toegang via src/lib/core-db.js (getCoreDb), dat
+			// dezelfde taal spreekt als de Supabase-client. Plan en volgorde:
+			// docs/plan-supabase-uitfaseren.md.
+			//
+			// Bewust nog ZONDER database_id: de eerste `wrangler deploy` maakt de
+			// databank zelf aan (automatische provisioning, standaard aan sinds
+			// wrangler 4) en schrijft het id hier terug. Commit dat id daarna.
+			"binding": "CORE_DB",
+			"database_name": "om-core",
+			"migrations_dir": "d1/om-core/migrations"
 		}
 	],
 	"browser": {
