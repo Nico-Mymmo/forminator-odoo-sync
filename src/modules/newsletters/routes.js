@@ -267,6 +267,8 @@ function inhoudPerSoort(kind, c = {}) {
         title: kort(c.title, 200), text: kort(c.text, 1500), url: url(c.url), image_url: url(c.image_url),
         site_name: kort(c.site_name, 80), author_name: kort(c.author_name, 80), link_label: kort(c.link_label, 60),
         beeld: normaliseerBeeld(c.beeld, 'link'),
+        // Een event in de kijker onthoudt van welk event het komt (zodat het venster "staat erin" kan tonen).
+        ...(Number.isInteger(Number(c.event_id)) && Number(c.event_id) > 0 ? { event_id: Number(c.event_id) } : {}),
       };
     case 'quote':
       return { quote: kort(c.quote, 600), person: kort(c.person, 100), role: kort(c.role, 120) };
@@ -743,6 +745,11 @@ export const routes = {
 
       const kind = String(b.kind || '');
       if (!isKind(kind)) throw new NewsletterError('Onbekende soort stukje.');
+      // Een blok dat zichzelf vult (inhoudstafel, agenda, afsluiting): enkel de hoofdredactie, en maar één per mailing.
+      if (KINDS[kind].auto) {
+        eisEditor(user, series);
+        if (items.some((i) => i.kind === kind)) throw new NewsletterError(`Er staat al een ${KINDS[kind].label.toLowerCase()} in deze mailing.`, 409);
+      }
       // Een schrijver mag zichzelf een stukje toevoegen; enkel de hoofdredactie
       // kan het iemand anders toewijzen.
       const eigenaar = isEditorVan(user, series) ? (b.owner_user_id === undefined ? user.id : b.owner_user_id || null) : user.id;
@@ -756,7 +763,7 @@ export const routes = {
         content: normaliseerInhoud(kind, b.content || {}),
         owner_user_id: eigenaar,
         // Een titel zet de hoofdredactie zelf: dat is opmaak, niets om nog te bevestigen.
-        status: kind === 'heading' && isEditorVan(user, series) ? CONTRIBUTION_STATUS.APPROVED
+        status: (kind === 'heading' || KINDS[kind].auto) && isEditorVan(user, series) ? CONTRIBUTION_STATUS.APPROVED
           : b.content ? CONTRIBUTION_STATUS.DRAFT : CONTRIBUTION_STATUS.OPEN,
         source: kort(b.source, 300),
         created_by: user.id,

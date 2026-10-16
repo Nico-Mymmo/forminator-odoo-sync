@@ -3807,6 +3807,22 @@ bleken drie dingen niet te kloppen. Alle drie zijn gefixt in `lib/sync.js`,
     "Opbouwen" (i.p.v. Verzamelen/Nalezen) tot alle blokken bevestigd zijn.
 - De checklist blijft dezelfde: zonder bevestigde blokken kan ze niet vertrekken.
 
+## Nieuwsbrief: blokken die zichzelf vullen en events in de kijker (2026-10-16)
+
+- **Inhoudstafel, Agenda en Afsluiting staan in "Iets toevoegen"** (groep
+  "Vult zichzelf"), want een blanco mailing heeft ze niet. Enkel de
+  hoofdredactie, één per mailing (`eenmalig` in SJABLONEN; de server weigert
+  een tweede met 409 en zet een `auto`-blok meteen op bevestigd). Een lege
+  inhoudstafel blijft in de werkstand zichtbaar ("Vult zichzelf zodra …"), in
+  de mail valt ze weg.
+- **Tabblad Events** in "Iets toevoegen": de gepubliceerde events vanaf de
+  verzenddag (`suggesties.events`, met `summary` en `image_url` = hero-beeld
+  uit Eventbeheer). **Groot** = een `link`-kaart ("Event in de kijker":
+  datum · plaats, samenvatting, hero-beeld, knop Inschrijven/Meer info,
+  `content.event_id` onthouden voor "staat erin"). **Twee of drie aangevinkt
+  naast elkaar** = een `news`-blok (vorm kolommen) met per event een kaartje.
+  Geen nieuwe soort blok: de bestaande kaarten doen het werk.
+
 ## Nieuwsbrief: logo, kop en voet instelbaar (2026-10-16)
 
 - **Wat de lezer ziet, beslist marketing**: de interne naam van een reeks is
