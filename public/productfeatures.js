@@ -20,6 +20,8 @@
     concept: null,      // kopie waarin getypt wordt
     nieuw: null,        // { parent_id } als er een nieuwe gemaakt wordt
     vuil: false,
+    bewerken: false,    // false = de kaart (voorbeeld), true = het formulier
+    kiezer: null,       // de beeldkiezer: { prefix, folders, files, laden }
     zoek: '',
     categorie: '',
     open: {},           // id -> true/false (ingeklapt of niet)
@@ -55,8 +57,8 @@
     return data.data;
   }
 
-  async function upload(blob) {
-    var res = await fetch(BASE + '/upload', { method: 'POST', credentials: 'include', headers: { 'Content-Type': blob.type }, body: blob });
+  async function upload(blob, naam) {
+    var res = await fetch(BASE + '/upload?naam=' + encodeURIComponent(naam || ''), { method: 'POST', credentials: 'include', headers: { 'Content-Type': blob.type }, body: blob });
     var data = await res.json().catch(function () { return {}; });
     if (!res.ok || data.success === false) throw new Error(data.error || 'Opladen mislukt');
     return data.data;
@@ -197,9 +199,131 @@
       + '</select></label>';
   }
 
+  // ── De kaart: hoe de feature eruitziet in een mail of op de site ─────────
+
+  var HUIS = { primary: '#0369a1', pil: '#e0f2fe', mint: '#5eead4', titel: '#0f172a', tekst: '#334155', zacht: '#64748b', rand: '#e2e8f0' };
+
+  function tekstHtml(t) {
+    return String(t || '').split(/\n{2,}/).map(function (alinea) { return '<p style="margin:0 0 10px">' + e(alinea).replace(/\n/g, '<br>') + '</p>'; }).join('');
+  }
+
+  /** De kaart zelf, altijd licht zoals in een mail: beeld, label, titel, uitleg, USP's, waarom, link. */
+  function kaartHtml(f) {
+    var h = HUIS;
+    var labelTekst = String(f.eyebrow || '').trim() || (f.parent_id ? ((perId(f.parent_id) || {}).name || '') : '');
+    var usps = (f.usps || []).filter(Boolean);
+    return '<article style="background:#ffffff;border:1px solid ' + h.rand + ';border-radius:14px;overflow:hidden;color:' + h.tekst + ';font-size:15px;line-height:1.55;max-width:560px;margin:0 auto;width:100%">'
+      + (f.image_url ? '<img src="' + e(f.image_url) + '" alt="" style="display:block;width:100%;max-height:300px;object-fit:cover">' : '')
+      + '<div style="padding:22px 24px 24px">'
+      + (labelTekst ? '<span style="display:inline-block;background:' + h.pil + ';color:' + h.primary + ';font-size:12px;font-weight:600;padding:3px 10px;border-radius:999px">' + e(labelTekst) + '</span>' : '')
+      + '<div style="font-size:24px;line-height:1.2;font-weight:700;color:' + h.titel + ';margin:12px 0 10px">' + e(f.name || 'Nog geen titel') + '</div>'
+      + (String(f.summary || '').trim() ? tekstHtml(f.summary) : '<p style="margin:0 0 10px;color:' + h.zacht + ';font-style:italic">Nog geen korte uitleg.</p>')
+      + (usps.length ? '<ul style="list-style:none;padding:0;margin:12px 0 0">' + usps.map(function (u) {
+        return '<li style="display:flex;gap:8px;margin:0 0 6px"><span style="color:' + h.primary + ';font-weight:700">&#10003;</span><span>' + e(u) + '</span></li>';
+      }).join('') + '</ul>' : '')
+      + (String(f.why || '').trim() ? '<div style="margin-top:14px;padding:12px 14px;border-left:3px solid ' + h.mint + ';font-size:14px;color:' + h.zacht + '"><strong style="color:#1e293b">Waarom we dit maakten.</strong> ' + e(f.why) + '</div>' : '')
+      + (f.url ? '<div style="margin-top:16px"><a href="' + e(f.url) + '" target="_blank" rel="noopener" style="color:' + h.primary + ';font-weight:600;text-decoration:none">Meer over deze functie &rarr;</a></div>' : '')
+      + '</div></article>';
+  }
+
+  function feit(labelTekst, inhoud) {
+    return '<div><div class="text-xs opacity-60 mb-1">' + e(labelTekst) + '</div><div class="text-sm">' + inhoud + '</div></div>';
+  }
+
+  function badges(lijst, keys, leeg) {
+    keys = keys || [];
+    if (!keys.length) return '<span class="opacity-50">' + e(leeg) + '</span>';
+    return '<div class="flex flex-wrap gap-1">' + keys.map(function (k) { return '<span class="badge badge-ghost badge-sm">' + e(label(lijst, k)) + '</span>'; }).join('') + '</div>';
+  }
+
+  function tekenKaart(f) {
+    var b = state.boot;
+    var cat = categorie(f.category);
+    var kinderen = state.items.filter(function (x) { return x.parent_id === f.id; })
+      .sort(function (a, c) { return (a.position - c.position) || a.name.localeCompare(c.name, 'nl'); });
+    $('pfFormulier').innerHTML = '<div class="card bg-base-100 border border-base-content/10"><div class="card-body p-5 gap-4">'
+      + '<div class="flex items-start justify-between gap-3">'
+      + '<div class="min-w-0"><div class="text-xs opacity-60 truncate">' + e(pad(f).slice(0, -1).join(' › ') || 'Hoofdfeature') + '</div>'
+      + '<div class="flex items-center gap-2 mt-0.5"><span class="text-xs font-semibold uppercase tracking-wide opacity-60">Voorbeeld</span>'
+      + (f.is_active === false ? '<span class="badge badge-ghost badge-sm">uit: niet te kiezen in een mail</span>' : '') + '</div></div>'
+      + (kanBewerken() ? '<button class="btn btn-sm btn-primary shrink-0" data-action="bewerk"><i data-lucide="pencil" class="w-4 h-4"></i> Bewerken</button>' : '')
+      + '</div>'
+      + '<div class="rounded-2xl bg-base-200/70 p-4 sm:p-6">' + kaartHtml(f) + '</div>'
+      + '<div class="grid sm:grid-cols-3 gap-4 pt-1">'
+      + feit('Categorie', cat ? '<span class="inline-flex items-center gap-1.5"><span class="pf-stip" style="background:' + cat.kleur + '"></span>' + e(cat.label) + '</span>' : '<span class="opacity-50">Geen categorie</span>')
+      + feit('Vanaf pakket', e(label(b.pakketten, f.plan || '')))
+      + feit('Merk', f.brand === 'syndicoach' ? 'Syndicoach' : 'OpenVME')
+      + '</div>'
+      + '<div class="grid sm:grid-cols-2 gap-4">'
+      + feit('Voor wie', badges(b.doelgroepen, f.audiences, 'Niet ingevuld'))
+      + feit('Voordelen voor de klant', badges(b.voordelen, f.benefits, 'Niet ingevuld'))
+      + '</div>'
+      + (kinderen.length ? feit('Onderliggende features', '<div class="flex flex-wrap gap-1.5">' + kinderen.map(function (k) {
+        return '<button type="button" class="btn btn-xs btn-outline" data-action="kies" data-id="' + e(k.id) + '">' + e(k.name) + '</button>';
+      }).join('') + '</div>') : '')
+      + (kanBewerken() ? '<div class="flex flex-wrap items-center gap-2 pt-2 border-t border-base-content/10">'
+        + '<button class="btn btn-sm btn-ghost" data-action="nieuw-onder" data-id="' + e(f.id) + '"><i data-lucide="plus" class="w-4 h-4"></i> Onderliggende feature</button>'
+        + '</div>' : '')
+      + '</div></div>';
+    ikons();
+  }
+
+  // ── De beeldkiezer: uit de Asset Manager ─────────────────────────────────
+
+  async function kiezerLaad(prefix) {
+    state.kiezer = { prefix: prefix, folders: [], files: [], laden: true };
+    tekenKiezer();
+    try {
+      var d = await api('/beelden?prefix=' + encodeURIComponent(prefix));
+      state.kiezer = { prefix: prefix, folders: d.folders || [], files: d.files || [], laden: false };
+    } catch (err) {
+      state.kiezer = { prefix: prefix, folders: [], files: [], laden: false, fout: err.message };
+    }
+    tekenKiezer();
+  }
+
+  function tekenKiezer() {
+    var k = state.kiezer;
+    var dlg = $('pfKiezer');
+    if (!k || !dlg) return;
+    var delen = k.prefix ? k.prefix.replace(/\/$/, '').split('/') : [];
+    var kruimels = '<button type="button" class="link link-hover" data-action="kiezer-map" data-prefix="">Asset Manager</button>'
+      + delen.map(function (d, i) {
+        var p = delen.slice(0, i + 1).join('/') + '/';
+        var naam = p === 'public/' ? 'Publiek' : p.indexOf('users/') === 0 && i <= 1 ? 'Mijn bestanden' : d;
+        if (p === 'users/') return '';
+        return ' <span class="opacity-40">›</span> <button type="button" class="link link-hover" data-action="kiezer-map" data-prefix="' + e(p) + '">' + e(naam) + '</button>';
+      }).join('');
+    var inhoud;
+    if (k.laden) inhoud = '<div class="py-10 text-center"><span class="loading loading-spinner"></span></div>';
+    else if (k.fout) inhoud = '<div class="alert alert-error text-sm">' + e(k.fout) + '</div>';
+    else if (!k.folders.length && !k.files.length) inhoud = '<p class="opacity-60 py-8 text-center text-sm">Geen beelden in deze map.</p>';
+    else {
+      inhoud = (k.folders.length ? '<div class="flex flex-wrap gap-2 mb-4">' + k.folders.map(function (m) {
+        return '<button type="button" class="btn btn-sm btn-outline" data-action="kiezer-map" data-prefix="' + e(m.prefix) + '"><i data-lucide="folder" class="w-4 h-4"></i> ' + e(m.name) + '</button>';
+      }).join('') + '</div>' : '')
+      + (k.files.length ? '<div class="grid grid-cols-2 sm:grid-cols-4 gap-3">' + k.files.map(function (b) {
+        return '<button type="button" class="group text-left" data-action="kiezer-kies" data-url="' + e(b.url) + '" title="' + e(b.name) + '">'
+          + '<img src="' + e(b.url) + '" alt="" loading="lazy" class="w-full aspect-[4/3] object-cover rounded-lg border border-base-content/10 group-hover:ring-2 group-hover:ring-primary">'
+          + '<span class="block text-xs truncate mt-1 opacity-70">' + e(b.name) + '</span></button>';
+      }).join('') + '</div>' : '');
+    }
+    dlg.innerHTML = '<div class="modal-box max-w-3xl">'
+      + '<div class="flex items-center justify-between gap-3 mb-1"><h3 class="font-bold text-lg">Kies een beeld</h3>'
+      + '<button type="button" class="btn btn-sm btn-ghost btn-square" data-action="kiezer-dicht"><i data-lucide="x" class="w-4 h-4"></i></button></div>'
+      + '<div class="text-sm mb-4">' + kruimels + '</div>'
+      + inhoud
+      + '</div><form method="dialog" class="modal-backdrop"><button>sluiten</button></form>';
+    if (!dlg.open) dlg.showModal();
+    ikons();
+  }
+
+  // ── Het formulier ─────────────────────────────────────────────────────────
+
   function tekenFormulier() {
     var bak = $('pfFormulier');
     var f = state.concept;
+    if (f && f.id && !state.bewerken) { tekenKaart(f); return; }
     if (!f) {
       bak.innerHTML = '<div class="card bg-base-100 border border-base-content/10"><div class="card-body items-center text-center py-16">'
         + '<i data-lucide="blocks" class="w-12 h-12 opacity-30"></i>'
@@ -237,14 +361,15 @@
       + '<div><span class="label-text text-xs mb-1 block">Beeld</span><div class="flex items-center gap-3">'
       + (f.image_url ? '<img src="' + e(f.image_url) + '" alt="" class="h-20 w-32 object-cover rounded-lg border border-base-content/10">' : '<div class="h-20 w-32 rounded-lg border border-dashed border-base-content/20 flex items-center justify-center text-xs opacity-50">geen beeld</div>')
       + (mag ? '<div class="flex flex-col gap-1.5"><label class="btn btn-sm btn-outline"><i data-lucide="upload" class="w-4 h-4"></i> Beeld opladen<input type="file" accept="image/*" class="hidden" data-change="beeld"></label>'
+        + '<button type="button" class="btn btn-sm btn-outline" data-action="kiezer-open"><i data-lucide="images" class="w-4 h-4"></i> Kies uit Asset Manager</button>'
         + (f.image_url ? '<button type="button" class="btn btn-sm btn-ghost" data-action="beeld-weg">Weghalen</button>' : '') + '</div>' : '')
-      + '</div>' + veld('Of een adres van een beeld', 'image_url', f.image_url, { type: 'url', hint: 'https://' }) + '</div>'
+      + '</div>' + veld('Of een adres van een beeld', 'image_url', f.image_url, { type: 'url', hint: 'https://', uitleg: 'Wat je oplaadt, komt in de Asset Manager terecht (map Publiek › productfeatures).' }) + '</div>'
       + '<label class="label cursor-pointer justify-start gap-3"><input type="checkbox" class="checkbox checkbox-sm" data-change="veld" data-veld="is_active"' + (f.is_active !== false ? ' checked' : '') + (mag ? '' : ' disabled') + '><span class="label-text">Actief (uit = niet te kiezen in een mail, blijft in de lijst)</span></label>'
       + (mag ? '<div class="flex flex-wrap items-center gap-2 pt-2 border-t border-base-content/10">'
         + '<button class="btn btn-sm btn-primary" data-action="bewaar"><i data-lucide="save" class="w-4 h-4"></i> ' + (f.id ? 'Bewaren' : 'Aanmaken') + '</button>'
-        + (f.id ? '<button class="btn btn-sm btn-ghost" data-action="nieuw-onder" data-id="' + e(f.id) + '"><i data-lucide="plus" class="w-4 h-4"></i> Onderliggende feature</button>' : '')
+        + '<button class="btn btn-sm btn-ghost" data-action="annuleer">Annuleren</button>'
         + '<span class="flex-1"></span>'
-        + (f.id ? '<button class="btn btn-sm btn-ghost text-error" data-action="weg" data-id="' + e(f.id) + '"><i data-lucide="trash-2" class="w-4 h-4"></i> Weghalen</button>' : '<button class="btn btn-sm btn-ghost" data-action="annuleer">Annuleren</button>')
+        + (f.id ? '<button class="btn btn-sm btn-ghost text-error" data-action="weg" data-id="' + e(f.id) + '"><i data-lucide="trash-2" class="w-4 h-4"></i> Weghalen</button>' : '')
         + '</div>' : '')
       + '</div></div>';
     ikons();
@@ -259,6 +384,7 @@
     state.concept = f ? JSON.parse(JSON.stringify(f)) : null;
     state.nieuw = null;
     state.vuil = false;
+    state.bewerken = false;
     tekenBoom();
     tekenFormulier();
   }
@@ -268,7 +394,28 @@
     'klap': function (el) { state.open[el.dataset.id] = state.open[el.dataset.id] === false; tekenBoom(); },
     'nieuw-hoofd': function () { nieuw(null); },
     'nieuw-onder': function (el) { nieuw(el.dataset.id); state.open[el.dataset.id] = true; tekenBoom(); },
-    'annuleer': function () { state.concept = null; state.nieuw = null; state.vuil = false; state.gekozen = null; tekenBoom(); tekenFormulier(); },
+    'annuleer': function () {
+      var f = state.concept;
+      if (state.vuil && !confirm('Je wijzigingen weggooien?')) return;
+      state.vuil = false;
+      state.bewerken = false;
+      if (f && f.id) { state.concept = JSON.parse(JSON.stringify(perId(f.id) || f)); tekenFormulier(); return; }
+      state.concept = null; state.nieuw = null; state.gekozen = null; tekenBoom(); tekenFormulier();
+    },
+    'bewerk': function () {
+      state.bewerken = true;
+      tekenFormulier();
+      var eerste = document.querySelector('#pfFormulier [data-veld="name"]');
+      if (eerste) eerste.focus();
+    },
+    'kiezer-open': function () { return kiezerLaad(state.kiezer && !state.kiezer.fout ? state.kiezer.prefix : 'public/productfeatures/'); },
+    'kiezer-map': function (el) { return kiezerLaad(el.dataset.prefix || ''); },
+    'kiezer-kies': function (el) {
+      if (state.concept) { state.concept.image_url = el.dataset.url; state.vuil = true; }
+      $('pfKiezer').close();
+      tekenFormulier();
+    },
+    'kiezer-dicht': function () { $('pfKiezer').close(); },
     'beeld-weg': function () { state.concept.image_url = ''; state.vuil = true; tekenFormulier(); },
     'bewaar': bewaar,
     'weg': weg,
@@ -287,6 +434,7 @@
       plan: ouder ? ouder.plan : '', brand: ouder ? ouder.brand : 'openvme', url: '', image_url: '', is_active: true,
     };
     state.vuil = false;
+    state.bewerken = true;
     tekenBoom();
     tekenFormulier();
     var eerste = document.querySelector('#pfFormulier [data-veld="name"]');
@@ -321,7 +469,7 @@
     try {
       await api('/features/' + f.id, { method: 'DELETE' });
       toast('Weggehaald.');
-      state.gekozen = null; state.concept = null; state.vuil = false;
+      state.gekozen = null; state.concept = null; state.vuil = false; state.bewerken = false;
       await laad();
     } catch (err) { toast(err.message, 'error'); }
   }
@@ -370,7 +518,7 @@
       var bestand = el.files && el.files[0];
       if (!bestand || !state.concept) return;
       try {
-        var r = await upload(bestand);
+        var r = await upload(bestand, state.concept.name);
         state.concept.image_url = r.url;
         state.vuil = true;
         tekenFormulier();

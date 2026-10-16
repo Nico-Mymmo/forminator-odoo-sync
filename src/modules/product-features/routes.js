@@ -8,15 +8,21 @@
 
 import {
   FeatureError, listFeatures, getFeature, insertFeature, updateFeature, deleteFeature,
-  herorden, normaliseer, controleerOuder, boom,
+  herorden, normaliseer, controleerOuder, boom, slug,
 } from './lib/store.js';
 import {
   LOG_PREFIX, CATEGORIEEN, VOORDELEN, DOELGROEPEN, PAKKETTEN, MERKEN, FEATURE_VORMEN, MAX_USPS,
 } from './lib/constants.js';
+import {
+  ASSET_CATEGORY_PREFIXES, isWithinAssetNamespace, canReadAssetPrefix, listDynamicAssetCategories,
+} from '../asset-manager/lib/namespace.js';
 
 const MAX_BEELD = 3 * 1024 * 1024;
 const BEELD_TYPES = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp' };
+// Binnen de Asset Manager (map Publiek > productfeatures): daar zie je ze
+// ook terug, en de beeldkiezer hieronder toont ze aan iedereen die bewerkt.
 const BEELDEN_MAP = 'public/productfeatures/';
+const BEELD_EXT = /\.(png|jpe?g|gif|webp|svg)$/i;
 // Dezelfde publieke oorsprong als de beelden van de nieuwsbrief (R2 via /assets/).
 const ASSET_ORIGIN = 'https://link.openvme.be';
 
@@ -123,7 +129,44 @@ export const routes = {
     } catch (err) { return fout(err); }
   },
 
-  /** Een beeld bij een feature: naar R2, publiek via /assets/. */
+  /**
+   * De beeldkiezer: mappen en beelden uit de Asset Manager. De rechten zijn
+   * die van de Asset Manager (namespace.js), met EEN uitzondering: de eigen
+   * map van de productfeatures mag iedereen die bewerkt altijd zien -- daar
+   * staan de beelden die hij hier zelf opgeladen heeft.
+   */
+  'GET /api/beelden': async ({ env, user, request }) => {
+    try {
+      eisBewerken(user);
+      const prefix = new URL(request.url).searchParams.get('prefix') || '';
+      if (!prefix) {
+        const dynamisch = await listDynamicAssetCategories(env);
+        const anderen = [
+          ...ASSET_CATEGORY_PREFIXES.map((p) => ({ prefix: p, name: p === 'public/' ? 'Publiek' : p.replace(/\/$/, '') })),
+          ...dynamisch.map((c) => ({ prefix: c.prefix, name: c.label || c.prefix.replace(/\/$/, '') })),
+          { prefix: `users/${user.id}/`, name: 'Mijn bestanden' },
+        ].filter((f) => canReadAssetPrefix(user, f.prefix));
+        return json({ success: true, data: { prefix: '', folders: [{ prefix: BEELDEN_MAP, name: 'Productfeatures' }, ...anderen], files: [] } });
+      }
+      const eigen = prefix.startsWith(BEELDEN_MAP) && !prefix.includes('..');
+      if (!eigen && (!isWithinAssetNamespace(prefix) || !canReadAssetPrefix(user, prefix))) {
+        throw new FeatureError('Geen toegang tot deze map in de Asset Manager.', 403);
+      }
+      const lijst = await env.R2_ASSETS.list({ prefix, delimiter: '/', limit: 500 });
+      const files = (lijst.objects || [])
+        .filter((o) => String(o.httpMetadata?.contentType || '').startsWith('image/') || BEELD_EXT.test(o.key))
+        .sort((a, b) => String(b.uploaded || '').localeCompare(String(a.uploaded || '')))
+        .map((o) => ({ key: o.key, name: o.key.split('/').pop(), url: `${ASSET_ORIGIN}/assets/${o.key}` }));
+      const folders = (lijst.delimitedPrefixes || []).map((p) => ({ prefix: p, name: p.slice(prefix.length).replace(/\/$/, '') }));
+      return json({ success: true, data: { prefix, folders, files } });
+    } catch (err) { return fout(err); }
+  },
+
+  /**
+   * Een beeld bij een feature: naar R2 (in de Asset Manager, map Publiek >
+   * productfeatures), publiek via /assets/. De naam van de feature zit in de
+   * bestandsnaam, zodat je het daar terugvindt.
+   */
   'POST /api/upload': async ({ env, user, request }) => {
     try {
       eisBewerken(user);
@@ -132,8 +175,12 @@ export const routes = {
       if (!ext) throw new FeatureError('Enkel PNG, JPEG, GIF of WebP.');
       const bytes = await request.arrayBuffer();
       if (!bytes.byteLength || bytes.byteLength > MAX_BEELD) throw new FeatureError('Het beeld is leeg of groter dan 3 MB.');
-      const key = `${BEELDEN_MAP}${crypto.randomUUID()}.${ext}`;
-      await env.R2_ASSETS.put(key, bytes, { httpMetadata: { contentType: type } });
+      const naam = new URL(request.url).searchParams.get('naam');
+      const key = `${BEELDEN_MAP}${slug(naam)}-${crypto.randomUUID().slice(0, 8)}.${ext}`;
+      await env.R2_ASSETS.put(key, bytes, {
+        httpMetadata: { contentType: type },
+        customMetadata: { uploadedBy: user.id, module: 'product_features', uploadedAt: new Date().toISOString() },
+      });
       return json({ success: true, data: { url: `${ASSET_ORIGIN}/assets/${key}` } }, 201);
     } catch (err) { return fout(err); }
   },
