@@ -467,6 +467,18 @@
 
       // mail_scheduled / mail_queued / mail_already_queued: er staat een mail.mail klaar.
       var eventsForSub = (S().mailEventsBySubmission && S().mailEventsBySubmission[sub.id]) || [];
+
+      // Een bounce of spamklacht gaat VOOR de funnel. Voorheen bleef zo'n
+      // indiening gewoon op "Klaargezet" staan: de bounce stond wel in de
+      // uitklap en in de Odoo-chatter, maar in de hoofdlijn was er niets aan
+      // te zien -- precies de mail die je wél wil opmerken.
+      if (eventsForSub.indexOf('spamcomplaint') !== -1) {
+        return '<i data-lucide="mail-warning" class="w-3.5 h-3.5 text-error" title="Ontvanger markeerde de mail als spam"></i>';
+      }
+      if (eventsForSub.indexOf('bounce') !== -1) {
+        return '<i data-lucide="mail-warning" class="w-3.5 h-3.5 text-error" title="Mail kon niet afgeleverd worden (bounce) \u2014 details in de uitklap"></i>';
+      }
+
       var reached = 0; // 0 = aangemaakt
       if (eventsForSub.indexOf('delivery') !== -1) reached = 1;
       if (eventsForSub.indexOf('open')     !== -1) reached = 2;
