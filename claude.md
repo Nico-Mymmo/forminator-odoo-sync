@@ -4017,6 +4017,19 @@ swirls en kijkt de keuzes na. Geen tweede bouwer per module.**
   (`legeAlinea()`), anders staat de cursor naast het beeld i.p.v. links.
   `metAchtergrond()` zoekt de eerste cel MET `class="nb-cel"`: zonder dat
   viel elke blokkleur stil weg.
+- **Opmaak in de tekst, zoals Notion/Google Docs** (2026-10-19,
+  `public/newsletters-opmaak.js`): tekst selecteren = zwevende balk (soort,
+  vet, cursief, doorhalen, link, opsomming, genummerd, citaat); "/" = menu
+  met de soorten (Tekst, Tussenkop, Opsomming, Genummerde lijst, Citaat,
+  Scheidingslijn); Markdown terwijl je typt ("- ", "1. ", "# ", "> ",
+  "---"+Enter); sneltoetsen Ctrl/Cmd+B/I/K, Shift+X/7/8. Enkel in velden met
+  `data-nb-rijk` (die render.js met alineas() tekent; `typbaar()` zet het
+  zodra er `html` is). De BEWAARDE vorm blijft tekst: `**vet**`, `_cursief_`,
+  `~~doorgehaald~~`, `[label](url)`, per blok `- `/`1. `/`> `/`### `/`---`.
+  Drie plekken die samen moeten wijzigen: `alineas()` (render.js),
+  `inlineTekst()` (newsletters-edition.js) en het menu in opmaak.js. In een
+  veld zonder `data-nb-rijk` worden Ctrl+B/I/U tegengehouden: daar zou de
+  opmaak als sterretjes in de mail staan.
 - De lijst "Iets toevoegen" is in groepen ingedeeld (GROEPEN in
   newsletters-edition.js): opbouw, uit Nieuws & updates, de lezer laten
   reageren, verhalen, beeld en media.

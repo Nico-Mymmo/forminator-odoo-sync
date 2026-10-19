@@ -428,6 +428,7 @@
         if (el && ev.key === 'Enter' && eenRegel(el.getAttribute('data-nb-veld'))) ev.preventDefault();
       });
       koppelHerordenen(doc);
+      if (NB.opmaak) NB.opmaak.koppel(doc);
     }
     labels(doc);
     plusLijnen(doc);
@@ -725,7 +726,17 @@
     }
   }
 
-  /** Van bewerkte HTML terug naar de tekst met **vet** en [link](https://...). */
+  /**
+   * Van bewerkte HTML terug naar de bewaarde tekst: **vet**, _cursief_,
+   * ~~doorgehaald~~, [link](https://...), en per blok "- " / "1. " (lijst),
+   * "> " (citaat), "### " (tussenkop) of "---" (lijn). Dezelfde vorm die
+   * alineas() in render.js tekent; de opmaak zelf komt uit newsletters-opmaak.js.
+   */
+  function omhul(v, teken) {
+    if (!v.trim()) return v;
+    var m = /^(\s*)([\s\S]*?)(\s*)$/.exec(v);
+    return m[1] + teken + m[2] + teken + m[3];
+  }
   function inlineTekst(node) {
     var uit = '';
     node.childNodes.forEach(function (n) {
@@ -733,10 +744,28 @@
       if (n.nodeType !== 1) return;
       if (n.hasAttribute('data-nb-eiland')) return;
       var t = n.tagName;
+      var stijl = (n.getAttribute('style') || '').toLowerCase();
       if (t === 'BR') uit += '\n';
-      else if (t === 'STRONG' || t === 'B') { var v = inlineTekst(n); uit += v.trim() ? '**' + v + '**' : v; }
+      else if (t === 'STRONG' || t === 'B') uit += omhul(inlineTekst(n), '**');
+      else if (t === 'EM' || t === 'I') uit += omhul(inlineTekst(n), '_');
+      else if (t === 'S' || t === 'STRIKE' || t === 'DEL' || (t === 'SPAN' && /line-through/.test(stijl))) uit += omhul(inlineTekst(n), '~~');
       else if (t === 'A') { var h = n.getAttribute('href') || ''; var l = inlineTekst(n); uit += /^https?:\/\//.test(h) ? '[' + l + '](' + h + ')' : l; }
-      else if (t === 'P' || t === 'DIV') uit += '\n\n' + inlineTekst(n) + '\n\n';
+      else if (t === 'UL' || t === 'OL') {
+        var nr = Number(n.getAttribute('start')) || 1;
+        var regels = [];
+        n.querySelectorAll('li').forEach(function (li) {
+          var tekst = inlineTekst(li).replace(/\s*\n+\s*/g, ' ').trim();
+          if (tekst) regels.push((t === 'UL' ? '- ' : (nr++) + '. ') + tekst);
+        });
+        uit += '\n\n' + regels.join('\n') + '\n\n';
+      }
+      else if (t === 'BLOCKQUOTE') {
+        var q = inlineTekst(n).split('\n').map(function (r) { return r.trim(); }).filter(Boolean);
+        if (q.length) uit += '\n\n' + q.map(function (r) { return '> ' + r; }).join('\n') + '\n\n';
+      }
+      else if (/^H[1-6]$/.test(t)) { var k = inlineTekst(n).replace(/\s+/g, ' ').trim(); if (k) uit += '\n\n### ' + k + '\n\n'; }
+      else if (t === 'HR') uit += '\n\n---\n\n';
+      else if (t === 'P' || t === 'DIV' || t === 'LI') uit += '\n\n' + inlineTekst(n) + '\n\n';
       else uit += inlineTekst(n);
     });
     return uit;
