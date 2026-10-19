@@ -35,21 +35,57 @@ const WIDTH = 640;
 
 // ─── Kleine bouwstenen ──────────────────────────────────────────────────────
 
-/** Platte tekst naar alinea's. **vet** en [label](https://...) worden opmaak. */
+/**
+ * Platte tekst naar alinea's. De opmaak is een klein stukje Markdown, en het
+ * scherm (newsletters-opmaak.js + inlineTekst() in newsletters-edition.js)
+ * schrijft exact deze vorm terug:
+ *   **vet**  _cursief_ (of *cursief*)  ~~doorgehaald~~  [label](https://...)
+ *   een blok (gescheiden door een lege regel) met elke regel "- x"   = opsomming
+ *                                             elke regel "1. x"  = genummerde lijst
+ *                                             elke regel "> x"   = citaat
+ *   "### x" = tussenkop, "---" = scheidingslijn.
+ */
 export function tekstNaarHtml(text, opties = {}) {
   return alineas(text, opties).join('');
 }
 
+/** Vet, cursief, doorgehaald en links binnen een regel (na esc). */
+function inlineOpmaak(tekst, linkColor) {
+  return esc(tekst)
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/(^|[^*\w])\*(?![\s*])([^*\n]*?[^\s*])\*(?!\*)/g, '$1<em>$2</em>')
+    .replace(/(^|[^\w])_(?![\s_])([^_\n]*?[^\s_])_(?!\w)/g, '$1<em>$2</em>')
+    .replace(/~~(?!\s)(.+?)~~/g, '<span style="text-decoration:line-through">$1</span>')
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, `<a href="$2" style="color:${linkColor};text-decoration:underline">$1</a>`);
+}
+
+const LIJST_OPSOMMING = /^[-*•]\s+/;
+const LIJST_GENUMMERD = /^(\d{1,3})[.)]\s+/;
+
 /** Dezelfde alinea's als losse stukken, om er een beeld tussen te zetten. */
 export function alineas(text, { size = 16, color = S.text, lineHeight = 1.6, gap = 14, linkColor = S.primary } = {}) {
   const blokken = String(text || '').replace(/\r\n?/g, '\n').split(/\n{2,}/).map((b) => b.trim()).filter(Boolean);
+  const lettertype = `font-family:${S.fontBody};font-size:${size}px;line-height:${lineHeight};color:${color}`;
   return blokken.map((blok, i) => {
-    let h = esc(blok)
-      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-      .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, `<a href="$2" style="color:${linkColor};text-decoration:underline">$1</a>`)
-      .replace(/\n/g, '<br>');
     const mb = i === blokken.length - 1 ? 0 : gap;
-    return `<p style="margin:0 0 ${mb}px;font-family:${S.fontBody};font-size:${size}px;line-height:${lineHeight};color:${color}">${h}</p>`;
+    const regels = blok.split('\n').map((r) => r.trim()).filter(Boolean);
+    if (/^-{3,}$/.test(blok)) {
+      return `<hr style="border:0;border-top:1px solid ${S.border};height:0;margin:6px 0 ${mb + 6}px">`;
+    }
+    if (regels.length === 1 && /^#{1,6}\s+/.test(regels[0])) {
+      return `<h3 style="margin:${i === 0 ? 0 : 8}px 0 ${Math.min(mb, 8)}px;font-family:${S.fontBody};font-size:${size + 3}px;font-weight:700;line-height:1.35;color:${color === S.text ? S.heading : color}">${inlineOpmaak(regels[0].replace(/^#{1,6}\s+/, ''), linkColor)}</h3>`;
+    }
+    const lijst = regels.every((r) => LIJST_OPSOMMING.test(r)) ? 'ul' : regels.every((r) => LIJST_GENUMMERD.test(r)) ? 'ol' : '';
+    if (lijst) {
+      const start = lijst === 'ol' ? Number(LIJST_GENUMMERD.exec(regels[0])[1]) : 1;
+      const items = regels.map((r, j) => `<li style="margin:0 0 ${j === regels.length - 1 ? 0 : 6}px;padding-left:4px">${inlineOpmaak(r.replace(lijst === 'ul' ? LIJST_OPSOMMING : LIJST_GENUMMERD, ''), linkColor)}</li>`).join('');
+      return `<${lijst}${start > 1 ? ` start="${start}"` : ''} style="margin:0 0 ${mb}px;padding:0 0 0 24px;${lettertype}">${items}</${lijst}>`;
+    }
+    if (regels.every((r) => /^>/.test(r))) {
+      const inhoud = regels.map((r) => inlineOpmaak(r.replace(/^>\s?/, ''), linkColor)).join('<br>');
+      return `<blockquote style="margin:0 0 ${mb}px;border-left:3px solid ${S.mint};padding:2px 0 2px 16px;${lettertype};font-style:italic">${inhoud}</blockquote>`;
+    }
+    return `<p style="margin:0 0 ${mb}px;${lettertype}">${inlineOpmaak(blok, linkColor).replace(/\n/g, '<br>')}</p>`;
   });
 }
 
@@ -140,7 +176,7 @@ function leesLink(tekst, href) {
 function typbaar(id, naam, waarde, { tag = 'div', stijl = '', plaatshouder = '', optioneel = false, altijd = false, html = null } = {}) {
   const inhoud = html !== null ? html : esc(waarde || '');
   if (id) {
-    return `<${tag} data-nb-veld="${naam}"${optioneel ? ' data-nb-optioneel="1"' : ''} data-placeholder="${esc(plaatshouder)}" style="${stijl}">${inhoud}</${tag}>`;
+    return `<${tag} data-nb-veld="${naam}"${optioneel ? ' data-nb-optioneel="1"' : ''}${html !== null ? ' data-nb-rijk="1"' : ''} data-placeholder="${esc(plaatshouder)}" style="${stijl}">${inhoud}</${tag}>`;
   }
   if (!String(waarde || '').trim() && !altijd) return '';
   return `<${tag} style="${stijl}">${inhoud}</${tag}>`;
@@ -453,7 +489,7 @@ function blokIntro(item, ctx, id) {
     : kop(c.title, { size: 38, tag: 'h1', margin: '0 0 16px' });
   const tekstHtml = tekstMetBeeld(alineas(c.text, { size: 17 }), b, ctx, id);
   const tekst = id
-    ? `<div data-nb-veld="text" data-placeholder="Typ hier je inleiding. Sluit af met je groet, bv. Veel leesplezier," style="font-family:${S.fontBody};font-size:17px;line-height:1.6;color:${S.text}">${tekstHtml}</div>`
+    ? `<div data-nb-veld="text" data-nb-rijk="1" data-placeholder="Typ hier je inleiding. Sluit af met je groet, bv. Veel leesplezier," style="font-family:${S.fontBody};font-size:17px;line-height:1.6;color:${S.text}">${tekstHtml}</div>`
     : tekstHtml;
   const sub = subtitel(c, id, { size: 20, margin: '-6px 0 16px' });
   return schikBeeld({ b, ctx, id, inhoud: `${titel}${sub}\n${tekst}\n${handtekening(item)}`, padding: '44px 40px 40px', bg: S.teal50 });
@@ -468,7 +504,7 @@ function blokArticle(item, ctx, id) {
     ? `<h2 data-nb-veld="title" data-placeholder="Typ hier een titel" style="margin:14px 0 12px;font-family:${S.fontHead};font-weight:400;font-size:28px;line-height:1.15;color:${S.heading}">${esc(c.title || '')}</h2>`
     : kop(c.title);
   const lijf = id
-    ? `<div data-nb-veld="text" data-placeholder="Typ hier je tekst. Een lege regel = een nieuwe alinea." style="font-family:${S.fontBody};font-size:16px;line-height:1.6;color:${S.text}">${tekstHtml}</div>`
+    ? `<div data-nb-veld="text" data-nb-rijk="1" data-placeholder="Typ hier je tekst, of / voor opmaak." style="font-family:${S.fontBody};font-size:16px;line-height:1.6;color:${S.text}">${tekstHtml}</div>`
     : tekstHtml;
   const sub = subtitel(c, id);
   // Het labeltje (naam van het blok) is ook optioneel en typ je in de brief.
