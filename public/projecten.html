@@ -59,6 +59,11 @@
     .pm-kaart.pm-af { opacity: .55; }
     .pm-kaart.pm-af .pm-kaart-titel { text-decoration: line-through; }
     .pm-kaart.pm-sleept { opacity: .4; }
+    /* De twee eindfases: helemaal rechts, onder elkaar, standaard ingeklapt. */
+    .pm-eindstapel { flex: 0 0 17rem; display: flex; flex-direction: column; gap: .75rem; margin-left: auto; }
+    .pm-eindkolom { background: oklch(var(--bc) / 0.04); border: 1px dashed oklch(var(--bc) / 0.2); }
+    .pm-eindkolom.pm-sectie-dicht .pm-sectie-inhoud { display: none; }
+    .fc-event.pm-kal-mijlpaal { background-color: transparent !important; border: 2px solid var(--event-bg) !important; color: oklch(var(--bc)) !important; box-shadow: none; }
 
     /* Kalender: de kaart per taak, zelfde opbouw als bij Nieuwsbrieven. */
     .pm-kal-kaart { display: flex; flex-direction: column; gap: .1rem; line-height: 1.25; min-width: 0; }

@@ -6124,16 +6124,31 @@ Afspraken die bewust zo zijn:
   auto-layout bepaalde de langste titel de kolombreedte en liep de tabel onder
   het detailpaneel door. Zelfde les als de indieningentabel van Koppelingen.
   Breedtes staan in `kopRij()`; `w-*` op een cel doet bij table-fixed niets.
-- **Afvinken = naar de "klaar"-sectie, en omgekeerd** (`laatsteSectie()` in
-  routes.js). Welke dat is, staat PER PROJECT in `pm_projects.done_section_id`
-  (migratie 0005; in Overzicht -> Projectgegevens -> "Afgevinkte taken gaan
-  naar"); leeg = de laatste sectie (Klaar, Done...). Bij de persoonlijke
-  doelen uit Odoo is het "Opgeleverd", niet "Gearchiveerd" (Nico, 2026-10-19).
-  Een taak afvinken zet ze daarheen, een taak daarheen slepen vinkt ze af,
-  eruit slepen zet ze weer open. Zo zeggen het vinkje en de kolom altijd
-  hetzelfde. Geldt niet voor subtaken (die hebben geen sectie) en niet voor
-  losse to-do's. Wordt die sectie weggehaald, dan valt de instelling terug
-  op "de laatste" (ON DELETE SET NULL).
+- **Elk project heeft twee VASTE eindfases: Opgeleverd en Gearchiveerd**
+  (Nico, 2026-10-19; `pm_sections.kind` = 'open' | 'opgeleverd' |
+  'gearchiveerd', migratie 0006; `EINDFASES` + `zorgVoorEindfases()` in
+  store.js maken ze aan waar ze ontbreken, ook bij het openen van een
+  project). Ze heten altijd zo, staan altijd achteraan (position 9000+),
+  kunnen niet hernoemd of weggehaald worden, en een nieuwe sectie komt er
+  altijd voor. **Vinkje = Opgeleverd, archiefknop = Gearchiveerd**
+  (`sectieVoorStand()` in routes.js, `POST /api/tasks/:id/archive`); terug
+  openzetten haalt de taak uit de eindfase naar de eerste gewone sectie;
+  slepen naar of uit een eindfase doet hetzelfde met het vinkje. In de
+  KANBAN staan de twee helemaal rechts onder elkaar, standaard ingeklapt
+  (`.pm-eindstapel`; slepen erop klapt ze open); in de LIJST staan ze enkel
+  onder de schakelaar "Afgewerkt", ingeklapt. De instelling
+  `pm_projects.done_section_id` (migratie 0005) is daarmee overbodig: kolom
+  blijft, wordt niet meer gelezen. Geldt niet voor subtaken en losse to-do's.
+- **Mijlpalen zijn een laag BOVEN de taken, geen fase en geen taak met een
+  vlag** (Nico, 2026-10-19; tabel `pm_milestones` + `pm_tasks.milestone_id`,
+  migratie 0007; `is_milestone` op een taak blijft als kolom maar wordt niet
+  meer gebruikt). Een mijlpaal heeft een naam en een datum; taken hangen
+  eraan (in het taakdetail, "Mijlpaal"); ze is GEHAALD zodra alle hoofdtaken
+  eronder af zijn (`mijlpalenMetStand()`, afgeleid, nooit bewaard). Beheer in
+  Overzicht (toevoegen, datum, weghalen: de taken blijven); in lijst en
+  kanban staat de mijlpaal als chip op de taak; in de kalender staat ze als
+  omlijnde kaart (klik = Overzicht). Bij Mollie zijn de vijf Odoo-mijlpalen
+  zo omgezet (de hulpsectie "Mijlpalen" en de mijlpaal-taken zijn weg).
 - **Bij het afvinken is er een feestje** (`public/projecten-feest.js`,
   `PM.feest()`): confetti (canvas-confetti via jsdelivr), een softijsje dat
   gedraaid wordt, of een kabouterdansje, willekeurig, twee seconden, geen

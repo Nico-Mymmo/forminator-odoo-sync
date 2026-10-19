@@ -88,11 +88,11 @@
   PM.taakRij = function (t, alle, opties) {
     opties = opties || {};
     var project = opties.project ? PM.projectVan(t.project_id) : null;
-    return '<tr class="' + (t.done ? 'pm-af' : '') + gekozenKlasse(t) + '" draggable="' + (opties.slepen ? 'true' : 'false') + '" data-drag-task="' + e(t.id) + '" data-action="open-taak" data-id="' + e(t.id) + '">'
+    return '<tr class="group ' + (t.done ? 'pm-af' : '') + gekozenKlasse(t) + '" draggable="' + (opties.slepen ? 'true' : 'false') + '" data-drag-task="' + e(t.id) + '" data-action="open-taak" data-id="' + e(t.id) + '">'
       + '<td class="pr-0">' + vinkje(t) + '</td>'
       + '<td><div class="flex items-center gap-2 min-w-0">'
-      + (t.is_milestone ? '<i data-lucide="diamond" class="w-4 h-4 text-warning shrink-0" title="Mijlpaal"></i>' : '')
       + '<span class="pm-titel truncate">' + e(t.title) + '</span>'
+      + mijlpaalChip(t)
       + (opties.ouder ? '<span class="text-xs opacity-50 truncate shrink-0 max-w-[10rem]">in ' + e(opties.ouder) + '</span>' : '')
       + subTelling(t, alle)
       + (t.labels && t.labels.length ? '<span class="hidden lg:inline-flex gap-1 shrink-0">' + labelsHtml(t) + '</span>' : '')
@@ -100,9 +100,18 @@
       + (opties.project ? '<td class="hidden md:table-cell"><span class="flex items-center gap-1.5 text-xs">' + (project ? '<span class="w-2 h-2 rounded-sm shrink-0" style="background:' + PM.kleurHex(project.color) + '"></span><span class="truncate max-w-[10rem]">' + e(project.name) + '</span>' : '<span class="opacity-40">Losse to-do</span>') + '</span></td>' : '')
       + '<td>' + persoonCel(t) + '</td>'
       + '<td class="text-xs whitespace-nowrap tabular-nums ' + PM.datumKlasse(t) + '">' + e(PM.datumKort(t.due_date)) + '</td>'
-      + '<td class="hidden md:table-cell">' + prioBadge(t) + '</td>'
+      + '<td class="hidden md:table-cell"><span class="flex items-center gap-1">' + prioBadge(t)
+      + (t.project_id && !t.parent_id ? '<button type="button" class="btn btn-ghost btn-xs btn-square ml-auto opacity-0 group-hover:opacity-100" data-action="archiveer" data-id="' + e(t.id) + '" title="Naar Gearchiveerd"><i data-lucide="archive" class="w-3.5 h-3.5"></i></button>' : '')
+      + '</span></td>'
       + '</tr>';
   };
+
+  /** Het chipje met de mijlpaal waar een taak aan hangt. */
+  function mijlpaalChip(t) {
+    if (!t.milestone_id || !S.project || !S.project.milestones) return '';
+    var m = S.project.milestones.filter(function (x) { return x.id === t.milestone_id; })[0];
+    return m ? '<span class="badge badge-warning badge-outline badge-sm gap-1 shrink-0 max-w-[10rem] truncate" title="Mijlpaal"><i data-lucide="flag" class="w-3 h-3"></i>' + e(m.name) + '</span>' : '';
+  }
 
   /** Een subtaak in het detailpaneel: vinkje, titel, datum, foto. */
   PM.subtaakRij = function (t) {
@@ -136,9 +145,9 @@
     var p = PM.persoon(t.assignee_id);
     return '<div class="pm-kaart ' + (t.done ? 'pm-af' : '') + gekozenKlasse(t) + '" draggable="true" data-drag-task="' + e(t.id) + '" data-action="open-taak" data-id="' + e(t.id) + '">'
       + '<div class="flex items-start gap-2">' + vinkje(t)
-      + '<span class="pm-kaart-titel text-sm leading-snug flex-1 min-w-0">' + (t.is_milestone ? '<i data-lucide="diamond" class="w-3.5 h-3.5 text-warning inline-block mr-1 -mt-0.5"></i>' : '') + e(t.title) + '</span></div>'
-      + ((t.labels && t.labels.length) || t.priority === 'hoog' || t.priority === 'dringend'
-        ? '<div class="flex flex-wrap items-center gap-1 mt-2">' + (t.priority === 'hoog' || t.priority === 'dringend' ? prioBadge(t) : '') + labelsHtml(t) + '</div>' : '')
+      + '<span class="pm-kaart-titel text-sm leading-snug flex-1 min-w-0">' + e(t.title) + '</span></div>'
+      + ((t.labels && t.labels.length) || t.milestone_id || t.priority === 'hoog' || t.priority === 'dringend'
+        ? '<div class="flex flex-wrap items-center gap-1 mt-2">' + mijlpaalChip(t) + (t.priority === 'hoog' || t.priority === 'dringend' ? prioBadge(t) : '') + labelsHtml(t) + '</div>' : '')
       + '<div class="flex items-center gap-2 mt-2.5">' + subTelling(t, alle)
       + '<span class="flex-1"></span>'
       + (t.due_date ? '<span class="text-xs tabular-nums ' + PM.datumKlasse(t) + '">' + e(PM.datumKort(t.due_date)) + '</span>' : '')
@@ -266,10 +275,12 @@
   // ── Project: Lijst ────────────────────────────────────────────────────────
 
   /** De taken van één sectie (null = zonder sectie), op volgorde, zonder subtaken. */
-  function vanSectie(taken, sectieId) {
-    return taken.filter(function (t) { return !t.parent_id && (t.section_id || null) === sectieId && (S.toonAf || !t.done); })
+  function vanSectie(taken, sectieId, alles) {
+    return taken.filter(function (t) { return !t.parent_id && (t.section_id || null) === sectieId && (alles || S.toonAf || !t.done); })
       .sort(function (a, b) { return (a.position || 0) - (b.position || 0); });
   }
+  function openSecties(d) { return d.sections.filter(function (s) { return s.kind === 'open'; }); }
+  function eindSecties(d) { return d.sections.filter(function (s) { return s.kind !== 'open'; }); }
 
   function sectieKnoppen(s) {
     return '<span class="flex-1"></span>'
@@ -286,14 +297,24 @@
         + losse.map(function (t) { return PM.taakRij(t, d.tasks, { slepen: true }); }).join(''))
         .replace('<tbody class="', '<tbody data-drop-section="" class="');
     }
-    d.sections.forEach(function (s) {
+    openSecties(d).forEach(function (s) {
       var lijst = vanSectie(d.tasks, s.id);
       html += sectieBody(s.id, groepRij(s.id, s.name, lijst.length, sectieKnoppen(s), k)
         + lijst.map(function (t) { return PM.taakRij(t, d.tasks, { slepen: true }); }).join('') + plusRij(s.id, k))
         .replace('<tbody class="', '<tbody data-drop-section="' + e(s.id) + '" class="');
     });
+    if (S.toonAf) {
+      eindSecties(d).forEach(function (s) {
+        if (dichteSecties[s.id] === undefined) dichteSecties[s.id] = true;
+        var lijst = vanSectie(d.tasks, s.id, true);
+        html += sectieBody(s.id, groepRij(s.id, s.name, lijst.length, '<i data-lucide="' + (s.kind === 'opgeleverd' ? 'circle-check' : 'archive') + '" class="w-3.5 h-3.5 opacity-50"></i>', k)
+          + lijst.map(function (t) { return PM.taakRij(t, d.tasks, { slepen: true }); }).join(''))
+          .replace('<tbody class="', '<tbody data-drop-section="' + e(s.id) + '" class="');
+      });
+    }
     html += '</table>'
-      + '<div class="px-3 py-2 border-t border-base-content/10"><button type="button" class="btn btn-ghost btn-sm" data-action="sectie-nieuw"><i data-lucide="plus" class="w-4 h-4"></i>Sectie toevoegen</button></div>';
+      + '<div class="px-3 py-2 border-t border-base-content/10 flex flex-wrap items-center gap-3"><button type="button" class="btn btn-ghost btn-sm" data-action="sectie-nieuw"><i data-lucide="plus" class="w-4 h-4"></i>Sectie toevoegen</button>'
+      + (S.toonAf ? '' : '<span class="text-xs opacity-50">Opgeleverd en Gearchiveerd staan onder de schakelaar "Afgewerkt".</span>') + '</div>';
     return kaartWrap('<div class="card-body p-0">' + html + '</div>');
   }
 
@@ -309,11 +330,23 @@
         + lijst.map(function (t) { return kaart(t, d.tasks); }).join('') + '</div>'
         + (beheer ? '<div class="pm-plus flex items-center gap-2 px-3 pb-3 pt-1 text-sm"><i data-lucide="plus" class="w-4 h-4 shrink-0"></i><input type="text" placeholder="Taak toevoegen…" maxlength="300" data-snel-taak="1" data-section="' + e(id) + '"></div>' : '<div class="pb-3"></div>') + '</div>';
     };
+    var eindKolom = function (s) {
+      if (dichteSecties[s.id] === undefined) dichteSecties[s.id] = true;
+      var lijst = vanSectie(d.tasks, s.id, true);
+      var dicht = !!dichteSecties[s.id];
+      return '<div class="pm-kolom pm-eindkolom ' + (dicht ? 'pm-sectie-dicht' : '') + '" data-drop-section="' + e(s.id) + '" data-sectie="' + e(s.id) + '">'
+        + '<button type="button" class="flex items-center gap-1.5 px-3 py-2.5 w-full text-left" data-action="sectie-klap" data-id="' + e(s.id) + '">'
+        + '<i data-lucide="' + (s.kind === 'opgeleverd' ? 'circle-check' : 'archive') + '" class="w-4 h-4 opacity-60"></i>'
+        + '<span class="font-semibold text-sm truncate">' + e(s.name) + '</span><span class="opacity-50 text-xs tabular-nums">' + lijst.length + '</span><span class="flex-1"></span>'
+        + '<i data-lucide="chevron-down" class="w-4 h-4 opacity-50 pm-klap"></i></button>'
+        + '<div class="pm-kolom-inhoud pm-sectie-inhoud">' + lijst.map(function (t) { return kaart(t, d.tasks); }).join('') + '</div><div class="pb-1"></div></div>';
+    };
     var html = '<div class="pm-kanban">';
     var losse = vanSectie(d.tasks, null);
     if (losse.length) html += kolom(null, 'Zonder sectie', losse, false);
-    d.sections.forEach(function (s) { html += kolom(s.id, s.name, vanSectie(d.tasks, s.id), true); });
-    html += '<div class="flex-none w-48"><button type="button" class="btn btn-ghost btn-sm w-full justify-start" data-action="sectie-nieuw"><i data-lucide="plus" class="w-4 h-4"></i>Sectie toevoegen</button></div>';
+    openSecties(d).forEach(function (s) { html += kolom(s.id, s.name, vanSectie(d.tasks, s.id), true); });
+    html += '<div class="flex-none w-40"><button type="button" class="btn btn-ghost btn-sm w-full justify-start" data-action="sectie-nieuw"><i data-lucide="plus" class="w-4 h-4"></i>Sectie</button></div>';
+    html += '<div class="pm-eindstapel">' + eindSecties(d).map(eindKolom).join('') + '</div>';
     return html + '</div>';
   }
 
@@ -325,8 +358,7 @@
     var v = PM.vandaag();
     var open = hoofd.filter(function (t) { return !t.done; });
     var teLaat = open.filter(function (t) { return t.due_date && t.due_date < v; });
-    var mijlpalen = d.tasks.filter(function (t) { return t.is_milestone; })
-      .sort(function (a, b) { return String(a.due_date || '9999').localeCompare(String(b.due_date || '9999')); });
+    var mijlpalen = d.milestones || [];
     var statussen = S.boot.statussen.map(function (s) {
       return '<option value="' + s.key + '"' + (s.key === p.status ? ' selected' : '') + '>' + e(s.label) + '</option>';
     }).join('');
@@ -354,15 +386,10 @@
         '<label class="form-control"><span class="label-text text-xs mb-1">Status</span><select class="select select-bordered select-sm" data-change="project-veld" data-veld="status">' + statussen + '</select></label>'
         + '<label class="form-control"><span class="label-text text-xs mb-1">Eigenaar</span><select class="select select-bordered select-sm" data-change="project-veld" data-veld="owner_id">' + mensen + '</select></label>'
         + '<label class="form-control"><span class="label-text text-xs mb-1">Einddatum</span><input type="date" class="input input-bordered input-sm" value="' + e(p.due_date || '') + '" data-change="project-veld" data-veld="due_date"></label>'
-        + '<label class="form-control"><span class="label-text text-xs mb-1">Afgevinkte taken gaan naar</span><select class="select select-bordered select-sm" data-change="project-veld" data-veld="done_section_id">'
-        + '<option value="">De laatste sectie' + (d.sections.length ? ' (' + e(d.sections[d.sections.length - 1].name) + ')' : '') + '</option>'
-        + d.sections.map(function (s) { return '<option value="' + e(s.id) + '"' + (s.id === p.done_section_id ? ' selected' : '') + '>' + e(s.name) + '</option>'; }).join('')
-        + '</select><span class="label-text-alt text-xs opacity-60 mt-1">Een taak daarheen slepen vinkt ze ook af.</span></label>')
-      + blok('<span class="inline-flex items-center gap-2"><i data-lucide="diamond" class="w-4 h-4 text-warning"></i>Mijlpalen</span>',
-        mijlpalen.length ? mijlpalen.map(function (t) {
-          return '<button type="button" class="flex items-center gap-2 text-sm text-left py-1 w-full ' + (t.done ? 'line-through opacity-50' : '') + '" data-action="open-taak" data-id="' + e(t.id) + '">'
-            + '<span class="flex-1 min-w-0 truncate">' + e(t.title) + '</span><span class="text-xs tabular-nums ' + PM.datumKlasse(t) + '">' + e(PM.datumKort(t.due_date) || 'geen datum') + '</span></button>';
-        }).join('') : '<p class="text-sm opacity-60">Nog geen mijlpalen. Zet in het detail van een taak het vinkje "Mijlpaal" aan.</p>')
+        + '<p class="text-xs opacity-50">Afvinken zet een taak in Opgeleverd; de archiefknop in Gearchiveerd.</p>')
+      + blok('<span class="inline-flex items-center gap-2"><i data-lucide="flag" class="w-4 h-4 text-warning"></i>Mijlpalen</span>',
+        (mijlpalen.length ? mijlpalen.map(mijlpaalRij).join('') : '<p class="text-sm opacity-60">Nog geen mijlpalen. Een mijlpaal is gehaald zodra alle taken die eraan hangen af zijn.</p>')
+        + '<div class="flex gap-2 mt-2"><input type="text" class="input input-bordered input-sm flex-1 min-w-0" placeholder="Nieuwe mijlpaal…" maxlength="120" data-mijlpaal-naam="1"><input type="date" class="input input-bordered input-sm w-36" data-mijlpaal-datum="1"><button type="button" class="btn btn-sm btn-primary" data-action="mijlpaal-nieuw">+</button></div>')
       + blok('Wie werkt eraan',
         team.length ? team.map(function (id) {
           var m = PM.persoon(id);
@@ -370,6 +397,46 @@
         }).join('') : '<p class="text-sm opacity-60">Nog niemand heeft een open taak in dit project.</p>')
       + '</div></div>';
   }
+
+  /** Een mijlpaal in het Overzicht: naam, datum, stand, en gehaald of niet. */
+  function mijlpaalRij(m) {
+    var pct = m.totaal ? Math.round(m.af / m.totaal * 100) : 0;
+    var laat = !m.gehaald && m.due_date && m.due_date < PM.vandaag();
+    return '<div class="group py-1.5 border-b border-base-content/10 last:border-0">'
+      + '<div class="flex items-center gap-2 text-sm">'
+      + '<i data-lucide="' + (m.gehaald ? 'flag' : 'flag') + '" class="w-4 h-4 shrink-0 ' + (m.gehaald ? 'text-success' : 'text-warning') + '"></i>'
+      + '<span class="flex-1 min-w-0 truncate ' + (m.gehaald ? 'opacity-60' : '') + '">' + e(m.name) + '</span>'
+      + (m.gehaald ? '<span class="badge badge-success badge-sm">Gehaald</span>' : '')
+      + '<input type="date" class="input input-ghost input-xs w-32 tabular-nums ' + (laat ? 'text-error' : '') + '" value="' + e(m.due_date || '') + '" data-change="mijlpaal-datum" data-id="' + e(m.id) + '" title="Datum">'
+      + '<button type="button" class="btn btn-ghost btn-xs btn-square opacity-0 group-hover:opacity-100" data-action="mijlpaal-weg" data-id="' + e(m.id) + '" title="Mijlpaal weghalen (de taken blijven)"><i data-lucide="x" class="w-3.5 h-3.5"></i></button></div>'
+      + '<div class="flex items-center gap-2 mt-1 pl-6"><progress class="progress ' + (m.gehaald ? 'progress-success' : 'progress-warning') + ' h-1.5 flex-1" value="' + pct + '" max="100"></progress>'
+      + '<span class="text-xs opacity-60 tabular-nums">' + m.af + '/' + m.totaal + (m.totaal ? '' : ' · nog geen taken') + '</span></div></div>';
+  }
+
+  PM.actie('mijlpaal-nieuw', function () {
+    var naam = document.querySelector('[data-mijlpaal-naam]');
+    var datum = document.querySelector('[data-mijlpaal-datum]');
+    if (!naam || !naam.value.trim()) { PM.toast('Geef de mijlpaal een naam.', 'error'); return; }
+    PM.probeer(async function () {
+      await PM.api('/projects/' + S.route.id + '/milestones', { method: 'POST', body: { name: naam.value.trim(), due_date: datum && datum.value ? datum.value : null } });
+      await PM.herlaad();
+    });
+  });
+  PM.bijWijziging('mijlpaal-datum', function (el) {
+    PM.probeer(async function () { await PM.api('/milestones/' + el.dataset.id, { method: 'PUT', body: { due_date: el.value || null } }); await PM.herlaad(); });
+  });
+  PM.actie('mijlpaal-weg', async function (el) {
+    if (!(await PM.bevestig('Deze mijlpaal weghalen? De taken eronder blijven bestaan.', 'Weghalen'))) return;
+    await PM.probeer(async function () { await PM.api('/milestones/' + el.dataset.id, { method: 'DELETE' }); await PM.herlaad(); });
+  });
+  PM.actie('archiveer', function (el) {
+    PM.probeer(async function () {
+      await PM.api('/tasks/' + el.dataset.id + '/archive', { method: 'POST' });
+      PM.toast('Gearchiveerd');
+      await PM.herlaad();
+      if (S.taak) await PM.herlaadTaak();
+    });
+  });
 
   // ── Kalender: dezelfde kalender als bij Events en Nieuwsbrieven ──────────
 
@@ -404,12 +471,18 @@
         classNames: t.done ? ['pm-kal-af'] : [],
         extendedProps: {
           taak: t,
-          kop: t.is_milestone ? 'Mijlpaal' : (project ? project.name : 'Losse to-do'),
+          kop: project ? project.name : 'Losse to-do',
           kleur: PM.kleurHex(project ? project.color : 'slate'),
           persoon: persoon ? persoon.naam : '',
         },
       };
     });
+    if (!opties.mijn && S.project && S.project.milestones) {
+      S.project.milestones.filter(function (m) { return m.due_date; }).forEach(function (m) {
+        items.push({ id: 'mijlpaal:' + m.id, title: m.name, start: m.due_date, allDay: true, editable: false, classNames: m.gehaald ? ['pm-kal-af'] : ['pm-kal-mijlpaal'],
+          extendedProps: { taak: { title: m.name }, kop: 'Mijlpaal · ' + m.af + '/' + m.totaal, kleur: '#d97706', persoon: '' } });
+      });
+    }
     kalender = new window.FullCalendar.Calendar(el, {
       initialView: 'dayGridMonth',
       initialDate: S.kalMaand || undefined,
@@ -429,7 +502,7 @@
       eventContent: kalInhoud,
       eventDidMount: kalStijl,
       datesSet: function (info) { S.kalMaand = info.view.currentStart.toISOString(); },
-      eventClick: function (info) { info.jsEvent.preventDefault(); PM.ga({ taak: info.event.id }); },
+      eventClick: function (info) { info.jsEvent.preventDefault(); if (String(info.event.id).indexOf('mijlpaal:') === 0) { PM.ga({ weergave: 'overzicht' }); return; } PM.ga({ taak: info.event.id }); },
       eventDrop: function (info) {
         var datum = info.event.startStr.slice(0, 10);
         PM.probeer(async function () {
@@ -579,7 +652,7 @@
   });
   PM.actie('sectie-klap', function (el) {
     dichteSecties[el.dataset.id] = !dichteSecties[el.dataset.id];
-    var body = el.closest('tbody');
+    var body = el.closest('tbody, .pm-eindkolom');
     if (body) body.classList.toggle('pm-sectie-dicht', !!dichteSecties[el.dataset.id]);
   });
   PM.actie('kanban-plus', function (el) {
@@ -691,10 +764,12 @@
     var bak = ev.target.closest && ev.target.closest('[data-drop-section]');
     if (!bak) return;
     ev.preventDefault();
-    var na = naElement(bak, ev.clientY);
+    var doel = bak.querySelector(':scope > .pm-kolom-inhoud') || bak;
+    if (bak.classList.contains('pm-sectie-dicht')) { bak.classList.remove('pm-sectie-dicht'); dichteSecties[bak.dataset.sectie] = false; }
+    var na = naElement(doel, ev.clientY);
     // In een tabel blijft de toevoegrij onderaan en de groepsrij bovenaan.
-    var plus = bak.querySelector('.pm-plus');
-    if (na) bak.insertBefore(gesleept, na); else if (plus) bak.insertBefore(gesleept, plus); else bak.appendChild(gesleept);
+    var plus = doel.querySelector('.pm-plus');
+    if (na) doel.insertBefore(gesleept, na); else if (plus) doel.insertBefore(gesleept, plus); else doel.appendChild(gesleept);
   });
   // Zonder dit opent Firefox bij het loslaten de gesleepte tekst als adres.
   document.addEventListener('drop', function (ev) { if (gesleept) ev.preventDefault(); });
