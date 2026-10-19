@@ -12,14 +12,12 @@
  * (`odoo:<model>:<id>`), dus een tweede keer draaien maakt niets dubbel en
  * overschrijft niets wat in de OM al aangepast is.
  *
- * Wat waar belandt:
- *   x_team_goal          -> een project per teamdoel (beschrijving + WHY + WHAT
- *                           + focus + teams in de beschrijving; coordinator =
- *                           eigenaar; Done = afgerond; Gearchiveerd = archief)
+ * Wat waar belandt (beslissing Nico, 2026-10-19: GEEN teamdoelen als project,
+ * enkel de persoonlijke doelen en het Mollie-project):
  *   x_individual_goal    -> (enkel de actieve: wat in Odoo gearchiveerd is, blijft daar)
- *                           een taak in het project van zijn teamdoel, anders
- *                           in "Doelen van <naam>"; sectie = de fase in Odoo;
- *                           Opgeleverd/Gearchiveerd = afgevinkt
+ *                           een taak in "Doelen van <voornaam>"; sectie = de fase
+ *                           in Odoo; Opgeleverd/Gearchiveerd = afgevinkt; het
+ *                           teamdoel waar het onder viel, als label
  *   project.project 82   -> het project "Mollie release campaign": secties =
  *                           de fases, subtaken blijven subtaken, mijlpalen
  *                           worden mijlpaal-taken, Done = afgevinkt
@@ -121,35 +119,6 @@ const omUser = (odooUid) => (odooUid ? perUid[odooUid] || perEmail[String(loginV
 const onbekend = new Set();
 const omUserOfMeld = (uid) => { const r = omUser(uid); if (uid && !r) onbekend.add(naamVan[uid] || uid); return r; };
 
-// ── Teamdoelen -> projecten ────────────────────────────────────────────────
-
-const teamGoals = await lees('x_team_goal', [['x_active', '=', true]], ['x_name', 'x_studio_user_id', 'x_studio_stage_id', 'x_studio_description', 'x_studio_team_goal_why', 'x_studio_team_goal_what', 'x_studio_team_goal_focus', 'x_studio_owned_by_teams', 'x_studio_date_stop', 'x_studio_priority', 'create_date', 'x_active'], { context: { active_test: false } });
-const teamGoalProject = {};
-for (const g of teamGoals) {
-  const id = `odoo:x_team_goal:${g.id}`;
-  teamGoalProject[g.id] = id;
-  const stage = m2oNaam(g.x_studio_stage_id);
-  const teams = (g.x_studio_owned_by_teams || []).map((d) => depNaam[d]).filter(Boolean);
-  const delen = [tekst(g.x_studio_description)];
-  if (g.x_studio_team_goal_why) delen.push('Waarom\n' + tekst(g.x_studio_team_goal_why));
-  if (g.x_studio_team_goal_what) delen.push('Wat\n' + tekst(g.x_studio_team_goal_what));
-  const fo = (g.x_studio_team_goal_focus || []).map((f) => focusNaam[f]).filter(Boolean);
-  if (fo.length) delen.push('Focus: ' + fo.join(', '));
-  if (teams.length) delen.push('Teams: ' + teams.join(', '));
-  delen.push('Overgenomen uit Odoo (teamdoel), fase daar: ' + stage + '.');
-  project({
-    id, name: g.x_name, description: delen.filter(Boolean).join('\n\n'),
-    color: KLEUR_PER_TEAM[teams[0]] || 'slate', icon: 'target',
-    owner_id: omUserOfMeld(m2oId(g.x_studio_user_id)),
-    status: stage === 'Done' || stage === 'Gearchiveerd' ? 'afgerond' : 'op_schema',
-    due_date: dag(g.x_studio_date_stop),
-    archived: stage === 'Gearchiveerd' || g.x_active === false ? 1 : 0,
-    position: 1000 + g.id,
-    odoo_model: 'x_team_goal', odoo_id: g.id, odoo_name: g.x_name,
-    created_at: ts(g.create_date),
-  });
-}
-
 // ── Individuele doelen -> taken ────────────────────────────────────────────
 
 const FASE_POS = { Nieuw: 10, 'Te bespreken': 20, 'In behandeling': 30, Opgeleverd: 40, Gearchiveerd: 50 };
@@ -159,9 +128,8 @@ let k = 0;
 for (const g of goals) {
   const uid = m2oId(g.x_studio_user_id);
   const owner = omUserOfMeld(uid);
-  let projectId = g.x_studio_parent_team_goal_id ? teamGoalProject[m2oId(g.x_studio_parent_team_goal_id)] : null;
-  if (!projectId) {
-    projectId = `odoo:doelen:${uid || 0}`;
+  {
+    var projectId = `odoo:doelen:${uid || 0}`;
     const naam = uid ? naamVan[uid] || m2oNaam(g.x_studio_user_id) : 'niemand';
     project({
       id: projectId, name: 'Doelen van ' + naam.split(' ')[0], description: 'De individuele doelen uit Odoo van ' + naam + ' die niet onder een teamdoel vallen.',
@@ -173,6 +141,7 @@ for (const g of goals) {
   const sectieId = sectie(projectId, fase, FASE_POS[fase] || 60);
   const af = fase === 'Opgeleverd' || fase === 'Gearchiveerd';
   const labels = [];
+  if (g.x_studio_parent_team_goal_id) labels.push(m2oNaam(g.x_studio_parent_team_goal_id));
   if (fase === 'Gearchiveerd') labels.push('Gearchiveerd in Odoo');
   if (g.x_studio_kanban_state === 'blocked') labels.push('Geblokkeerd');
   taak({
@@ -224,7 +193,7 @@ for (const t of taken) {
 }
 
 console.log('-- Projecten: overname uit Odoo, gemaakt op ' + NU);
-console.log(`-- teamdoelen: ${teamGoals.length}, individuele doelen: ${goals.length}, Mollie: ${taken.length} taken + ${milestones.length} mijlpalen`);
+console.log(`-- individuele doelen: ${goals.length}, Mollie: ${taken.length} taken + ${milestones.length} mijlpalen`);
 if (onbekend.size) console.log('-- Odoo-gebruikers zonder OM-account (taak zonder verantwoordelijke): ' + [...onbekend].join(', '));
 console.log(sql.join('\n'));
 console.error(`klaar: ${sql.length} statements` + (onbekend.size ? `; geen OM-account voor: ${[...onbekend].join(', ')}` : ''));

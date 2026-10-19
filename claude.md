@@ -6065,7 +6065,7 @@ rapporten, tijdregistratie, privéprojecten, gasten van buiten mymmo.
 | De kalenderstijl (EEN bron, zie hieronder) | `public/om-kalender.css` |
 | Homepage-tegel "Jouw taken vandaag" | `takenBlok()` + `loadTaken()` in `public/home.js`, `GET /projecten/api/home` |
 | Mijn team (teamweekly): wie onder wie staat | `lib/team.js` (uit `hr.employee.parent_id` in Odoo), `GET /api/team[?manager=]`, `tekenTeam()` in `-views.js`, adres `#/team[/<manager>]` |
-| Overname uit Odoo (teamdoelen, individuele doelen, project Koppeling Mollie) | `scripts/projecten/odoo-import.mjs` -> SQL -> `npx wrangler d1 execute om-core --remote --file ...`; migratie `0004_projecten_odoo_link.sql` (Odoo-verwijzing op een project) |
+| Overname uit Odoo (persoonlijke doelen, project Koppeling Mollie) | `scripts/projecten/odoo-import.mjs` -> SQL -> `npx wrangler d1 execute om-core --remote --file ...`; migratie `0004_projecten_odoo_link.sql` (Odoo-verwijzing op een project) |
 
 Afspraken die bewust zo zijn:
 
@@ -6117,14 +6117,14 @@ Afspraken die bewust zo zijn:
   De link staat enkel in de kolom links als er een team is (`has_team` in
   `/api/bootstrap`) of voor een beheerder. Geen eigen teamtabel bouwen: dat
   zou een tweede waarheid naast Odoo zijn.
-- **De doelen uit Odoo zijn OVERGENOMEN, eenmalig, op 2026-10-19**
-  (`scripts/projecten/odoo-import.mjs`). Teamdoel (`x_team_goal`) = een
-  project met beschrijving + WHY + WHAT + focus + teams in de beschrijving,
-  coordinator = eigenaar, Done = afgerond, Gearchiveerd = archief. Individueel
-  doel (`x_individual_goal`, enkel de actieve) = een taak in het project van
-  zijn teamdoel, anders in "Doelen van <voornaam>"; sectie = de fase in Odoo
-  (Nieuw / Te bespreken / In behandeling / Opgeleverd / Gearchiveerd),
-  Opgeleverd en Gearchiveerd = afgevinkt, hoge prioriteit = hoog, geblokkeerd
+- **De persoonlijke doelen en het Mollie-project uit Odoo zijn OVERGENOMEN,
+  eenmalig, op 2026-10-19** (`scripts/projecten/odoo-import.mjs`). **NIET de
+  teamdoelen** (`x_team_goal`): die stonden er even als projecten en zijn op
+  vraag van Nico weer weggehaald. Individueel doel (`x_individual_goal`, enkel
+  de actieve) = een taak in "Doelen van <voornaam>" (eigenaar = die persoon);
+  sectie = de fase in Odoo (Nieuw / Te bespreken / In behandeling /
+  Opgeleverd / Gearchiveerd), Opgeleverd en Gearchiveerd = afgevinkt, hoge
+  prioriteit = hoog, geblokkeerd = label, en het teamdoel waar het onder viel
   = label. Het Odoo-project "Koppeling Mollie" (82) = het project "Mollie
   release campaign": secties = de fases, subtaken blijven subtaken, de
   mijlpalen staan als mijlpaal-taken in een sectie Mijlpalen, en elke taak
