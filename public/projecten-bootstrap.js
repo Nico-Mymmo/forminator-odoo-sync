@@ -178,7 +178,7 @@
     }
     PM.teken();
     if (r.taak) PM.openTaak(r.taak);
-    else if (S.taak) { S.taak = null; PM.$('pmTaakWrap').classList.add('hidden'); document.body.classList.remove('overflow-hidden'); }
+    else if (S.taak) { S.taak = null; PM.toonTaakPaneel(false); }
   };
 
   window.addEventListener('hashchange', PM.volgAdres);

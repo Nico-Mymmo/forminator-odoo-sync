@@ -6043,7 +6043,7 @@ https://claude.ai/artifact/QxU8ghAKnuo7KKUhnsq8gu):
 
 | Deel | Wat | Stand |
 |---|---|---|
-| 1 | Projecten (status, eigenaar, kleur, icoon, archief), secties, mijlpalen, taken (verantwoordelijke, vervaldatum, prioriteit, labels, subtaken), losse to-do's; Lijst, Bord, Kalender, Overzicht, Mijn taken; opmerkingen met @collega, volgers, bijlagen (opladen, Assetbeheer, link), historiek; verwijzing naar Odoo; homepage-tegel; gsm | gebouwd |
+| 1 | Projecten (status, eigenaar, kleur, icoon, archief), secties, mijlpalen, taken (verantwoordelijke, vervaldatum, prioriteit, labels, subtaken), losse to-do's; Overzicht, Lijst, Kanban, Kalender, Mijn taken; opmerkingen met @collega, volgers, bijlagen (opladen, Assetbeheer, link), historiek; verwijzing naar Odoo; homepage-tegel; gsm | gebouwd |
 | 2 | Meldingen in Google Chat (toegewezen, vervaldag, vermelding), wekelijkse statusupdate per project, portfolio, projectsjablonen, terugkerende taken | nog niet |
 | 3 | Stap "Taak aanmaken" in Koppelingen, nieuwsbriefopdrachten in Mijn taken, AI (project opdelen, statusupdate voorstellen) | nog niet |
 
@@ -6061,7 +6061,8 @@ rapporten, tijdregistratie, privéprojecten, gasten van buiten mymmo.
 | Vaste lijsten (statussen, prioriteiten, kleuren, Odoo-modellen) | `lib/constants.js` (naar het scherm via `/api/bootstrap`) |
 | Wie een taak kan krijgen (naam + foto) | `lib/mensen.js` (via `src/lib/medewerkers.js`) |
 | Routes | `src/modules/projecten/routes.js` |
-| Scherm | `public/projecten.html` + `projecten-core.js` (toestand, api, adres) / `-views.js` (zijbalk, lijst, bord, kalender, overzicht, Mijn taken, slepen) / `-taak.js` (detailpaneel, Odoo, Assetbeheer) / `-bootstrap.js` (luisteraars, vensters, opstarten) |
+| Scherm | `public/projecten.html` + `projecten-core.js` (toestand, api, adres) / `-views.js` (zijbalk, kop, lijst, kanban, kalender, overzicht, Mijn taken, slepen) / `-taak.js` (detailpaneel, Odoo, Assetbeheer) / `-bootstrap.js` (luisteraars, vensters, opstarten) |
+| De kalenderstijl (EEN bron, zie hieronder) | `public/om-kalender.css` |
 | Homepage-tegel "Jouw taken vandaag" | `takenBlok()` + `loadTaken()` in `public/home.js`, `GET /projecten/api/home` |
 
 Afspraken die bewust zo zijn:
@@ -6104,6 +6105,27 @@ Afspraken die bewust zo zijn:
   `/web#id=...&model=...`.
 - **Velden in het detailpaneel bewaren bij `change`** (verlaten van het veld),
   er is geen knop Opslaan. Enter in de titel bewaart.
+- **De pagina is PAGINABREED en opgebouwd zoals Asana** (2026-10-19, op
+  vraag van Nico): zijbalk links (Mijn taken, de projecten), bovenaan het
+  project met zijn tabbladen (Overzicht, Lijst, Kanban, Kalender), daaronder
+  het werkvlak dat zelf scrolt, en rechts het detail van een taak als paneel
+  IN de pagina (vanaf 1280px; daaronder erover). Geen `max-w-7xl`. De lijst
+  heeft vaste kolommen (Taak, Verantwoordelijke, Vervaldatum, Prioriteit;
+  Mijn taken ook Project) met inklapbare secties en een "Taak toevoegen"-rij
+  onder elke sectie. **Het bord heet Kanban** (`#/project/<id>/kanban`; het
+  oude adres `/bord` wordt omgezet): kolommen = secties, kaart verslepen =
+  sectie wijzigen, plusje bovenaan en toevoegrij onderaan elke kolom.
+- **De kalender is DEZELFDE als bij Events en Nieuwsbrieven.** De opmaak
+  staat in `public/om-kalender.css` (uit `newsletters.html` gehaald; de
+  pagina's van Events en Nieuwsbrieven dragen vandaag nog hun eigen,
+  identieke kopie in hun `<style>` en kunnen op dit bestand overschakelen),
+  de houder krijgt de klasse `.om-kalender`, en de instellingen zijn die van
+  Nieuwsbrieven: enkel maandweergave, titel links en Vandaag/pijlen rechts,
+  maandag eerst, Europe/Brussels, hoogstens 3 kaarten per dag, een kaart met
+  een kopje (project of "Mijlpaal") en de titel, kleur via `--event-bg` in
+  `eventDidMount`, klik op een lege dag (niet in het verleden) = nieuwe taak
+  op die dag, verslepen = nieuwe vervaldatum. Een afgewerkte taak is een
+  stippellijn in de projectkleur. Bouw geen eigen kalenderopmaak per module.
 
 **Uitrolvolgorde:** `npx wrangler d1 migrations apply om-core --remote`
 (tabellen) en `npm run db:push` (moduleregistratie), dan `npm run deploy`

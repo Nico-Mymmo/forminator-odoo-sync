@@ -40,10 +40,15 @@
     toon(false);
     if (S.route.taak) PM.ga({ taak: null });
   };
+  PM.toonTaakPaneel = toon;
 
   function toon(aan) {
     PM.$('pmTaakWrap').classList.toggle('hidden', !aan);
-    document.body.classList.toggle('overflow-hidden', aan && window.innerWidth < 768);
+    // De gekozen rij of kaart licht op in het werkvlak.
+    document.querySelectorAll('#pmHoofd .pm-gekozen').forEach(function (x) { x.classList.remove('pm-gekozen'); });
+    if (aan && S.taak) {
+      document.querySelectorAll('#pmHoofd [data-drag-task="' + S.taak.task.id + '"]').forEach(function (x) { x.classList.add('pm-gekozen'); });
+    }
   }
 
   // ── Tekenen ───────────────────────────────────────────────────────────────
@@ -151,7 +156,7 @@
       + (t.parent_id ? '' : '<div><h3 class="text-sm font-semibold mb-1 flex items-center gap-2">Subtaken'
         + (d.subtasks.length ? '<span class="opacity-50 font-normal">' + d.subtasks.filter(function (x) { return x.done; }).length + '/' + d.subtasks.length + '</span>' : '') + '</h3>'
         + '<div class="border border-base-content/10 rounded-lg"><div class="pm-lijnen">'
-        + d.subtasks.map(function (x) { return PM.taakRij(x, [], {}); }).join('')
+        + d.subtasks.map(function (x) { return PM.subtaakRij(x); }).join('')
         + '</div><div class="px-2 py-1 ' + (d.subtasks.length ? 'border-t border-base-content/10' : '') + '">'
         + '<input type="text" class="input input-ghost input-sm w-full" placeholder="+ Subtaak toevoegen (Enter)" maxlength="300" data-subtaak="1"></div></div></div>')
 

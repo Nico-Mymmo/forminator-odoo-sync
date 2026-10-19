@@ -184,7 +184,9 @@
     }
     var delen = h.split('/').filter(Boolean);
     if (delen[0] === 'project' && delen[1]) {
-      return { soort: 'project', id: delen[1], weergave: delen[2] || 'lijst', taak: taak };
+      var w = delen[2] || 'lijst';
+      if (w === 'bord') w = 'kanban';
+      return { soort: 'project', id: delen[1], weergave: w, taak: taak };
     }
     return { soort: 'mijn', id: null, weergave: delen[1] === 'kalender' ? 'kalender' : 'lijst', taak: taak };
   };
