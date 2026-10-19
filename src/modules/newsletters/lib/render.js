@@ -429,6 +429,17 @@ function handtekening(item) {
 }
 
 /**
+ * Optioneel: een subtitel onder de titel (woordje vooraf en tekstblok). In
+ * het voorbeeld enkel zichtbaar als ze er staat, of na "+ Subtitel" in de
+ * werkbalk (`data-nb-op-vraag`).
+ */
+function subtitel(c, id, { size = 18, margin = '-4px 0 14px' } = {}) {
+  const stijl = `margin:${margin};font-family:${S.fontBody};font-size:${size}px;font-weight:600;line-height:1.4;color:${S.headingSoft}`;
+  if (id) return `<div data-nb-veld="subtitle" data-nb-optioneel="1" data-nb-op-vraag="1" data-placeholder="Subtitel" style="${stijl}">${esc(c.subtitle || '')}</div>`;
+  return String(c.subtitle || '').trim() ? `<div style="${stijl}">${esc(c.subtitle)}</div>` : '';
+}
+
+/**
  * In het voorbeeld (`id` gezet) zijn titel en tekst aanwijsbaar met
  * `data-nb-veld`: het scherm maakt ze daar bewerkbaar, en een lege titel of
  * tekst staat er dan toch (het scherm toont een plaatshouder). In een test of
@@ -444,7 +455,8 @@ function blokIntro(item, ctx, id) {
   const tekst = id
     ? `<div data-nb-veld="text" data-placeholder="Typ hier je inleiding. Sluit af met je groet, bv. Veel leesplezier," style="font-family:${S.fontBody};font-size:17px;line-height:1.6;color:${S.text}">${tekstHtml}</div>`
     : tekstHtml;
-  return schikBeeld({ b, ctx, id, inhoud: `${titel}\n${tekst}\n${handtekening(item)}`, padding: '44px 40px 40px', bg: S.teal50 });
+  const sub = subtitel(c, id, { size: 20, margin: '-6px 0 16px' });
+  return schikBeeld({ b, ctx, id, inhoud: `${titel}${sub}\n${tekst}\n${handtekening(item)}`, padding: '44px 40px 40px', bg: S.teal50 });
 }
 
 function blokArticle(item, ctx, id) {
@@ -458,12 +470,7 @@ function blokArticle(item, ctx, id) {
   const lijf = id
     ? `<div data-nb-veld="text" data-placeholder="Typ hier je tekst. Een lege regel = een nieuwe alinea." style="font-family:${S.fontBody};font-size:16px;line-height:1.6;color:${S.text}">${tekstHtml}</div>`
     : tekstHtml;
-  // Optioneel: een subtitel onder de titel. In het voorbeeld enkel zichtbaar
-  // als ze er staat, of na "+ Subtitel" in de werkbalk (`data-nb-op-vraag`).
-  const subStijl = `margin:-4px 0 14px;font-family:${S.fontBody};font-size:18px;font-weight:600;line-height:1.4;color:${S.headingSoft}`;
-  const sub = id
-    ? `<div data-nb-veld="subtitle" data-nb-optioneel="1" data-nb-op-vraag="1" data-placeholder="Subtitel" style="${subStijl}">${esc(c.subtitle || '')}</div>`
-    : String(c.subtitle || '').trim() ? `<div style="${subStijl}">${esc(c.subtitle)}</div>` : '';
+  const sub = subtitel(c, id);
   // Het labeltje (naam van het blok) is ook optioneel en typ je in de brief.
   const labeltje = id
     ? `<div style="line-height:1"><span data-nb-veld="@title" data-nb-optioneel="1" data-placeholder="Label (optioneel)" style="display:inline-block;font-family:${S.fontBody};font-size:12px;font-weight:700;letter-spacing:0.02em;padding:5px 12px;border-radius:999px;background-color:${S.pink50};color:${S.pink700}">${esc(item.title || '')}</span></div>`
