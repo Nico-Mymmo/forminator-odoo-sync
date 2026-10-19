@@ -356,7 +356,11 @@
       + blok('Projectgegevens',
         '<label class="form-control"><span class="label-text text-xs mb-1">Status</span><select class="select select-bordered select-sm" data-change="project-veld" data-veld="status">' + statussen + '</select></label>'
         + '<label class="form-control"><span class="label-text text-xs mb-1">Eigenaar</span><select class="select select-bordered select-sm" data-change="project-veld" data-veld="owner_id">' + mensen + '</select></label>'
-        + '<label class="form-control"><span class="label-text text-xs mb-1">Einddatum</span><input type="date" class="input input-bordered input-sm" value="' + e(p.due_date || '') + '" data-change="project-veld" data-veld="due_date"></label>')
+        + '<label class="form-control"><span class="label-text text-xs mb-1">Einddatum</span><input type="date" class="input input-bordered input-sm" value="' + e(p.due_date || '') + '" data-change="project-veld" data-veld="due_date"></label>'
+        + '<label class="form-control"><span class="label-text text-xs mb-1">Afgevinkte taken gaan naar</span><select class="select select-bordered select-sm" data-change="project-veld" data-veld="done_section_id">'
+        + '<option value="">De laatste sectie' + (d.sections.length ? ' (' + e(d.sections[d.sections.length - 1].name) + ')' : '') + '</option>'
+        + d.sections.map(function (s) { return '<option value="' + e(s.id) + '"' + (s.id === p.done_section_id ? ' selected' : '') + '>' + e(s.name) + '</option>'; }).join('')
+        + '</select><span class="label-text-alt text-xs opacity-60 mt-1">Een taak daarheen slepen vinkt ze ook af.</span></label>')
       + blok('<span class="inline-flex items-center gap-2"><i data-lucide="diamond" class="w-4 h-4 text-warning"></i>Mijlpalen</span>',
         mijlpalen.length ? mijlpalen.map(function (t) {
           return '<button type="button" class="flex items-center gap-2 text-sm text-left py-1 w-full ' + (t.done ? 'line-through opacity-50' : '') + '" data-action="open-taak" data-id="' + e(t.id) + '">'

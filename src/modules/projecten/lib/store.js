@@ -66,6 +66,7 @@ export function normaliseerProject(body = {}, { nieuw = false } = {}) {
   }
   if (body.due_date !== undefined) uit.due_date = datum(body.due_date);
   if (body.archived !== undefined) uit.archived = Boolean(body.archived);
+  if (body.done_section_id !== undefined) uit.done_section_id = body.done_section_id ? kort(body.done_section_id, 64) : null;
   return uit;
 }
 
@@ -104,7 +105,7 @@ export async function updateProject(env, id, waarden, userId) {
   if (!oud) throw new PmError('Project niet gevonden.', 404);
   const { data, error } = await db(env).from('pm_projects').update(waarden).eq('id', id).select('*').single();
   check(error, 'Project bewaren');
-  for (const k of ['name', 'status', 'owner_id', 'due_date', 'archived']) {
+  for (const k of ['name', 'status', 'owner_id', 'due_date', 'archived', 'done_section_id']) {
     if (waarden[k] !== undefined && String(oud[k] ?? '') !== String(data[k] ?? '')) {
       await historiek(env, { project_id: id, user_id: userId, action: 'project_gewijzigd', field: k, old_value: oud[k] ?? null, new_value: data[k] ?? null });
     }
