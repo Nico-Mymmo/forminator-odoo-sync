@@ -275,26 +275,13 @@ export const TITEL_NIVEAUS = [
 ];
 
 /**
- * De merkkleuren (palet van de huisstijl, aangeleverd door marketing op
- * 2026-10-13), per kleurfamilie van licht naar donker. EEN bron: de
- * kleurkiezer in het scherm krijgt ze via /api/bootstrap, en de server
- * aanvaardt enkel deze kleuren als achtergrond van een blok of van de mail.
+ * De merkkleuren staan sinds 2026-10-19 in src/lib/merkkleuren.js (EEN bron
+ * voor de nieuwsbrief en de achtergrondbouwer). Hier enkel doorgegeven,
+ * zodat wie ze uit dit bestand importeert, blijft werken.
  */
-export const MERKKLEUREN = [
-  { familie: 'Grijs', kleuren: ['#FFFFFF', '#F9FAFB', '#F3F4F6', '#E5E7EB', '#4B5563', '#1F2937'] },
-  { familie: 'Blauw', kleuren: ['#F0F9FF', '#E0F2FE', '#BAE6FD', '#0EA5E9', '#0369A1'] },
-  { familie: 'Mint', kleuren: ['#F0FDFA', '#99F6E4', '#14B8A6'] },
-  { familie: 'Oranje', kleuren: ['#FFF7ED', '#FED7AA', '#F97316'] },
-  { familie: 'Roze', kleuren: ['#FDF2F8', '#FBCFE8', '#EC4899'] },
-];
+import { MERKKLEUREN, merkkleur } from '../../../lib/merkkleuren.js';
 
-const ALLE_MERKKLEUREN = new Set(MERKKLEUREN.flatMap((f) => f.kleuren.map((k) => k.toLowerCase())));
-
-/** Een merkkleur (kleine letters), of '' als het er geen is. */
-export function merkkleur(waarde) {
-  const k = String(waarde || '').trim().toLowerCase();
-  return ALLE_MERKKLEUREN.has(k) ? k : '';
-}
+export { MERKKLEUREN, merkkleur };
 
 /** Donker genoeg om er witte tekst op te zetten? (relatieve helderheid) */
 export function isDonker(hex) {

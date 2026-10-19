@@ -3899,6 +3899,48 @@ bibliotheek later aanpassen, verandert een mail niet.**
   `content.feature_id` onthoudt de bron ("staat erin" in het venster).
 - **Later**: dezelfde bibliotheek dynamisch per klant (welke features die
   nog niet gebruikt), daarom staan voordelen, doelgroepen en pakket erbij.
+- **Achtergrond bij een beeld** (2026-10-19): een componentje met een
+  doorzichtige achtergrond krijgt een vlak in een merkkleur en optioneel een
+  swirl in een tweede merkkleur (knop "Achtergrond maken" bij het beeld).
+  `image_url` wordt de gemaakte PNG (dus mail en kaart hoeven niets te weten);
+  `achtergrond` (jsonb) bewaart de keuzes en het oorspronkelijke beeld
+  (`bron`), zodat je ze kan bijstellen of weghalen. Een ander beeld kiezen
+  laat de achtergrond vallen (`houdAchtergrondBijBeeld()` in routes.js).
+  Migraties: Supabase `20261019140000_product_features_achtergrond.sql` en
+  om-core `0004_product_features_achtergrond.sql` -- allebei VOOR de deploy.
+
+## Achtergrondbouwer -- gedeeld (2026-10-19)
+
+**Regel: een achtergrond in de huisstijl maak je met EEN bouwer, waar ook in
+de OM. De browser tekent en maakt de PNG; de server kent het palet, de
+swirls en kijkt de keuzes na. Geen tweede bouwer per module.**
+
+| Wat | Waar |
+|---|---|
+| Het merkpalet (ENIGE bron, ook voor de nieuwsbrief) | `src/lib/merkkleuren.js` |
+| Swirls oplijsten, keuzes nakijken, verhoudingen | `src/lib/achtergrond.js` |
+| De bouwer in de browser (`window.OMAchtergrond.open`) | `public/om-achtergrond.js` |
+| De swirls | Asset Manager, `brand/swirls/` |
+| Eerste gebruiker | Productfeatures (`GET /productfeatures/api/achtergrond`) |
+
+- **De swirls worden OMGEKLEURD, niet per kleur opgeladen.** Elke SVG in
+  `brand/swirls/` heeft EEN kleur; de bouwer vervangt elke fill/stroke
+  (behalve `none`). Dezelfde vorm in meerdere kleuren (`..._grey50.svg`,
+  `..._white.svg`) is EEN keuze: de kleur achteraan de naam valt weg
+  (`KLEUR_ACHTERVOEGSEL`). Een vorm erbij = een SVG in die map. De bestaande
+  bestanden niet hernoemen: WordPress-pagina's linken ernaar (veld "Vorm op
+  de achtergrond" in mymmo-cards).
+- **Het voorbeeld en de PNG komen uit dezelfde tekenfunctie** (`teken()`),
+  op 1600 px breed (1200 als de PNG boven 2,9 MB komt).
+- **Beelden via de EIGEN oorsprong** (`eigenAdres()`: link.openvme.be/assets/...
+  -> `/assets/...`): een canvas met een beeld van een andere website kan je
+  niet bewaren. Een beeld van elders: eerst opladen.
+- **De bouwer laadt niets op en bewaart niets.** `opBewaar(keuzes, blob)`
+  is van de module: die kent haar eigen map en rechten. Bewaar altijd de
+  KEUZES (`normaliseerAchtergrond()`) naast de PNG, anders kan niemand ze
+  later bijstellen.
+- **Nog niet gebouwd:** de bouwer in de nieuwsbrief, AV-slides of mymmo-cards;
+  een eigen palet voor Syndicoach (komt per merk in `merkkleuren.js`).
 
 ## Nieuwsbrief: blokken die zichzelf vullen en events in de kijker (2026-10-16)
 
@@ -5779,7 +5821,8 @@ Afspraken die bewust zo zijn:
   lezer" (`NB.state.voorbeeldStand === 'test'`) toont de brief zonder lege
   blokken, lijnen, handvatten of markeringen; dan is niets bewerkbaar, en een
   klik op een blok springt terug naar Werken.
-- **Merkkleuren** (2026-10-13): `MERKKLEUREN` in lib/constants.js (het palet van
+- **Merkkleuren** (2026-10-13): `MERKKLEUREN` (sinds 2026-10-19 in
+  `src/lib/merkkleuren.js`, doorgegeven via lib/constants.js; het palet van
   marketing) is de enige bron; de server aanvaardt enkel die kleuren als
   achtergrond (`merkkleur()`). In de werkbalk boven het gekozen blok (en in
   het paneel onder Opmaak) staat een kleurbolletje (`newsletters-kleur.js`,

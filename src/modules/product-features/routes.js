@@ -16,6 +16,7 @@ import {
 import {
   ASSET_CATEGORY_PREFIXES, isWithinAssetNamespace, canReadAssetPrefix, listDynamicAssetCategories,
 } from '../asset-manager/lib/namespace.js';
+import { bouwerGegevens } from '../../lib/achtergrond.js';
 
 const MAX_BEELD = 3 * 1024 * 1024;
 const BEELD_TYPES = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp' };
@@ -31,6 +32,17 @@ function json(body, status = 200) {
     status,
     headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
   });
+}
+
+/**
+ * Een achtergrond hoort bij EEN beeld: de PNG die ze maakte. Wordt het beeld
+ * vervangen of weggehaald, dan vervalt ze (anders bewaar je keuzes bij een
+ * beeld dat er niet meer staat).
+ */
+function houdAchtergrondBijBeeld(waarden, huidig = {}) {
+  const ag = waarden.achtergrond !== undefined ? waarden.achtergrond : huidig.achtergrond;
+  const beeld = waarden.image_url !== undefined ? waarden.image_url : huidig.image_url;
+  if (ag && ag.url !== beeld) waarden.achtergrond = null;
 }
 
 function fout(err) {
@@ -87,6 +99,7 @@ export const routes = {
       eisBewerken(user);
       const waarden = normaliseer(await leesBody(request), { nieuw: true });
       waarden.parent_id = await controleerOuder(env, null, waarden.parent_id);
+      houdAchtergrondBijBeeld(waarden);
       if (waarden.position === undefined) {
         const broers = (await listFeatures(env)).filter((f) => (f.parent_id || null) === (waarden.parent_id || null));
         waarden.position = broers.reduce((m, f) => Math.max(m, f.position || 0), 0) + 10;
@@ -103,6 +116,7 @@ export const routes = {
       const waarden = normaliseer(await leesBody(request));
       if (waarden.parent_id !== undefined) waarden.parent_id = await controleerOuder(env, f.id, waarden.parent_id);
       if (waarden.name === '') throw new FeatureError('De titel mag niet leeg zijn.');
+      houdAchtergrondBijBeeld(waarden, f);
       return json({ success: true, data: await updateFeature(env, f.id, waarden, user.id) });
     } catch (err) { return fout(err); }
   },
@@ -126,6 +140,14 @@ export const routes = {
       if (!f) throw new FeatureError('Feature niet gevonden.', 404);
       await deleteFeature(env, f.id);
       return json({ success: true });
+    } catch (err) { return fout(err); }
+  },
+
+  /** De achtergrondbouwer: merkkleuren, vormen van het vlak en de swirls (brand/swirls/). */
+  'GET /api/achtergrond': async ({ env, user }) => {
+    try {
+      eisBewerken(user);
+      return json({ success: true, data: await bouwerGegevens(env) });
     } catch (err) { return fout(err); }
   },
 

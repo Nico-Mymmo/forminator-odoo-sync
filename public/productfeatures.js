@@ -22,6 +22,7 @@
     vuil: false,
     bewerken: false,    // false = de kaart (voorbeeld), true = het formulier
     kiezer: null,       // de beeldkiezer: { prefix, folders, files, laden }
+    achtergrond: null,  // palet, vormen en swirls voor de achtergrondbouwer (eenmaal ophalen)
     zoek: '',
     categorie: '',
     open: {},           // id -> true/false (ingeklapt of niet)
@@ -362,6 +363,8 @@
       + (f.image_url ? '<img src="' + e(f.image_url) + '" alt="" class="h-20 w-32 object-cover rounded-lg border border-base-content/10">' : '<div class="h-20 w-32 rounded-lg border border-dashed border-base-content/20 flex items-center justify-center text-xs opacity-50">geen beeld</div>')
       + (mag ? '<div class="flex flex-col gap-1.5"><label class="btn btn-sm btn-outline"><i data-lucide="upload" class="w-4 h-4"></i> Beeld opladen<input type="file" accept="image/*" class="hidden" data-change="beeld"></label>'
         + '<button type="button" class="btn btn-sm btn-outline" data-action="kiezer-open"><i data-lucide="images" class="w-4 h-4"></i> Kies uit Asset Manager</button>'
+        + (f.image_url ? '<button type="button" class="btn btn-sm btn-outline" data-action="achtergrond"><i data-lucide="palette" class="w-4 h-4"></i> ' + (f.achtergrond ? 'Achtergrond aanpassen' : 'Achtergrond maken') + '</button>' : '')
+        + (f.achtergrond ? '<button type="button" class="btn btn-sm btn-ghost" data-action="achtergrond-weg">Achtergrond weghalen</button>' : '')
         + (f.image_url ? '<button type="button" class="btn btn-sm btn-ghost" data-action="beeld-weg">Weghalen</button>' : '') + '</div>' : '')
       + '</div>' + veld('Of een adres van een beeld', 'image_url', f.image_url, { type: 'url', hint: 'https://', uitleg: 'Wat je oplaadt, komt in de Asset Manager terecht (map Publiek › productfeatures).' }) + '</div>'
       + '<label class="label cursor-pointer justify-start gap-3"><input type="checkbox" class="checkbox checkbox-sm" data-change="veld" data-veld="is_active"' + (f.is_active !== false ? ' checked' : '') + (mag ? '' : ' disabled') + '><span class="label-text">Actief (uit = niet te kiezen in een mail, blijft in de lijst)</span></label>'
@@ -411,17 +414,57 @@
     'kiezer-open': function () { return kiezerLaad(state.kiezer && !state.kiezer.fout ? state.kiezer.prefix : 'public/productfeatures/'); },
     'kiezer-map': function (el) { return kiezerLaad(el.dataset.prefix || ''); },
     'kiezer-kies': function (el) {
-      if (state.concept) { state.concept.image_url = el.dataset.url; state.vuil = true; }
+      if (state.concept) { state.concept.image_url = el.dataset.url; state.concept.achtergrond = null; state.vuil = true; }
       $('pfKiezer').close();
       tekenFormulier();
     },
     'kiezer-dicht': function () { $('pfKiezer').close(); },
-    'beeld-weg': function () { state.concept.image_url = ''; state.vuil = true; tekenFormulier(); },
+    'beeld-weg': function () { state.concept.image_url = ''; state.concept.achtergrond = null; state.vuil = true; tekenFormulier(); },
+    'achtergrond': achtergrondOpen,
+    'achtergrond-weg': function () {
+      var ag = state.concept && state.concept.achtergrond;
+      if (!ag) return;
+      state.concept.image_url = ag.bron || '';
+      state.concept.achtergrond = null;
+      state.vuil = true;
+      tekenFormulier();
+    },
     'bewaar': bewaar,
     'weg': weg,
     'omhoog': function (el) { verschuif(el.dataset.id, -1); },
     'omlaag': function (el) { verschuif(el.dataset.id, 1); },
   };
+
+  /**
+   * De achtergrondbouwer (public/om-achtergrond.js). Het beeld wordt het
+   * gemaakte PNG; het oorspronkelijke componentje blijft in achtergrond.bron,
+   * zodat je de achtergrond later kan bijstellen of weghalen.
+   */
+  async function achtergrondOpen() {
+    var f = state.concept;
+    if (!f || !f.image_url) return;
+    if (!state.achtergrond) state.achtergrond = await api('/achtergrond');
+    var ag = f.achtergrond;
+    var bron = (ag && ag.bron) || f.image_url;
+    window.OMAchtergrond.open({
+      titel: 'Achtergrond voor "' + (f.name || 'deze feature') + '"',
+      beeld: bron,
+      waarde: ag,
+      gegevens: state.achtergrond,
+      opBewaar: async function (keuzes, blob) {
+        var r = await upload(blob, (f.name || 'feature') + '-achtergrond');
+        keuzes.bron = bron;
+        keuzes.url = r.url;
+        if (state.concept !== f) return;
+        f.achtergrond = keuzes;
+        f.image_url = r.url;
+        state.vuil = true;
+        state.bewerken = true;
+        tekenFormulier();
+        toast('Achtergrond klaar. Vergeet niet te bewaren.');
+      },
+    });
+  }
 
   function nieuw(parentId) {
     if (state.vuil && !confirm('Je hebt wijzigingen die nog niet bewaard zijn. Toch verder?')) return;
@@ -448,6 +491,7 @@
     var body = {
       name: f.name, eyebrow: f.eyebrow, summary: f.summary, why: f.why, usps: f.usps, benefits: f.benefits, audiences: f.audiences,
       category: f.category || '', plan: f.plan || '', brand: f.brand || 'openvme', url: f.url, image_url: f.image_url, is_active: f.is_active !== false,
+      achtergrond: f.achtergrond || null,
       parent_id: f.parent_id || null,
     };
     try {
@@ -520,6 +564,7 @@
       try {
         var r = await upload(bestand, state.concept.name);
         state.concept.image_url = r.url;
+        state.concept.achtergrond = null;
         state.vuil = true;
         tekenFormulier();
       } catch (err) { toast(err.message, 'error'); }

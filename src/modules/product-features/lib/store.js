@@ -11,6 +11,7 @@ import {
   TABLE, CATEGORIE_KEYS, VOORDEEL_KEYS, DOELGROEP_KEYS, PAKKET_KEYS, MERKEN, MAX_USPS,
 } from './constants.js';
 import { boom, platteBoom } from './boom.js';
+import { normaliseerAchtergrond } from '../../../lib/achtergrond.js';
 
 export class FeatureError extends Error {
   constructor(message, status = 400) {
@@ -56,6 +57,8 @@ export function normaliseer(body = {}, { nieuw = false } = {}) {
   tekst('why', 800);
   if (body.image_url !== undefined) uit.image_url = url(body.image_url);
   if (body.url !== undefined) uit.url = url(body.url);
+  // De keuzes van de achtergrondbouwer (src/lib/achtergrond.js); null = geen.
+  if (body.achtergrond !== undefined) uit.achtergrond = normaliseerAchtergrond(body.achtergrond);
   if (body.usps !== undefined) {
     uit.usps = (Array.isArray(body.usps) ? body.usps : String(body.usps || '').split('\n'))
       .map((u) => kort(u, 200)).filter(Boolean).slice(0, MAX_USPS);

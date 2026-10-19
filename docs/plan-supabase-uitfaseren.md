@@ -144,3 +144,7 @@ gaan mee in fase E.
   Nog niet live.
 - **2026-10-16** — Schouwing van alle onderdelen (drie rapporten), samengevat
   in `docs/schouwing-modules.md`; werkbord herschikt.
+- **2026-10-19** — `product_features` kreeg een kolom `achtergrond`
+  (achtergrondbouwer): Supabase `20261019140000` en om-core
+  `0004_product_features_achtergrond.sql`. Allebei toepassen voor het
+  kopieren, anders mist de kopie die kolom.
