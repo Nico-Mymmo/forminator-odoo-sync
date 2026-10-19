@@ -43,7 +43,9 @@
   PM.toonTaakPaneel = toon;
 
   function toon(aan) {
-    PM.$('pmTaakWrap').classList.toggle('hidden', !aan);
+    PM.$('pmTaakKolom').classList.toggle('hidden', !aan);
+    PM.$('pmHoofdKolom').classList.toggle('xl:col-span-7', aan);
+    if (aan && window.innerWidth < 1280) PM.$('pmTaakKolom').scrollIntoView({ behavior: 'smooth', block: 'start' });
     // De gekozen rij of kaart licht op in het werkvlak.
     document.querySelectorAll('#pmHoofd .pm-gekozen').forEach(function (x) { x.classList.remove('pm-gekozen'); });
     if (aan && S.taak) {
@@ -122,13 +124,13 @@
       : d.project ? '<a href="#/project/' + e(d.project.id) + '" class="link link-hover truncate inline-flex items-center gap-1.5"><span class="w-2 h-2 rounded-sm" style="background:' + PM.kleurHex(d.project.color) + '"></span>' + e(d.project.name) + '</a>'
         : '<span class="opacity-70">Losse to-do</span>';
 
-    var html = '<div class="sticky top-0 z-10 bg-base-100 border-b border-base-content/10 px-4 py-2 flex items-center gap-2">'
+    var html = '<div class="sticky top-0 z-10 bg-base-100 border-b border-base-content/10 px-4 py-2 flex items-center gap-2 rounded-t-box">'
       + '<button type="button" class="btn btn-sm ' + (t.done ? 'btn-success' : 'btn-outline') + '" data-action="vink" data-id="' + e(t.id) + '"><i data-lucide="check" class="w-4 h-4"></i>' + (t.done ? 'Afgewerkt' : 'Markeer als af') + '</button>'
       + '<span class="flex-1"></span>'
       + '<button type="button" class="btn btn-ghost btn-sm btn-square" data-action="taak-link" title="Link naar deze taak kopiëren"><i data-lucide="link-2" class="w-4 h-4"></i></button>'
       + '<button type="button" class="btn btn-ghost btn-sm btn-square" data-action="taak-weg" title="Taak verwijderen"><i data-lucide="trash-2" class="w-4 h-4"></i></button>'
-      + '<button type="button" class="btn btn-ghost btn-sm btn-square" data-action="sluit-taak" title="Sluiten (Esc)"><i data-lucide="x" class="w-5 h-5"></i></button></div>'
-      + '<div class="p-4 flex flex-col gap-5">'
+      + '<button type="button" class="btn btn-ghost btn-sm btn-square" data-action="sluit-taak" aria-label="Sluiten" title="Sluiten (Esc)">✕</button></div>'
+      + '<div class="card-body p-4 gap-5">'
       + '<div><div class="text-xs flex items-center gap-1 mb-1 min-w-0">' + pad + '</div>'
       + '<textarea rows="1" class="pm-titelveld" data-change="taak-veld" data-veld="title" data-autogrow="1" maxlength="300">' + e(t.title) + '</textarea></div>'
 
