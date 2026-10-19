@@ -12,6 +12,8 @@
  *
  * res.partner telt honderdduizenden contacten. Enkel wie ergens naar verwezen
  * wordt (orders, facturen, leads, actiebladen) en de ouders daarvan komen mee.
+ * Ook daar haalt de dagelijkse ronde weg wat in Odoo verwijderd is (niet wat
+ * gearchiveerd is: active_test staat uit, dus dat blijft gewoon staan).
  *
  * Na een geslaagde ronde: SALES_VERSION_KEY ophogen (sleutel van de cache in
  * derive.js) en, één keer per dag, de momentopname van de abonnementen.
@@ -229,6 +231,9 @@ async function syncPartners(env, full) {
   const since = state?.last_write_date || null;
   const allesOpnieuw = full || !since || state?.schema !== PARTNER_SCHEMA;
   let read = 0, maxWrite = since || '';
+  // Wie Odoo in de volledige ronde nog teruggeeft. Een id die het niet meer
+  // teruggeeft, is in Odoo verwijderd (gearchiveerd komt mee, active_test uit).
+  const gezien = new Set();
 
   const fetchIds = async (list, extraDomain) => {
     for (let i = 0; i < list.length; i += PAGE) {
@@ -237,6 +242,7 @@ async function syncPartners(env, full) {
       });
       await upsertRows(env, PARTNER.table, PARTNER.columns, (part || []).map(PARTNER.row));
       read += (part || []).length;
+      (part || []).forEach((r) => gezien.add(r.id));
       (part || []).forEach((r) => { if (r.write_date && r.write_date > maxWrite) maxWrite = r.write_date; });
       (part || []).forEach((r) => { [m2o(r.parent_id), m2o(r.commercial_partner_id), m2o(r.x_studio_parent_expert)].forEach((x) => x && wanted.add(x)); });
     }
@@ -251,9 +257,15 @@ async function syncPartners(env, full) {
   }
   // Al gekend: enkel wat veranderde (of alles, bij de dagelijkse ronde).
   await fetchIds([...known], allesOpnieuw ? [] : [['write_date', '>=', since]]);
+  // Enkel in de volledige ronde: dan is ELKE gekende partner opgevraagd, dus wat
+  // ontbreekt bestaat niet meer. Een verwijderd testbedrijf bleef anders voor
+  // altijd meetellen (gebouwen via een expert, "Na te kijken"). Faalt een
+  // aanroep hierboven, dan komen we hier niet en wordt er niets weggehaald.
+  let removed = 0;
+  if (allesOpnieuw) removed = await deleteMissing(env, PARTNER.table, [...gezien]);
   await setState(env, 'partners', { last_write_date: maxWrite || since, last_run_at: nowUtc(), rows: read, last_error: null,
     schema: PARTNER_SCHEMA, ...(allesOpnieuw ? { last_full_at: nowUtc() } : {}) });
-  return { read };
+  return { read, removed };
 }
 
 async function syncLookups(env) {
