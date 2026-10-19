@@ -31,6 +31,19 @@ function check(error, wat) {
 }
 
 const kort = (v, max) => String(v ?? '').trim().slice(0, max);
+
+/**
+ * De beschrijving komt als HTML uit de tekstbewerker. Enkel collega's
+ * schrijven ze, maar scripts en event-handlers horen er nooit in: weg ermee.
+ */
+export function schoonHtml(html) {
+  return String(html || '')
+    .replace(/<\s*(script|style|iframe|object|embed)[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi, '')
+    .replace(/<\s*(script|style|iframe|object|embed)[^>]*\/?>/gi, '')
+    .replace(/\son[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+    .replace(/(href|src)\s*=\s*(["']?)\s*javascript:[^"'\s>]*/gi, '$1=$2#')
+    .trim();
+}
 const STATUS_KEYS = new Set(PROJECT_STATUSSEN.map((s) => s.key));
 const PRIO_KEYS = new Set(PRIORITEITEN.map((p) => p.key));
 const KLEUR_KEYS = new Set(KLEUREN.map((k) => k.key));
@@ -187,7 +200,7 @@ export function normaliseerTaak(body = {}, { nieuw = false } = {}) {
     uit.title = kort(body.title, MAX_TITEL);
     if (!uit.title) throw new PmError('Een taak heeft een titel nodig.');
   }
-  if (body.description !== undefined) uit.description = kort(body.description, MAX_BESCHRIJVING);
+  if (body.description !== undefined) uit.description = schoonHtml(kort(body.description, MAX_BESCHRIJVING));
   if (body.assignee_id !== undefined) uit.assignee_id = persoon(body.assignee_id);
   if (body.due_date !== undefined) uit.due_date = datum(body.due_date);
   if (body.priority !== undefined) {

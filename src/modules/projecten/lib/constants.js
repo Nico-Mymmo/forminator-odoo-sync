@@ -42,7 +42,7 @@ export const ODOO_MODELLEN = [
 ];
 
 export const MAX_TITEL = 300;
-export const MAX_BESCHRIJVING = 20000;
+export const MAX_BESCHRIJVING = 200000;
 export const MAX_OPMERKING = 10000;
 export const MAX_LABELS = 10;
 export const MAX_BIJLAGE = 15 * 1024 * 1024;

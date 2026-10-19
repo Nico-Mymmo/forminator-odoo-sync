@@ -96,7 +96,6 @@
       + (opties.ouder ? '<span class="text-xs opacity-50 truncate shrink-0 max-w-[10rem]">in ' + e(opties.ouder) + '</span>' : '')
       + subTelling(t, alle)
       + (t.labels && t.labels.length ? '<span class="hidden lg:inline-flex gap-1 shrink-0">' + labelsHtml(t) + '</span>' : '')
-      + (t.odoo_model ? '<i data-lucide="link" class="w-3.5 h-3.5 opacity-50 shrink-0" title="Gekoppeld aan ' + e(t.odoo_name || 'Odoo') + '"></i>' : '')
       + '</div></td>'
       + (opties.project ? '<td class="hidden md:table-cell"><span class="flex items-center gap-1.5 text-xs">' + (project ? '<span class="w-2 h-2 rounded-sm shrink-0" style="background:' + PM.kleurHex(project.color) + '"></span><span class="truncate max-w-[10rem]">' + e(project.name) + '</span>' : '<span class="opacity-40">Losse to-do</span>') + '</span></td>' : '')
       + '<td>' + persoonCel(t) + '</td>'
@@ -141,7 +140,6 @@
       + ((t.labels && t.labels.length) || t.priority === 'hoog' || t.priority === 'dringend'
         ? '<div class="flex flex-wrap items-center gap-1 mt-2">' + (t.priority === 'hoog' || t.priority === 'dringend' ? prioBadge(t) : '') + labelsHtml(t) + '</div>' : '')
       + '<div class="flex items-center gap-2 mt-2.5">' + subTelling(t, alle)
-      + (t.odoo_model ? '<i data-lucide="link" class="w-3.5 h-3.5 opacity-50"></i>' : '')
       + '<span class="flex-1"></span>'
       + (t.due_date ? '<span class="text-xs tabular-nums ' + PM.datumKlasse(t) + '">' + e(PM.datumKort(t.due_date)) + '</span>' : '')
       + (p ? PM.avatar(t.assignee_id, 6) : '') + '</div></div>';
@@ -181,7 +179,6 @@
       + '<span class="badge badge-' + st.tone + ' badge-sm">' + e(st.label) + '</span>'
       + (eigenaar ? '<span class="inline-flex items-center gap-1 opacity-80">' + PM.avatar(p.owner_id, 4) + e(eigenaar.naam) + '</span>' : '')
       + (p.due_date ? '<span class="opacity-70 inline-flex items-center gap-1"><i data-lucide="flag" class="w-3 h-3"></i>' + e(PM.datumKort(p.due_date)) + '</span>' : '')
-      + (p.odoo_model && p.odoo_id ? '<a href="' + e(PM.odooUrl(p)) + '" target="_blank" rel="noopener" class="link link-hover inline-flex items-center gap-1 opacity-70" title="Overgenomen uit Odoo: ' + e(p.odoo_name || '') + '"><i data-lucide="external-link" class="w-3 h-3"></i>Odoo</a>' : '')
       + '<span class="inline-flex items-center gap-1.5 opacity-70"><progress class="progress progress-primary w-16 h-1.5" value="' + pct + '" max="100"></progress>' + af + '/' + hoofd.length + '</span>'
       + '</div></div></div>'
       + '<div class="flex flex-wrap items-center gap-2">'
