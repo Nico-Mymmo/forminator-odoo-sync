@@ -193,6 +193,15 @@ function beeldTag(b, ctx, breedte, { radius = 14, href = '', alt = '' } = {}) {
 }
 
 /**
+ * Voorbeeld: staat er nog geen tekst naast een beeld, dan een lege alinea
+ * waarin de cursor terechtkomt. Zonder die alinea zet de browser de cursor
+ * naast het beeld (dat niet bewerkbaar is), midden op de regel.
+ */
+function legeAlinea(stukken) {
+  return stukken.length ? '' : '<p data-nb-leeg="1"></p>';
+}
+
+/**
  * Alinea's met het beeld erbij, op plek `na_alinea` (het aantal alinea's
  * ervoor; 0 = bij de eerste):
  *   'tekst'          tussen de alinea's, over de hele breedte
@@ -214,7 +223,7 @@ function tekstMetBeeld(stukken, b, ctx, id) {
       ? `<div align="center" style="text-align:center">${beeldTag(b, ctx, beeldBreedte(b, pl)).replace('width:100%', 'width:' + beeldBreedte(b, pl) + 'px').replace('display:block', 'display:inline-block')}</div>`
       : beeldTag(b, ctx, BEELD_KADERS.tekst.breedte);
     lijst.splice(n, 0, `<div${eiland} style="margin:${n === 0 ? 0 : 6}px 0 18px">${tag}</div>`);
-    return lijst.join('');
+    return lijst.join('') + (id ? legeAlinea(stukken) : '');
   }
   const breedte = beeldBreedte(b, pl);
   const marge = pl === 'rechts' ? '4px 0 12px 24px' : '4px 24px 12px 0';
@@ -226,7 +235,7 @@ function tekstMetBeeld(stukken, b, ctx, id) {
     // het beeld erin vult het eiland (en niet 46% van het eiland: dan was het
     // een postzegel).
     lijst.splice(Math.min(n, lijst.length), 0, `<div${eiland} style="float:${pl === 'rechts' ? 'right' : 'left'};width:${breedte}px;max-width:46%;margin:${marge}">${img.replace(/float:[a-z]+;/, '').replace(/margin:[^;]+;/, 'margin:0;').replace('max-width:46%', 'max-width:100%')}</div>`);
-    return lijst.join('');
+    return lijst.join('') + legeAlinea(stukken);
   }
   if (!lijst.length) return `<div>${img}</div>`;
   const i = Math.min(n, lijst.length - 1);
@@ -450,10 +459,10 @@ function blokArticle(item, ctx, id) {
     ? `<div data-nb-veld="text" data-placeholder="Typ hier je tekst. Een lege regel = een nieuwe alinea." style="font-family:${S.fontBody};font-size:16px;line-height:1.6;color:${S.text}">${tekstHtml}</div>`
     : tekstHtml;
   // Optioneel: een subtitel onder de titel. In het voorbeeld enkel zichtbaar
-  // als ze er staat of als het blok gekozen is (`data-nb-optioneel`).
+  // als ze er staat, of na "+ Subtitel" in de werkbalk (`data-nb-op-vraag`).
   const subStijl = `margin:-4px 0 14px;font-family:${S.fontBody};font-size:18px;font-weight:600;line-height:1.4;color:${S.headingSoft}`;
   const sub = id
-    ? `<div data-nb-veld="subtitle" data-nb-optioneel="1" data-placeholder="Subtitel (optioneel)" style="${subStijl}">${esc(c.subtitle || '')}</div>`
+    ? `<div data-nb-veld="subtitle" data-nb-optioneel="1" data-nb-op-vraag="1" data-placeholder="Subtitel" style="${subStijl}">${esc(c.subtitle || '')}</div>`
     : String(c.subtitle || '').trim() ? `<div style="${subStijl}">${esc(c.subtitle)}</div>` : '';
   // Het labeltje (naam van het blok) is ook optioneel en typ je in de brief.
   const labeltje = id
@@ -994,7 +1003,8 @@ const MET_KADER = new Set(['quote', 'statement', 'question', 'poll', 'events']);
 function metAchtergrond(html, kleur, kind) {
   const k = merkkleur(kleur);
   if (!k || !html) return html;
-  const gekleurd = html.replace(/<td style="([^"]*)"/, (_, stijl) => `<td style="${stijl};background-color:${k}"`);
+  // De eerste cel van het blok; die draagt ook `class="nb-cel"` (gsm-weergave).
+  const gekleurd = html.replace(/<td((?:\s+class="[^"]*")?) style="([^"]*)"/, (_, klasse, stijl) => `<td${klasse} style="${stijl};background-color:${k}"`);
   if (!isDonker(k) || MET_KADER.has(kind)) return gekleurd;
   // De eerste td (net gekleurd) niet nog eens: die heeft nu een achtergrond.
   return lichteTekst(gekleurd);
