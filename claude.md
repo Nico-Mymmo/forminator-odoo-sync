@@ -6064,6 +6064,8 @@ rapporten, tijdregistratie, privéprojecten, gasten van buiten mymmo.
 | Scherm | `public/projecten.html` + `projecten-core.js` (toestand, api, adres) / `-views.js` (zijbalk, kop, lijst, kanban, kalender, overzicht, Mijn taken, slepen) / `-taak.js` (detailpaneel, Odoo, Assetbeheer) / `-bootstrap.js` (luisteraars, vensters, opstarten) |
 | De kalenderstijl (EEN bron, zie hieronder) | `public/om-kalender.css` |
 | Homepage-tegel "Jouw taken vandaag" | `takenBlok()` + `loadTaken()` in `public/home.js`, `GET /projecten/api/home` |
+| Mijn team (teamweekly): wie onder wie staat | `lib/team.js` (uit `hr.employee.parent_id` in Odoo), `GET /api/team[?manager=]`, `tekenTeam()` in `-views.js`, adres `#/team[/<manager>]` |
+| Overname uit Odoo (teamdoelen, individuele doelen, project Koppeling Mollie) | `scripts/projecten/odoo-import.mjs` -> SQL -> `npx wrangler d1 execute om-core --remote --file ...`; migratie `0004_projecten_odoo_link.sql` (Odoo-verwijzing op een project) |
 
 Afspraken die bewust zo zijn:
 
@@ -6105,6 +6107,34 @@ Afspraken die bewust zo zijn:
   `/web#id=...&model=...`.
 - **Velden in het detailpaneel bewaren bij `change`** (verlaten van het veld),
   er is geen knop Opslaan. Enter in de titel bewaart.
+- **"Mijn team" komt uit Odoo, niet uit een eigen teamindeling** (2026-10-19,
+  voor de teamweekly). Wie onder wie staat is `hr.employee.parent_id`; de OM
+  legt via `src/lib/medewerkers.js` de brug naar de OM-gebruiker. Nico ziet zo
+  Elisa en David. De pagina toont per persoon (de manager eerst) te laat /
+  deze week / later / zonder datum, de projecten die hij bezit met hun status,
+  en de afgewerkte van de laatste 14 dagen. Een beheerder kan het team van een
+  andere manager kiezen (`?manager=`); een gewone gebruiker enkel het zijne.
+  De link staat enkel in de kolom links als er een team is (`has_team` in
+  `/api/bootstrap`) of voor een beheerder. Geen eigen teamtabel bouwen: dat
+  zou een tweede waarheid naast Odoo zijn.
+- **De doelen uit Odoo zijn OVERGENOMEN, eenmalig, op 2026-10-19**
+  (`scripts/projecten/odoo-import.mjs`). Teamdoel (`x_team_goal`) = een
+  project met beschrijving + WHY + WHAT + focus + teams in de beschrijving,
+  coordinator = eigenaar, Done = afgerond, Gearchiveerd = archief. Individueel
+  doel (`x_individual_goal`, enkel de actieve) = een taak in het project van
+  zijn teamdoel, anders in "Doelen van <voornaam>"; sectie = de fase in Odoo
+  (Nieuw / Te bespreken / In behandeling / Opgeleverd / Gearchiveerd),
+  Opgeleverd en Gearchiveerd = afgevinkt, hoge prioriteit = hoog, geblokkeerd
+  = label. Het Odoo-project "Koppeling Mollie" (82) = het project "Mollie
+  release campaign": secties = de fases, subtaken blijven subtaken, de
+  mijlpalen staan als mijlpaal-taken in een sectie Mijlpalen, en elke taak
+  draagt haar mijlpaal als label. Alles verwijst naar zijn Odoo-record
+  (`odoo_model`/`odoo_id`, ook op het project sinds 0004). De ids zijn vast
+  (`odoo:<model>:<id>`) en de SQL is `INSERT OR IGNORE`: opnieuw draaien maakt
+  niets dubbel en overschrijft geen wijziging in de OM. Odoo-gebruikers zonder
+  OM-account (Seppe Daeseleire, Ken Wuytack) kregen taken zonder
+  verantwoordelijke. In Odoo is niets gewijzigd; wat daar verder gebeurt,
+  komt NIET vanzelf over.
 - **De pagina volgt de opbouw van de REST van de OM, niet die van Asana**
   (2026-10-19; een eerste paginabrede versie met eigen zijbalk en eigen
   stijl is op vraag van Nico teruggedraaid: "dit moet geïntegreerder").

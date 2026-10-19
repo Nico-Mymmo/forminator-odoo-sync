@@ -37,6 +37,7 @@
     var archief = S.projecten.filter(function (p) { return p.archived; });
     var html = '<a href="#/mijn" class="pm-nav ' + (S.route.soort === 'mijn' ? 'pm-nav-actief' : '') + '">'
       + '<i data-lucide="circle-check-big" class="w-4 h-4"></i><span class="flex-1">Mijn taken</span></a>'
+      + (S.boot && (S.boot.has_team || S.boot.is_manager_admin) ? '<a href="#/team" class="pm-nav ' + (S.route.soort === 'team' ? 'pm-nav-actief' : '') + '"><i data-lucide="users" class="w-4 h-4"></i><span class="flex-1">Mijn team</span></a>' : '')
       + '<div class="text-xs font-semibold uppercase tracking-wide opacity-50 mt-3 mb-1 px-2">Projecten</div>'
       + (actief.length ? actief.map(projectKnop).join('') : '<p class="text-xs opacity-50 px-2 py-1">Nog geen projecten.</p>');
     if (archief.length) {
@@ -177,6 +178,7 @@
       + '<span class="badge badge-' + st.tone + ' badge-sm">' + e(st.label) + '</span>'
       + (eigenaar ? '<span class="inline-flex items-center gap-1 opacity-80">' + PM.avatar(p.owner_id, 4) + e(eigenaar.naam) + '</span>' : '')
       + (p.due_date ? '<span class="opacity-70 inline-flex items-center gap-1"><i data-lucide="flag" class="w-3 h-3"></i>' + e(PM.datumKort(p.due_date)) + '</span>' : '')
+      + (p.odoo_model && p.odoo_id ? '<a href="' + e(PM.odooUrl(p)) + '" target="_blank" rel="noopener" class="link link-hover inline-flex items-center gap-1 opacity-70" title="Overgenomen uit Odoo: ' + e(p.odoo_name || '') + '"><i data-lucide="external-link" class="w-3 h-3"></i>Odoo</a>' : '')
       + '<span class="inline-flex items-center gap-1.5 opacity-70"><progress class="progress progress-primary w-16 h-1.5" value="' + pct + '" max="100"></progress>' + af + '/' + hoofd.length + '</span>'
       + '</div></div></div>'
       + '<div class="flex flex-wrap items-center gap-2">'
@@ -447,7 +449,85 @@
 
   // ── Werkblad ──────────────────────────────────────────────────────────────
 
+  // ── Mijn team (teamweekly) ────────────────────────────────────────────────
+  //
+  // Per persoon (de manager zelf en wie in Odoo onder hem staat): wat te laat
+  // is, wat deze week moet, wat later komt, en de projecten die hij bezit.
+  // Bedoeld om tijdens de teamweekly door te lopen; een klik opent de taak.
+
+  function teamGroepen(taken) {
+    var v = PM.vandaag();
+    var week = PM.eindeWeek();
+    var g = { laat: [], week: [], later: [], geen: [], af: [] };
+    taken.forEach(function (t) {
+      if (t.done) g.af.push(t);
+      else if (!t.due_date) g.geen.push(t);
+      else if (t.due_date < v) g.laat.push(t);
+      else if (t.due_date <= week) g.week.push(t);
+      else g.later.push(t);
+    });
+    Object.keys(g).forEach(function (k) {
+      g[k].sort(function (a, b) { return String(a.due_date || '9999').localeCompare(String(b.due_date || '9999')); });
+    });
+    return g;
+  }
+
+  function teamTaak(t) {
+    var p = PM.projectVan(t.project_id);
+    return '<div class="flex items-center gap-2 px-3 py-1.5 hover:bg-base-content/5 cursor-pointer ' + (t.done ? 'pm-af' : '') + gekozenKlasse(t) + '" data-action="open-taak" data-id="' + e(t.id) + '" data-drag-task="' + e(t.id) + '">'
+      + vinkje(t) + '<span class="pm-titel flex-1 min-w-0 truncate text-sm">' + e(t.title) + '</span>'
+      + (p ? '<span class="hidden sm:inline-flex items-center gap-1 text-xs opacity-60 max-w-[10rem] truncate"><span class="w-2 h-2 rounded-sm shrink-0" style="background:' + PM.kleurHex(p.color) + '"></span>' + e(p.name) + '</span>' : '')
+      + (t.priority === 'hoog' || t.priority === 'dringend' ? prioBadge(t) : '')
+      + '<span class="text-xs tabular-nums whitespace-nowrap ' + PM.datumKlasse(t) + '">' + e(PM.datumKort(t.due_date)) + '</span></div>';
+  }
+
+  function teamPersoon(lid, isManager) {
+    var p = PM.persoon(lid.user_id);
+    var g = teamGroepen(lid.tasks);
+    var open = lid.tasks.filter(function (t) { return !t.done; }).length;
+    var blok = function (titel, lijst, klasse) {
+      if (!lijst.length) return '';
+      return '<div class="px-3 pt-2 pb-0.5 text-[11px] font-semibold uppercase tracking-wide ' + (klasse || 'opacity-50') + '">' + titel + ' <span class="font-normal">' + lijst.length + '</span></div>'
+        + '<div class="pm-lijnen">' + lijst.map(teamTaak).join('') + '</div>';
+    };
+    return kaartWrap('<div class="card-body p-0">'
+      + '<div class="flex items-center gap-3 px-4 py-3 border-b border-base-content/10">' + PM.avatar(lid.user_id, 10)
+      + '<div class="min-w-0 flex-1"><div class="font-semibold truncate">' + e(p ? p.naam : 'Onbekend') + (isManager ? ' <span class="badge badge-ghost badge-xs align-middle">manager</span>' : '') + '</div>'
+      + '<div class="text-xs opacity-60">' + (p && p.functie ? e(p.functie) + ' · ' : '') + open + ' open' + (g.laat.length ? ', <span class="text-error font-medium">' + g.laat.length + ' te laat</span>' : '') + '</div></div>'
+      + '<a href="#/mijn" class="btn btn-ghost btn-xs hidden"></a></div>'
+      + (lid.projects.length ? '<div class="px-3 py-2 border-b border-base-content/10 flex flex-wrap gap-1.5">' + lid.projects.map(function (pr) {
+        var st = PM.status(pr.status);
+        return '<a href="#/project/' + e(pr.id) + '/overzicht" class="badge badge-outline gap-1.5 py-2.5 hover:bg-base-content/5"><span class="w-2 h-2 rounded-sm" style="background:' + PM.kleurHex(pr.color) + '"></span>' + e(pr.name) + '<span class="badge badge-' + st.tone + ' badge-xs">' + e(st.label) + '</span></a>';
+      }).join('') + '</div>' : '')
+      + blok('Te laat', g.laat, 'text-error') + blok('Deze week', g.week) + blok('Later', g.later) + blok('Zonder datum', g.geen)
+      + (open ? '' : '<p class="px-4 py-4 text-sm opacity-60">Geen open taken.</p>')
+      + (g.af.length ? '<details class="border-t border-base-content/10"><summary class="px-3 py-2 text-xs opacity-60 cursor-pointer">Afgewerkt, laatste 14 dagen (' + g.af.length + ')</summary><div class="pm-lijnen">' + g.af.map(teamTaak).join('') + '</div></details>' : '')
+      + '</div>', ' pm-teamkaart');
+  }
+
+  function tekenTeam() {
+    var d = S.team;
+    var mgr = PM.persoon(d.manager);
+    var keuze = '';
+    if (d.managers && d.managers.length > 1) {
+      keuze = '<select class="select select-bordered select-sm" data-change="team-manager">' + d.managers.map(function (id) {
+        var m = PM.persoon(id);
+        return '<option value="' + e(id) + '"' + (id === d.manager ? ' selected' : '') + '>Team van ' + e(m ? m.voornaam : id) + '</option>';
+      }).join('') + '</select>';
+    }
+    var alle = d.members.reduce(function (a, m) { return a.concat(m.tasks); }, []);
+    var teLaat = alle.filter(function (t) { return !t.done && t.due_date && t.due_date < d.vandaag; }).length;
+    PM.$('pmKop').innerHTML = '<div class="flex flex-wrap items-center justify-between gap-3">'
+      + '<div><h2 class="text-lg font-semibold">Team van ' + e(mgr ? mgr.voornaam : '') + '</h2><p class="text-xs opacity-60">Voor de teamweekly: wat op ieders naam staat, en de projecten die ze trekken.'
+      + (teLaat ? ' <span class="text-error font-medium">' + teLaat + ' te laat.</span>' : '') + '</p></div>' + keuze + '</div>';
+    PM.$('pmHoofd').innerHTML = '<div class="grid gap-4 md:grid-cols-2 2xl:grid-cols-3 items-start">'
+      + d.members.map(function (lid, i) { return teamPersoon(lid, i === 0); }).join('') + '</div>';
+  }
+
+  PM.bijWijziging('team-manager', function (el) { PM.ga({ soort: 'team', id: el.value, weergave: 'lijst', taak: null }); });
+
   PM.tekenHoofd = function () {
+    if (S.route.soort === 'team') { if (S.team) tekenTeam(); PM.ikons(); return; }
     if (S.route.soort === 'mijn') { tekenMijn(); PM.ikons(); return; }
     var d = S.project;
     if (!d) { PM.$('pmKop').innerHTML = ''; PM.$('pmHoofd').innerHTML = '<div class="flex justify-center py-10"><span class="loading loading-spinner"></span></div>'; return; }
@@ -476,6 +556,7 @@
   PM.herlaad = async function () {
     var werk = [PM.laadProjecten()];
     if (S.route.soort === 'project') werk.push(PM.api('/projects/' + S.route.id).then(function (d) { S.project = d; }));
+    else if (S.route.soort === 'team') werk.push(PM.api('/team' + (S.route.id ? '?manager=' + encodeURIComponent(S.route.id) : '')).then(function (d) { S.team = d; }));
     else werk.push(PM.api('/my-tasks').then(function (d) { S.mijn = d; }));
     await Promise.all(werk);
     PM.teken();

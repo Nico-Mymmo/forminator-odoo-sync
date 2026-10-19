@@ -172,6 +172,9 @@
         var d = await PM.probeer(function () { return PM.api('/projects/' + r.id); });
         if (!d) { PM.ga({ soort: 'mijn', id: null, weergave: 'lijst', taak: null }); return; }
         S.project = d;
+      } else if (r.soort === 'team') {
+        S.team = await PM.probeer(function () { return PM.api('/team' + (r.id ? '?manager=' + encodeURIComponent(r.id) : '')); });
+        if (!S.team) { PM.ga({ soort: 'mijn', id: null, weergave: 'lijst', taak: null }); return; }
       } else if (!S.mijn || anderScherm) {
         S.mijn = await PM.probeer(function () { return PM.api('/my-tasks'); }) || { tasks: [], parents: [] };
       }

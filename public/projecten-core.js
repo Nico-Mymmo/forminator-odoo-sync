@@ -183,6 +183,7 @@
       h = h.slice(0, q);
     }
     var delen = h.split('/').filter(Boolean);
+    if (delen[0] === 'team') return { soort: 'team', id: delen[1] || null, weergave: 'lijst', taak: taak };
     if (delen[0] === 'project' && delen[1]) {
       var w = delen[2] || 'lijst';
       if (w === 'bord') w = 'kanban';
@@ -192,7 +193,8 @@
   };
 
   PM.adres = function (r) {
-    var basis = r.soort === 'project' ? '#/project/' + r.id + (r.weergave && r.weergave !== 'lijst' ? '/' + r.weergave : '')
+    var basis = r.soort === 'team' ? '#/team' + (r.id ? '/' + r.id : '')
+      : r.soort === 'project' ? '#/project/' + r.id + (r.weergave && r.weergave !== 'lijst' ? '/' + r.weergave : '')
       : '#/mijn' + (r.weergave === 'kalender' ? '/kalender' : '');
     return basis + (r.taak ? '?taak=' + encodeURIComponent(r.taak) : '');
   };
