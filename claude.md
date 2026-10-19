@@ -6101,10 +6101,23 @@ Afspraken die bewust zo zijn:
   uit Assetbeheer (enkel een verwijzing, met de rechten van Assetbeheer), of
   een gewone link. Verwijderen van een taak of project haalt de opgeladen
   bestanden ook uit R2.
-- **De koppeling met Odoo is ALLEEN LEZEN** en een gesloten lijst
-  (`ODOO_MODELLEN`: crm.lead, res.partner, sale.order). De naam wordt bij het
-  koppelen bewaard (`odoo_name`); de link gaat naar `odooOrigin(env)` met
-  `/web#id=...&model=...`.
+- **Er is GEEN koppeling met Odoo meer in het scherm** (Nico, 2026-10-19:
+  "enkel voor het ophalen"). De kolommen `odoo_model`/`odoo_id`/`odoo_name`
+  op taak en project blijven bestaan voor de herkomst van wat overgenomen is
+  en om een tweede import niets dubbel te laten maken, en `GET
+  /api/odoo/zoek` + de dialoog `#pmOdoo` staan er nog, maar geen enkele knop
+  wijst ernaar. Nieuwe doelen gaan niet terug naar Odoo: D1 is de enige
+  opslag.
+- **De beschrijving is HTML uit de tekstbewerker van Koppelingen**
+  (`quill-editor-component.js`, Quill 2.0.2; `maakBeschrijving()` in
+  `-taak.js`): koppen, lijsten (ook afvinklijstjes), citaat, code, links,
+  afbeeldingen. Een afbeelding of bestand in de tekst wordt EERST een bijlage
+  van de taak (`POST /api/tasks/:id/attachments`) en komt dan als `<img>` of
+  link met die url in de tekst: nooit base64 in de database. Bewaren bij
+  het verlaten van de tekst of met de knop in de werkbalk; de server haalt
+  scripts, event-handlers en `javascript:` eruit (`schoonHtml()` in
+  store.js). Een beschrijving zonder tags (van voor 2026-10-19) wordt bij
+  het openen alinea's (`alsHtml()`).
 - **Velden in het detailpaneel bewaren bij `change`** (verlaten van het veld),
   er is geen knop Opslaan. Enter in de titel bewaart.
 - **De lijst is `table-fixed` met een `<colgroup>`** (2026-10-19): bij
@@ -6166,9 +6179,11 @@ Afspraken die bewust zo zijn:
   een `table table-sm` in een kaart met per sectie een groepsrij
   (inklapbaar) en een "Taak toevoegen"-rij; Mijn taken heeft daarbij een
   kolom Project. Het detail van een taak is een KAART RECHTS van het
-  werkblad (`grid-cols-12`: 7/12 + 5/12 vanaf xl, sticky), zoals het
-  detailpaneel van Events; zonder open taak neemt het werkblad de volle
-  breedte. **Het bord heet Kanban** (`#/project/<id>/kanban`; het oude adres
+  werkblad (`grid-cols-12`: 7/12 + 5/12 vanaf xl), zoals het detailpaneel
+  van Events; zonder open taak neemt het werkblad de volle breedte. De
+  kaart is bewust NIET sticky en heeft GEEN eigen scrollbalk (Nico,
+  2026-10-19: "geen dubbele scrollbars", en "als je iets uitklapt vergroot
+  het venster niet"): ze groeit mee met haar inhoud en de pagina scrolt. **Het bord heet Kanban** (`#/project/<id>/kanban`; het oude adres
   `/bord` wordt omgezet): kolommen = secties, kaart verslepen = sectie
   wijzigen, plusje bovenaan en toevoegrij onderaan elke kolom. Wat Asana
   wél leverde en bleef: de inklapbare secties, de kolommen in de lijst, de

@@ -91,6 +91,7 @@
     var tekst;
     if (h.action === 'aangemaakt') tekst = 'maakte de taak aan';
     else if (h.action === 'bijlage') tekst = 'voegde bijlage "' + e(h.new_value) + '" toe';
+    else if (h.action === 'import') { naam = 'Overgenomen'; tekst = 'uit Odoo'; }
     else if (h.field === 'description') tekst = 'paste de beschrijving aan';
     else if (h.field === 'done') tekst = h.new_value === 'ja' ? 'vinkte de taak af' : 'zette de taak terug open';
     else {
@@ -146,14 +147,12 @@
       + veld('Labels', '<div class="flex flex-wrap items-center gap-1.5 py-1">'
         + (t.labels || []).map(function (l, i) { return '<span class="badge badge-ghost gap-1">' + e(l) + '<button type="button" data-action="label-weg" data-i="' + i + '" title="Weghalen"><i data-lucide="x" class="w-3 h-3"></i></button></span>'; }).join('')
         + '<input type="text" class="input input-ghost input-xs w-32" placeholder="+ label (Enter)" maxlength="30" data-label-invoer="1" list="pmLabelLijst"></div>')
-      + veld('Odoo', t.odoo_model
-        ? '<div class="flex items-center gap-2 py-1"><a href="' + e(PM.odooUrl(t)) + '" target="_blank" rel="noopener" class="link link-primary text-sm truncate inline-flex items-center gap-1.5"><i data-lucide="external-link" class="w-3.5 h-3.5"></i>' + e(t.odoo_name) + '</a>'
-          + '<button type="button" class="btn btn-ghost btn-xs" data-action="odoo-los" title="Ontkoppelen"><i data-lucide="x" class="w-3.5 h-3.5"></i></button></div>'
-        : '<button type="button" class="btn btn-ghost btn-sm justify-start" data-action="odoo-koppel"><i data-lucide="link" class="w-4 h-4"></i>Koppelen aan een lead, klant of offerte</button>')
       + '</div>'
 
-      + '<div><h3 class="text-sm font-semibold mb-1">Beschrijving</h3>'
-      + '<textarea class="textarea textarea-bordered w-full min-h-[6rem] text-sm leading-relaxed" data-change="taak-veld" data-veld="description" data-autogrow="1" placeholder="Wat moet er gebeuren, wat is afgesproken…">' + e(t.description) + '</textarea></div>'
+      + '<div><div class="flex items-center justify-between mb-1"><h3 class="text-sm font-semibold">Beschrijving</h3>'
+      + '<label class="btn btn-ghost btn-xs" title="Een bestand in de tekst zetten (komt ook bij de bijlagen)"><i data-lucide="paperclip" class="w-3.5 h-3.5"></i>Bestand in tekst<input type="file" class="hidden" data-change="beschrijving-bestand"></label></div>'
+      + '<div class="pm-beschrijving"><div id="pmBeschrijvingEditor"></div></div>'
+      + '<p class="text-xs opacity-50 mt-1">Wordt bewaard zodra je ergens anders klikt, of met de knop in de werkbalk.</p></div>'
 
       + (t.parent_id ? '' : '<div><h3 class="text-sm font-semibold mb-1 flex items-center gap-2">Subtaken'
         + (d.subtasks.length ? '<span class="opacity-50 font-normal">' + d.subtasks.filter(function (x) { return x.done; }).length + '/' + d.subtasks.length + '</span>' : '') + '</h3>'
@@ -190,6 +189,7 @@
       + '</div>';
     PM.$('pmTaak').innerHTML = html;
     toon(true);
+    maakBeschrijving(t);
     groeiAlle();
     PM.ikons();
     var lijst = PM.$('pmLabelLijst');
@@ -201,6 +201,89 @@
     (S.project ? S.project.tasks : []).concat(S.mijn ? S.mijn.tasks : []).forEach(function (t) { (t.labels || []).forEach(function (l) { set[l] = 1; }); });
     return Object.keys(set).sort();
   }
+
+  // ── De beschrijving: Quill (zelfde component als de chatter in Koppelingen) ──
+
+  var editor = null;        // { quill, getHTML, ... } van EOQuill
+  var editorTaakId = null;
+  var editorBewaard = '';
+
+  /** Een oude beschrijving is gewone tekst; die wordt alinea's. HTML blijft HTML. */
+  function alsHtml(tekst) {
+    var s = String(tekst || '');
+    if (!s.trim()) return '';
+    if (/<[a-z][\s\S]*>/i.test(s)) return s;
+    return s.split(/\n{2,}/).map(function (al) { return '<p>' + e(al).replace(/\n/g, '<br>') + '</p>'; }).join('');
+  }
+
+  async function bewaarBeschrijving() {
+    if (!editor || !S.taak || S.taak.task.id !== editorTaakId) return;
+    var html = editor.getHTML();
+    if (html === editorBewaard) return;
+    editorBewaard = html;
+    await bewaar({ description: html }, true);
+  }
+
+  /** Een bestand opladen als bijlage en teruggeven wat het werd ({ url, name, content_type }). */
+  async function laadOp(bestand) {
+    return PM.probeer(function () { return PM.upload('/tasks/' + S.taak.task.id + '/attachments', bestand); });
+  }
+
+  function maakBeschrijving(t) {
+    var host = PM.$('pmBeschrijvingEditor');
+    if (!host || !window.EOQuill) return;
+    editorTaakId = t.id;
+    editor = window.EOQuill.create({
+      target: host,
+      initialHtml: alsHtml(t.description),
+      placeholder: 'Wat moet er gebeuren, wat is afgesproken, wat moet je weten…',
+      toolbar: [
+        [{ header: [2, 3, false] }],
+        ['bold', 'italic', 'underline', 'strike'],
+        [{ list: 'ordered' }, { list: 'bullet' }, { list: 'check' }],
+        ['blockquote', 'code-block'],
+        ['link', 'image', 'clean'],
+      ],
+      onSave: function (html) { editorBewaard = html; return bewaar({ description: html }, true); },
+      saveTooltip: 'Beschrijving bewaren',
+    });
+    if (!editor) return;
+    editorBewaard = editor.getHTML();
+    // Een afbeelding komt niet als base64 in de tekst, maar als bijlage bij de taak.
+    var tb = editor.quill.getModule('toolbar');
+    if (tb) tb.addHandler('image', function () {
+      var inp = document.createElement('input');
+      inp.type = 'file'; inp.accept = 'image/*';
+      inp.onchange = async function () {
+        var b = inp.files && inp.files[0];
+        if (!b) return;
+        var a = await laadOp(b);
+        if (!a) return;
+        var r = editor.quill.getSelection(true);
+        editor.quill.insertEmbed(r ? r.index : 0, 'image', a.url, 'user');
+        editor.quill.setSelection((r ? r.index : 0) + 1, 0);
+      };
+      inp.click();
+    });
+    // Bewaren zodra je de tekst verlaat (de knop in de werkbalk blijft bestaan).
+    editor.quill.root.addEventListener('blur', function () { setTimeout(bewaarBeschrijving, 150); });
+  }
+
+  PM.bijWijziging('beschrijving-bestand', async function (el) {
+    var b = el.files && el.files[0];
+    if (!b || !editor) return;
+    var a = await laadOp(b);
+    if (!a) return;
+    var r = editor.quill.getSelection(true);
+    var i = r ? r.index : editor.quill.getLength() - 1;
+    if (String(a.content_type || '').indexOf('image/') === 0) {
+      editor.quill.insertEmbed(i, 'image', a.url, 'user');
+    } else {
+      editor.quill.insertText(i, a.name, { link: a.url }, 'user');
+      editor.quill.insertText(i + a.name.length, ' ', 'user');
+    }
+    await bewaarBeschrijving();
+  });
 
   function groei(el) { el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px'; }
   function groeiAlle() { document.querySelectorAll('#pmTaak [data-autogrow]').forEach(groei); }

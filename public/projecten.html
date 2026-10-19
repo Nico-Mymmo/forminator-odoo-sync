@@ -16,6 +16,8 @@
   <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.css" rel="stylesheet" />
   <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.js"></script>
   <link href="/om-kalender.css" rel="stylesheet" />
+  <link href="https://cdn.jsdelivr.net/npm/quill@2.0.2/dist/quill.snow.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/quill@2.0.2/dist/quill.js"></script>
   <script src="/shared-navbar.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.3/dist/confetti.browser.min.js"></script>
   <style>
@@ -72,6 +74,11 @@
     .pm-veld { display: grid; grid-template-columns: 7rem minmax(0, 1fr); gap: .5rem; align-items: start; }
     .pm-titelveld { width: 100%; resize: none; overflow: hidden; background: transparent; font-size: 1.15rem; font-weight: 600; line-height: 1.3; border-radius: .4rem; padding: .15rem .3rem; margin-left: -.3rem; }
     .pm-titelveld:hover, .pm-titelveld:focus { background: oklch(var(--bc) / 0.05); outline: none; }
+    /* De beschrijving: de tekstbewerker van Koppelingen (quill-editor-component.js), zonder eigen scrollbalk. */
+    .pm-beschrijving .ql-editor { min-height: 6rem; font-size: .875rem; line-height: 1.55; padding: .75rem .9rem; }
+    .pm-beschrijving .ql-editor img { max-width: 100%; border-radius: .4rem; margin: .25rem 0; }
+    .pm-beschrijving .ql-editor a { color: oklch(var(--p)); text-decoration: underline; }
+    .pm-beschrijving .ql-editor.ql-blank::before { font-style: normal; color: oklch(var(--bc) / 0.4); }
   </style>
 </head>
 <body class="bg-base-200 min-h-screen">
@@ -112,7 +119,7 @@
             <div id="pmHoofd"><div class="flex justify-center py-10"><span class="loading loading-spinner"></span></div></div>
           </div>
           <div id="pmTaakKolom" class="col-span-12 xl:col-span-5 hidden">
-            <div id="pmTaakWrap" class="card bg-base-100 border border-base-content/10 shadow-sm xl:sticky xl:top-[calc(48px+1.5rem)] xl:max-h-[calc(100vh-48px-3rem)] xl:overflow-y-auto">
+            <div id="pmTaakWrap" class="card bg-base-100 border border-base-content/10 shadow-sm">
               <div id="pmTaak"></div>
             </div>
           </div>
@@ -197,6 +204,7 @@
 
   <div id="pmToast" class="toast toast-end z-[100]"></div>
 
+  <script src="/quill-editor-component.js"></script>
   <script src="/projecten-core.js"></script>
   <script src="/projecten-views.js"></script>
   <script src="/projecten-feest.js"></script>
