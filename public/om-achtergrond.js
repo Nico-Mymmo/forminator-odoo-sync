@@ -188,6 +188,8 @@
       + '<section><h4 class="font-semibold text-sm mb-1.5">Swirl</h4>' + swirlLijst()
       + (s ? '<div class="mt-2 flex flex-col gap-2">' + kleurKnoppen('swirl-kleur', s.kleur, false)
         + schuif('Grootte', 'swirl-schaal', s.schaal, 0.2, 3, 0.01)
+        + schuif('Links - rechts', 'swirl-x', s.x, -0.5, 1.5, 0.01)
+        + schuif('Boven - onder', 'swirl-y', s.y, -0.5, 1.5, 0.01)
         + schuif('Draaien', 'swirl-draai', s.draai, -180, 180, 1)
         + schuif('Doorzichtig', 'swirl-dekking', 1.05 - s.dekking, 0.05, 1, 0.01)
         + '</div>' : '')
@@ -196,7 +198,7 @@
       + schuif('Grootte', 'beeld-schaal', k.beeld.schaal, 0.2, 1.4, 0.01)
       + '<div class="flex gap-1.5 mt-1"><button type="button" class="btn btn-xs btn-ghost" data-oma="beeld-midden">Beeld in het midden</button></div>'
       + '</section>'
-      + '<p class="text-xs opacity-60">Versleep het beeld of de swirl in het voorbeeld om ze te verplaatsen. Wat buiten het vlak valt, wordt afgesneden.</p>'
+      + '<p class="text-xs opacity-60">Versleep het beeld of de swirl in het voorbeeld. De swirl pak je vast op een plek waar het beeld doorzichtig is, of met de schuifjes. Wat buiten het vlak valt, wordt afgesneden.</p>'
       + '</div>';
   }
 
@@ -245,6 +247,8 @@
   var schuiven = {
     'swirl-schaal': function (n) { v.keuzes.swirl.schaal = n; },
     'swirl-draai': function (n) { v.keuzes.swirl.draai = n; },
+    'swirl-x': function (n) { v.keuzes.swirl.x = n; },
+    'swirl-y': function (n) { v.keuzes.swirl.y = n; },
     'swirl-dekking': function (n) { v.keuzes.swirl.dekking = Math.round((1.05 - n) * 100) / 100; },
     'beeld-schaal': function (n) { v.keuzes.beeld.schaal = n; },
   };
@@ -286,7 +290,28 @@
     });
   }
 
-  // Slepen in het voorbeeld: eerst het beeld (dat ligt bovenaan), dan de swirl.
+  /**
+   * Hoe doorzichtig is het beeld op dit punt (0-255)? Een componentje is
+   * meestal grotendeels doorzichtig: wie daar klikt, bedoelt de swirl erachter.
+   * Lukt het lezen niet, dan telt het hele kader als beeld.
+   */
+  var alfa = null; // { img, ctx }
+  function alfaOp(img, x, y) {
+    try {
+      if (!alfa || alfa.img !== img) {
+        var c = document.createElement('canvas');
+        c.width = img.naturalWidth;
+        c.height = img.naturalHeight;
+        var cx = c.getContext('2d', { willReadFrequently: true });
+        cx.drawImage(img, 0, 0);
+        alfa = { img: img, ctx: cx };
+      }
+      return alfa.ctx.getImageData(Math.floor(x), Math.floor(y), 1, 1).data[3];
+    } catch (err) { return 255; }
+  }
+
+  // Slepen in het voorbeeld: eerst het beeld (dat ligt bovenaan, maar enkel
+  // waar het niet doorzichtig is), dan de swirl.
   function koppelSlepen() {
     var c = v.canvas;
     var sleep = null;
@@ -295,10 +320,20 @@
       return { x: (ev.clientX - r.left) * c.width / r.width, y: (ev.clientY - r.top) * c.height / r.height };
     }
     function binnen(p, rd) { return rd && p.x >= rd.x && p.x <= rd.x + rd.w && p.y >= rd.y && p.y <= rd.y + rd.h; }
+    function opBeeld(p, rd) {
+      var img = v.imgs && v.imgs.beeld;
+      if (!binnen(p, rd) || !img) return false;
+      return alfaOp(img, (p.x - rd.x) / rd.w * img.naturalWidth, (p.y - rd.y) / rd.h * img.naturalHeight) > 16;
+    }
+    function laagOp(p) {
+      var randen = v.randen || {};
+      if (opBeeld(p, randen.beeld)) return 'beeld';
+      if (v.keuzes.swirl && binnen(p, randen.swirl)) return 'swirl';
+      return binnen(p, randen.beeld) ? 'beeld' : null;
+    }
     c.addEventListener('pointerdown', function (ev) {
       var p = punt(ev);
-      var randen = v.randen || {};
-      var laag = binnen(p, randen.beeld) ? 'beeld' : (binnen(p, randen.swirl) && v.keuzes.swirl ? 'swirl' : null);
+      var laag = laagOp(p);
       if (!laag) return;
       var doel = v.keuzes[laag];
       sleep = { laag: laag, p: p, x: doel.x, y: doel.y };
@@ -308,13 +343,18 @@
     c.addEventListener('pointermove', function (ev) {
       var p = punt(ev);
       if (!sleep) {
-        var randen = v.randen || {};
-        c.style.cursor = binnen(p, randen.beeld) || (v.keuzes.swirl && binnen(p, randen.swirl)) ? 'grab' : 'default';
+        c.style.cursor = laagOp(p) ? 'grab' : 'default';
         return;
       }
       var doel = v.keuzes[sleep.laag];
       doel.x = Math.min(1.5, Math.max(-0.5, sleep.x + (p.x - sleep.p.x) / c.width));
       doel.y = Math.min(1.5, Math.max(-0.5, sleep.y + (p.y - sleep.p.y) / c.height));
+      if (sleep.laag === 'swirl') {
+        var sx = v.bediening.querySelector('[data-oma-schuif="swirl-x"]');
+        var sy = v.bediening.querySelector('[data-oma-schuif="swirl-y"]');
+        if (sx) sx.value = doel.x;
+        if (sy) sy.value = doel.y;
+      }
       hertekenVoorbeeld();
     });
     function los() { sleep = null; c.style.cursor = 'default'; }
