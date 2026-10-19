@@ -23,6 +23,7 @@ import { mensen, naamVan } from './lib/mensen.js';
 import { vandaagInBrussel } from './lib/datum.js';
 import { searchRead } from '../../lib/odoo.js';
 import { odooOrigin } from '../../lib/medewerkers.js';
+import { teamVan, managers } from './lib/team.js';
 import {
   ASSET_CATEGORY_PREFIXES, isWithinAssetNamespace, canReadAssetPrefix, listDynamicAssetCategories,
 } from '../asset-manager/lib/namespace.js';
@@ -130,6 +131,8 @@ export const routes = {
           odoo_modellen: ODOO_MODELLEN.map(({ key, label, icon }) => ({ key, label, icon })),
           odoo_origin: odooOrigin(env),
           vandaag: vandaagInBrussel(),
+          has_team: await teamVan(env, user.id).then((l) => l.length > 0).catch(() => false),
+          is_manager_admin: isAdmin(user),
         },
       });
     } catch (err) { return fout(err); }
@@ -247,6 +250,40 @@ export const routes = {
    * losse to-do's zonder verantwoordelijke. Afgewerkte enkel van de laatste
    * 14 dagen, zodat je kan terugzien wat je deed.
    */
+  /**
+   * Het team voor de teamweekly: wie in Odoo onder mij staat (hr.employee
+   * parent_id), met hun open taken en de projecten die ze bezitten. Een
+   * beheerder kan met ?manager=<id> het team van een andere manager zien.
+   */
+  'GET /api/team': async ({ env, user, request }) => {
+    try {
+      const u = new URL(request.url);
+      let manager = user.id;
+      const gevraagd = u.searchParams.get('manager');
+      if (gevraagd && gevraagd !== user.id) {
+        if (!isAdmin(user)) throw new PmError('Enkel een beheerder kan het team van iemand anders bekijken.', 403);
+        manager = gevraagd;
+      }
+      const [leden, alleManagers, projecten] = await Promise.all([teamVan(env, manager), isAdmin(user) ? managers(env) : [], listProjects(env)]);
+      const ids = [manager, ...leden];
+      const grens = new Date(Date.now() - 14 * 86400000).toISOString();
+      const perPersoon = await Promise.all(ids.map(async (id) => {
+        const taken = (await listTasks(env, { assigneeId: id })).filter((t) => !t.done || (t.done_at && t.done_at >= grens));
+        return { user_id: id, tasks: taken, projects: projecten.filter((p) => p.owner_id === id && !p.archived).map((p) => ({ id: p.id, name: p.name, color: p.color, status: p.status, due_date: p.due_date })) };
+      }));
+      return json({
+        success: true,
+        data: {
+          manager,
+          members: perPersoon,
+          managers: alleManagers,
+          projects: projecten.map((p) => ({ id: p.id, name: p.name, color: p.color, archived: p.archived })),
+          vandaag: vandaagInBrussel(),
+        },
+      });
+    } catch (err) { return fout(err); }
+  },
+
   'GET /api/my-tasks': async ({ env, user }) => {
     try {
       const [mijn, los, projecten] = await Promise.all([
