@@ -229,7 +229,7 @@ function inhoudPerSoort(kind, c = {}) {
       };
     case 'intro':
       return {
-        title: kort(c.title, 160), text: kort(c.text, 4000),
+        title: kort(c.title, 160), subtitle: kort(c.subtitle, 200), text: kort(c.text, 4000),
         // Rechts naast de tekst: een tekening OF een foto.
         thingie: /^[a-z0-9-]{1,60}$/.test(String(c.thingie || '')) ? c.thingie : '',
         image_url: url(c.image_url),

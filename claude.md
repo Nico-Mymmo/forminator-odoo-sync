@@ -4010,6 +4010,13 @@ swirls en kijkt de keuzes na. Geen tweede bouwer per module.**
   brief (`data-nb-veld="@title"`). "Uit het team" en "Tip" zijn tekstblokken
   met een vast labeltje. Optionele velden (`data-nb-optioneel`) staan leeg
   enkel zichtbaar in het gekozen blok. Lijsten tonen `NB.blokNaam(it)`.
+- **De subtitel staat standaard nergens** (2026-10-19), ook niet leeg in het
+  gekozen blok: tekstblok en woordje vooraf krijgen er een via "+ Subtitel"
+  in de werkbalk (`data-nb-op-vraag`, `subtitel()` in render.js). Een leeg
+  tekstveld naast een beeld krijgt in het voorbeeld een lege alinea
+  (`legeAlinea()`), anders staat de cursor naast het beeld i.p.v. links.
+  `metAchtergrond()` zoekt de eerste cel MET `class="nb-cel"`: zonder dat
+  viel elke blokkleur stil weg.
 - De lijst "Iets toevoegen" is in groepen ingedeeld (GROEPEN in
   newsletters-edition.js): opbouw, uit Nieuws & updates, de lezer laten
   reageren, verhalen, beeld en media.
