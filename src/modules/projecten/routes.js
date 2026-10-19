@@ -84,6 +84,17 @@ async function controleerPlaats(env, waarden, huidig = null) {
   }
 }
 
+/**
+ * De laatste sectie van een project is de "klaar"-kolom. Afvinken zet een
+ * taak daarheen; een taak daarheen slepen vinkt ze af, en eruit slepen zet
+ * ze weer open. Zo zeggen het vinkje en de kolom altijd hetzelfde.
+ */
+async function laatsteSectie(env, projectId) {
+  if (!projectId) return null;
+  const secties = await listSections(env, projectId);
+  return secties.length ? secties[secties.length - 1].id : null;
+}
+
 /** Van een id een leesbare waarde maken, voor de historiek. */
 function leesbaarVoor(env) {
   const secties = new Map();
@@ -349,6 +360,19 @@ export const routes = {
         .map((it) => ({ id: String(it.id || ''), section_id: it.section_id === undefined ? undefined : (it.section_id || null) }))
         .filter((it) => it.id);
       await moveTasks(env, items, user.id, leesbaarVoor(env));
+      // In of uit de laatste kolom gesleept: het vinkje volgt.
+      const eerste = items[0] ? await getTask(env, items[0].id) : null;
+      if (eerste && eerste.project_id) {
+        const laatste = await laatsteSectie(env, eerste.project_id);
+        if (laatste) {
+          for (const it of items) {
+            const t = await getTask(env, it.id);
+            if (!t || t.parent_id) continue;
+            const hoortAf = t.section_id === laatste;
+            if (hoortAf !== !!t.done) await updateTask(env, t.id, { done: hoortAf }, user.id, leesbaarVoor(env));
+          }
+        }
+      }
       return json({ success: true });
     } catch (err) { return fout(err); }
   },
@@ -387,6 +411,10 @@ export const routes = {
       const waarden = normaliseerTaak(await leesBody(request));
       if (waarden.project_id !== undefined || waarden.section_id !== undefined || waarden.parent_id !== undefined) {
         await controleerPlaats(env, waarden, huidig);
+      }
+      if (waarden.done === true && !huidig.done && !huidig.parent_id && waarden.section_id === undefined) {
+        const laatste = await laatsteSectie(env, waarden.project_id !== undefined ? waarden.project_id : huidig.project_id);
+        if (laatste && laatste !== huidig.section_id) waarden.section_id = laatste;
       }
       return json({ success: true, data: await updateTask(env, huidig.id, waarden, user.id, leesbaarVoor(env)) });
     } catch (err) { return fout(err); }

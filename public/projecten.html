@@ -17,6 +17,7 @@
   <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.js"></script>
   <link href="/om-kalender.css" rel="stylesheet" />
   <script src="/shared-navbar.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.3/dist/confetti.browser.min.js"></script>
   <style>
     /* Dezelfde opbouw als de homepage (kolom links) en Events (werkblad + detailkaart rechts). */
     .pm-nav { display: flex; align-items: center; gap: .5rem; padding: .4rem .6rem; border-radius: .5rem; font-size: .875rem; cursor: pointer; }
@@ -32,6 +33,10 @@
     .pm-tabel .pm-af .pm-titel { text-decoration: line-through; opacity: .5; }
     .pm-tabel th.pm-groep { background: oklch(var(--b2)); font-weight: 600; text-transform: none; font-size: .8rem; color: oklch(var(--bc)); }
     .pm-tabel td { vertical-align: middle; }
+    /* table-fixed: anders bepaalt de langste titel de kolombreedte en loopt de
+       tabel uit de kaart (zelfde les als de indieningentabel van Koppelingen). */
+    .pm-tabel { table-layout: fixed; width: 100%; }
+    .pm-tabel td, .pm-tabel th { overflow: hidden; }
     .pm-sectie-dicht tr:not(.pm-groeprij) { display: none; }
     .pm-sectie-dicht .pm-klap { transform: rotate(-90deg); }
     .pm-klap { transition: transform .15s; }
@@ -73,7 +78,7 @@
 
   <div id="navbar"></div>
 
-  <main class="container mx-auto px-4 sm:px-6 pb-10 max-w-7xl" style="padding-top: calc(48px + 1.5rem);">
+  <main class="mx-auto px-4 sm:px-6 pb-10 max-w-[1800px]" style="padding-top: calc(48px + 1.5rem);">
 
     <!-- Kop, zoals bij Events -->
     <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
@@ -194,6 +199,7 @@
 
   <script src="/projecten-core.js"></script>
   <script src="/projecten-views.js"></script>
+  <script src="/projecten-feest.js"></script>
   <script src="/projecten-taak.js"></script>
   <script src="/projecten-bootstrap.js"></script>
 </body>

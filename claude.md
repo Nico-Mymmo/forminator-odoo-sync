@@ -6107,6 +6107,21 @@ Afspraken die bewust zo zijn:
   `/web#id=...&model=...`.
 - **Velden in het detailpaneel bewaren bij `change`** (verlaten van het veld),
   er is geen knop Opslaan. Enter in de titel bewaart.
+- **De lijst is `table-fixed` met een `<colgroup>`** (2026-10-19): bij
+  auto-layout bepaalde de langste titel de kolombreedte en liep de tabel onder
+  het detailpaneel door. Zelfde les als de indieningentabel van Koppelingen.
+  Breedtes staan in `kopRij()`; `w-*` op een cel doet bij table-fixed niets.
+- **Afvinken = naar de LAATSTE sectie, en omgekeerd** (`laatsteSectie()` in
+  routes.js). De laatste sectie van een project is de "klaar"-kolom (Klaar,
+  Done, Opgeleverd...): een taak afvinken zet ze daarheen, een taak daarheen
+  slepen vinkt ze af, eruit slepen zet ze weer open. Zo zeggen het vinkje en
+  de kolom altijd hetzelfde. Geldt niet voor subtaken (die hebben geen
+  sectie) en niet voor losse to-do's.
+- **Bij het afvinken is er een feestje** (`public/projecten-feest.js`,
+  `PM.feest()`): confetti (canvas-confetti via jsdelivr), een softijsje dat
+  gedraaid wordt, of een kabouterdansje, willekeurig, twee seconden, geen
+  klikken in de weg. Emoji met CSS, geen gif-bestanden; `localStorage.pmFeest
+  = 'uit'` zet het af.
 - **"Mijn team" komt uit Odoo, niet uit een eigen teamindeling** (2026-10-19,
   voor de teamweekly). Wie onder wie staat is `hr.employee.parent_id`; de OM
   legt via `src/lib/medewerkers.js` de brug naar de OM-gebruiker. Nico ziet zo
@@ -6138,7 +6153,8 @@ Afspraken die bewust zo zijn:
 - **De pagina volgt de opbouw van de REST van de OM, niet die van Asana**
   (2026-10-19; een eerste paginabrede versie met eigen zijbalk en eigen
   stijl is op vraag van Nico teruggedraaid: "dit moet geïntegreerder").
-  Dus: `max-w-7xl`, de kop zoals bij Events (h1 met icoon, een regel uitleg,
+  Dus: `max-w-[1800px]` (zoals Dashboards; `max-w-7xl` was te smal zodra het
+  detail openstond), de kop zoals bij Events (h1 met icoon, een regel uitleg,
   rechts de knop "Nieuw project"), links de kolom met Mijn taken en de
   projecten in een kaart (`lg:w-60`, zoals de departementen op de
   homepage), rechts het werkblad met bovenaan het project en zijn

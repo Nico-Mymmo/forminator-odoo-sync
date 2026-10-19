@@ -89,7 +89,7 @@
     opties = opties || {};
     var project = opties.project ? PM.projectVan(t.project_id) : null;
     return '<tr class="' + (t.done ? 'pm-af' : '') + gekozenKlasse(t) + '" draggable="' + (opties.slepen ? 'true' : 'false') + '" data-drag-task="' + e(t.id) + '" data-action="open-taak" data-id="' + e(t.id) + '">'
-      + '<td class="w-8 pr-0">' + vinkje(t) + '</td>'
+      + '<td class="pr-0">' + vinkje(t) + '</td>'
       + '<td><div class="flex items-center gap-2 min-w-0">'
       + (t.is_milestone ? '<i data-lucide="diamond" class="w-4 h-4 text-warning shrink-0" title="Mijlpaal"></i>' : '')
       + '<span class="pm-titel truncate">' + e(t.title) + '</span>'
@@ -99,9 +99,9 @@
       + (t.odoo_model ? '<i data-lucide="link" class="w-3.5 h-3.5 opacity-50 shrink-0" title="Gekoppeld aan ' + e(t.odoo_name || 'Odoo') + '"></i>' : '')
       + '</div></td>'
       + (opties.project ? '<td class="hidden md:table-cell"><span class="flex items-center gap-1.5 text-xs">' + (project ? '<span class="w-2 h-2 rounded-sm shrink-0" style="background:' + PM.kleurHex(project.color) + '"></span><span class="truncate max-w-[10rem]">' + e(project.name) + '</span>' : '<span class="opacity-40">Losse to-do</span>') + '</span></td>' : '')
-      + '<td class="w-32">' + persoonCel(t) + '</td>'
-      + '<td class="w-24 text-xs whitespace-nowrap tabular-nums ' + PM.datumKlasse(t) + '">' + e(PM.datumKort(t.due_date)) + '</td>'
-      + '<td class="w-24 hidden md:table-cell">' + prioBadge(t) + '</td>'
+      + '<td>' + persoonCel(t) + '</td>'
+      + '<td class="text-xs whitespace-nowrap tabular-nums ' + PM.datumKlasse(t) + '">' + e(PM.datumKort(t.due_date)) + '</td>'
+      + '<td class="hidden md:table-cell">' + prioBadge(t) + '</td>'
       + '</tr>';
   };
 
@@ -113,7 +113,10 @@
   };
 
   function kopRij(metProject) {
-    return '<thead><tr><th class="w-8"></th><th>Taak</th>' + (metProject ? '<th class="hidden md:table-cell">Project</th>' : '')
+    var smal = window.innerWidth < 768;
+    return '<colgroup><col style="width:2.6rem">' + '<col>' + (metProject && !smal ? '<col style="width:12rem">' : '')
+      + '<col style="width:' + (smal ? '3rem' : '10rem') + '"><col style="width:6.5rem">' + (smal ? '' : '<col style="width:6.5rem">') + '</colgroup>'
+      + '<thead><tr><th></th><th>Taak</th>' + (metProject ? '<th class="hidden md:table-cell">Project</th>' : '')
       + '<th>Verantwoordelijke</th><th>Vervaldatum</th><th class="hidden md:table-cell">Prioriteit</th></tr></thead>';
   }
 
@@ -126,7 +129,7 @@
   }
 
   function plusRij(sectieId, kolommen, extra) {
-    return '<tr class="pm-plus"><td class="w-8 pr-0 text-center"><i data-lucide="plus" class="w-4 h-4 inline"></i></td><td colspan="' + (kolommen - 1) + '">'
+    return '<tr class="pm-plus"><td class="pr-0 text-center"><i data-lucide="plus" class="w-4 h-4 inline"></i></td><td colspan="' + (kolommen - 1) + '">'
       + '<input type="text" placeholder="Taak toevoegen…" maxlength="300" data-snel-taak="1" data-section="' + e(sectieId || '') + '"' + (extra || '') + '></td></tr>';
   }
 
@@ -591,7 +594,7 @@
     el.classList.toggle('pm-vink-af', af);
     PM.probeer(async function () {
       await PM.api('/tasks/' + id, { method: 'PUT', body: { done: af } });
-      if (af) PM.toast('Afgevinkt');
+      if (af && PM.feest) PM.feest();
       await PM.herlaad();
       if (S.taak) await PM.herlaadTaak();
     });
