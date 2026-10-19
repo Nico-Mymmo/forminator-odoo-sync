@@ -11,7 +11,8 @@
 import {
   PmError,
   normaliseerProject, listProjects, getProject, insertProject, updateProject, deleteProject, orderProjects,
-  listSections, getSection, insertSection, renameSection, deleteSection, orderSections,
+  listSections, getSection, insertSection, renameSection, deleteSection, orderSections, zorgVoorEindfases, eindfase,
+  normaliseerMijlpaal, listMilestones, getMilestone, mijlpalenMetStand, insertMilestone, updateMilestone, deleteMilestone,
   normaliseerTaak, listTasks, getTask, insertTask, updateTask, deleteTask, moveTasks, tellingen,
   listComments, getComment, insertComment, deleteComment,
   listAttachments, getAttachment, insertAttachment, deleteAttachment, listHistory,
@@ -85,16 +86,25 @@ async function controleerPlaats(env, waarden, huidig = null) {
 }
 
 /**
- * De laatste sectie van een project is de "klaar"-kolom. Afvinken zet een
- * taak daarheen; een taak daarheen slepen vinkt ze af, en eruit slepen zet
- * ze weer open. Zo zeggen het vinkje en de kolom altijd hetzelfde.
+ * Vinkje en sectie zeggen altijd hetzelfde. Afvinken zet een taak in
+ * Opgeleverd, de archiefknop in Gearchiveerd; terug openzetten haalt ze uit
+ * de eindfase naar de eerste gewone sectie. Slepen naar of uit een eindfase
+ * doet hetzelfde met het vinkje.
  */
-async function laatsteSectie(env, projectId) {
-  if (!projectId) return null;
-  const [project, secties] = await Promise.all([getProject(env, projectId), listSections(env, projectId)]);
-  // Een eigen keuze op het project wint (Instellingen / Overzicht); anders de laatste.
-  if (project?.done_section_id && secties.some((s) => s.id === project.done_section_id)) return project.done_section_id;
-  return secties.length ? secties[secties.length - 1].id : null;
+async function sectieVoorStand(env, projectId, huidigeSectieId, { done, archief }) {
+  if (!projectId) return undefined;
+  const secties = await zorgVoorEindfases(env, projectId);
+  const huidig = secties.find((s) => s.id === huidigeSectieId) || null;
+  if (archief) return (secties.find((s) => s.kind === 'gearchiveerd') || {}).id;
+  if (done) {
+    if (huidig && huidig.kind !== 'open') return undefined;        // staat al in een eindfase
+    return (secties.find((s) => s.kind === 'opgeleverd') || {}).id;
+  }
+  if (huidig && huidig.kind !== 'open') {                            // terug open: uit de eindfase
+    const eerste = secties.find((s) => s.kind === 'open');
+    return eerste ? eerste.id : null;
+  }
+  return undefined;
 }
 
 /** Van een id een leesbare waarde maken, voor de historiek. */
@@ -112,7 +122,8 @@ function leesbaarVoor(env) {
       if (!projecten.has(waarde)) projecten.set(waarde, (await getProject(env, waarde))?.name || 'weggehaald project');
       return projecten.get(waarde);
     }
-    if (veld === 'done' || veld === 'is_milestone') return waarde ? 'ja' : 'nee';
+    if (veld === 'milestone_id') return (await getMilestone(env, waarde))?.name || 'weggehaalde mijlpaal';
+    if (veld === 'done') return waarde ? 'ja' : 'nee';
     if (Array.isArray(waarde)) return waarde.join(', ');
     return waarde;
   };
@@ -192,8 +203,8 @@ export const routes = {
   'GET /api/projects/:id': async ({ env, params }) => {
     try {
       const project = await eisProject(env, params.id);
-      const [secties, taken] = await Promise.all([listSections(env, project.id), listTasks(env, { projectId: project.id })]);
-      return json({ success: true, data: { project, sections: secties, tasks: taken } });
+      const [secties, taken, mijlpalen] = await Promise.all([zorgVoorEindfases(env, project.id), listTasks(env, { projectId: project.id }), listMilestones(env, project.id)]);
+      return json({ success: true, data: { project, sections: secties, tasks: taken, milestones: mijlpalenMetStand(mijlpalen, taken) } });
     } catch (err) { return fout(err); }
   },
 
@@ -201,10 +212,6 @@ export const routes = {
     try {
       await eisProject(env, params.id);
       const waarden = normaliseerProject(await leesBody(request));
-      if (waarden.done_section_id) {
-        const s = await getSection(env, waarden.done_section_id);
-        if (!s || s.project_id !== params.id) throw new PmError('Die sectie hoort niet bij dit project.');
-      }
       return json({ success: true, data: await updateProject(env, params.id, waarden, user.id) });
     } catch (err) { return fout(err); }
   },
@@ -223,6 +230,34 @@ export const routes = {
         }
       }
       await deleteProject(env, p.id);
+      return json({ success: true });
+    } catch (err) { return fout(err); }
+  },
+
+  // ── Mijlpalen ─────────────────────────────────────────────────────────────
+
+  'POST /api/projects/:id/milestones': async ({ env, user, params, request }) => {
+    try {
+      await eisProject(env, params.id);
+      const waarden = normaliseerMijlpaal(await leesBody(request), { nieuw: true });
+      return json({ success: true, data: await insertMilestone(env, params.id, waarden, user.id) }, 201);
+    } catch (err) { return fout(err); }
+  },
+
+  'PUT /api/milestones/:id': async ({ env, params, request }) => {
+    try {
+      const m = await getMilestone(env, params.id);
+      if (!m) throw new PmError('Mijlpaal niet gevonden.', 404);
+      return json({ success: true, data: await updateMilestone(env, m.id, normaliseerMijlpaal(await leesBody(request))) });
+    } catch (err) { return fout(err); }
+  },
+
+  /** Weghalen: de taken blijven, zonder mijlpaal (ON DELETE SET NULL). */
+  'DELETE /api/milestones/:id': async ({ env, params }) => {
+    try {
+      const m = await getMilestone(env, params.id);
+      if (!m) throw new PmError('Mijlpaal niet gevonden.', 404);
+      await deleteMilestone(env, m.id);
       return json({ success: true });
     } catch (err) { return fout(err); }
   },
@@ -366,17 +401,16 @@ export const routes = {
         .map((it) => ({ id: String(it.id || ''), section_id: it.section_id === undefined ? undefined : (it.section_id || null) }))
         .filter((it) => it.id);
       await moveTasks(env, items, user.id, leesbaarVoor(env));
-      // In of uit de laatste kolom gesleept: het vinkje volgt.
+      // In of uit een eindfase gesleept: het vinkje volgt.
       const eerste = items[0] ? await getTask(env, items[0].id) : null;
       if (eerste && eerste.project_id) {
-        const laatste = await laatsteSectie(env, eerste.project_id);
-        if (laatste) {
-          for (const it of items) {
-            const t = await getTask(env, it.id);
-            if (!t || t.parent_id) continue;
-            const hoortAf = t.section_id === laatste;
-            if (hoortAf !== !!t.done) await updateTask(env, t.id, { done: hoortAf }, user.id, leesbaarVoor(env));
-          }
+        const secties = await listSections(env, eerste.project_id);
+        for (const it of items) {
+          const t = await getTask(env, it.id);
+          if (!t || t.parent_id) continue;
+          const s = secties.find((x) => x.id === t.section_id);
+          const hoortAf = !!s && s.kind !== 'open';
+          if (hoortAf !== !!t.done) await updateTask(env, t.id, { done: hoortAf }, user.id, leesbaarVoor(env));
         }
       }
       return json({ success: true });
@@ -406,6 +440,7 @@ export const routes = {
           parent: ouder ? { id: ouder.id, title: ouder.title } : null,
           project: project ? { id: project.id, name: project.name, color: project.color } : null,
           sections: project ? await listSections(env, project.id) : [],
+          milestones: project ? await listMilestones(env, project.id) : [],
         },
       });
     } catch (err) { return fout(err); }
@@ -418,11 +453,27 @@ export const routes = {
       if (waarden.project_id !== undefined || waarden.section_id !== undefined || waarden.parent_id !== undefined) {
         await controleerPlaats(env, waarden, huidig);
       }
-      if (waarden.done === true && !huidig.done && !huidig.parent_id && waarden.section_id === undefined) {
-        const laatste = await laatsteSectie(env, waarden.project_id !== undefined ? waarden.project_id : huidig.project_id);
-        if (laatste && laatste !== huidig.section_id) waarden.section_id = laatste;
+      if (waarden.milestone_id) {
+        const m = await getMilestone(env, waarden.milestone_id);
+        const projectId = waarden.project_id !== undefined ? waarden.project_id : huidig.project_id;
+        if (!m || m.project_id !== projectId) throw new PmError('Die mijlpaal hoort niet bij dit project.');
+      }
+      if (waarden.project_id !== undefined && waarden.project_id !== huidig.project_id && waarden.milestone_id === undefined) waarden.milestone_id = null;
+      if (waarden.done !== undefined && waarden.done !== !!huidig.done && !huidig.parent_id && waarden.section_id === undefined) {
+        const naar = await sectieVoorStand(env, waarden.project_id !== undefined ? waarden.project_id : huidig.project_id, huidig.section_id, { done: waarden.done });
+        if (naar !== undefined && naar !== huidig.section_id) waarden.section_id = naar;
       }
       return json({ success: true, data: await updateTask(env, huidig.id, waarden, user.id, leesbaarVoor(env)) });
+    } catch (err) { return fout(err); }
+  },
+
+  /** De archiefknop: naar Gearchiveerd, en afgevinkt. */
+  'POST /api/tasks/:id/archive': async ({ env, user, params }) => {
+    try {
+      const huidig = await eisTaak(env, params.id);
+      if (!huidig.project_id || huidig.parent_id) throw new PmError('Enkel een taak in een project kan je archiveren; een losse to-do vink je gewoon af.');
+      const naar = await sectieVoorStand(env, huidig.project_id, huidig.section_id, { archief: true });
+      return json({ success: true, data: await updateTask(env, huidig.id, { done: true, section_id: naar }, user.id, leesbaarVoor(env)) });
     } catch (err) { return fout(err); }
   },
 

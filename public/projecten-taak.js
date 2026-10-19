@@ -14,7 +14,7 @@
 
   var VELDNAMEN = {
     title: 'de titel', assignee_id: 'de verantwoordelijke', due_date: 'de vervaldatum', priority: 'de prioriteit',
-    done: 'afgewerkt', section_id: 'de sectie', project_id: 'het project', is_milestone: 'mijlpaal',
+    done: 'afgewerkt', section_id: 'de sectie', project_id: 'het project', milestone_id: 'de mijlpaal',
     labels: 'de labels', odoo_name: 'de koppeling met Odoo', description: 'de beschrijving',
   };
 
@@ -128,6 +128,7 @@
     var html = '<div class="sticky top-0 z-10 bg-base-100 border-b border-base-content/10 px-4 py-2 flex items-center gap-2 rounded-t-box">'
       + '<button type="button" class="btn btn-sm ' + (t.done ? 'btn-success' : 'btn-outline') + '" data-action="vink" data-id="' + e(t.id) + '"><i data-lucide="check" class="w-4 h-4"></i>' + (t.done ? 'Afgewerkt' : 'Markeer als af') + '</button>'
       + '<span class="flex-1"></span>'
+      + (t.project_id && !t.parent_id ? '<button type="button" class="btn btn-ghost btn-sm btn-square" data-action="archiveer" data-id="' + e(t.id) + '" title="Naar Gearchiveerd"><i data-lucide="archive" class="w-4 h-4"></i></button>' : '')
       + '<button type="button" class="btn btn-ghost btn-sm btn-square" data-action="taak-link" title="Link naar deze taak kopiëren"><i data-lucide="link-2" class="w-4 h-4"></i></button>'
       + '<button type="button" class="btn btn-ghost btn-sm btn-square" data-action="taak-weg" title="Taak verwijderen"><i data-lucide="trash-2" class="w-4 h-4"></i></button>'
       + '<button type="button" class="btn btn-ghost btn-sm btn-square" data-action="sluit-taak" aria-label="Sluiten" title="Sluiten (Esc)">✕</button></div>'
@@ -143,7 +144,7 @@
       + veld('Prioriteit', '<select class="select select-ghost select-sm w-full" data-change="taak-veld" data-veld="priority">' + opties(S.boot.prioriteiten, t.priority) + '</select>')
       + (t.parent_id ? '' : veld('Project', '<select class="select select-ghost select-sm w-full" data-change="taak-veld" data-veld="project_id">' + opties(projecten, t.project_id, 'Geen project (losse to-do)') + '</select>'))
       + (t.parent_id || !t.project_id ? '' : veld('Sectie', '<select class="select select-ghost select-sm w-full" data-change="taak-veld" data-veld="section_id">' + opties(secties, t.section_id, 'Zonder sectie') + '</select>'))
-      + veld('Mijlpaal', '<label class="label cursor-pointer justify-start gap-2 py-1"><input type="checkbox" class="toggle toggle-warning toggle-sm" data-change="taak-mijlpaal" ' + (t.is_milestone ? 'checked' : '') + '><span class="label-text text-sm">Een belangrijk moment in het project</span></label>')
+      + (t.parent_id || !t.project_id ? '' : veld('Mijlpaal', '<select class="select select-ghost select-sm w-full" data-change="taak-veld" data-veld="milestone_id">' + opties((d.milestones || []).map(function (m) { return { key: m.id, label: m.name + (m.due_date ? ' · ' + PM.datumKort(m.due_date) : '') }; }), t.milestone_id, 'Geen mijlpaal') + '</select>'))
       + veld('Labels', '<div class="flex flex-wrap items-center gap-1.5 py-1">'
         + (t.labels || []).map(function (l, i) { return '<span class="badge badge-ghost gap-1">' + e(l) + '<button type="button" data-action="label-weg" data-i="' + i + '" title="Weghalen"><i data-lucide="x" class="w-3 h-3"></i></button></span>'; }).join('')
         + '<input type="text" class="input input-ghost input-xs w-32" placeholder="+ label (Enter)" maxlength="30" data-label-invoer="1" list="pmLabelLijst"></div>')
@@ -310,7 +311,6 @@
     if (el.dataset.veld === 'project_id') body.section_id = null;
     bewaar(body, el.dataset.veld === 'description' || el.dataset.veld === 'title');
   });
-  PM.bijWijziging('taak-mijlpaal', function (el) { bewaar({ is_milestone: el.checked }, true); });
   PM.actie('aan-mij', function () { bewaar({ assignee_id: PM.ik().id }, true); });
 
   PM.labelErbij = function (el) {

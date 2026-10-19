@@ -79,7 +79,6 @@ export function normaliseerProject(body = {}, { nieuw = false } = {}) {
   }
   if (body.due_date !== undefined) uit.due_date = datum(body.due_date);
   if (body.archived !== undefined) uit.archived = Boolean(body.archived);
-  if (body.done_section_id !== undefined) uit.done_section_id = body.done_section_id ? kort(body.done_section_id, 64) : null;
   return uit;
 }
 
@@ -106,9 +105,10 @@ export async function insertProject(env, waarden, userId) {
   const { data, error } = await db(env).from('pm_projects').insert(rij).select('*').single();
   check(error, 'Project bewaren');
   // Elk nieuw project begint met drie secties: dan staat het bord meteen goed.
-  for (const [i, naam] of ['Te doen', 'Bezig', 'Klaar'].entries()) {
+  for (const [i, naam] of ['Te doen', 'Bezig'].entries()) {
     await insertSection(env, { project_id: data.id, name: naam, position: (i + 1) * 10 });
   }
+  await zorgVoorEindfases(env, data.id);
   await historiek(env, { project_id: data.id, user_id: userId, action: 'project_aangemaakt', new_value: data.name });
   return data;
 }
@@ -118,7 +118,7 @@ export async function updateProject(env, id, waarden, userId) {
   if (!oud) throw new PmError('Project niet gevonden.', 404);
   const { data, error } = await db(env).from('pm_projects').update(waarden).eq('id', id).select('*').single();
   check(error, 'Project bewaren');
-  for (const k of ['name', 'status', 'owner_id', 'due_date', 'archived', 'done_section_id']) {
+  for (const k of ['name', 'status', 'owner_id', 'due_date', 'archived']) {
     if (waarden[k] !== undefined && String(oud[k] ?? '') !== String(data[k] ?? '')) {
       await historiek(env, { project_id: id, user_id: userId, action: 'project_gewijzigd', field: k, old_value: oud[k] ?? null, new_value: data[k] ?? null });
     }
@@ -154,22 +154,52 @@ export async function getSection(env, id) {
   return data;
 }
 
-export async function insertSection(env, { project_id, name, position }) {
+/**
+ * De twee vaste eindfases van elk project. Ze staan altijd achteraan
+ * (position 9000+), heten altijd zo, en kunnen niet weg. Een gewone sectie
+ * ('open') komt er altijd voor.
+ */
+export const EINDFASES = [
+  { kind: 'opgeleverd', name: 'Opgeleverd', position: 9000 },
+  { kind: 'gearchiveerd', name: 'Gearchiveerd', position: 9100 },
+];
+
+export async function insertSection(env, { project_id, name, position, kind = 'open' }) {
   const naam = kort(name, 80);
   if (!naam) throw new PmError('Geef de sectie een naam.');
   let pos = position;
   if (pos === undefined) {
-    const bestaand = await listSections(env, project_id);
+    const bestaand = (await listSections(env, project_id)).filter((s) => s.kind === 'open');
     pos = bestaand.reduce((m, s) => Math.max(m, s.position || 0), 0) + 10;
   }
-  const { data, error } = await db(env).from('pm_sections').insert({ project_id, name: naam, position: pos }).select('*').single();
+  const { data, error } = await db(env).from('pm_sections').insert({ project_id, name: naam, position: pos, kind }).select('*').single();
   check(error, 'Sectie bewaren');
   return data;
+}
+
+/** Zorgt dat een project zijn twee eindfases heeft; geeft alle secties terug. */
+export async function zorgVoorEindfases(env, projectId) {
+  let secties = await listSections(env, projectId);
+  let erbij = false;
+  for (const f of EINDFASES) {
+    if (secties.some((s) => s.kind === f.kind)) continue;
+    await insertSection(env, { project_id: projectId, name: f.name, position: f.position, kind: f.kind });
+    erbij = true;
+  }
+  if (erbij) secties = await listSections(env, projectId);
+  return secties;
+}
+
+export async function eindfase(env, projectId, kind) {
+  const secties = await zorgVoorEindfases(env, projectId);
+  return secties.find((s) => s.kind === kind) || null;
 }
 
 export async function renameSection(env, id, name) {
   const naam = kort(name, 80);
   if (!naam) throw new PmError('Geef de sectie een naam.');
+  const s = await getSection(env, id);
+  if (s && s.kind !== 'open') throw new PmError('Opgeleverd en Gearchiveerd heten altijd zo.');
   const { data, error } = await db(env).from('pm_sections').update({ name: naam }).eq('id', id).select('*').single();
   check(error, 'Sectie bewaren');
   return data;
@@ -177,12 +207,16 @@ export async function renameSection(env, id, name) {
 
 /** Een sectie weghalen: haar taken blijven, zonder sectie (ON DELETE SET NULL). */
 export async function deleteSection(env, id) {
+  const s = await getSection(env, id);
+  if (s && s.kind !== 'open') throw new PmError('Opgeleverd en Gearchiveerd kan je niet weghalen: elk project heeft ze.');
   const { error } = await db(env).from('pm_sections').delete().eq('id', id);
   check(error, 'Sectie verwijderen');
 }
 
 export async function orderSections(env, volgorde) {
   for (const [i, id] of volgorde.entries()) {
+    const s = await getSection(env, id);
+    if (!s || s.kind !== 'open') continue;
     const { error } = await db(env).from('pm_sections').update({ position: (i + 1) * 10 }).eq('id', id);
     check(error, 'Volgorde bewaren');
   }
@@ -207,7 +241,7 @@ export function normaliseerTaak(body = {}, { nieuw = false } = {}) {
     if (!PRIO_KEYS.has(body.priority)) throw new PmError('Onbekende prioriteit.');
     uit.priority = body.priority;
   }
-  if (body.is_milestone !== undefined) uit.is_milestone = Boolean(body.is_milestone);
+  if (body.milestone_id !== undefined) uit.milestone_id = body.milestone_id ? kort(body.milestone_id, 64) : null;
   if (body.labels !== undefined) {
     uit.labels = (Array.isArray(body.labels) ? body.labels : [])
       .map((l) => kort(l, 30)).filter((l, i, a) => l && a.findIndex((x) => x.toLowerCase() === l.toLowerCase()) === i)
@@ -291,7 +325,7 @@ export async function insertTask(env, waarden, userId) {
 }
 
 // Velden die in de historiek komen, met hoe hun waarde leesbaar wordt.
-const GEVOLGD = ['title', 'assignee_id', 'due_date', 'priority', 'done', 'section_id', 'project_id', 'is_milestone', 'labels', 'odoo_name', 'description'];
+const GEVOLGD = ['title', 'assignee_id', 'due_date', 'priority', 'done', 'section_id', 'project_id', 'milestone_id', 'labels', 'odoo_name', 'description'];
 
 /**
  * Een taak bijwerken. `leesbaar(veld, waarde)` maakt van een id een naam
@@ -356,6 +390,64 @@ export async function moveTasks(env, items, userId, leesbaar) {
       check(error, 'Volgorde bewaren');
     }
   }
+}
+
+// ── Mijlpalen ───────────────────────────────────────────────────────────────
+//
+// Een mijlpaal hangt BOVEN de taken: taken wijzen ernaar (milestone_id), en ze
+// is gehaald zodra alle taken eronder af zijn. `gehaald` wordt afgeleid, niet
+// bewaard: dan kan het nooit uit de pas lopen met de taken.
+
+export function normaliseerMijlpaal(body = {}, { nieuw = false } = {}) {
+  const uit = {};
+  if (body.name !== undefined || nieuw) {
+    uit.name = kort(body.name, 120);
+    if (!uit.name) throw new PmError('Geef de mijlpaal een naam.');
+  }
+  if (body.description !== undefined) uit.description = kort(body.description, 2000);
+  if (body.due_date !== undefined) uit.due_date = datum(body.due_date);
+  return uit;
+}
+
+export async function listMilestones(env, projectId) {
+  const { data, error } = await db(env).from('pm_milestones').select('*').eq('project_id', projectId).order('due_date').order('position');
+  check(error, 'Mijlpalen lezen');
+  return data || [];
+}
+
+export async function getMilestone(env, id) {
+  const { data, error } = await db(env).from('pm_milestones').select('*').eq('id', id).maybeSingle();
+  check(error, 'Mijlpaal lezen');
+  return data;
+}
+
+/** Mijlpalen met de stand van hun taken (hoofdtaken, geen subtaken). */
+export function mijlpalenMetStand(mijlpalen, taken) {
+  return mijlpalen.map((m) => {
+    const eigen = taken.filter((t) => t.milestone_id === m.id && !t.parent_id);
+    const af = eigen.filter((t) => t.done).length;
+    return { ...m, totaal: eigen.length, af, gehaald: eigen.length > 0 && af === eigen.length };
+  });
+}
+
+export async function insertMilestone(env, projectId, waarden, userId) {
+  const bestaand = await listMilestones(env, projectId);
+  const rij = { ...waarden, project_id: projectId, position: bestaand.reduce((m, x) => Math.max(m, x.position || 0), 0) + 10 };
+  const { data, error } = await db(env).from('pm_milestones').insert(rij).select('*').single();
+  check(error, 'Mijlpaal bewaren');
+  await historiek(env, { project_id: projectId, user_id: userId, action: 'mijlpaal_aangemaakt', new_value: data.name });
+  return data;
+}
+
+export async function updateMilestone(env, id, waarden) {
+  const { data, error } = await db(env).from('pm_milestones').update(waarden).eq('id', id).select('*').single();
+  check(error, 'Mijlpaal bewaren');
+  return data;
+}
+
+export async function deleteMilestone(env, id) {
+  const { error } = await db(env).from('pm_milestones').delete().eq('id', id);
+  check(error, 'Mijlpaal verwijderen');
 }
 
 // ── Opmerkingen ─────────────────────────────────────────────────────────────
