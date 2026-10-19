@@ -91,7 +91,9 @@ async function controleerPlaats(env, waarden, huidig = null) {
  */
 async function laatsteSectie(env, projectId) {
   if (!projectId) return null;
-  const secties = await listSections(env, projectId);
+  const [project, secties] = await Promise.all([getProject(env, projectId), listSections(env, projectId)]);
+  // Een eigen keuze op het project wint (Instellingen / Overzicht); anders de laatste.
+  if (project?.done_section_id && secties.some((s) => s.id === project.done_section_id)) return project.done_section_id;
   return secties.length ? secties[secties.length - 1].id : null;
 }
 
@@ -199,6 +201,10 @@ export const routes = {
     try {
       await eisProject(env, params.id);
       const waarden = normaliseerProject(await leesBody(request));
+      if (waarden.done_section_id) {
+        const s = await getSection(env, waarden.done_section_id);
+        if (!s || s.project_id !== params.id) throw new PmError('Die sectie hoort niet bij dit project.');
+      }
       return json({ success: true, data: await updateProject(env, params.id, waarden, user.id) });
     } catch (err) { return fout(err); }
   },

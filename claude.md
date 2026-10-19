@@ -6111,12 +6111,16 @@ Afspraken die bewust zo zijn:
   auto-layout bepaalde de langste titel de kolombreedte en liep de tabel onder
   het detailpaneel door. Zelfde les als de indieningentabel van Koppelingen.
   Breedtes staan in `kopRij()`; `w-*` op een cel doet bij table-fixed niets.
-- **Afvinken = naar de LAATSTE sectie, en omgekeerd** (`laatsteSectie()` in
-  routes.js). De laatste sectie van een project is de "klaar"-kolom (Klaar,
-  Done, Opgeleverd...): een taak afvinken zet ze daarheen, een taak daarheen
-  slepen vinkt ze af, eruit slepen zet ze weer open. Zo zeggen het vinkje en
-  de kolom altijd hetzelfde. Geldt niet voor subtaken (die hebben geen
-  sectie) en niet voor losse to-do's.
+- **Afvinken = naar de "klaar"-sectie, en omgekeerd** (`laatsteSectie()` in
+  routes.js). Welke dat is, staat PER PROJECT in `pm_projects.done_section_id`
+  (migratie 0005; in Overzicht -> Projectgegevens -> "Afgevinkte taken gaan
+  naar"); leeg = de laatste sectie (Klaar, Done...). Bij de persoonlijke
+  doelen uit Odoo is het "Opgeleverd", niet "Gearchiveerd" (Nico, 2026-10-19).
+  Een taak afvinken zet ze daarheen, een taak daarheen slepen vinkt ze af,
+  eruit slepen zet ze weer open. Zo zeggen het vinkje en de kolom altijd
+  hetzelfde. Geldt niet voor subtaken (die hebben geen sectie) en niet voor
+  losse to-do's. Wordt die sectie weggehaald, dan valt de instelling terug
+  op "de laatste" (ON DELETE SET NULL).
 - **Bij het afvinken is er een feestje** (`public/projecten-feest.js`,
   `PM.feest()`): confetti (canvas-confetti via jsdelivr), een softijsje dat
   gedraaid wordt, of een kabouterdansje, willekeurig, twee seconden, geen
