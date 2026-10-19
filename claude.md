@@ -6105,16 +6105,24 @@ Afspraken die bewust zo zijn:
   `/web#id=...&model=...`.
 - **Velden in het detailpaneel bewaren bij `change`** (verlaten van het veld),
   er is geen knop Opslaan. Enter in de titel bewaart.
-- **De pagina is PAGINABREED en opgebouwd zoals Asana** (2026-10-19, op
-  vraag van Nico): zijbalk links (Mijn taken, de projecten), bovenaan het
-  project met zijn tabbladen (Overzicht, Lijst, Kanban, Kalender), daaronder
-  het werkvlak dat zelf scrolt, en rechts het detail van een taak als paneel
-  IN de pagina (vanaf 1280px; daaronder erover). Geen `max-w-7xl`. De lijst
-  heeft vaste kolommen (Taak, Verantwoordelijke, Vervaldatum, Prioriteit;
-  Mijn taken ook Project) met inklapbare secties en een "Taak toevoegen"-rij
-  onder elke sectie. **Het bord heet Kanban** (`#/project/<id>/kanban`; het
-  oude adres `/bord` wordt omgezet): kolommen = secties, kaart verslepen =
-  sectie wijzigen, plusje bovenaan en toevoegrij onderaan elke kolom.
+- **De pagina volgt de opbouw van de REST van de OM, niet die van Asana**
+  (2026-10-19; een eerste paginabrede versie met eigen zijbalk en eigen
+  stijl is op vraag van Nico teruggedraaid: "dit moet geïntegreerder").
+  Dus: `max-w-7xl`, de kop zoals bij Events (h1 met icoon, een regel uitleg,
+  rechts de knop "Nieuw project"), links de kolom met Mijn taken en de
+  projecten in een kaart (`lg:w-60`, zoals de departementen op de
+  homepage), rechts het werkblad met bovenaan het project en zijn
+  tabbladen (`tabs-boxed`: Overzicht, Lijst, Kanban, Kalender). De lijst is
+  een `table table-sm` in een kaart met per sectie een groepsrij
+  (inklapbaar) en een "Taak toevoegen"-rij; Mijn taken heeft daarbij een
+  kolom Project. Het detail van een taak is een KAART RECHTS van het
+  werkblad (`grid-cols-12`: 7/12 + 5/12 vanaf xl, sticky), zoals het
+  detailpaneel van Events; zonder open taak neemt het werkblad de volle
+  breedte. **Het bord heet Kanban** (`#/project/<id>/kanban`; het oude adres
+  `/bord` wordt omgezet): kolommen = secties, kaart verslepen = sectie
+  wijzigen, plusje bovenaan en toevoegrij onderaan elke kolom. Wat Asana
+  wél leverde en bleef: de inklapbare secties, de kolommen in de lijst, de
+  kanban en de tegels bovenaan het Overzicht.
 - **De kalender is DEZELFDE als bij Events en Nieuwsbrieven.** De opmaak
   staat in `public/om-kalender.css` (uit `newsletters.html` gehaald; de
   pagina's van Events en Nieuwsbrieven dragen vandaag nog hun eigen,
