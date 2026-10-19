@@ -237,6 +237,47 @@
       + '<p class="text-sm text-base-content/50">' + esc(text) + '</p></div>';
   }
 
+  // ── Jouw taken vandaag (module Projecten) ───────────────────────────────
+  // Enkel voor wie de module heeft; de gegevens komen van /projecten/api/home
+  // en worden los van het overzicht geladen, zodat een storing daar de
+  // homepage niet ophoudt.
+
+  function takenBlok() {
+    var t = S.taken;
+    if (!t || S.search || S.active !== ALL) return '';
+    var rijen = t.items.map(function (x) {
+      var laat = x.due_date < t.vandaag;
+      return '<a href="/projecten#/mijn?taak=' + encodeURIComponent(x.id) + '" class="flex items-center gap-2 px-3 py-2 hover:bg-base-content/5 text-sm">'
+        + '<i data-lucide="' + (laat ? 'alarm-clock' : 'circle') + '" class="w-4 h-4 shrink-0 ' + (laat ? 'text-error' : 'text-base-content/40') + '"></i>'
+        + '<span class="truncate flex-1">' + esc(x.title) + '</span>'
+        + (x.project ? '<span class="text-xs text-base-content/50 truncate max-w-[10rem] hidden sm:inline">' + esc(x.project) + '</span>' : '')
+        + '<span class="text-xs whitespace-nowrap ' + (laat ? 'text-error' : 'text-success') + '">' + (laat ? 'te laat' : 'vandaag') + '</span></a>';
+    }).join('');
+    var meer = t.totaal > t.items.length ? '<span class="text-xs text-base-content/50">+' + (t.totaal - t.items.length) + ' meer</span>' : '';
+    return '<div class="mb-7">'
+      + '<h2 class="flex items-center gap-2 text-sm font-semibold text-base-content/70 mb-2.5">'
+      + '<i data-lucide="circle-check-big" class="w-4 h-4 text-base-content/40"></i>Jouw taken vandaag'
+      + '<span class="text-xs font-normal text-base-content/40">' + t.totaal + '</span><span class="flex-1"></span>'
+      + '<a href="/projecten#/mijn" class="text-xs font-normal link link-hover">Alle taken</a></h2>'
+      + '<div class="rounded-xl bg-base-100 border border-base-content/10 overflow-hidden home-lijnen">'
+      + (rijen || '<p class="px-3 py-3 text-sm text-base-content/60">Niets dat vandaag af moet. ' + (t.open ? 'Je hebt nog ' + t.open + ' open ta' + (t.open === 1 ? 'ak' : 'ken') + ' voor later.' : '') + '</p>')
+      + '</div>' + (meer ? '<div class="mt-1 text-right">' + meer + '</div>' : '') + '</div>';
+  }
+
+  async function loadTaken() {
+    var heeft = S.modules.some(function (m) { return m.code === 'projecten'; });
+    if (!heeft) return;
+    try {
+      var res = await fetch('/projecten/api/home', { credentials: 'include' });
+      if (!res.ok) return;
+      var data = await res.json();
+      if (!data.success) return;
+      S.taken = data.data;
+      renderModules();
+      refreshIcons();
+    } catch (e) { /* de homepage werkt ook zonder */ }
+  }
+
   function renderModules() {
     var el = $('moduleArea');
     if (!el) return;
@@ -279,7 +320,7 @@
           ? 'Nog geen modules in dit departement. Kies een departement via het tandwiel op een tegel.'
           : 'Nog geen modules in dit departement.');
     }
-    el.innerHTML = html;
+    el.innerHTML = takenBlok() + html;
   }
 
   function render() {
@@ -324,6 +365,7 @@
       return;
     }
     render();
+    loadTaken();
   }
 
   // ── Icoonkiezer (gedeeld door beide vensters) ────────────────────────────

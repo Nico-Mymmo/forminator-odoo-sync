@@ -448,6 +448,9 @@ export async function handlePublicRoutes(request, env, ctx) {
     // Enkel bereikbaar via de auth-gated download-route in forminator-sync-v2,
     // zelfde uitzondering als /assets/mini-apps/ hierboven.
     !pathname.startsWith('/assets/fsv2-generated-pdfs/') &&
+    // projecten/ = bijlagen bij interne taken: enkel via de auth-gated route
+    // GET /projecten/api/attachments/:id.
+    !pathname.startsWith('/assets/projecten/') &&
     request.method === 'GET'
   ) {
     const key = pathname.slice('/assets/'.length);

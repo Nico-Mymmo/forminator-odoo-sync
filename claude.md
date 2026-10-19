@@ -422,6 +422,7 @@ document.addEventListener('click', e => {
 | newsletters | `/nieuwsbrieven` | `newsletters` | `public/newsletters.html` + `newsletters-*.js` | ✅ Correct (zie "Nieuwsbrieven") |
 | product-features | `/productfeatures` | `product_features` | `public/productfeatures.html` + `.js` | ✅ Correct (zie "Productfeatures") |
 | odoo-controle | `/odoo-controle` | `odoo_controle` | `public/odoo-controle.html` + `.js` | ✅ Correct (zie "Odoo-controle") |
+| projecten | `/projecten` | `projecten` | `public/projecten.html` + `projecten-*.js` | ✅ Correct (zie "Projecten"; opslag in D1 om-core) |
 
 **Legacy modules NIET aanraken tenzij expliciet gevraagd.** Bij aanpassingen aan legacy `ui.js`: string-concatenatie (+), geen geneste template literals, geen variabelen in inline event handlers. `src/lib/components/navbar.js` is de legacy server-rendered navbar voor deze ui.js-bestanden.
 
@@ -5983,6 +5984,87 @@ Afspraken die bewust zo zijn:
 
 Uitrol: `npm run db:push` (schema + eerste lading + module-registratie), daarna
 `npm run deploy` vanaf `master`. Geen nieuwe secrets.
+
+## Projecten — interne projecten en to-do's (2026-10-19)
+
+**Regel: interne projecten en taken staan in de OM (`/projecten`), in D1
+`om-core` (tabellen `pm_*`), niet in Odoo Project. Een taak kan VERWIJZEN naar
+een record in Odoo (lead, klant/VME, offerte), maar Odoo weet niets van de
+taak.** Odoo Project werd nauwelijks gebruikt (14 projecten, laatste wijziging
+augustus 2026); die projecten blijven daar staan en zijn bewust NIET
+overgenomen. De oude projectgenerator (`/projects`, maakt projecten IN Odoo)
+blijft voorlopig ook bestaan.
+
+Gebouwd in drie delen; dit is deel 1. Gekozen door Nico (checklist
+https://claude.ai/artifact/QxU8ghAKnuo7KKUhnsq8gu):
+
+| Deel | Wat | Stand |
+|---|---|---|
+| 1 | Projecten (status, eigenaar, kleur, icoon, archief), secties, mijlpalen, taken (verantwoordelijke, vervaldatum, prioriteit, labels, subtaken), losse to-do's; Lijst, Bord, Kalender, Overzicht, Mijn taken; opmerkingen met @collega, volgers, bijlagen (opladen, Assetbeheer, link), historiek; verwijzing naar Odoo; homepage-tegel; gsm | gebouwd |
+| 2 | Meldingen in Google Chat (toegewezen, vervaldag, vermelding), wekelijkse statusupdate per project, portfolio, projectsjablonen, terugkerende taken | nog niet |
+| 3 | Stap "Taak aanmaken" in Koppelingen, nieuwsbriefopdrachten in Mijn taken, AI (project opdelen, statusupdate voorstellen) | nog niet |
+
+Bewust NIET (afgevinkt door Nico): een taak in meerdere projecten,
+afhankelijkheden, eigen velden, Gantt, postvak, goedkeuringen, dag- of
+weeksamenvatting, relatieve datums in sjablonen, regels, taken bij events,
+Odoo-controle-cases als taken, taken uit Chat of mail, werkverdeling, doelen,
+rapporten, tijdregistratie, privéprojecten, gasten van buiten mymmo.
+
+| Wat | Waar |
+|---|---|
+| Schema (D1 om-core) | `d1/om-core/migrations/0003_projecten.sql` |
+| Moduleregistratie (Supabase `modules` + toegang voor iedereen) | `supabase/migrations/20261019120000_projecten_module.sql` |
+| Opslag, nakijken, historiek | `src/modules/projecten/lib/store.js` |
+| Vaste lijsten (statussen, prioriteiten, kleuren, Odoo-modellen) | `lib/constants.js` (naar het scherm via `/api/bootstrap`) |
+| Wie een taak kan krijgen (naam + foto) | `lib/mensen.js` (via `src/lib/medewerkers.js`) |
+| Routes | `src/modules/projecten/routes.js` |
+| Scherm | `public/projecten.html` + `projecten-core.js` (toestand, api, adres) / `-views.js` (zijbalk, lijst, bord, kalender, overzicht, Mijn taken, slepen) / `-taak.js` (detailpaneel, Odoo, Assetbeheer) / `-bootstrap.js` (luisteraars, vensters, opstarten) |
+| Homepage-tegel "Jouw taken vandaag" | `takenBlok()` + `loadTaken()` in `public/home.js`, `GET /projecten/api/home` |
+
+Afspraken die bewust zo zijn:
+
+- **Iedereen met de module ziet en bewerkt alles.** Privéprojecten bestaan
+  niet. Een project VERWIJDEREN kan enkel de eigenaar of een beheerder;
+  archiveren kan iedereen (en is terug te draaien). Een opmerking weghalen kan
+  enkel wie ze schreef of een beheerder.
+- **De mensen zijn OM-gebruikers** (`users.id`), niet Odoo-gebruikers. Er is
+  geen foreign key naar `users`: die tabel staat (nog) in Supabase. Naam en
+  foto komen uit `medewerkers.js`, 10 minuten bewaard per isolate.
+- **Een subtaak heeft EEN niveau.** Een subtaak van een subtaak wordt
+  geweigerd; een subtaak neemt het project van haar taak over en heeft geen
+  sectie. Verhuist een taak naar een ander project, dan verhuizen haar
+  subtaken mee en vervalt de sectie.
+- **Een losse to-do = een taak zonder project.** "Mijn taken" toont wat aan jou
+  toegewezen is (ook subtaken) plus je eigen losse to-do's zonder
+  verantwoordelijke; afgewerkte enkel van de laatste 14 dagen. "Vandaag" is
+  Europe/Brussels, aan beide kanten.
+- **Het bord IS de secties.** Er is geen aparte statuskolom: een kaart
+  verslepen verandert haar sectie. Een nieuw project krijgt drie secties
+  (Te doen, Bezig, Klaar). Een sectie weghalen laat haar taken staan, onder
+  "Zonder sectie". Afvinken staat los van de sectie.
+- **Historiek bewaart LEESBARE waarden** (een naam, geen id), zodat ze klopt
+  als iemand vertrekt of een sectie hernoemd wordt. Mislukt het schrijven
+  ervan, dan gaat de wijziging toch door.
+- **Wie een taak maakt, krijgt of vermeld wordt, volgt ze vanzelf.** De
+  meldingen naar die volgers komen in deel 2 (Google Chat); het scherm zegt
+  dat er nu al bij.
+- **Bijlagen: drie soorten.** Opgeladen (R2 onder `projecten/<taak>/<uuid>`,
+  max 15 MB, ENKEL via `GET /projecten/api/attachments/:id` met aanmelding:
+  `/assets/projecten/` staat in de uitzonderingen van de publieke
+  `/assets/`-route en `projecten/` in `FOREIGN_MODULE_PREFIXES`), een bestand
+  uit Assetbeheer (enkel een verwijzing, met de rechten van Assetbeheer), of
+  een gewone link. Verwijderen van een taak of project haalt de opgeladen
+  bestanden ook uit R2.
+- **De koppeling met Odoo is ALLEEN LEZEN** en een gesloten lijst
+  (`ODOO_MODELLEN`: crm.lead, res.partner, sale.order). De naam wordt bij het
+  koppelen bewaard (`odoo_name`); de link gaat naar `odooOrigin(env)` met
+  `/web#id=...&model=...`.
+- **Velden in het detailpaneel bewaren bij `change`** (verlaten van het veld),
+  er is geen knop Opslaan. Enter in de titel bewaart.
+
+**Uitrolvolgorde:** `npx wrangler d1 migrations apply om-core --remote`
+(tabellen) en `npm run db:push` (moduleregistratie), dan `npm run deploy`
+vanaf `master`. Geen nieuwe secrets.
 
 ## Bestandsstructuur
 
