@@ -321,6 +321,11 @@
     + '[data-nb-optioneel]:empty{display:none!important}'
     + '.nb-gekozen [data-nb-optioneel]:empty{display:block!important}'
     + '.nb-gekozen span[data-nb-optioneel]:empty{display:inline-block!important}'
+    // Een veld dat je zelf toevoegt (bv. de subtitel): leeg enkel na de knop in de werkbalk.
+    + '.nb-gekozen [data-nb-op-vraag]:empty:not(.nb-open){display:none!important}'
+    // Het tekstveld omvat een beeld ernaast, en een lege alinea toont waar je typt.
+    + '[data-nb-veld="text"]{display:flow-root}'
+    + '[data-nb-veld] p[data-nb-leeg]:empty::before{content:"Typ hier je tekst.";color:#9ca3af;font-style:italic}'
     + '[data-nb-veld][contenteditable]{outline:none;border-radius:6px;cursor:text;transition:box-shadow .15s;min-width:1em}'
     + '[data-nb-veld][contenteditable]:hover{box-shadow:0 0 0 2px rgba(56,189,248,.35)}'
     + '[data-nb-veld][contenteditable]:focus{box-shadow:0 0 0 2px #38bdf8;background:rgba(255,255,255,.55)}'
@@ -689,6 +694,8 @@
       }).join('') + '</span>');
       knoppen.push('<button type="button" data-nb-knop="icoon">' + ((NB.state.concept.content || {}).icoon ? '\u270E Tekening' : '+ Tekening') + '</button>');
     }
+    var subVeld = mag && rij.querySelector('[data-nb-op-vraag]:empty');
+    if (subVeld) knoppen.push('<button type="button" data-nb-knop="subtitel">+ Subtitel</button>');
     if (mag && soort === 'video') knoppen.push('<button type="button" data-nb-knop="video">\u25B6 ' + (NB.state.concept.content && NB.state.concept.content.video_url ? 'Andere video' : 'Video kiezen') + '</button>');
     if (mag && NB.kanBeeld(soort) && (soort !== 'video' || (NB.state.concept.content && NB.state.concept.content.video_url))) knoppen.push('<button type="button" data-nb-knop="beeld">' + (rij.querySelector('[data-nb-beeld] img') ? '\u{1F5BC} Beeld' : '+ Beeld') + '</button>');
     if (mag && isVraag) {
@@ -783,6 +790,7 @@
     if (wat === 'ai') NB.openAI();
     else if (wat === 'beeld') NB.openBeeld();
     else if (wat === 'video') NB.openVideo();
+    else if (wat === 'subtitel') toonSubtitel(anker);
     else if (wat.indexOf('niveau:') === 0 && NB.zetNiveau) NB.zetNiveau(wat.slice(7));
     else if (wat === 'icoon' && NB.openIcoon) NB.openIcoon();
     else if (wat.indexOf('soort:') === 0 && NB.wisselVraagSoort) NB.wisselVraagSoort(wat.slice(6));
@@ -792,6 +800,20 @@
     else if (wat === 'kleur') kiesBlokKleur(s.item.id, anker);
     else if (wat === 'toc') zetInToc(s.item.id);
     else if (wat === 'weg') NB.actions['blok-weg']({ dataset: { id: s.item.id } });
+  }
+
+  /** "+ Subtitel": het lege veld tonen en erin zetten; leeg verlaten = weer weg. */
+  function toonSubtitel(anker) {
+    var rij = anker.closest('[data-nb-id]');
+    var veld = rij && rij.querySelector('[data-nb-op-vraag]');
+    if (!veld) return;
+    veld.classList.add('nb-open');
+    anker.remove();
+    veld.focus();
+    veld.addEventListener('blur', function () {
+      if (!veld.textContent.trim()) veld.classList.remove('nb-open');
+    }, { once: true });
+    hoogteBij();
   }
 
   function kiesBlokKleur(id, anker) {
