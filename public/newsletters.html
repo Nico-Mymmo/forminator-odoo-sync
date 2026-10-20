@@ -68,19 +68,19 @@
     .nb-voorbeeld { width: 100%; border: 0; border-radius: 12px; min-height: 400px; background: #fff; display: block; }
     .nb-toast { position: fixed; right: 1rem; bottom: 1rem; z-index: 1000; display: flex; flex-direction: column; gap: .5rem; }
 
-    /* De redactietafel vult het scherm: één vaste kop, links de brief in een
-       eigen vak dat scrolt, rechts de regie in een eigen vak dat scrolt. De
-       pagina zelf scrolt niet meer: elk vak heeft precies één scrollbar. */
+    /* De redactietafel: dezelfde pagina als de kalender (zelfde breedte, kop
+       en achtergrond), maar ze vult de hoogte: links de brief in een kaart die
+       zelf scrolt, rechts de regie die zelf scrolt. Elk vak EEN scrollbar. */
     body.nb-werk { overflow: hidden; }
     body.nb-werk #nbBanner { display: none; }
-    body.nb-werk main { max-width: none; padding: 0; padding-top: 48px !important; height: 100vh; box-sizing: border-box; }
-    .nb-werkvenster { height: calc(100vh - 48px); display: flex; flex-direction: column; min-height: 0; }
-    .nb-kop { flex: none; background: oklch(var(--b1)); border-bottom: 1px solid oklch(var(--bc) / .1); padding: .6rem 1.25rem; display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1.25rem; }
-    .nb-werkvlak { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 420px; }
-    .nb-briefvak { overflow-y: auto; overflow-x: hidden; padding: 1.25rem 1.25rem 4rem; scroll-behavior: smooth; }
+    body.nb-werk main { height: 100vh; box-sizing: border-box; padding-bottom: 1rem !important; }
+    .nb-werkvenster { height: 100%; display: flex; flex-direction: column; min-height: 0; }
+    .nb-kop { flex: none; margin-bottom: 1rem; }
+    .nb-werkvlak { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 400px; gap: 1rem; }
+    .nb-briefvak { overflow-y: auto; overflow-x: hidden; padding: 1.25rem 1.25rem 4rem; scroll-behavior: smooth; background: oklch(var(--b1)); border: 1px solid oklch(var(--bc) / .1); border-radius: var(--rounded-box, 1rem); }
     .nb-briefkader { margin: 0 auto; max-width: 700px; transition: max-width .2s; }
     .nb-briefkader.nb-gsm { max-width: 375px; }
-    .nb-regie { overflow-y: auto; border-left: 1px solid oklch(var(--bc) / .1); background: oklch(var(--b2)); padding: 1rem; }
+    .nb-regie { overflow-y: auto; padding-right: .25rem; }
     .nb-regie-klein .card-body { padding: 1rem; }
     .nb-stappen { display: flex; align-items: center; gap: .25rem; font-size: .75rem; }
     .nb-stap { display: flex; align-items: center; gap: .3rem; padding: .25rem .6rem; border-radius: 999px; white-space: nowrap; color: oklch(var(--bc) / .55); }
@@ -94,7 +94,7 @@
       .nb-werkvenster { height: auto; }
       .nb-werkvlak { display: block; }
       .nb-briefvak, .nb-regie { overflow: visible; }
-      .nb-regie { border-left: 0; border-top: 1px solid oklch(var(--bc) / .1); }
+      .nb-regie { margin-top: 1rem; padding-right: 0; }
     }
   </style>
 </head>
