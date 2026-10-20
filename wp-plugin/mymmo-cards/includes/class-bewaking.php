@@ -74,6 +74,28 @@ final class Mymmo_Cards_Bewaking {
         'line-height', 'letter-spacing', 'text-transform', 'text-decoration',
     ];
 
+    /**
+     * De typografie in het style-attribuut van een blok, in de woorden van de
+     * editor. Uitlijnen (`textAlign`) staat er bewust NIET in: dat is een keuze
+     * uit drie (links, midden, rechts), geen eigen waarde, en WordPress bewaart
+     * het bij een alinea en een kop sinds 6.6 toch onder `typography`. Tot 1.13.5
+     * werd het daardoor als "eigen typografie" geweigerd.
+     */
+    private const TYPOGRAFIE_PADEN = [
+        'fontsize'       => 'lettergrootte',
+        'fontfamily'     => 'lettertype',
+        'fontweight'     => 'letterdikte',
+        'fontstyle'      => 'letterstijl',
+        'lineheight'     => 'regelhoogte',
+        'letterspacing'  => 'letterafstand',
+        'texttransform'  => 'hoofdletterinstelling',
+        'textdecoration' => 'onderlijning',
+        'writingmode'    => 'schrijfrichting',
+    ];
+
+    /** Wat in het style-attribuut onder `typography` staat en NOOIT een overtreding is. */
+    private const TYPOGRAFIE_VRIJ = ['textalign'];
+
     /** Eigenschappen waarin een letterlijke kleur een eigen kleur is. */
     private const KLEUR_EIGENSCHAPPEN = [
         'color', 'background', 'background-color', 'border', 'border-color',
@@ -409,7 +431,7 @@ final class Mymmo_Cards_Bewaking {
         $erbij = [];
         foreach ($nieuw as $sleutel => $rij) {
             if ($rij['aantal'] > ($oud[$sleutel]['aantal'] ?? 0)) {
-                $erbij[] = $rij['tekst'];
+                $erbij[] = self::nieuwe_tekst($rij['teksten'], $oud[$sleutel]['teksten'] ?? []);
             }
         }
 
@@ -463,8 +485,29 @@ final class Mymmo_Cards_Bewaking {
         return 'Niet opgeslagen -- dit past niet in de huisstijl: '
             . implode('; ', $lijst)
             . ($meer > 0 ? '; en nog ' . $meer . ' andere' : '')
-            . '. Kies een kleur uit het palet en een maat uit de lijst, of laat het thema het bepalen. '
+            . '. Klik dat blok aan en zet het in de zijbalk terug op de standaard, '
+            . 'of kies een kleur uit het palet of een maat uit de lijst. '
             . 'Wat al op deze pagina stond, mag blijven staan; alleen wat erbij komt, wordt tegengehouden.';
+    }
+
+    /**
+     * Welke van de teksten bij een handtekening de BIJGEKOMEN is. Dezelfde
+     * overtreding op twee alinea's is één handtekening; de melding moet de
+     * alinea noemen die er nieuw bij kwam, niet die waar het al stond.
+     *
+     * @param array<int, string> $nu
+     * @param array<int, string> $ervoor
+     */
+    private static function nieuwe_tekst(array $nu, array $ervoor): string {
+        $rest = $nu;
+        foreach ($ervoor as $tekst) {
+            $i = array_search($tekst, $rest, true);
+            if ($i !== false) {
+                unset($rest[$i]);
+            }
+        }
+
+        return (string) ($rest !== [] ? reset($rest) : $nu[0]);
     }
 
     /**
@@ -473,16 +516,17 @@ final class Mymmo_Cards_Bewaking {
      * De handtekening bevat het blok en de waarde, zodat "dezelfde kleur op een
      * tweede blok" als een nieuwe telt.
      *
-     * @return array<string, array{aantal: int, tekst: string}>
+     * @return array<string, array{aantal: int, tekst: string, teksten: array<int, string>}>
      */
     public static function overtredingen(string $inhoud): array {
         $gevonden = [];
 
         $voeg = static function (string $sleutel, string $tekst) use (&$gevonden): void {
             if (!isset($gevonden[$sleutel])) {
-                $gevonden[$sleutel] = ['aantal' => 0, 'tekst' => $tekst];
+                $gevonden[$sleutel] = ['aantal' => 0, 'tekst' => $tekst, 'teksten' => []];
             }
             $gevonden[$sleutel]['aantal']++;
+            $gevonden[$sleutel]['teksten'][] = $tekst;
         };
 
         if ($inhoud === '') {
@@ -528,7 +572,7 @@ final class Mymmo_Cards_Bewaking {
         foreach ($blokken as $blok) {
             $naam = (string) ($blok['blockName'] ?? '');
             $attrs = is_array($blok['attrs'] ?? null) ? $blok['attrs'] : [];
-            $label = $naam !== '' ? self::bloknaam($naam) : 'een blok';
+            $label = ($naam !== '' ? self::bloknaam($naam) : 'een blok') . self::fragment($blok);
 
             foreach (['customTextColor', 'customBackgroundColor', 'customOverlayColor', 'customGradient'] as $sleutel) {
                 if (!empty($attrs[$sleutel]) && is_string($attrs[$sleutel])) {
@@ -595,7 +639,12 @@ final class Mymmo_Cards_Bewaking {
         $pad = strtolower($pad);
 
         if (strpos($pad, 'typography.') === 0) {
-            return 'eigen typografie';
+            $eigenschap = substr($pad, strlen('typography.'));
+            if (in_array($eigenschap, self::TYPOGRAFIE_VRIJ, true)) {
+                return null;
+            }
+
+            return 'eigen ' . (self::TYPOGRAFIE_PADEN[$eigenschap] ?? 'tekstopmaak');
         }
         if (strpos($pad, 'border.') === 0 || strpos($pad, 'border') === 0) {
             if (strpos($pad, 'radius') !== false) {
@@ -693,6 +742,36 @@ final class Mymmo_Cards_Bewaking {
         ];
 
         return $namen[$eigenschap] ?? $eigenschap;
+    }
+
+    /**
+     * Het begin van de tekst van een blok, zodat de melding zegt WELKE alinea
+     * het is: "het blok Paragraaf" alleen is op een pagina met twintig alinea's
+     * geen aanwijzing. Leeg (een afbeelding, een groep) = niets.
+     *
+     * @param array<string, mixed> $blok
+     */
+    private static function fragment(array $blok): string {
+        $html = (string) ($blok['innerHTML'] ?? '');
+        if ($html === '') {
+            return '';
+        }
+
+        $tekst = html_entity_decode(strip_tags($html), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $tekst = trim((string) preg_replace('/\s+/u', ' ', $tekst));
+        if ($tekst === '') {
+            return '';
+        }
+
+        $woorden = explode(' ', $tekst);
+        if (count($woorden) > 7) {
+            $tekst = implode(' ', array_slice($woorden, 0, 7)) . '…';
+        }
+        if (function_exists('mb_strlen') && function_exists('mb_substr') && mb_strlen($tekst) > 60) {
+            $tekst = rtrim(mb_substr($tekst, 0, 58)) . '…';
+        }
+
+        return ' ("' . $tekst . '")';
     }
 
     /** "core/paragraph" → "het blok Paragraaf", zoals de editor het noemt. */

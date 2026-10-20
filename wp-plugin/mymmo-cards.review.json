@@ -1,8 +1,8 @@
 {
   "plugin": "mymmo-cards",
-  "versie": "1.13.4",
-  "hash": "265a2000242d165f",
-  "datum": "2026-10-20T13:05:01.000Z",
+  "versie": "1.13.5",
+  "hash": "0bc8fcf68686483e",
+  "datum": "2026-10-20T14:42:20.000Z",
   "door": "Nico-Mymmo",
-  "samenvatting": "1.13.4: nagekeken dat de markeerstreep enkel de opvulling van het thema op <mark> wegneemt (twee klassen, zodat de inline themaregel niet wint); de maat van de streep zelf (hoogte 1,15em, uitloop 0,15em) blijft ongewijzigd. Gemeten op syndicoach.be: de streep lag 22px over het volgende woord."
+  "samenvatting": "1.13.5: enkel de bewaking in de editor gewijzigd, geen component. Uitlijnen (typography.textAlign) telt niet meer als eigen typografie; de melding noemt de eigenschap (lettergrootte, regelhoogte, ...) en het begin van de tekst van het blok. Geen wijziging aan CSS of opmaak van componenten; de bestaande waarschuwingen H15 zijn ongewijzigd."
 }

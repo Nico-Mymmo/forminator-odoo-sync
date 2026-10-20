@@ -395,6 +395,15 @@ Uitzetten per site: `define('MYMMO_CARDS_GEEN_AUTO_UPDATE', true);` in
 
 ## Versies
 
+**1.13.5** — tekst uitlijnen (links, midden, rechts) mag weer. WordPress
+bewaart het uitlijnen van een alinea of kop bij de instellingen voor het
+lettertype, en de bewaking weigerde het daardoor als "eigen typografie" -- ook
+al is het een keuze uit drie en geen eigen waarde. De melding zegt nu ook WAT er
+tegengehouden wordt ("eigen lettergrootte 19px", niet "eigen typografie") en in
+WELKE tekst, met het begin ervan: "het blok Paragraaf" alleen hielp niet op een
+pagina met twintig alinea's. Staat dezelfde fout op twee alinea's, dan noemt ze
+de alinea waar ze nieuw bij kwam.
+
 **1.13.4** — de markeerstreep blijft bij haar woord. Het thema geeft elke
 `<mark>` 0,4em opvulling links en rechts (als een gewone gele markering); onze
 streep rekent vanaf de rand van het element en lag daardoor bijna een halve
