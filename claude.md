@@ -4027,9 +4027,9 @@ bibliotheek later aanpassen, verandert een mail niet.**
 - **Beeld opmaken** (2026-10-19, herzien 2026-10-20): knop "Opmaken" bij het
   beeld. Twee lagen die apart blijven: een ACHTERGROND (merkkleur + swirl, vult
   altijd het vak) en een VOORGROND (het opgeladen beeld) aan een ANKER
-  (midden, rand of hoek) met een marge, bij te snijden per zijde (positief =
-  eraf, negatief = lege ruimte erbij; "Lege rand wegknippen" meet het zelf).
-  Het anker rekent met het bijgesneden beeld. Zie "Achtergrondbouwer".
+  (midden, rand of hoek) met een marge, bij te snijden met een gewoon
+  bijsnijkader (grepen; "Lege rand wegknippen" meet het zelf). De uitsnede
+  staat altijd volledig in beeld. Zie "Achtergrondbouwer".
   `image_url` wordt de gemaakte PNG (dus mail en kaart hoeven niets te weten);
   `achtergrond` (jsonb) bewaart de keuzes en de voorgrond (`bron`), zodat je
   ze kan bijstellen of weghalen. **Een ander beeld opladen of kiezen HOUDT de
@@ -4067,12 +4067,19 @@ swirls en kijkt de keuzes na. Geen tweede bouwer per module.**
   grootte (past binnen dat deel van het vak). Een andere vorm van het vak laat
   de voorgrond op haar anker staan. Geen vrije x/y meer: slepen springt naar
   het dichtste anker (`ankerUitPlaats()`).
-- **Bijsnijden** = `voorgrond.snij` per zijde, een deel van het beeld:
-  positief knipt weg, negatief zet er lege ruimte bij. Het anker rekent met
-  het BIJGESNEDEN beeld (`plaatsVoorgrond()`), dus "onderaan + onderaan iets
-  eraf" laat het beeld achter de rand wegvallen. "Lege rand wegknippen"
-  (`legeRand()`) meet de doorzichtige rand, of de kleur van de hoek bij een
-  beeld zonder doorzichtigheid.
+- **Bijsnijden zoals in elk fotoprogramma** (sinds 2026-10-20, na "snap het
+  niet" over schuifjes per zijde): de knop Bijsnijden toont het HELE beeld
+  met een kader en acht grepen (`tekenSnij()`, enkel in het voorbeeld).
+  Bewaard als `voorgrond.snij` = per zijde het deel dat eraf gaat (0..0.97,
+  nooit negatief). **De uitsnede staat ALTIJD volledig in beeld**, welke vorm
+  het vak ook heeft: `plaatsVoorgrond()` laat ze nooit groter worden dan het
+  vak min de marge, en de grootte gaat hoogstens tot 100%. De ruimte die
+  overblijft, vult de achtergrond. Het anker rekent met de uitsnede.
+  "Lege rand wegknippen" (`legeRand()`) zet het kader op de doorzichtige
+  rand, of op de kleur van de hoek bij een beeld zonder doorzichtigheid.
+- **De vormen staan als knoppen BOVEN het voorbeeld** (`tekenVormen()`): een
+  klik toont meteen hoe de opmaak in die vorm uitkomt. De gekozen vorm is die
+  van de bewaarde PNG.
 - **Bewaarde vorm versie 2** (`normaliseerAchtergrond()`): `voorgrond` in
   plaats van `beeld: {schaal, x, y}`. Versie 1 wordt bij het lezen omgezet
   (het dichtste anker); de bestaande PNG blijft tot iemand opnieuw bewaart.
