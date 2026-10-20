@@ -329,6 +329,21 @@
     } catch (err) { NB.fout(err); return; }
     // Een trager, ouder antwoord mag een nieuwer niet overschrijven.
     if (nr !== briefNr || !document.body.contains(frame)) return;
+    // Staat de brief er al, dan enkel de inhoud vervangen: geen witte flits,
+    // de stijl en de luisteraars blijven, en het vak springt niet.
+    var bestaand = frame.contentDocument;
+    if (bestaand && bestaand.body && bestaand.getElementById('nbStijl')) {
+      var hoogte = frame.offsetHeight;
+      frame.style.minHeight = hoogte + 'px';
+      bestaand.body.innerHTML = r.html;
+      frame.style.height = (bestaand.documentElement.scrollHeight + 16) + 'px';
+      frame.style.minHeight = '';
+      versier(bestaand);
+      if (NB.state.scrolNa) { scrolNaarBlok(NB.state.scrolNa); NB.state.scrolNa = null; NB.state.vakScroll = null; }
+      if (NB.state.vakScroll !== null && NB.state.vakScroll !== undefined && vak()) { vak().scrollTop = NB.state.vakScroll; NB.state.vakScroll = null; }
+      kolomPassen(bestaand);
+      return;
+    }
     // De hoogte vasthouden tot de nieuwe brief er staat: anders springt het vak.
     frame.style.minHeight = frame.offsetHeight + 'px';
     frame.onload = function () {
@@ -346,12 +361,16 @@
   NB.vernieuwBrief = laadBrief;
 
   var BRIEF_CSS = ''
+    // Geen randen rond blokken (2026-10-20). Wat een ander nog moet schrijven
+    // is grijs; het gekozen blok staat in de focus: de rest van de brief dimt.
     + '[data-nb-id]{cursor:pointer}'
-    + '[data-nb-id]>td{position:relative;transition:box-shadow .15s}'
-    + '[data-nb-id]:hover>td{box-shadow:inset 0 0 0 2px #7dd3fc}'
-    + '.nb-onbevestigd>td{box-shadow:inset 5px 0 0 #fbbf24}'
-    + '.nb-mijn>td{box-shadow:inset 0 0 0 2px #38bdf8}'
-    + '.nb-gekozen>td,.nb-gekozen:hover>td{box-shadow:inset 0 0 0 3px #0284c7}'
+    + '[data-nb-id]>td{position:relative}'
+    + '[data-nb-id]>td>*{transition:opacity .2s,filter .2s}'
+    + '.nb-ander>td>*:not(.nb-label){opacity:.4;filter:grayscale(1)}'
+    + 'body.nb-focus [data-nb-id]:not(.nb-gekozen)>td>*:not(.nb-label),body.nb-focus [data-nb-kop],body.nb-focus [data-nb-voet]{opacity:.3}'
+    + 'body.nb-focus [data-nb-id]:not(.nb-gekozen):hover>td>*:not(.nb-label){opacity:.65}'
+    + 'body.nb-focus .nb-plus-lijn{visibility:hidden}'
+    + '.nb-gekozen>td>*{opacity:1!important;filter:none!important}'
     + '.nb-label{position:absolute;top:8px;right:10px;z-index:2;pointer-events:none;font:600 11px/1 system-ui,-apple-system,"Segoe UI",sans-serif;padding:6px 10px;border-radius:999px;white-space:nowrap}'
     + '.nb-label-mijn{background:#0284c7;color:#fff}'
     + '.nb-label-wacht{background:#fef3c7;color:#92400e;border:1px solid #fcd34d}'
@@ -367,8 +386,7 @@
     + '[data-nb-veld="text"]{display:flow-root}'
     + '[data-nb-veld] p[data-nb-leeg]:empty::before{content:"Typ hier je tekst.";color:#9ca3af;font-style:italic}'
     + '[data-nb-veld][contenteditable]{outline:none;border-radius:6px;cursor:text;transition:box-shadow .15s;min-width:1em}'
-    + '[data-nb-veld][contenteditable]:hover{box-shadow:0 0 0 2px rgba(56,189,248,.35)}'
-    + '[data-nb-veld][contenteditable]:focus{box-shadow:0 0 0 2px #38bdf8;background:rgba(255,255,255,.55)}'
+    + '[data-nb-veld][contenteditable]:focus{caret-color:#0284c7}'
     + '[data-nb-veld="text"] p{margin:0 0 14px!important}[data-nb-veld="text"] p:last-child{margin-bottom:0!important}'
     // De zwevende werkbalk boven het gekozen blok
     + '.nb-werkbalk{position:absolute;top:-16px;left:14px;z-index:5;display:flex;align-items:center;gap:4px;padding:4px;border-radius:999px;background:#fff;border:1px solid #bae6fd;box-shadow:0 2px 8px rgba(0,0,0,.12)}'
@@ -384,8 +402,8 @@
     + '.nb-toc-eigen{margin-left:6px;padding:2px 7px;border-radius:999px;background:#fef3c7;color:#92400e;font:600 11px/1.4 system-ui,sans-serif;text-decoration:none}'
     + '.nb-toc-eigen:hover{background:#92400e;color:#fff}'
     + '[data-nb-toc-titel][contenteditable]{outline:none;border-radius:4px;cursor:text}'
-    + '[data-nb-toc-titel][contenteditable]:hover{box-shadow:0 0 0 2px rgba(56,189,248,.35)}'
-    + '[data-nb-toc-titel][contenteditable]:focus{box-shadow:0 0 0 2px #38bdf8;text-decoration:none}'
+    + '[data-nb-toc-titel][contenteditable]:hover{text-decoration:underline dotted #94a3b8;text-underline-offset:4px}'
+    + '[data-nb-toc-titel][contenteditable]:focus{text-decoration:none;caret-color:#0284c7}'
     + '[data-nb-uit]:hover>td{box-shadow:none}[data-nb-uit]:hover div{border-color:#94a3b8}'
     + '.nb-werkbalk .nb-scheid{width:1px;height:18px;background:#e5e7eb;margin:0 2px}'
     + '.nb-werkbalk .nb-greep{cursor:grab;color:#64748b;padding:7px 6px;touch-action:none;user-select:none}'
@@ -396,10 +414,12 @@
     + '.nb-optie-weg:hover{background:#b91c1c;color:#fff}'
     + '.nb-antwoord-bij{margin-top:4px;border:2px dashed rgba(125,211,252,.9);border-radius:8px;padding:10px;text-align:center;font:600 13px system-ui,-apple-system,"Segoe UI",sans-serif;color:#0369a1;background:rgba(255,255,255,.85);cursor:pointer}'
     + '.nb-antwoord-bij:hover{background:#0284c7;border-color:#0284c7;color:#fff}'
-    + '[data-nb-beeld][data-nb-knop]{cursor:pointer}[data-nb-beeld][data-nb-knop]:hover img{outline:3px solid #38bdf8;outline-offset:-3px}'
-    + '[data-nb-beeld][data-nb-knop]:hover{outline:3px solid #38bdf8;outline-offset:-3px;border-radius:14px}'
+    + '[data-nb-beeld][data-nb-knop]{cursor:pointer}[data-nb-beeld][data-nb-knop]:hover img{filter:brightness(.92)}'
     + '[data-nb-eiland]{user-select:none}'
-    + '[data-nb-kop],[data-nb-voet]{cursor:pointer}[data-nb-kop]:hover,[data-nb-voet]:hover{outline:3px solid #38bdf8;outline-offset:-3px;border-radius:14px}'
+    // Kop en voet: geen rand, wel een labeltje bij het aanwijzen.
+    + '[data-nb-kop],[data-nb-voet]{cursor:pointer;position:relative}'
+    + '[data-nb-kop]:hover::after,[data-nb-voet]:hover::after{content:"\\270E  Aanpassen";position:absolute;top:8px;right:10px;font:600 11px/1 system-ui,-apple-system,"Segoe UI",sans-serif;padding:6px 10px;border-radius:999px;background:#fff;color:#0369a1;border:1px solid #bae6fd;box-shadow:0 1px 3px rgba(0,0,0,.08)}'
+    + '.nb-werkbalk button.nb-klaar{background:#0284c7;color:#fff;padding:7px 12px}.nb-werkbalk button.nb-klaar:hover{background:#0369a1}'
     // Het handvat op elk ander blok (hoofdredactie): enkel zichtbaar als je erover gaat
     + '.nb-greep-rij{position:absolute;left:10px;top:8px;z-index:4;opacity:0;transition:opacity .15s}'
     + '[data-nb-id]:hover .nb-greep-rij{opacity:1}'
@@ -423,6 +443,7 @@
     }
     if (it.status === 'submitted') return { soort: 'wacht', tekst: editor() ? 'Ingeleverd · te bevestigen' : 'Ingeleverd · wacht op marketing' };
     if (it.status === 'draft') return { soort: 'bezig', tekst: 'Bezig · ' + (NB.voornaam(it.owner_name) || 'iemand') + ' schrijft nog' };
+    if (it.status === 'open') return { soort: 'bezig', tekst: it.owner_user_id ? 'Open · voor ' + (NB.voornaam(it.owner_name) || 'een collega') : 'Open · nog niemand' };
     return null;
   }
 
@@ -447,7 +468,13 @@
         if (ev.target.closest('.nb-werkbalk') || ev.target.closest('.nb-greep-rij')) return;
         var blok = ev.target.closest('[data-nb-id]');
         if (blok) selecteer(blok.getAttribute('data-nb-id')).catch(NB.fout);
+        else stapUit();
       });
+      doc.addEventListener('keydown', function (ev) {
+        if (ev.key === 'Escape' && !ev.defaultPrevented) stapUit();
+      });
+      // Een beeld dat later laadt, maakt de brief langer.
+      doc.addEventListener('load', function () { hoogteBij(); }, true);
       doc.addEventListener('input', function (ev) {
         var el = ev.target.closest && ev.target.closest('[data-nb-veld][contenteditable]');
         if (!el || !NB.stukjeZet) return;
@@ -594,11 +621,11 @@
     doc.querySelectorAll('[data-nb-id]').forEach(function (rij) {
       var id = rij.getAttribute('data-nb-id');
       var it = itemVan(id);
-      rij.classList.remove('nb-onbevestigd', 'nb-mijn', 'nb-gekozen');
+      rij.classList.remove('nb-ander', 'nb-gekozen');
       if (!it) return;
       var l = labelVan(it);
-      if (!NB.isAuto(it.kind) && it.status !== 'approved') rij.classList.add('nb-onbevestigd');
-      if (l && l.soort === 'mijn') rij.classList.add('nb-mijn');
+      // Een schrijver: wat een ander nog moet schrijven, staat grijs (enkel ter info).
+      if (!editor() && l && l.soort === 'bezig') rij.classList.add('nb-ander');
       if (id === NB.state.paneelId) rij.classList.add('nb-gekozen');
       rij.title = NB.isAuto(it.kind) ? 'Vult zichzelf' : '';
       var cel = rij.firstElementChild;
@@ -609,6 +636,7 @@
         cel.appendChild(el);
       }
     });
+    if (doc.body) doc.body.classList.toggle('nb-focus', !!NB.state.paneelId && !lezer());
     // Niet opnieuw opbouwen terwijl iemand in de brief typt: dan valt de cursor weg.
     var a = doc.activeElement;
     if (!(a && a.hasAttribute && a.hasAttribute('contenteditable'))) bewerkbaar(doc);
@@ -801,6 +829,8 @@
       else if (knoppen.length) knoppen.push('<span class="nb-scheid"></span>');
       knoppen.push('<button type="button" class="nb-schakel' + (aanStaat ? ' nb-op' : '') + '" data-nb-knop="aanuit" title="' + (aanStaat ? 'Staat aan: klik om uit te zetten (het blijft bewaard)' : 'Staat uit: klik om aan te zetten') + '"><i></i>' + (aanStaat ? 'Aan' : 'Uit') + '</button>');
     }
+    if (knoppen.length) knoppen.push('<span class="nb-scheid"></span>');
+    knoppen.push('<button type="button" class="nb-klaar" data-nb-knop="klaar" title="Klaar met dit blok (of klik ernaast, of Esc)">Klaar</button>');
     if (knoppen.length && cel) {
       var bar = doc.createElement('div');
       bar.className = 'nb-werkbalk';
@@ -910,6 +940,7 @@
     else if (wat.indexOf('optie-weg:') === 0 && NB.vraagOptieWeg) NB.vraagOptieWeg(Number(wat.slice(10)));
     else if (wat === 'omhoog' || wat === 'omlaag') verplaats(s.item.id, wat === 'omhoog' ? -1 : 1);
     else if (wat === 'kleur') kiesBlokKleur(s.item.id, anker);
+    else if (wat === 'klaar') stapUit();
     else if (wat.indexOf('toclijn:') === 0) zetInToc(wat.slice(8));
     else if (wat.indexOf('toctitel-terug:') === 0) zetTocTitel(wat.slice(15), '');
     else if (wat === 'weg') NB.actions['blok-weg']({ dataset: { id: s.item.id } });
@@ -1077,6 +1108,15 @@
     labels();
     history.replaceState(null, '', '#/stukje/' + id);
     if (window.innerWidth < 1024 && bak) bak.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  /** Uit het gekozen blok stappen (klik ernaast, Esc of "Klaar"). Wat getypt is, wordt bewaard. */
+  function stapUit() {
+    if (!NB.state.paneelId) return;
+    var doc = briefDoc();
+    var a = doc && doc.activeElement;
+    if (a && a.blur) a.blur();
+    sluitPaneel().catch(NB.fout);
   }
 
   async function sluitPaneel() {
@@ -1407,6 +1447,14 @@
     if (open && !itemVan(open)) open = null;
     NB.state.paneelId = null;
 
+    // Dezelfde editie staat er al (na een wijziging): niets afbreken, enkel bijwerken.
+    if (document.getElementById('edVoorbeeld') && document.getElementById('nbKop')) {
+      tekenKop();
+      if (open && !lezer()) await selecteer(open, params.stukje || null).catch(function (err) { NB.fout(err); toonPaneel(); });
+      else toonPaneel();
+      laadBrief();
+      return;
+    }
     app.innerHTML = '<div class="nb-werkvenster">'
       + '<header id="nbKop" class="nb-kop">' + kop() + '</header>'
       + '<div class="nb-werkvlak">'
@@ -1414,6 +1462,10 @@
       + '<aside id="nbPaneel" class="nb-regie"></aside>'
       + '</div></div>';
     NB.ikons();
+    // Klikken in de lege ruimte naast de brief = uit het blok stappen.
+    document.getElementById('nbBriefvak').addEventListener('click', function (ev) {
+      if (ev.target.id === 'nbBriefvak' || ev.target.id === 'nbBriefkader') stapUit();
+    });
     if (open && !lezer()) {
       await selecteer(open, params.stukje || null).catch(function (err) { NB.fout(err); toonPaneel(); });
     } else {

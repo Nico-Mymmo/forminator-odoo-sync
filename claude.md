@@ -3839,6 +3839,25 @@ bleken drie dingen niet te kloppen. Alle drie zijn gefixt in `lib/sync.js`,
   eerder bericht in die draad op. Zonder die aanpassing zou een antwoord op een mail die
   destijds naar twee leads ging, alsnog maar bij één van de twee terechtkomen.
 
+## Nieuwsbrief: werken aan een blok, zonder randen en zonder flitsen (2026-10-20)
+
+- **Geen randen of lijnen rond blokken** (de blauwe hover- en selectierand en
+  de oranje lijn bij een onbevestigd blok waren verwarrend). Wat telt:
+  - het LABEL: blauw "Voor jou" = jij moet dit doen; grijs = iemand anders
+    ("Bezig · X schrijft nog", "Open · voor X"). Voor een schrijver staan die
+    blokken van anderen ook grijs (`nb-ander`), de hoofdredactie ziet ze gewoon.
+  - FOCUS: is een blok gekozen, dan dimt de rest van de brief (`body.nb-focus`)
+    en staat de werkbalk erboven, met "Klaar" achteraan. Uitstappen: klik
+    ernaast (in de brief of de ruimte eromheen), Esc, of Klaar (`stapUit()`).
+    Wat getypt is, wordt bewaard. Zet die randen niet terug.
+  - Kop en voet: geen rand, wel een labeltje "Aanpassen" bij het aanwijzen.
+- **Een wijziging laadt de brief NIET opnieuw**: `laadBrief()` vervangt enkel
+  de inhoud van het bestaande iframe (stijl en luisteraars blijven), en
+  `NB.views.editie` bouwt de pagina niet opnieuw op als dezelfde editie er al
+  staat (enkel kop, paneel en brief). Alles wat in de brief zelf hangt (de
+  opmaakbalk, menu's) moet daarom tegen een verdwenen element kunnen
+  (`isConnected`).
+
 ## Nieuwsbrief: vaste blokken (2026-10-20)
 
 - **Woordje vooraf staat altijd bovenaan, de inhoudstafel er meteen onder,

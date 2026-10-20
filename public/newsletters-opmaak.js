@@ -191,7 +191,7 @@
       var knop = function (wat, ik, titel, actief) {
         return '<button type="button" data-nbo="' + wat + '" title="' + titel + '"' + (actief ? ' class="nbo-aan"' : '') + '>' + ikoon(ik) + '</button>';
       };
-      if (!balk) { balk = doc.createElement('div'); balk.className = 'nbo-balk'; doc.body.appendChild(balk); }
+      if (!balk || !balk.isConnected) { balk = doc.createElement('div'); balk.className = 'nbo-balk'; doc.body.appendChild(balk); }
       balk.innerHTML = '<button type="button" data-nbo="soort" title="Soort tekst">' + e(soort.label) + ikoon('neer', 14) + '</button>'
         + '<span class="nbo-scheid"></span>'
         + knop('vet', 'vet', 'Vet (' + MOD + 'B)', aan('bold'))
@@ -211,7 +211,7 @@
       linkRange = s.getRangeAt(0).cloneRange();
       var a = binnen(s.anchorNode, 'a', veld);
       var rect = linkRange.getBoundingClientRect();
-      if (!balk) { balk = doc.createElement('div'); balk.className = 'nbo-balk'; doc.body.appendChild(balk); }
+      if (!balk || !balk.isConnected) { balk = doc.createElement('div'); balk.className = 'nbo-balk'; doc.body.appendChild(balk); }
       balk.innerHTML = '<input type="url" data-nbo-url placeholder="Plak of typ een link" value="' + e(a ? a.getAttribute('href') || '' : '') + '">'
         + '<button type="button" data-nbo="link-ok" title="Toepassen (Enter)">' + ikoon('vink') + '</button>'
         + (a ? '<button type="button" data-nbo="link-weg" title="Link weghalen">' + ikoon('weg') + '</button>' : '');
@@ -246,7 +246,7 @@
     function tekenMenu(query, rect, kop) {
       var q = normaal(query);
       var lijst = SOORTEN.filter(function (x) { return !q || normaal(x.label).indexOf(q) >= 0 || x.zoek.indexOf(q) >= 0; });
-      if (!menu) { menu = doc.createElement('div'); menu.className = 'nbo-menu'; doc.body.appendChild(menu); menu._actief = 0; }
+      if (!menu || !menu.isConnected) { menu = doc.createElement('div'); menu.className = 'nbo-menu'; doc.body.appendChild(menu); menu._actief = 0; }
       menu._lijst = lijst;
       if (menu._actief >= lijst.length) menu._actief = 0;
       menu.innerHTML = '<div class="nbo-menu-kop">' + e(kop || 'Opmaak') + '</div>'
@@ -309,6 +309,7 @@
     }
 
     // ─── Luisteraars ─────────────────────────────────────────────────────
+    // De brief vervangt soms zijn inhoud (zonder herladen): balk en menu zijn dan weg.
     doc.addEventListener('selectionchange', function () {
       if (slash) slashBijwerken();
       if (balk && linkRange) return; // het linkveld heeft de focus
