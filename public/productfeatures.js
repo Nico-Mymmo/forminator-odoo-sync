@@ -23,6 +23,8 @@
     bewerken: false,    // false = de kaart (voorbeeld), true = het formulier
     kiezer: null,       // de beeldkiezer: { prefix, folders, files, laden }
     achtergrond: null,  // palet, vormen en swirls voor de achtergrondbouwer (eenmaal ophalen)
+    kaartVorm: '',      // vorm in het voorbeeld van de kaart ('' = zoals bewaard)
+    kaartVormen: {},    // sleutel -> blob-adres van een al getekende vorm
     zoek: '',
     categorie: '',
     open: {},           // id -> true/false (ingeklapt of niet)
@@ -223,7 +225,7 @@
     var labelTekst = String(f.eyebrow || '').trim() || (f.parent_id ? ((perId(f.parent_id) || {}).name || '') : '');
     var usps = (f.usps || []).filter(Boolean);
     return '<article style="background:#ffffff;border:1px solid ' + h.rand + ';border-radius:14px;overflow:hidden;color:' + h.tekst + ';font-size:15px;line-height:1.55;max-width:560px;margin:0 auto;width:100%">'
-      + (f.image_url ? '<img src="' + e(f.image_url) + '" alt="" style="display:block;width:100%;height:auto">' : '')
+      + (f.image_url ? '<img src="' + e(f.image_url) + '" alt="" data-pf-kaartbeeld style="display:block;width:100%;height:auto">' : '')
       + '<div style="padding:22px 24px 24px">'
       + (labelTekst ? '<span style="display:inline-block;background:' + h.pil + ';color:' + h.primary + ';font-size:12px;font-weight:600;padding:3px 10px;border-radius:999px">' + e(labelTekst) + '</span>' : '')
       + '<div style="font-size:24px;line-height:1.2;font-weight:700;color:' + h.titel + ';margin:12px 0 10px">' + e(f.name || 'Nog geen titel') + '</div>'
@@ -258,6 +260,7 @@
       + (f.is_active === false ? '<span class="badge badge-ghost badge-sm">uit: niet te kiezen in een mail</span>' : '') + '</div></div>'
       + (kanBewerken() ? '<button class="btn btn-sm btn-primary shrink-0" data-action="bewerk"><i data-lucide="pencil" class="w-4 h-4"></i> Bewerken</button>' : '')
       + '</div>'
+      + (f.achtergrond && f.achtergrond.bron ? '<div id="pfKaartVormen" class="flex flex-wrap items-center gap-2 -mb-1"></div>' : '')
       + '<div class="rounded-2xl bg-base-200/70 p-4 sm:p-6">' + kaartHtml(f) + '</div>'
       + '<div class="grid sm:grid-cols-4 gap-4 pt-1">'
       + feit('Categorie', cat ? '<span class="inline-flex items-center gap-1.5"><span class="pf-stip" style="background:' + cat.kleur + '"></span>' + e(cat.label) + '</span>' : '<span class="opacity-50">Geen categorie</span>')
@@ -280,6 +283,7 @@
       + '</div></div>';
     ikons();
     laadLogboek(f.id);
+    tekenKaartVormen(f);
   }
 
   // ── Het logboek: wie paste wat aan ───────────────────────────────────────
@@ -521,8 +525,53 @@
     tekenFormulier();
   }
 
+  /**
+   * Het voorbeeld in andere vormen: het bewaarde beeld heeft EEN vorm, maar
+   * een opgemaakt beeld kan in elke vorm getekend worden (zelfde bouwer,
+   * public/om-achtergrond.js). Enkel om te bekijken: er wordt niets bewaard.
+   */
+  async function tekenKaartVormen(f) {
+    var plek = $('pfKaartVormen');
+    var ag = f.achtergrond;
+    if (!plek || !ag || !ag.bron) return;
+    try {
+      if (!state.achtergrond) state.achtergrond = await api('/achtergrond');
+    } catch (err) { plek.remove(); return; }
+    if (!plek.isConnected) return;
+    var nu = state.kaartVorm || ag.verhouding;
+    plek.innerHTML = '<span class="text-xs opacity-60">Bekijk in</span><div class="join">'
+      + (state.achtergrond.verhoudingen || []).map(function (x) {
+        var label = (x.key === '1:1' ? 'Vierkant' : x.key) + (x.key === ag.verhouding ? ' (bewaard)' : '');
+        return '<button type="button" class="btn btn-xs join-item ' + (x.key === nu ? 'btn-primary' : 'btn-ghost border border-base-content/15') + '" data-action="kaart-vorm" data-vorm="' + e(x.key) + '">' + e(label) + '</button>';
+      }).join('') + '</div>';
+    var img = document.querySelector('#pfFormulier [data-pf-kaartbeeld]');
+    if (!img) return;
+    if (nu === ag.verhouding) { img.src = f.image_url; return; }
+    var sleutel = f.image_url + '|' + nu;
+    if (!state.kaartVormen[sleutel]) {
+      img.style.opacity = '0.4';
+      try {
+        var keuzes = JSON.parse(JSON.stringify(ag));
+        keuzes.verhouding = nu;
+        state.kaartVormen[sleutel] = URL.createObjectURL(await window.OMAchtergrond.maakPng(keuzes, state.achtergrond));
+      } catch (err) {
+        img.style.opacity = '';
+        toast('Deze vorm kon niet getekend worden: ' + err.message, 'warning');
+        return;
+      }
+    }
+    if (img.isConnected && (state.kaartVorm || ag.verhouding) === nu) img.src = state.kaartVormen[sleutel];
+    img.style.opacity = '';
+  }
+
   var actions = {
     'kies': function (el) { kies(el.dataset.id); },
+    'kaart-vorm': function (el) {
+      var f = perId(state.gekozen);
+      if (!f) return;
+      state.kaartVorm = el.dataset.vorm === (f.achtergrond && f.achtergrond.verhouding) ? '' : el.dataset.vorm;
+      return tekenKaartVormen(f);
+    },
     'klap': function (el) { state.open[el.dataset.id] = state.open[el.dataset.id] === false; tekenBoom(); },
     'nieuw-hoofd': function () { nieuw(null); },
     'nieuw-onder': function (el) { nieuw(el.dataset.id); state.open[el.dataset.id] = true; tekenBoom(); },

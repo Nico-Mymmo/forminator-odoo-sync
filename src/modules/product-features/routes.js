@@ -229,9 +229,9 @@ export const routes = {
   },
 
   /** De achtergrondbouwer: merkkleuren, vormen van het vlak en de swirls (brand/swirls/). */
-  'GET /api/achtergrond': async ({ env, user }) => {
+  // Ook voor wie enkel leest: het voorbeeld in andere vormen tekent ermee.
+  'GET /api/achtergrond': async ({ env }) => {
     try {
-      eisBewerken(user);
       return json({ success: true, data: await bouwerGegevens(env) });
     } catch (err) { return fout(err); }
   },
