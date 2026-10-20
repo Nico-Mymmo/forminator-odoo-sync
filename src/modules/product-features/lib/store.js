@@ -71,10 +71,14 @@ export function normaliseer(body = {}, { nieuw = false } = {}) {
   if (body.benefits !== undefined) uit.benefits = uitLijst(body.benefits, VOORDEEL_KEYS);
   if (body.audiences !== undefined) uit.audiences = uitLijst(body.audiences, DOELGROEP_KEYS);
   if (body.plan !== undefined) {
-    const p = String(body.plan || '').trim();
+    let p = String(body.plan || '').trim();
+    // Oude waarde: 'pro' was een pakket, nu een aparte schakelaar.
+    if (p === 'pro') { p = 'geen'; if (body.pro === undefined) uit.pro = true; }
     if (!PAKKET_KEYS.has(p)) throw new FeatureError('Onbekend pakket.');
     uit.plan = p;
   }
+  // Ook in OpenVME Pro, los van het pakket voor gewone VME's.
+  if (body.pro !== undefined) uit.pro = Boolean(body.pro);
   if (body.brand !== undefined) {
     if (!MERKEN.includes(body.brand)) throw new FeatureError('Onbekend merk.');
     uit.brand = body.brand;
