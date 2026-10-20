@@ -3851,9 +3851,10 @@ tabs-boxed: het is een modus, geen tabblad, en het mag niet opvallen).
   vaste blokken, testmail en verzenden. GEEN tekst typen, behalve in een
   Titel-blok (structuur); op een eigen blok staat "Schrijven" in de werkbalk.
 - **Schrijver** (iedereen): enkel je EIGEN blokken (`owner_user_id`) zijn actief
-  en typbaar, de rest staat grijs (`nb-ander`) en is niet te kiezen. Geen
-  opmaak, geen verslepen, geen "+". Een eigen blok openen (Voor jou) zet de
-  modus vanzelf op Schrijver.
+  en typbaar, de rest staat grijs (`nb-ander`) en is niet te kiezen. De
+  HOOFDREDACTIE mag als schrijver elk blok invullen (om voor te bereiden), en
+  heeft in Layouter op elk blok "Schrijven". Geen opmaak, geen verslepen, geen
+  "+". Een eigen blok openen (Voor jou) zet de modus vanzelf op Schrijver.
 - **Lezer**: de mail zoals verstuurd (`mode: 'test'`), met elk blok
   aanklikbaar (`lees: true` -> `data-nb-lees` op de eerste rij, `ctx.markeer`
   in render.js, nooit in een echte mail). Klik = opmerkingen in het paneel
