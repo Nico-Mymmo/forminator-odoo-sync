@@ -5737,11 +5737,14 @@ Afspraken die bewust zo zijn:
 
 - **Wat de lezer ziet, maak je IN de brief; wat de lezer niet ziet, staat
   rechts** (2026-10-15, na het nazicht in `docs/review-om-nieuwsbrieven.md`).
-  De redactietafel vult het scherm (`body.nb-werk`): een vaste kop (naam,
-  stappenbalk Verzamelen -> Nalezen -> Testen -> Inplannen -> Verzonden,
-  Werken/Als lezer, computer/gsm, Blok, Testmail, Inplannen), links de brief in
-  een eigen vak dat scrolt (`#nbBriefvak`), rechts de regie in een eigen vak
-  dat scrolt (`#nbPaneel`). De pagina zelf scrolt niet: elk vak EEN scrollbar.
+  De redactietafel is DEZELFDE pagina als de kalender (2026-10-20: geen witte
+  balk over de volle breedte meer, dat was een stijlbreuk): zelfde breedte
+  (`max-w-7xl`), achtergrond en kop (titel met icoon, een regel uitleg, acties
+  rechts: Blok, Testmail, Verzenden), daaronder de stappen Verzamelen ->
+  Nalezen -> Testen -> Inplannen -> Verzonden en Werken/Als lezer,
+  computer/gsm. Ze vult wel de hoogte (`body.nb-werk`): links de brief in een
+  kaart die zelf scrolt (`#nbBriefvak`), rechts de regie die zelf scrolt
+  (`#nbPaneel`). De pagina zelf scrolt niet: elk vak EEN scrollbar.
   De brief komt van `POST /api/editions/:id/preview` (dezelfde renderer); wat
   je typt gaat als `override` mee. Klik op een blok: het paneel toont zijn
   instellingen en in de brief worden ALLE `data-nb-veld`-velden van dat blok

@@ -130,11 +130,12 @@
       : t.voorbij ? '<span class="text-warning font-semibold">Inleverdatum voorbij</span> · nalezen en bevestigen'
         : 'Inleverdatum ' + e(NB.datum(ed.deadline_at, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })) + ' · <span class="nb-teller">' + e(NB.tellerTekst(ed.deadline_at)) + '</span>';
     var knoppen = [];
+    var weergave = [];
     var oog = lezer();
-    knoppen.push('<div class="join">'
+    weergave.push('<div class="join">'
       + '<button class="btn btn-sm join-item' + (!oog ? ' btn-active' : '') + '" data-action="oog" data-stand="preview" title="Werken aan de brief"><i data-lucide="pen-line" class="w-4 h-4"></i> Werken</button>'
       + '<button class="btn btn-sm join-item' + (oog ? ' btn-active' : '') + '" data-action="oog" data-stand="test" title="Zoals de lezer het ziet, zonder lege blokken en markeringen"><i data-lucide="eye" class="w-4 h-4"></i> Als lezer</button></div>');
-    knoppen.push('<div class="join">'
+    weergave.push('<div class="join">'
       + '<button class="btn btn-sm btn-square join-item' + (NB.state.toestel !== 'gsm' ? ' btn-active' : '') + '" data-action="toestel" data-toestel="desktop" title="Op een computer"><i data-lucide="monitor" class="w-4 h-4"></i></button>'
       + '<button class="btn btn-sm btn-square join-item' + (NB.state.toestel === 'gsm' ? ' btn-active' : '') + '" data-action="toestel" data-toestel="gsm" title="Op een gsm"><i data-lucide="smartphone" class="w-4 h-4"></i></button></div>');
     if (actief()) knoppen.push('<button class="btn btn-sm btn-outline" data-action="toevoegen-open" title="Iets toevoegen aan de brief (of klik op een + tussen twee blokken)"><i data-lucide="plus" class="w-4 h-4"></i> Blok</button>');
@@ -150,15 +151,23 @@
       knoppen.push('<button class="btn btn-sm btn-outline" data-action="open-moment"><i data-lucide="calendar-clock" class="w-4 h-4"></i> Moment wijzigen</button>');
       knoppen.push('<button class="btn btn-sm btn-warning" data-action="terughalen"><i data-lucide="undo-2" class="w-4 h-4"></i> Terughalen</button>');
     }
-    return '<div class="min-w-0 mr-auto">'
-      + '<div class="text-xs opacity-60"><a class="hover:underline" href="#/">Nieuwsbrieven</a> / ' + e(d().series.name) + '</div>'
-      + '<div class="flex flex-wrap items-center gap-2"><h1 class="text-lg font-bold leading-tight">' + e(ed.title) + '</h1>' + NB.editieBadge(ed.status)
-      + (stats ? '<span class="text-xs opacity-70">' + (stats.sent || 0) + ' verzonden · ' + Math.round(stats.opened_ratio || 0) + '% geopend · ' + Math.round(stats.clicks_ratio || 0) + '% geklikt</span>' : '')
-      + '</div>'
-      + '<div class="text-xs opacity-70 mt-0.5">' + wanneer + (actief() ? ' · verzenddag ' + e(NB.datum(ed.send_at, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })) + (NB.isBlanco(ed) ? ' · <strong>' + p.totaal + '</strong> ' + (p.totaal === 1 ? 'blok' : 'blokken') : ' · <strong>' + (p.bevestigd + p.ingeleverd) + ' van ' + p.totaal + '</strong> binnen') : '') + '</div>'
-      + '</div>'
-      + stappen()
-      + '<div class="flex flex-wrap items-center gap-2">' + knoppen.join('') + '</div>';
+    // Dezelfde kop als de kalender (newsletters-overview.js): titel met icoon,
+    // een regel uitleg eronder, de acties rechts. Daaronder de stappen en de weergave.
+    var info = [];
+    info.push('<a class="hover:underline" href="#/">Nieuwsbrieven</a> · ' + e(d().series.name));
+    if (wanneer) info.push(wanneer);
+    if (actief()) {
+      info.push('verzenddag ' + e(NB.datum(ed.send_at, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })));
+      info.push(NB.isBlanco(ed) ? '<strong>' + p.totaal + '</strong> ' + (p.totaal === 1 ? 'blok' : 'blokken') : '<strong>' + (p.bevestigd + p.ingeleverd) + ' van ' + p.totaal + '</strong> binnen');
+    }
+    if (stats) info.push((stats.sent || 0) + ' verzonden · ' + Math.round(stats.opened_ratio || 0) + '% geopend · ' + Math.round(stats.clicks_ratio || 0) + '% geklikt');
+    return '<div class="flex flex-wrap items-center justify-between gap-3">'
+      + '<div class="min-w-0"><h1 class="text-2xl font-bold flex flex-wrap items-center gap-2"><a href="#/" title="Terug naar de kalender" class="flex"><i data-lucide="newspaper" class="w-6 h-6 text-primary"></i></a>'
+      + '<span class="min-w-0 truncate">' + e(ed.title) + '</span>' + NB.editieBadge(ed.status) + '</h1>'
+      + '<p class="text-sm opacity-60 mt-0.5">' + info.join(' · ') + '</p></div>'
+      + '<div class="flex flex-wrap items-center gap-2 shrink-0">' + knoppen.join('') + '</div></div>'
+      + '<div class="flex flex-wrap items-center justify-between gap-2 mt-3">' + stappen()
+      + '<div class="flex flex-wrap items-center gap-2">' + weergave.join('') + '</div></div>';
   }
 
   function tekenKop() {
