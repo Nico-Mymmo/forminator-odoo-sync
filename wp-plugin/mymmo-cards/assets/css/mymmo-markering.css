@@ -54,6 +54,22 @@
   color: inherit;
 }
 
+/*
+ * GEEN OPVULLING OP HET WOORD. Het thema (Blockify) geeft elke <mark> 0,2em
+ * boven en onder en 0,4em links en rechts (`mark:not(.has-inline-color)`), als
+ * een gewone gele markering. Hier is de streep het pseudo-element, en die
+ * rekent vanaf de rand van het element: met die opvulling kwam ze bijna een
+ * halve letter over het woord ERVOOR en ERNA te liggen (gemeten op
+ * syndicoach.be: 16px opvulling plus 6px uitloop bij een letter van 41px), en
+ * dan zet een redacteur een extra spatie om de streep van het volgende woord
+ * weg te houden. Twee klassen: de regel van het thema is (0,1,1) en staat
+ * inline in de <head>, dus na deze stylesheet; een klasse alleen verliest.
+ */
+.mymmo-mark.mymmo-mark {
+  padding: 0;
+  margin: 0;
+}
+
 .mymmo-mark::before {
   content: "";
   position: absolute;

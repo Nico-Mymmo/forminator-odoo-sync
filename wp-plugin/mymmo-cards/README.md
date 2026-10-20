@@ -395,6 +395,14 @@ Uitzetten per site: `define('MYMMO_CARDS_GEEN_AUTO_UPDATE', true);` in
 
 ## Versies
 
+**1.13.4** — de markeerstreep blijft bij haar woord. Het thema geeft elke
+`<mark>` 0,4em opvulling links en rechts (als een gewone gele markering); onze
+streep rekent vanaf de rand van het element en lag daardoor bijna een halve
+letter over het woord ervoor en erna. Een redacteur zette dan een extra spatie
+om de streep van het volgende woord weg te houden. De opvulling staat nu op 0
+(met twee klassen, want de regel van het thema staat inline in de `<head>`);
+de uitloop van 0,15em blijft.
+
 **1.13.3** — de afronding staat meteen in beeld op elk blok dat ze kan
 krijgen: een video, een ingesloten film (Vimeo, YouTube), een afbeelding, een
 kolom, een alinea. Het thema geeft die blokken een paneel "Rand" dat standaard

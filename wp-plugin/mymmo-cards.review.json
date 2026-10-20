@@ -1,8 +1,8 @@
 {
   "plugin": "mymmo-cards",
-  "versie": "1.13.3",
-  "hash": "8649cce1e6ab2f40",
-  "datum": "2026-10-20T12:59:06.000Z",
+  "versie": "1.13.4",
+  "hash": "265a2000242d165f",
+  "datum": "2026-10-20T13:05:01.000Z",
   "door": "Nico-Mymmo",
-  "samenvatting": "1.13.3: nagekeken dat het editorscript enkel de afronding (Klein/Groot uit de huisstijl) als standaardveld toont op blokken die het thema al randondersteuning geeft, niets bewaart of op de pagina verandert, en de bewaking zelf niet versoepelt. Geen visueel component, geen CSS; lint groen."
+  "samenvatting": "1.13.4: nagekeken dat de markeerstreep enkel de opvulling van het thema op <mark> wegneemt (twee klassen, zodat de inline themaregel niet wint); de maat van de streep zelf (hoogte 1,15em, uitloop 0,15em) blijft ongewijzigd. Gemeten op syndicoach.be: de streep lag 22px over het volgende woord."
 }
