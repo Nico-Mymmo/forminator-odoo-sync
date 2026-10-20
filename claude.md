@@ -6250,6 +6250,21 @@ Afspraken die bewust zo zijn:
   Skill-concept (beheerder) of via het script. De export wint van wat er al
   staat.
 
+- **Van een case een TAAK maken** (2026-10-20, knop "Taak maken" bij een
+  case, `lib/taak.js`, `POST /api/cases/:id/taken`): voor wie, deadline, titel
+  en notitie. De taak komt in Projecten bij de PERSOONLIJKE DOELEN van wie ze
+  krijgt (het project "Doelen van <voornaam>" met die persoon als eigenaar,
+  bij voorkeur `odoo:doelen:<uid>`; bestaat het niet, dan wordt het gemaakt),
+  in de sectie "Nieuw" of anders de eerste open sectie. Label "Odoo-controle",
+  prioriteit uit de case (dringend/hoog, anders normaal), de beschrijving =
+  notitie + bevinding + voorstel + de Odoo-links + een link terug
+  (`/odoo-controle#case/<id>`), en de verwijzing naar het eerste Odoo-record
+  dat Projecten kent (lead, partner, order). Het verband staat als merkteken
+  `data-oc-case="<id>"` op die link (zoals `data-nb-taak` bij de
+  nieuwsbrief): zo toont de case haar taken (`GET /api/cases/:id/taken`).
+  Haal dat attribuut niet weg uit `schoonHtml()`. De taak vinkt zichzelf NIET
+  af als de case opgelost is: ze is van de collega.
+
 Uitrol: `npm run db:push` (schema + eerste lading + module-registratie), daarna
 `npm run deploy` vanaf `master`. Geen nieuwe secrets.
 
