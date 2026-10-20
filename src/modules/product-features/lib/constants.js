@@ -44,16 +44,15 @@ export const DOELGROEPEN = [
 
 /**
  * Voor gewone VME's: vanaf welk pakket (zoals op openvme.be/prijzen). Leeg =
- * overal, 'geen' = niet voor VME's. OpenVME Pro staat hier NIET in: dat is
+ * overal, 'geen' = niet voor VME's. Unlimited bestaat niet meer (2026-10-20). OpenVME Pro staat hier NIET in: dat is
  * een aparte schakelaar (`pro` op de feature), want een feature kan voor
  * beide gelden (Nico, 2026-10-20).
  */
 export const PAKKETTEN = [
   { key: '', label: 'In elk pakket', kort: 'Elk pakket' },
-  { key: 'gratis', label: 'Gratis', kort: 'Gratis' },
+  { key: 'gratis', label: 'Free', kort: 'Free' },
   { key: 'basic', label: 'Vanaf Basic', kort: 'Basic' },
-  { key: 'smart', label: 'Vanaf Smart', kort: 'Smart' },
-  { key: 'unlimited', label: 'Unlimited', kort: 'Unlimited' },
+  { key: 'smart', label: 'Smart', kort: 'Smart' },
   { key: 'geen', label: 'Niet voor VME\'s', kort: '' },
 ];
 
