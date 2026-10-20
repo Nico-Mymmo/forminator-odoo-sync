@@ -735,7 +735,7 @@
       }
       var bg = (NB.state.concept.content || {}).achtergrond;
       knoppen.push('<button type="button" data-nb-knop="kleur" title="Achtergrondkleur van dit blok"><span class="nb-kleurbol" style="background:' + e(bg || '#ffffff') + '"></span></button>');
-      if (soort !== 'toc') {
+      if (soort !== 'toc' && soort !== 'intro') {
         var inToc = NB.inToc(s.item, NB.state.concept.content);
         knoppen.push('<button type="button" data-nb-knop="toc"' + (inToc ? ' class="nb-aan"' : '') + ' title="' + (inToc ? 'Staat in de inhoudstafel; klik om het eruit te halen' : 'Staat niet in de inhoudstafel; klik om het erin te zetten') + '">' + (inToc ? '✓ ' : '') + 'Inhoudstafel</button>');
       }

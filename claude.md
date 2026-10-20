@@ -3850,6 +3850,9 @@ bleken drie dingen niet te kloppen. Alle drie zijn gefixt in `lib/sync.js`,
   bij het lezen (`listContributions()`), bij het toevoegen en bij `/order`. Het
   scherm volgt dezelfde regel (`VAST` in newsletters-edition.js). Uitzetten =
   het blok weghalen (met de tekst erin); aanzetten begint leeg.
+- **Het woordje vooraf staat NOOIT in de inhoudstafel**, ook niet met een
+  oude `in_toc: true`: `inToc()` (render.js) en `NB.inToc()` geven altijd
+  false, en de knop Inhoudstafel staat er niet bij.
 
 ## Nieuwsbrief: een blanco mailing (2026-10-15)
 
