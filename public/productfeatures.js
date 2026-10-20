@@ -156,10 +156,6 @@
 
   function tekenBoom() {
     var bak = $('pfBoom');
-    var sel = $('pfCategorie');
-    if (!sel.options.length) {
-      sel.innerHTML = '<option value="">Alle categorieën</option>' + (state.boot.categorieen || []).map(function (c) { return '<option value="' + e(c.key) + '">' + e(c.label) + '</option>'; }).join('');
-    }
     var html = state.tree.map(knoopHtml).join('');
     bak.innerHTML = html || '<p class="opacity-60 py-6 text-center">Niets gevonden.</p>';
     ikons();
