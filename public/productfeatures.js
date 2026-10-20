@@ -479,6 +479,15 @@
    * opnieuw gemaakt; de bijsnijding begint opnieuw, want een ander beeld heeft
    * een andere rand.
    */
+  /** Elke vorm opladen: { verhouding: adres }. Zelfde bytes = zelfde bestand. */
+  async function laadVormenOp(varianten, naam) {
+    var sleutels = Object.keys(varianten);
+    var adressen = await Promise.all(sleutels.map(function (k) { return upload(varianten[k], naam + '-' + k.replace(':', 'x')); }));
+    var uit = {};
+    sleutels.forEach(function (k, i) { uit[k] = adressen[i].url; });
+    return uit;
+  }
+
   async function zetVoorgrond(url) {
     var f = state.concept;
     if (!f) return;
@@ -494,10 +503,11 @@
     if (keuzes.voorgrond) keuzes.voorgrond.snij = { boven: 0, onder: 0, links: 0, rechts: 0 };
     try {
       if (!state.achtergrond) state.achtergrond = await api('/achtergrond');
-      var blob = await window.OMAchtergrond.maakPng(keuzes, state.achtergrond);
-      var r = await upload(blob, (f.name || 'feature') + '-opgemaakt');
+      var vormen = await laadVormenOp(await window.OMAchtergrond.maakAlles(keuzes, state.achtergrond), f.name || 'feature');
       if (state.concept !== f) return;
-      keuzes.url = r.url;
+      keuzes.varianten = vormen;
+      keuzes.url = vormen[keuzes.verhouding];
+      var r = { url: keuzes.url };
       f.achtergrond = keuzes;
       f.image_url = r.url;
       toast('Het nieuwe beeld staat in dezelfde opmaak. Vergeet niet te bewaren.');
@@ -541,12 +551,14 @@
     var nu = state.kaartVorm || ag.verhouding;
     plek.innerHTML = '<span class="text-xs opacity-60">Bekijk in</span><div class="join">'
       + (state.achtergrond.verhoudingen || []).map(function (x) {
-        var label = (x.key === '1:1' ? 'Vierkant' : x.key) + (x.key === ag.verhouding ? ' (bewaard)' : '');
+        var label = window.OMAchtergrond.vormNaam(x.key) + (x.key === ag.verhouding ? ' (kaart)' : '');
         return '<button type="button" class="btn btn-xs join-item ' + (x.key === nu ? 'btn-primary' : 'btn-ghost border border-base-content/15') + '" data-action="kaart-vorm" data-vorm="' + e(x.key) + '">' + e(label) + '</button>';
       }).join('') + '</div>';
     var img = document.querySelector('#pfFormulier [data-pf-kaartbeeld]');
     if (!img) return;
     if (nu === ag.verhouding) { img.src = f.image_url; return; }
+    var bewaard = ag.varianten && ag.varianten[nu];
+    if (bewaard) { img.src = bewaard; return; }
     var sleutel = f.image_url + '|' + nu;
     if (!state.kaartVormen[sleutel]) {
       img.style.opacity = '0.4';
@@ -629,10 +641,11 @@
       waarde: ag,
       gegevens: state.achtergrond,
       oplaad: async function (bestand) { return (await upload(bestand, f.name || 'feature')).url; },
-      opBewaar: async function (keuzes, blob) {
-        var r = await upload(blob, (f.name || 'feature') + '-opgemaakt');
+      opBewaar: async function (keuzes, varianten) {
+        keuzes.varianten = await laadVormenOp(varianten, f.name || 'feature');
         keuzes.bron = keuzes.bron || bron;
-        keuzes.url = r.url;
+        keuzes.url = keuzes.varianten[keuzes.verhouding];
+        var r = { url: keuzes.url };
         if (state.concept !== f) return;
         f.achtergrond = keuzes;
         f.image_url = r.url;

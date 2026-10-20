@@ -4080,6 +4080,15 @@ swirls en kijkt de keuzes na. Geen tweede bouwer per module.**
 - **De vormen staan als knoppen BOVEN het voorbeeld** (`tekenVormen()`): een
   klik toont meteen hoe de opmaak in die vorm uitkomt. De gekozen vorm is die
   van de bewaarde PNG.
+- **Een opgemaakt beeld bestaat in ELKE vorm** (2026-10-20): Bewaren maakt
+  het in alle `VERHOUDINGEN` (ook Hero, 3:1) op 1200 px en laadt ze op
+  (`achtergrond.varianten`). Wie het beeld gebruikt, kiest de vorm die bij
+  zijn plek past: in de nieuwsbrief `FEATURE_VORMEN[].beeld` (kaart 16:9,
+  hero 3:1, naast en compact 1:1, uitgelicht 16:9), meegegeven als
+  `content.beeld_varianten` en gekozen in `blokFeature()`. `image_url` blijft
+  de vorm die gekozen staat (de kaart). Een beeld dat iemand in de brief zelf
+  koos, wint. Een opmaak van voor deze wijziging heeft nog geen varianten:
+  die komen bij de volgende bewaring.
 - **Ook het voorbeeld van een feature heeft die knoppen** ("Bekijk in",
   `tekenKaartVormen()` in productfeatures.js): een opgemaakt beeld wordt in
   de browser in die vorm getekend met `OMAchtergrond.maakPng()`. Enkel om te

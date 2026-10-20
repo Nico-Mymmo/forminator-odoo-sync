@@ -21,8 +21,13 @@
  *     oplaad: async function (bestand) { return '<adres>'; }, // optioneel: "Ander beeld"
  *     opBewaar: async function (keuzes, pngBlob) { ... opladen en bewaren ... },
  *   });
- *   OMAchtergrond.maakPng(keuzes, gegevens) -> Promise<Blob>
- *     zonder venster: dezelfde tekening, bv. na het wisselen van de voorgrond.
+ *   OMAchtergrond.maakAlles(keuzes, gegevens) -> Promise<{ '16:9': Blob, ... }>
+ *     zonder venster: de PNG in ELKE vorm, bv. na het wisselen van de voorgrond.
+ *   OMAchtergrond.maakPng(keuzes, gegevens) -> Promise<Blob>  (enkel keuzes.verhouding)
+ *
+ * Bewaren maakt het beeld in ALLE vormen (`opBewaar(keuzes, varianten)`,
+ * varianten = { verhouding: Blob }): waar het later gebruikt wordt, kiest
+ * men de vorm die past.
  *
  * De bouwer bewaart niets: dat doet wie hem opent (elke module heeft haar
  * eigen map en rechten). `opBewaar` krijgt de keuzes MET `bron` (de voorgrond,
@@ -35,7 +40,8 @@
 (function () {
   'use strict';
 
-  var BREEDTE = 1600;              // breedte van de gemaakte PNG
+  var BREEDTE = 1600;              // breedte van het voorbeeld
+  var VARIANT_BREEDTE = 1200;      // breedte van elke bewaarde vorm (een mail toont hoogstens 560 px)
   var MAX_BYTES = 2.9 * 1024 * 1024; // de upload van de modules weigert boven 3 MB
   var ANKERS = ['linksboven', 'boven', 'rechtsboven', 'links', 'midden', 'rechts', 'linksonder', 'onder', 'rechtsonder'];
   var ANKER_PIJL = { linksboven: '↖', boven: '↑', rechtsboven: '↗', links: '←', midden: '•', rechts: '→', linksonder: '↙', onder: '↓', rechtsonder: '↘' };
@@ -344,9 +350,12 @@
     v.vormen.hidden = Boolean(v.snijModus);
     v.vormen.innerHTML = '<span class="text-xs opacity-70">Vorm</span><div class="join">'
       + (v.gegevens.verhoudingen || []).map(function (x) {
-        return '<button type="button" class="btn btn-xs join-item ' + (x.key === k.verhouding ? 'btn-primary' : 'btn-ghost border border-base-content/15') + '" data-oma="vorm" data-waarde="' + e(x.key) + '" title="' + e(x.label) + '">' + e(x.key === '1:1' ? 'Vierkant' : x.key) + '</button>';
-      }).join('') + '</div>';
+        return '<button type="button" class="btn btn-xs join-item ' + (x.key === k.verhouding ? 'btn-primary' : 'btn-ghost border border-base-content/15') + '" data-oma="vorm" data-waarde="' + e(x.key) + '" title="' + e(x.label) + '">' + e(vormNaam(x.key)) + '</button>';
+      }).join('') + '</div>'
+      + '<span class="text-xs opacity-60 w-full text-center">Het beeld wordt in elke vorm bewaard; waar het gebruikt wordt, komt de vorm die past. De gekozen vorm is die van de kaart.</span>';
   }
+
+  function vormNaam(key) { return key === '1:1' ? 'Vierkant' : key === '3:1' ? 'Hero' : key; }
 
   function bijgesneden(s) { return s.boven > 0 || s.onder > 0 || s.links > 0 || s.rechts > 0; }
 
@@ -484,10 +493,10 @@
     knop.innerHTML = '<span class="loading loading-spinner loading-xs"></span> Bezig…';
     meld('');
     try {
-      var blob = await tekenPng(v.keuzes, v.imgs || {});
+      var varianten = await alleVormen(v.keuzes, v.imgs || {}, v.gegevens.verhoudingen);
       var keuzes = kopie(v.keuzes);
       keuzes.bron = v.bron;
-      await v.opBewaar(keuzes, blob);
+      await v.opBewaar(keuzes, varianten);
       sluit();
     } catch (err) {
       if (!v) return;
@@ -513,10 +522,21 @@
   }
 
   async function tekenPng(k, imgs) {
-    var blob = await pngVan(k, imgs, BREEDTE);
-    if (blob.size > MAX_BYTES) blob = await pngVan(k, imgs, 1200);
+    var blob = await pngVan(k, imgs, VARIANT_BREEDTE);
+    if (blob.size > MAX_BYTES) blob = await pngVan(k, imgs, 900);
     if (blob.size > MAX_BYTES) throw new Error('Het beeld wordt te groot. Kies een kleiner beeld.');
     return blob;
+  }
+
+  /** Dezelfde opmaak in elke vorm: { '16:9': Blob, '1:1': Blob, ... }. */
+  async function alleVormen(k, imgs, verhoudingen) {
+    var uit = {};
+    var lijst = (verhoudingen || []).map(function (x) { return x.key; });
+    if (lijst.indexOf(k.verhouding) < 0) lijst.push(k.verhouding);
+    for (var i = 0; i < lijst.length; i++) {
+      uit[lijst[i]] = await tekenPng(Object.assign({}, k, { verhouding: lijst[i] }), imgs);
+    }
+    return uit;
   }
 
   /**
@@ -833,15 +853,23 @@
    * Zonder venster: de PNG van bewaarde keuzes met hun `bron`. Voor als de
    * voorgrond wisselt en de opmaak moet blijven.
    */
-  async function maakPng(keuzes, gegevens) {
+  async function voorbereid(keuzes, gegevens) {
     var k = begin(keuzes, null);
     k.swirl = keuzes.swirl ? Object.assign(kopie(STANDAARD.swirl), keuzes.swirl) : null;
     var imgs = { beeld: await laadBeeld(eigenAdres(keuzes.bron)), swirl: null };
     var swirls = (gegevens && gegevens.swirls) || [];
     var swirl = k.swirl ? swirls.filter(function (x) { return x.naam === k.swirl.naam; })[0] : null;
     if (swirl) imgs.swirl = await swirlBeeld(swirl, k.swirl.kleur);
-    return tekenPng(k, imgs);
+    return { k: k, imgs: imgs };
+  }
+  async function maakPng(keuzes, gegevens) {
+    var x = await voorbereid(keuzes, gegevens);
+    return tekenPng(x.k, x.imgs);
+  }
+  async function maakAlles(keuzes, gegevens) {
+    var x = await voorbereid(keuzes, gegevens);
+    return alleVormen(x.k, x.imgs, gegevens && gegevens.verhoudingen);
   }
 
-  window.OMAchtergrond = { open: open, sluit: sluit, maakPng: maakPng };
+  window.OMAchtergrond = { open: open, sluit: sluit, maakPng: maakPng, maakAlles: maakAlles, vormNaam: vormNaam };
 })();

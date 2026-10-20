@@ -22,7 +22,12 @@
  *   { v: 2, verhouding: '16:9', kleur: '#f0f9ff' | '',
  *     swirl: { naam, kleur, schaal, x, y, draai, dekking } | null,
  *     voorgrond: { anker, schaal, marge, snij: { boven, onder, links, rechts } },
- *     bron: <adres van de voorgrond>, url: <adres van de gemaakte PNG> }
+ *     bron: <adres van de voorgrond>, url: <adres van de PNG in `verhouding`>,
+ *     varianten: { '16:9': <adres>, '1:1': <adres>, ... } }
+ * Een opgemaakt beeld bestaat in ELKE vorm (`varianten`, bij het bewaren
+ * allemaal gemaakt): wie het gebruikt, kiest de vorm die bij zijn plek past
+ * (FEATURE_VORMEN.beeld in de nieuwsbrief). `verhouding`/`url` is de vorm
+ * die getoond wordt waar geen vorm gevraagd wordt (de kaart, image_url).
  * Versie 1 (`beeld: { schaal, x, y }`, vrij geplaatst) wordt bij het lezen
  * omgezet: het dichtstbijzijnde anker.
  *
@@ -43,6 +48,7 @@ export const VERHOUDINGEN = [
   { key: '4:3', label: 'Liggend (4:3)' },
   { key: '1:1', label: 'Vierkant' },
   { key: '4:5', label: 'Staand (4:5)' },
+  { key: '3:1', label: 'Hero (volle breedte, 3:1)' },
 ];
 const VERHOUDING_KEYS = new Set(VERHOUDINGEN.map((v) => v.key));
 
@@ -166,5 +172,8 @@ export function normaliseerAchtergrond(v) {
     voorgrond: normaliseerVoorgrond(v),
     bron: adres(v.bron),
     url,
+    varianten: Object.fromEntries(VERHOUDINGEN
+      .map((x) => [x.key, adres(v.varianten && typeof v.varianten === 'object' ? v.varianten[x.key] : '')])
+      .filter(([, u]) => u)),
   };
 }

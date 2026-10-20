@@ -329,6 +329,9 @@ function inhoudPerSoort(kind, c = {}) {
         eyebrow: kort(c.eyebrow, 60), title: kort(c.title, 120), summary: kort(c.summary, 600), why: kort(c.why, 800),
         usps: (Array.isArray(c.usps) ? c.usps : []).map((u) => kort(u, 200)).filter(Boolean).slice(0, 6),
         url: url(c.url), link_label: kort(c.link_label, 60), image_url: url(c.image_url),
+        // Het beeld van de bibliotheek in elke vorm: de vorm van het blok kiest.
+        beeld_varianten: Object.fromEntries(Object.entries(c.beeld_varianten && typeof c.beeld_varianten === 'object' ? c.beeld_varianten : {})
+          .filter(([k]) => /^\d{1,2}:\d{1,2}$/.test(k)).map(([k, v]) => [k, url(v)]).filter(([, v]) => v)),
         beeld: normaliseerBeeld(c.beeld, 'tekst'),
         toon_why: c.toon_why !== false, toon_usps: c.toon_usps !== false,
       };
@@ -756,7 +759,7 @@ export const routes = {
         success: true,
         data: featureBoom(lijst).map((f) => ({
           id: f.id, parent_id: f.parent_id, diepte: f.diepte, pad: f.pad, name: f.name, eyebrow: f.eyebrow, summary: f.summary, why: f.why,
-          usps: f.usps || [], url: f.url, image_url: f.image_url, category: f.category, plan: f.plan, pro: Boolean(f.pro), benefits: f.benefits || [], audiences: f.audiences || [],
+          usps: f.usps || [], url: f.url, image_url: f.image_url, varianten: f.achtergrond?.varianten || {}, category: f.category, plan: f.plan, pro: Boolean(f.pro), benefits: f.benefits || [], audiences: f.audiences || [],
         })),
       });
     } catch (err) { return fout(err); }
