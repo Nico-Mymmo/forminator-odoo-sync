@@ -3839,6 +3839,33 @@ bleken drie dingen niet te kloppen. Alle drie zijn gefixt in `lib/sync.js`,
   eerder bericht in die draad op. Zonder die aanpassing zou een antwoord op een mail die
   destijds naar twee leads ging, alsnog maar bij één van de twee terechtkomen.
 
+## Nieuwsbrief: drie modi -- Layouter, Schrijver, Lezer (2026-10-20)
+
+Bovenaan de redactietafel (`modusSchakel()` in newsletters-edition.js): tekst met
+een streepje onder de gekozen modus, GEEN vlak of achtergrond (bewust geen
+tabs-boxed: het is een modus, geen tabblad, en het mag niet opvallen).
+
+- **Layouter** (enkel de hoofdredactie; anders uitgeschakeld): blokken
+  toevoegen ("+"-lijnen, knop Blok) en verslepen, opmaak (paneel Opmaak),
+  schrijvers toewijzen (paneel Hoofdredactie), inhoudstafel, kop en voet,
+  vaste blokken, testmail en verzenden. GEEN tekst typen, behalve in een
+  Titel-blok (structuur); op een eigen blok staat "Schrijven" in de werkbalk.
+- **Schrijver** (iedereen): enkel je EIGEN blokken (`owner_user_id`) zijn actief
+  en typbaar, de rest staat grijs (`nb-ander`) en is niet te kiezen. Geen
+  opmaak, geen verslepen, geen "+". Een eigen blok openen (Voor jou) zet de
+  modus vanzelf op Schrijver.
+- **Lezer**: de mail zoals verstuurd (`mode: 'test'`), met elk blok
+  aanklikbaar (`lees: true` -> `data-nb-lees` op de eerste rij, `ctx.markeer`
+  in render.js, nooit in een echte mail). Klik = opmerkingen in het paneel
+  (`leesPaneel()`), met een veld om er een te plaatsen.
+- **Wie ziet opmerkingen**: de hoofdredactie en wie het blok schrijft;
+  een andere collega ziet enkel zijn eigen opmerkingen
+  (`zichtbareOpmerkingen()` in routes.js, op beide GET-routes). Een bolletje
+  "💬 n" op een blok (`opmTeller()`) enkel voor wie ze mag zien; klikken =
+  naar Lezer met dat blok open.
+- De modus is UI: de server beperkt schrijven zoals altijd (`magSchrijven`).
+  Standaard: Layouter voor de hoofdredactie, Schrijver voor de anderen.
+
 ## Nieuwsbrief: werken aan een blok, zonder randen en zonder flitsen (2026-10-20)
 
 - **Geen randen of lijnen rond blokken** (de blauwe hover- en selectierand en
