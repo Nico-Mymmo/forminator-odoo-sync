@@ -55,7 +55,14 @@ async function leesBody(request) {
   try { return await request.json(); } catch { return {}; }
 }
 
-const magBewerken = (user) => user?.role === 'admin' || user?.role === 'marketing_signature';
+/**
+ * Wie de bibliotheek mag bewerken: beheerders, marketing, en wie hieronder
+ * staat. Een eigen lijst en geen rol: de rol marketing geeft ook rechten op
+ * handtekeningen, nieuwsbrieven en de cijfers in Marketing (Niels, 2026-10-20).
+ */
+const EXTRA_BEWERKERS = new Set(['niels@mymmo.com']);
+const magBewerken = (user) => user?.role === 'admin' || user?.role === 'marketing_signature'
+  || EXTRA_BEWERKERS.has(String(user?.email || '').toLowerCase());
 function eisBewerken(user) {
   if (!magBewerken(user)) throw new FeatureError('Enkel beheerders en marketing bewerken de bibliotheek.', 403);
 }
