@@ -22,7 +22,7 @@
 import { esc, safeUrl } from '../../../lib/mail/render-blocks.js';
 import {
   STYLE as S, BRAND, KINDS, CONTRIBUTION_STATUS, BEELD_KADERS, TEKENING_MATEN, TITEL_NIVEAUS, merkkleur, isDonker,
-  VRAAG_STIJLEN, VRAAG_STANDAARD, vraagThema,
+  VRAAG_STIJLEN, VRAAG_STANDAARD, vraagThema, staatUit,
 } from './constants.js';
 
 /** Hoe breed een beeld op zijn plek staat: een tekening naar haar grootte, een foto naar het kader. */
@@ -347,6 +347,7 @@ export function maandLabel(iso) {
 
 /** Is er iets om te tonen? Een leeg stukje wordt nooit verstuurd. */
 export function heeftInhoud(item, ctx = {}) {
+  if (staatUit(item)) return false;
   const c = item?.content || {};
   switch (item?.kind) {
     case 'heading':
@@ -1043,6 +1044,14 @@ const IN_DE_BRIEF = new Set(['intro', 'article', 'heading', 'question', 'stateme
 /** Blokken met een eigen gekleurd kader: daar blijft de tekst zoals ze is. */
 const MET_KADER = new Set(['quote', 'statement', 'question', 'poll', 'events']);
 
+const VAST_NAAM = { intro: 'Woordje vooraf', toc: 'Inhoudstafel', closing: 'Tot de volgende' };
+
+/** Voorbeeld: een vast blok dat uit staat, als grijze lijn (nooit in een mail). */
+function uitRij(item) {
+  const naam = VAST_NAAM[item.kind] || item.title || KINDS[item.kind]?.label || 'Blok';
+  return `<tr data-nb-id="${esc(item.id)}" data-nb-uit="1"><td class="nb-cel" style="padding:14px 40px 6px"><div style="border:1px dashed #cbd5e1;border-radius:10px;padding:11px 16px;background-color:#f8fafc;font-family:${S.fontBody};font-size:13px;line-height:1.4;color:#94a3b8"><strong style="color:#64748b">${esc(naam)}</strong> staat uit &middot; komt niet in de verstuurde mail. Klik om het aan te zetten.</div></td></tr>`;
+}
+
 /** Een blok met een eigen achtergrond: over de hele breedte van het blok. */
 function metAchtergrond(html, kleur, kind) {
   const k = merkkleur(kleur);
@@ -1173,6 +1182,10 @@ export function renderEdition({ series, edition, items, mode = 'preview', ctx = 
   const open = [];
   for (const it of items) {
     const id = mode === 'preview' ? it.id : null;
+    if (staatUit(it)) {
+      if (mode === 'preview') rijen.push(uitRij(it));
+      continue;
+    }
     if (meeIds.has(it.id)) {
       const maak = BLOKKEN[it.kind];
       if (maak) rijen.push(metAchtergrond(maak(it, blokCtx, id), it.content?.achtergrond, it.kind));

@@ -211,6 +211,7 @@
   /** Staat een blok in de inhoudstafel? Dezelfde regel als inToc() op de server. */
   NB.inToc = function (it, content) {
     if (!it || it.kind === 'toc' || it.kind === 'intro') return false;
+    if ((content || it.content || {}).uit) return false;
     var v = (content || it.content || {}).in_toc;
     if (v === true) return true;
     if (v === false) return false;
