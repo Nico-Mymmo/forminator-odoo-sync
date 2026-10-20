@@ -255,7 +255,8 @@
       + (actief(ed) && NB.isBlanco(ed) ? '<div><span class="opacity-60">Blanco mailing</span> zelf opgebouwd, geen opdrachten en geen inleverdag</div>' : actief(ed) ? '<div><span class="opacity-60">Inleverdatum</span> ' + e(NB.datum(ed.deadline_at, { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })) + ' <span class="' + (t.voorbij ? 'text-warning font-semibold' : 'opacity-60') + '">(' + e(NB.tellerTekst(ed.deadline_at)) + ')</span></div>' : '') + '</div>'
       + (actief(ed) ? NB.balkUitVoortgang(pr) + '<div class="text-xs opacity-60">' + ((pr.goedgekeurd || 0) + (pr.ingeleverd || 0)) + ' van ' + (pr.totaal || 0) + ' stukjes binnen</div>' : '')
       + '<div class="flex flex-wrap gap-2 mt-1"><a class="btn btn-sm btn-primary" href="#/editie/' + e(ed.id) + '"><i data-lucide="pen-line" class="w-4 h-4"></i> Open de redactietafel</a>'
-      + (ed.is_editor && s ? '<a class="btn btn-sm btn-ghost" href="#/reeks/' + e(s.id) + '"><i data-lucide="settings" class="w-4 h-4"></i> Reeks</a>' : '') + '</div>', ' border-primary/40')
+      + (ed.is_editor && s ? '<a class="btn btn-sm btn-ghost" href="#/reeks/' + e(s.id) + '"><i data-lucide="settings" class="w-4 h-4"></i> Reeks</a>' : '')
+      + (ed.is_editor && ed.status !== 'sent' && !ed.odoo_mailing_id ? '<button class="btn btn-sm btn-ghost text-error ml-auto" data-action="verwijder-editie" data-id="' + e(ed.id) + '" title="Mailing verwijderen"><i data-lucide="trash-2" class="w-4 h-4"></i></button>' : '') + '</div>', ' border-primary/40')
       + (actief(ed)
         ? kaart('<h3 class="font-semibold flex items-center gap-2"><i data-lucide="pen-line" class="w-4 h-4"></i> Voor jou nog in te vullen</h3>'
           + (mijn.length ? '<div>' + mijn.map(function (i) { return stukjeRij(i, false); }).join('') + '</div>' : '<p class="text-sm opacity-60">Niets meer: alles van jou is binnen.</p>'), mijn.length ? ' border-warning/50' : '')
