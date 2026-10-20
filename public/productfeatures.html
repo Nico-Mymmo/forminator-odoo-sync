@@ -49,10 +49,10 @@
     <div class="grid gap-5 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
       <section class="card bg-base-100 border border-base-content/10">
         <div class="card-body p-4 gap-3">
-          <div class="flex items-center gap-2">
-            <input id="pfZoek" type="search" class="input input-bordered input-sm flex-1" placeholder="Zoek een feature…" data-change="zoek">
-            <select id="pfCategorie" class="select select-bordered select-sm" data-change="filter-categorie"></select>
-            <select id="pfVoor" class="select select-bordered select-sm" data-change="filter-voor" title="Voor wie de feature geldt">
+          <div class="flex flex-wrap items-center gap-2">
+            <input id="pfZoek" type="search" class="input input-bordered input-sm flex-1 min-w-[10rem]" placeholder="Zoek een feature…" data-change="zoek">
+            <select id="pfCategorie" class="select select-bordered select-sm min-w-0 flex-1 sm:flex-none" data-change="filter-categorie"></select>
+            <select id="pfVoor" class="select select-bordered select-sm min-w-0 flex-1 sm:flex-none" data-change="filter-voor" title="Voor wie de feature geldt">
               <option value="">VME's en Pro</option>
               <option value="vme">Voor VME's</option>
               <option value="pro">Voor OpenVME Pro</option>
