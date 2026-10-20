@@ -551,7 +551,7 @@
     if (kind === 'feature') delen.push(featureVormKeuze());
     var bg = lees('content.achtergrond');
     delen.push('<div class="flex items-center gap-3"><span class="label-text text-xs">Achtergrond van het blok</span><button type="button" class="btn btn-sm btn-ghost gap-2 px-2" data-action="achtergrond-kies">' + NB.kleurBol(bg) + '<span>' + (bg ? e(String(bg).toUpperCase()) : 'Standaard') + '</span></button></div>');
-    if (kind !== 'toc') {
+    if (kind !== 'toc' && kind !== 'intro') {
       var inToc = NB.inToc(s().item, c().content);
       delen.push('<label class="label cursor-pointer justify-start gap-3 py-1"><input type="checkbox" class="checkbox checkbox-sm" data-action="toc-zet" data-aan="' + (inToc ? '0' : '1') + '"' + (inToc ? ' checked' : '') + '><span class="label-text">In de inhoudstafel</span></label>');
     }

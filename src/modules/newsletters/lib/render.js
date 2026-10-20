@@ -413,7 +413,8 @@ function eventsVoor(item, ctx) {
  * afbeelding en de afsluiting.
  */
 export function inToc(item) {
-  if (item?.kind === 'toc') return false;
+  // De inhoudstafel en het woordje vooraf nooit, ook niet als iemand het aanvinkte.
+  if (item?.kind === 'toc' || item?.kind === 'intro') return false;
   const v = item?.content?.in_toc;
   if (v === true) return true;
   if (v === false) return false;
