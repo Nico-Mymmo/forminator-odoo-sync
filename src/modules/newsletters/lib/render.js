@@ -859,7 +859,23 @@ function blokHeading(item, ctx, id) {
  * stijl, zonder kopjes of inspringen. Welke blokken erin staan, beslist
  * marketing per blok (inToc), welk soort blok ook.
  */
+/** Voorbeeld: elk blok als lijn, met een schakelaar; wat eruit staat is grijs en zonder nummer. */
+function tocWerkstand(item, ctx, id) {
+  let nr = 0;
+  const rijen = ctx.tocAlle.map((x, i) => {
+    const lijn = i ? `border-top:1px solid ${S.line};` : '';
+    const kleur = x.erin ? S.headingSoft : '#9ca3af';
+    const schakel = `<span data-nb-knop="toclijn:${esc(x.id)}" data-nb-toc-schakel="1" class="nb-schakel${x.erin ? ' nb-op' : ''}" title="${x.erin ? 'Staat in de inhoudstafel: klik om het eruit te halen' : 'Staat er niet in: klik om het erin te zetten'}"><i></i></span>`;
+    return `<tr><td width="34" valign="baseline" style="padding:12px 0;${lijn}font-family:${S.fontHead};font-size:22px;color:${x.erin ? S.primary : '#cbd5e1'}">${x.erin ? ++nr : '&ndash;'}</td>
+<td valign="baseline" style="padding:12px 0;${lijn}font-family:${S.fontBody};font-size:16px;font-weight:600;color:${kleur};${x.erin ? '' : 'text-decoration:line-through;'}">${esc(x.t)}</td>
+<td width="44" align="right" valign="middle" style="padding:12px 0;${lijn}">${schakel}</td></tr>`;
+  }).join('');
+  return rij(`${label(item.title || 'In deze editie', S.primary)}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:8px">${rijen}</table>`, { padding: '36px 40px 0', id });
+}
+
 function blokToc(item, ctx, id) {
+  if (id && ctx.tocAlle && ctx.tocAlle.length) return tocWerkstand(item, ctx, id);
   const lijst = (ctx.toc || []).map((x) => (typeof x === 'string' ? x : String(x?.t || ''))).filter(Boolean).slice(0, 15);
   // In de werkstand blijft een lege inhoudstafel zichtbaar (anders lijkt ze weg); in de mail valt ze weg.
   if (!lijst.length) {
@@ -1176,7 +1192,13 @@ export function renderEdition({ series, edition, items, mode = 'preview', ctx = 
     const a = bijdrageVan(it);
     if (a && !gezien.has(a.name)) { gezien.add(a.name); authors.push(a); }
   }
-  const blokCtx = { ...ctx, toc, authors };
+  // In het voorbeeld toont de inhoudstafel ELK blok dat erin kan, met per lijn
+  // een schakelaar erin/eruit: dat regel je in de inhoudstafel zelf, niet per blok.
+  const tocAlle = mode === 'preview'
+    ? mee.filter((it) => it.kind !== 'toc' && it.kind !== 'intro')
+      .map((it) => ({ id: it.id, t: kopVan(it) || KINDS[it.kind]?.label || 'Blok', erin: inToc(it) }))
+    : null;
+  const blokCtx = { ...ctx, toc, tocAlle, authors };
 
   const rijen = [kopRij(series, edition, mode)];
   const open = [];

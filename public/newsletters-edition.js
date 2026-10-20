@@ -370,6 +370,7 @@
     + '.nb-schakel i{position:relative;display:inline-block;width:30px;height:18px;border-radius:999px;background:#cbd5e1;transition:background .15s}'
     + '.nb-schakel i::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.25);transition:left .15s}'
     + '.nb-schakel.nb-op i{background:#0284c7}.nb-schakel.nb-op i::after{left:14px}'
+    + '[data-nb-toc-schakel]{display:inline-flex;cursor:pointer;vertical-align:middle}'
     + '[data-nb-uit]:hover>td{box-shadow:none}[data-nb-uit]:hover div{border-color:#94a3b8}'
     + '.nb-werkbalk .nb-scheid{width:1px;height:18px;background:#e5e7eb;margin:0 2px}'
     + '.nb-werkbalk .nb-greep{cursor:grab;color:#64748b;padding:7px 6px;touch-action:none;user-select:none}'
@@ -468,6 +469,8 @@
     }
     labels(doc);
     plusLijnen(doc);
+    // Erin/eruit in de inhoudstafel: enkel de hoofdredactie.
+    if (!editor() || !actief() || lezer()) doc.querySelectorAll('[data-nb-toc-schakel]').forEach(function (x) { x.remove(); });
     // De kop en de voet zijn enkel klikbaar voor de hoofdredactie, en niet als lezer.
     if (!editor() || !actief() || lezer()) {
       doc.querySelectorAll('[data-nb-kop],[data-nb-voet]').forEach(function (x) { x.removeAttribute('data-nb-kop'); x.removeAttribute('data-nb-voet'); x.removeAttribute('title'); });
@@ -752,10 +755,6 @@
       }
       var bg = (NB.state.concept.content || {}).achtergrond;
       knoppen.push('<button type="button" data-nb-knop="kleur" title="Achtergrondkleur van dit blok"><span class="nb-kleurbol" style="background:' + e(bg || '#ffffff') + '"></span></button>');
-      if (soort !== 'toc' && soort !== 'intro') {
-        var inToc = NB.inToc(s.item, NB.state.concept.content);
-        knoppen.push('<button type="button" data-nb-knop="toc"' + (inToc ? ' class="nb-aan"' : '') + ' title="' + (inToc ? 'Staat in de inhoudstafel; klik om het eruit te halen' : 'Staat niet in de inhoudstafel; klik om het erin te zetten') + '">' + (inToc ? '✓ ' : '') + 'Inhoudstafel</button>');
-      }
       if (!NB.isAuto(soort) && !isVast(soort)) knoppen.push('<button type="button" class="nb-weg" data-nb-knop="weg" title="Uit de brief halen">\u{1F5D1}</button>');
     }
     // Een vast blok: een schakelaar aan/uit. Staat het uit, dan is dat het enige.
@@ -874,7 +873,7 @@
     else if (wat.indexOf('optie-weg:') === 0 && NB.vraagOptieWeg) NB.vraagOptieWeg(Number(wat.slice(10)));
     else if (wat === 'omhoog' || wat === 'omlaag') verplaats(s.item.id, wat === 'omhoog' ? -1 : 1);
     else if (wat === 'kleur') kiesBlokKleur(s.item.id, anker);
-    else if (wat === 'toc') zetInToc(s.item.id);
+    else if (wat.indexOf('toclijn:') === 0) zetInToc(wat.slice(8));
     else if (wat === 'weg') NB.actions['blok-weg']({ dataset: { id: s.item.id } });
     else if (wat === 'aanuit') zetAan(s.item.id, !!(NB.state.concept.content || {}).uit);
   }

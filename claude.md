@@ -3856,6 +3856,11 @@ bleken drie dingen niet te kloppen. Alle drie zijn gefixt in `lib/sync.js`,
   grijze lijn (`uitRij()` in render.js); de werkbalk heeft dan enkel de
   schakelaar. Een vast blok dat nog niet bestaat, maakt de schakelaar in het
   paneel aan.
+- **Wat in de inhoudstafel staat, regel je IN de inhoudstafel** (2026-10-20):
+  in het voorbeeld toont ze elk blok als lijn met een schakelaar (`tocWerkstand()`
+  in render.js, `ctx.tocAlle`); wat eruit staat is grijs en doorstreept, zonder
+  nummer. Bewaard blijft `content.in_toc` per blok (route `/in-toc`). Er is GEEN
+  knop meer per blok (werkbalk of paneel). In de mail enkel wat erin staat.
 - **Het woordje vooraf staat NOOIT in de inhoudstafel**, ook niet met een
   oude `in_toc: true`: `inToc()` (render.js) en `NB.inToc()` geven altijd
   false, en de knop Inhoudstafel staat er niet bij.
