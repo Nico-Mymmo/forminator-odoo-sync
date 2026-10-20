@@ -12,7 +12,7 @@
  *   ids       stukjes waar het over gaat (het scherm springt ernaar)
  */
 
-import { KINDS, CONTRIBUTION_STATUS, EDITION_STATUS, sendMode } from './constants.js';
+import { KINDS, CONTRIBUTION_STATUS, EDITION_STATUS, sendMode, staatUit } from './constants.js';
 import { heeftInhoud } from './render.js';
 
 /**
@@ -26,7 +26,7 @@ import { heeftInhoud } from './render.js';
  */
 export function checklist({ series, edition, items, ctx = {}, tokenVeld = true, env }) {
   const punten = [];
-  const echt = items.filter((i) => !KINDS[i.kind]?.auto);
+  const echt = items.filter((i) => !KINDS[i.kind]?.auto && !staatUit(i));
   const metInhoud = echt.filter((i) => heeftInhoud(i, ctx));
 
   punten.push({

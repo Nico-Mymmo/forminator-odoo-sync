@@ -3848,8 +3848,14 @@ bleken drie dingen niet te kloppen. Alle drie zijn gefixt in `lib/sync.js`,
   ertussen. Een per mailing (ook het woordje vooraf, en enkel de hoofdredactie).
 - EEN regel: `VASTE_PLEK` + `vasteVolgorde()` in lib/constants.js, toegepast
   bij het lezen (`listContributions()`), bij het toevoegen en bij `/order`. Het
-  scherm volgt dezelfde regel (`VAST` in newsletters-edition.js). Uitzetten =
-  het blok weghalen (met de tekst erin); aanzetten begint leeg.
+  scherm volgt dezelfde regel (`VAST` in newsletters-edition.js).
+- **Aan/uit is een SCHAKELAAR, geen weghalen.** Uit = `content.uit` op het
+  blok (`staatUit()` in constants.js, route `POST /api/contributions/:id/aan`):
+  de tekst blijft bewaard, het blok gaat niet mee in test of echte mail, telt
+  niet in de checklist en niet in de inhoudstafel. In het voorbeeld is het een
+  grijze lijn (`uitRij()` in render.js); de werkbalk heeft dan enkel de
+  schakelaar. Een vast blok dat nog niet bestaat, maakt de schakelaar in het
+  paneel aan.
 - **Het woordje vooraf staat NOOIT in de inhoudstafel**, ook niet met een
   oude `in_toc: true`: `inToc()` (render.js) en `NB.inToc()` geven altijd
   false, en de knop Inhoudstafel staat er niet bij.

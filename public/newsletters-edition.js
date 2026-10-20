@@ -64,6 +64,17 @@
   var VAST = { intro: 'boven', toc: 'boven', closing: 'onder' };
   function isVast(kind) { return Object.prototype.hasOwnProperty.call(VAST, kind); }
   function vastBoven(it) { return !!it && VAST[it.kind] === 'boven'; }
+  function staatUit(it) { return !!it && isVast(it.kind) && !!(it.content && it.content.uit); }
+
+  /** Een vast blok aan of uit zetten (werkbalk of paneel). Uit = bewaard, niet verstuurd. */
+  async function zetAan(id, aan) {
+    try {
+      await bewaarOpen();
+      await NB.api('/api/contributions/' + id + '/aan', { method: 'POST', body: { aan: aan } });
+      NB.toast(aan ? 'Aangezet.' : 'Uitgezet: het blijft bewaard, maar komt niet in de mail.', 'info');
+      await herlaad({ open: id });
+    } catch (err) { NB.fout(err); }
+  }
 
   function d() { return NB.state.editie; }
   function ik() { return NB.state.boot.me.id; }
@@ -227,7 +238,7 @@
   function vasteBlokken() {
     if (!editor() || !actief()) return '';
     var rij = function (kind, naam, waar) {
-      var aan = d().items.some(function (i) { return i.kind === kind; });
+      var aan = d().items.some(function (i) { return i.kind === kind && !staatUit(i); });
       return '<label class="flex items-center gap-3 py-1.5 cursor-pointer"><input type="checkbox" class="toggle toggle-sm toggle-primary" data-change="vast-blok" data-kind="' + kind + '"' + (aan ? ' checked' : '') + '>'
         + '<span class="flex-1 min-w-0"><span class="block text-sm font-medium">' + e(naam) + '</span><span class="block text-xs opacity-60">' + e(waar) + '</span></span></label>';
     };
@@ -354,6 +365,12 @@
     + '.nb-werkbalk button{font:600 12px/1 system-ui,-apple-system,"Segoe UI",sans-serif;border-radius:999px;padding:7px 10px;cursor:pointer;border:0;background:transparent;color:#0369a1;white-space:nowrap}'
     + '.nb-werkbalk button:hover,.nb-werkbalk button.nb-aan{background:#0284c7;color:#fff}'
     + '.nb-werkbalk button.nb-weg:hover{background:#b91c1c}'
+    + '.nb-werkbalk button.nb-schakel{display:inline-flex;align-items:center;gap:7px;padding:5px 10px 5px 6px}'
+    + '.nb-werkbalk button.nb-schakel:hover{background:#f0f9ff;color:#0369a1}'
+    + '.nb-schakel i{position:relative;display:inline-block;width:30px;height:18px;border-radius:999px;background:#cbd5e1;transition:background .15s}'
+    + '.nb-schakel i::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.25);transition:left .15s}'
+    + '.nb-schakel.nb-op i{background:#0284c7}.nb-schakel.nb-op i::after{left:14px}'
+    + '[data-nb-uit]:hover>td{box-shadow:none}[data-nb-uit]:hover div{border-color:#94a3b8}'
     + '.nb-werkbalk .nb-scheid{width:1px;height:18px;background:#e5e7eb;margin:0 2px}'
     + '.nb-werkbalk .nb-greep{cursor:grab;color:#64748b;padding:7px 6px;touch-action:none;user-select:none}'
     + '.nb-werkbalk .nb-greep:active{cursor:grabbing}'
@@ -384,7 +401,7 @@
 
   /** Wat er op een blok in de brief staat, naast de inhoud. */
   function labelVan(it) {
-    if (!it || NB.isAuto(it.kind) || it.status === 'approved') return null;
+    if (!it || NB.isAuto(it.kind) || it.status === 'approved' || staatUit(it)) return null;
     if (it.owner_user_id === ik() && (it.status === 'open' || it.status === 'draft')) {
       return { soort: 'mijn', tekst: it.status === 'open' ? 'Voor jou · klik om in te vullen' : 'Voor jou · nog niet ingeleverd' };
     }
@@ -739,8 +756,14 @@
         var inToc = NB.inToc(s.item, NB.state.concept.content);
         knoppen.push('<button type="button" data-nb-knop="toc"' + (inToc ? ' class="nb-aan"' : '') + ' title="' + (inToc ? 'Staat in de inhoudstafel; klik om het eruit te halen' : 'Staat niet in de inhoudstafel; klik om het erin te zetten') + '">' + (inToc ? '✓ ' : '') + 'Inhoudstafel</button>');
       }
-      if (isVast(soort)) knoppen.push('<button type="button" class="nb-weg" data-nb-knop="weg" title="Dit blok uitzetten; aanzetten kan in het paneel onder Vaste blokken">Uitzetten</button>');
-      else if (!NB.isAuto(soort)) knoppen.push('<button type="button" class="nb-weg" data-nb-knop="weg" title="Uit de brief halen">\u{1F5D1}</button>');
+      if (!NB.isAuto(soort) && !isVast(soort)) knoppen.push('<button type="button" class="nb-weg" data-nb-knop="weg" title="Uit de brief halen">\u{1F5D1}</button>');
+    }
+    // Een vast blok: een schakelaar aan/uit. Staat het uit, dan is dat het enige.
+    if (isVast(soort) && editor()) {
+      var aanStaat = !(NB.state.concept.content || {}).uit;
+      if (!aanStaat) knoppen = [];
+      else if (knoppen.length) knoppen.push('<span class="nb-scheid"></span>');
+      knoppen.push('<button type="button" class="nb-schakel' + (aanStaat ? ' nb-op' : '') + '" data-nb-knop="aanuit" title="' + (aanStaat ? 'Staat aan: klik om uit te zetten (het blijft bewaard)' : 'Staat uit: klik om aan te zetten') + '"><i></i>' + (aanStaat ? 'Aan' : 'Uit') + '</button>');
     }
     if (knoppen.length && cel) {
       var bar = doc.createElement('div');
@@ -853,6 +876,7 @@
     else if (wat === 'kleur') kiesBlokKleur(s.item.id, anker);
     else if (wat === 'toc') zetInToc(s.item.id);
     else if (wat === 'weg') NB.actions['blok-weg']({ dataset: { id: s.item.id } });
+    else if (wat === 'aanuit') zetAan(s.item.id, !!(NB.state.concept.content || {}).uit);
   }
 
   /** "+ Subtitel": het lege veld tonen en erin zetten; leeg verlaten = weer weg. */
@@ -1185,12 +1209,10 @@
   NB.changes['vast-blok'] = async function (el) {
     var kind = el.dataset.kind;
     var it = d().items.filter(function (i) { return i.kind === kind; })[0];
-    if (el.checked && !it) {
+    if (it) await zetAan(it.id, el.checked);
+    else if (el.checked) {
       var sj = SJABLONEN.filter(function (x) { return x.kind === kind && x.groep === 'vast'; })[0];
       if (sj) await plaats({ kind: kind, title: sj.titel, content: sj.inhoud || undefined }, '');
-    } else if (!el.checked && it) {
-      el.checked = true; // pas na de bevestiging echt uit
-      await NB.actions['blok-weg']({ dataset: { id: it.id } });
     }
   };
 

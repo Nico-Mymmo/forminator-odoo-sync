@@ -31,7 +31,7 @@ import { linkVoorbeeld, eventsVoorEditie, auteurs, tekeningen, eventsTussen, bed
 import { stuurHerinnering } from './lib/cron.js';
 import { hostBeelden, BEELDEN_MAP } from './lib/beelden-hosten.js';
 import { naamVoor, medewerkerVoorOdooGebruiker, medewerkersVoorGebruikers } from '../../lib/medewerkers.js';
-import { isEmail, vasteVolgorde } from './lib/constants.js';
+import { isEmail, vasteVolgorde, VASTE_PLEK } from './lib/constants.js';
 import { lijstTekeningen, pngSleutel, vergeetTekeningen } from '../av-slides/lib/thingies.js';
 import { listIntegrations } from '../forminator-sync-v2/database.js';
 import { listVimeoVideos, getVimeoVideo, idFromVimeoUrl, resolveVideoWithoutToken } from '../event-operations-v2/lib/vimeo.js';
@@ -159,6 +159,8 @@ export function normaliseerInhoud(kind, c = {}) {
   const uit = inhoudPerSoort(kind, c);
   const bg = merkkleur(c?.achtergrond);
   if (bg) uit.achtergrond = bg;
+  // Een vast blok kan uit staan (bewaard, niet verstuurd): zie staatUit().
+  if (c?.uit === true && Object.prototype.hasOwnProperty.call(VASTE_PLEK, kind)) uit.uit = true;
   // In of uit de inhoudstafel, als marketing dat uitdrukkelijk koos (anders de standaard per soort, inToc()).
   if (c?.in_toc === false || c?.in_toc === true) uit.in_toc = c.in_toc;
   return uit;
@@ -1000,6 +1002,7 @@ export const routes = {
         if (metOpmaak.stijl === undefined && item.content?.stijl) metOpmaak.stijl = item.content.stijl;
         if (metOpmaak.kleur === undefined && item.content?.kleur) metOpmaak.kleur = item.content.kleur;
         if (metOpmaak.in_toc === undefined && typeof item.content?.in_toc === 'boolean') metOpmaak.in_toc = item.content.in_toc;
+        if (metOpmaak.uit === undefined && item.content?.uit) metOpmaak.uit = true;
         w.content = normaliseerInhoud(kind, metOpmaak);
         // De achtergrond zet de hoofdredactie in de opmaakstand; een schrijver
         // die zijn tekst bewaart, wist ze niet.
@@ -1053,6 +1056,22 @@ export const routes = {
    * De achtergrondkleur van één blok (opmaakstand). Apart van het bewaren van
    * de inhoud: het verandert de stand van het stukje niet.
    */
+  /** Een vast blok aan of uit (woordje vooraf, inhoudstafel, afsluiting). Uit = bewaard, niet verstuurd. */
+  'POST /api/contributions/:id/aan': async ({ env, user, params, request }) => {
+    try {
+      const { item, edition, series } = await stukjeMetContext(env, params.id);
+      eisEditor(user, series);
+      if (edition && !isActiveEdition(edition)) throw new NewsletterError('Deze editie is al verstuurd.', 409);
+      if (!Object.prototype.hasOwnProperty.call(VASTE_PLEK, item.kind)) throw new NewsletterError('Enkel een vast blok kan aan of uit.');
+      const aan = (await leesBody(request)).aan !== false;
+      const content = { ...(item.content || {}) };
+      if (aan) delete content.uit; else content.uit = true;
+      const bij = await updateContribution(env, item.id, { content });
+      await logActivity(env, { editionId: edition?.id, contributionId: item.id, userId: user.id, kind: 'updated', text: `"${item.title || KINDS[item.kind]?.label}" ${aan ? 'aangezet' : 'uitgezet'}` });
+      return json({ success: true, data: bij });
+    } catch (err) { return fout(err); }
+  },
+
   'POST /api/contributions/:id/achtergrond': async ({ env, user, params, request }) => {
     try {
       const { item, edition, series } = await stukjeMetContext(env, params.id);

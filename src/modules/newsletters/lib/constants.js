@@ -51,6 +51,15 @@ export function plekRang(kind) {
   return Object.prototype.hasOwnProperty.call(VASTE_PLEK, kind) ? VASTE_PLEK[kind] : GEWONE_PLEK;
 }
 
+/**
+ * Een vast blok dat UIT staat (`content.uit`): het blijft bewaard met zijn
+ * tekst, maar gaat niet mee in een test of de echte mail. In het voorbeeld is
+ * het een grijze lijn met een schakelaar om het weer aan te zetten.
+ */
+export function staatUit(item) {
+  return Boolean(item?.content?.uit) && plekRang(item?.kind) !== GEWONE_PLEK;
+}
+
 /** Dezelfde lijst, met de vaste blokken op hun plek; de rest houdt zijn volgorde. */
 export function vasteVolgorde(items) {
   return items.map((it, i) => [it, i])
