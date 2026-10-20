@@ -73,10 +73,12 @@
        zelf scrolt, rechts de regie die zelf scrolt. Elk vak EEN scrollbar. */
     body.nb-werk { overflow: hidden; }
     body.nb-werk #nbBanner { display: none; }
-    body.nb-werk main { height: 100vh; box-sizing: border-box; padding-bottom: 1rem !important; }
+    body.nb-werk main { height: 100vh; box-sizing: border-box; padding-bottom: 1rem !important; display: flex; flex-direction: column; }
+    /* #app zit tussen main en het venster: zonder flex:1 krijgt het geen hoogte en scrolt niets. */
+    body.nb-werk #app { flex: 1; min-height: 0; }
     .nb-werkvenster { height: 100%; display: flex; flex-direction: column; min-height: 0; }
     .nb-kop { flex: none; margin-bottom: 1rem; }
-    .nb-werkvlak { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 400px; gap: 1rem; }
+    .nb-werkvlak { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 400px; grid-template-rows: minmax(0, 1fr); gap: 1rem; }
     .nb-briefvak { overflow-y: auto; overflow-x: hidden; padding: 1.25rem 1.25rem 4rem; scroll-behavior: smooth; background: oklch(var(--b1)); border: 1px solid oklch(var(--bc) / .1); border-radius: var(--rounded-box, 1rem); }
     .nb-briefkader { margin: 0 auto; max-width: 700px; transition: max-width .2s; }
     .nb-briefkader.nb-gsm { max-width: 375px; }
@@ -90,7 +92,7 @@
     .nb-pijl { opacity: .3; }
     @media (max-width: 1023px) {
       body.nb-werk { overflow: auto; }
-      body.nb-werk main { height: auto; }
+      body.nb-werk main { height: auto; display: block; }
       .nb-werkvenster { height: auto; }
       .nb-werkvlak { display: block; }
       .nb-briefvak, .nb-regie { overflow: visible; }
