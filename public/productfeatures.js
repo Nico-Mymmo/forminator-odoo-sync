@@ -275,8 +275,65 @@
       + (kanBewerken() ? '<div class="flex flex-wrap items-center gap-2 pt-2 border-t border-base-content/10">'
         + '<button class="btn btn-sm btn-ghost" data-action="nieuw-onder" data-id="' + e(f.id) + '"><i data-lucide="plus" class="w-4 h-4"></i> Onderliggende feature</button>'
         + '</div>' : '')
+      + '<div class="pt-2 border-t border-base-content/10"><div class="text-xs font-semibold uppercase tracking-wide opacity-60 mb-2">Wijzigingen</div>'
+      + '<div id="pfLog" class="text-sm opacity-60">Laden…</div></div>'
       + '</div></div>';
     ikons();
+    laadLogboek(f.id);
+  }
+
+  // ── Het logboek: wie paste wat aan ───────────────────────────────────────
+
+  var ACTIE_TEKST = { aangemaakt: 'maakte deze feature aan', gewijzigd: 'paste aan', volgorde: 'verschoof de plaats', weggehaald: 'haalde ze weg' };
+
+  function wanneer(iso) {
+    var d = new Date(iso);
+    if (isNaN(d)) return '';
+    return d.toLocaleDateString('nl-BE', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Europe/Brussels' })
+      + ' om ' + d.toLocaleTimeString('nl-BE', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Brussels' });
+  }
+
+  function waarde(v) {
+    return v ? '<span class="whitespace-pre-line">' + e(v) + '</span>' : '<span class="opacity-50 italic">leeg</span>';
+  }
+
+  function wijzigingHtml(c) {
+    // Een lange tekst: van en naar onder elkaar, niet op een regel.
+    var lang = String(c.van || '').length + String(c.naar || '').length > 80;
+    if (!c.van && (c.naar === 'toegevoegd' || c.naar === 'vervangen' || c.naar === 'weggehaald')) {
+      return '<li><span class="font-medium">' + e(c.label) + '</span>: ' + e(c.naar) + '</li>';
+    }
+    if (lang) {
+      return '<li><span class="font-medium">' + e(c.label) + '</span>'
+        + '<div class="grid sm:grid-cols-2 gap-2 mt-1 text-xs">'
+        + '<div class="rounded-lg bg-base-200/70 p-2"><div class="opacity-60 mb-0.5">Was</div>' + waarde(c.van) + '</div>'
+        + '<div class="rounded-lg bg-base-200/70 p-2"><div class="opacity-60 mb-0.5">Werd</div>' + waarde(c.naar) + '</div>'
+        + '</div></li>';
+    }
+    return '<li><span class="font-medium">' + e(c.label) + '</span>: ' + waarde(c.van) + ' <span class="opacity-50">→</span> ' + waarde(c.naar) + '</li>';
+  }
+
+  async function laadLogboek(id) {
+    var el = $('pfLog');
+    if (!el) return;
+    try {
+      var lijst = await api('/features/' + id + '/wijzigingen');
+      el = $('pfLog');
+      if (!el || state.gekozen !== id) return;
+      if (!lijst.length) { el.innerHTML = 'Nog geen wijzigingen bijgehouden. Het logboek bestaat sinds 20 oktober 2026.'; return; }
+      el.classList.remove('opacity-60');
+      el.innerHTML = '<ol class="space-y-3">' + lijst.map(function (r) {
+        var wat = r.changes || [];
+        return '<li class="flex gap-3"><i data-lucide="' + (r.action === 'aangemaakt' ? 'sparkles' : r.action === 'volgorde' ? 'arrow-up-down' : 'pencil') + '" class="w-4 h-4 mt-0.5 opacity-50 shrink-0"></i>'
+          + '<div class="min-w-0 flex-1"><div><span class="font-medium">' + e(r.user_name || 'Onbekend') + '</span> ' + e(ACTIE_TEKST[r.action] || r.action)
+          + ' <span class="opacity-50 text-xs">· ' + e(wanneer(r.created_at)) + '</span></div>'
+          + (wat.length ? '<ul class="mt-1 space-y-1 opacity-80">' + wat.map(wijzigingHtml).join('') + '</ul>' : '')
+          + '</div></li>';
+      }).join('') + '</ol>';
+      ikons();
+    } catch (err) {
+      if ($('pfLog')) $('pfLog').textContent = 'Het logboek kon niet geladen worden: ' + err.message;
+    }
   }
 
   // ── De beeldkiezer: uit de Asset Manager ─────────────────────────────────

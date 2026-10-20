@@ -17,6 +17,7 @@ import {
   ASSET_CATEGORY_PREFIXES, isWithinAssetNamespace, canReadAssetPrefix, listDynamicAssetCategories,
 } from '../asset-manager/lib/namespace.js';
 import { bouwerGegevens } from '../../lib/achtergrond.js';
+import { verschillen, logWijziging, listWijzigingen } from './lib/changelog.js';
 
 const MAX_BEELD = 3 * 1024 * 1024;
 const BEELD_TYPES = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp' };
@@ -101,6 +102,13 @@ export const routes = {
     } catch (err) { return fout(err); }
   },
 
+  /** Het logboek van een feature: wie paste wat aan, nieuwste eerst. */
+  'GET /api/features/:id/wijzigingen': async ({ env, params }) => {
+    try {
+      return json({ success: true, data: await listWijzigingen(env, params.id) });
+    } catch (err) { return fout(err); }
+  },
+
   'POST /api/features': async ({ env, user, request }) => {
     try {
       eisBewerken(user);
@@ -111,7 +119,9 @@ export const routes = {
         const broers = (await listFeatures(env)).filter((f) => (f.parent_id || null) === (waarden.parent_id || null));
         waarden.position = broers.reduce((m, f) => Math.max(m, f.position || 0), 0) + 10;
       }
-      return json({ success: true, data: await insertFeature(env, waarden, user.id) }, 201);
+      const nieuw = await insertFeature(env, waarden, user.id);
+      await logWijziging(env, { feature: nieuw, action: 'aangemaakt', user });
+      return json({ success: true, data: nieuw }, 201);
     } catch (err) { return fout(err); }
   },
 
@@ -124,7 +134,11 @@ export const routes = {
       if (waarden.parent_id !== undefined) waarden.parent_id = await controleerOuder(env, f.id, waarden.parent_id);
       if (waarden.name === '') throw new FeatureError('De titel mag niet leeg zijn.');
       houdAchtergrondBijBeeld(waarden, f);
-      return json({ success: true, data: await updateFeature(env, f.id, waarden, user.id) });
+      const bij = await updateFeature(env, f.id, waarden, user.id);
+      const namen = new Map((await listFeatures(env)).map((x) => [x.id, x.name]));
+      const wat = verschillen(f, waarden, namen);
+      if (wat.length) await logWijziging(env, { feature: bij, action: 'gewijzigd', changes: wat, user });
+      return json({ success: true, data: bij });
     } catch (err) { return fout(err); }
   },
 
@@ -135,7 +149,16 @@ export const routes = {
       const b = await leesBody(request);
       const ids = (Array.isArray(b.ids) ? b.ids : []).map(String);
       if (!ids.length) throw new FeatureError('Geen volgorde ontvangen.');
+      const voor = new Map((await listFeatures(env)).map((x) => [x.id, x]));
+      const oudeIndex = new Map([...ids].sort((a, b) => ((voor.get(a)?.position || 0) - (voor.get(b)?.position || 0)) || String(voor.get(a)?.name || '').localeCompare(String(voor.get(b)?.name || ''), 'nl')).map((id, i) => [id, i]));
       await herorden(env, ids);
+      // Enkel wie echt van plaats veranderde, komt in het logboek.
+      for (const [i, id] of ids.entries()) {
+        const f = voor.get(id);
+        if (f && oudeIndex.get(id) !== i) {
+          await logWijziging(env, { feature: f, action: 'volgorde', changes: [{ veld: 'position', label: 'Plaats', van: String(oudeIndex.get(id) + 1), naar: String(i + 1) }], user });
+        }
+      }
       return json({ success: true });
     } catch (err) { return fout(err); }
   },
@@ -146,6 +169,7 @@ export const routes = {
       const f = await getFeature(env, params.id);
       if (!f) throw new FeatureError('Feature niet gevonden.', 404);
       await deleteFeature(env, f.id);
+      await logWijziging(env, { feature: f, action: 'weggehaald', user });
       return json({ success: true });
     } catch (err) { return fout(err); }
   },
