@@ -174,6 +174,18 @@ export async function deleteEdition(env, id) {
 
 // ─── Bijdragen ──────────────────────────────────────────────────────────────
 
+/**
+ * De inhoud van ALLE stukjes van een soort, over alle edities heen. Voor
+ * Productfeatures: een beeld dat in een mail staat, mag niet opgeruimd worden.
+ * Gooit bij een fout: wie opruimt, ruimt dan niets op.
+ */
+export async function inhoudVanSoort(env, kind) {
+  const { data, error } = await db(env).from(TABLES.contributions).select('content').eq('kind', kind);
+  check(error, 'Stukjes lezen');
+  return (data || []).map((r) => r.content || {});
+}
+
+
 export async function listContributions(env, editionId) {
   const { data, error } = await db(env).from(TABLES.contributions).select('*')
     .eq('edition_id', editionId).order('position').order('created_at');

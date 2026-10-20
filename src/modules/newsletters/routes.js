@@ -400,6 +400,16 @@ async function testOntvangers(env, user) {
 }
 
 const MAX_BEELD = 3 * 1024 * 1024;
+
+/**
+ * De naam van een opgeladen beeld = een hash van zijn BYTES. Hetzelfde beeld
+ * (dezelfde uitsnede opnieuw, dezelfde foto nog eens) wordt dan hetzelfde
+ * bestand in plaats van een kopie erbij in de Asset Manager.
+ */
+async function inhoudHash(bytes) {
+  const d = await crypto.subtle.digest('SHA-256', bytes);
+  return [...new Uint8Array(d)].slice(0, 16).map((b) => b.toString(16).padStart(2, '0')).join('');
+}
 const BEELD_TYPES = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif' };
 
 // ─── De routes ──────────────────────────────────────────────────────────────
@@ -1315,7 +1325,7 @@ export const routes = {
       if (!ext) throw new NewsletterError('Enkel PNG, JPEG of GIF. Andere beelden zet het scherm eerst om.');
       const bytes = await request.arrayBuffer();
       if (!bytes.byteLength || bytes.byteLength > MAX_BEELD) throw new NewsletterError('Het beeld is leeg of groter dan 3 MB.');
-      const key = `${BEELDEN_MAP}${crypto.randomUUID()}.${ext}`;
+      const key = `${BEELDEN_MAP}${await inhoudHash(bytes)}.${ext}`;
       await env.R2_ASSETS.put(key, bytes, { httpMetadata: { contentType: type } });
       return json({ success: true, data: { url: `${ASSET_ORIGIN}/assets/${key}` } }, 201);
     } catch (err) { return fout(err); }
@@ -1337,7 +1347,7 @@ export const routes = {
       if (!res.ok || !ext) throw new NewsletterError('Dit beeld kan niet in een mail. Laad het zelf op als PNG of JPEG.');
       const bytes = await res.arrayBuffer();
       if (!bytes.byteLength || bytes.byteLength > MAX_BEELD) throw new NewsletterError('Het beeld is leeg of groter dan 3 MB.');
-      const key = `${BEELDEN_MAP}${crypto.randomUUID()}.${ext}`;
+      const key = `${BEELDEN_MAP}${await inhoudHash(bytes)}.${ext}`;
       await env.R2_ASSETS.put(key, bytes, { httpMetadata: { contentType: type } });
       return json({ success: true, data: { url: `${ASSET_ORIGIN}/assets/${key}` } }, 201);
     } catch (err) { return fout(err); }

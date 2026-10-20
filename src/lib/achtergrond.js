@@ -1,17 +1,30 @@
 /**
  * De achtergrondbouwer -- de serverkant (gedeeld, niet aan een module gebonden).
  *
- * Een ACHTERGROND is een beeld met een doorzichtige achtergrond (een
- * componentje, een screenshot) op een vlak in een merkkleur, met optioneel
- * een swirl erachter in een tweede merkkleur. De browser tekent en maakt er
- * een PNG van (public/om-achtergrond.js); de server bewaart enkel de KEUZES,
- * zodat je ze later kan bijstellen, plus het adres van de gemaakte PNG.
+ * Een opgemaakt beeld bestaat uit TWEE LAGEN die apart blijven:
+ *   - de ACHTERGROND: een vlak in een merkkleur, met optioneel een swirl in
+ *     een tweede merkkleur. Die vult ALTIJD het hele vak, welke vorm het vak
+ *     ook heeft (de swirl schaalt mee met de langste zijde).
+ *   - de VOORGROND: het opgeladen beeld (een componentje, een screenshot).
+ *     Het staat RELATIEF: aan een anker (midden, een rand of een hoek), met
+ *     een marge tot die rand. Verandert de vorm van het vak, dan blijft het
+ *     aan datzelfde anker staan.
+ * De voorgrond kan BIJGESNEDEN worden (`snij`, per zijde een deel van het
+ * beeld): positief knipt weg, negatief zet er lege ruimte bij. Het anker
+ * rekent met het bijgesneden beeld, dus "onderaan, met een stuk eraf"
+ * laat het beeld achter de onderrand wegvallen.
  *
- * Bewaarde vorm (normaliseerAchtergrond):
- *   { v: 1, verhouding: '16:9', kleur: '#f0f9ff' | '',
+ * De browser tekent en maakt er een PNG van (public/om-achtergrond.js); de
+ * server bewaart enkel de KEUZES, zodat je ze later kan bijstellen, plus het
+ * adres van de gemaakte PNG.
+ *
+ * Bewaarde vorm (normaliseerAchtergrond), versie 2:
+ *   { v: 2, verhouding: '16:9', kleur: '#f0f9ff' | '',
  *     swirl: { naam, kleur, schaal, x, y, draai, dekking } | null,
- *     beeld: { schaal, x, y },
- *     bron: <adres van het componentje>, url: <adres van de gemaakte PNG> }
+ *     voorgrond: { anker, schaal, marge, snij: { boven, onder, links, rechts } },
+ *     bron: <adres van de voorgrond>, url: <adres van de gemaakte PNG> }
+ * Versie 1 (`beeld: { schaal, x, y }`, vrij geplaatst) wordt bij het lezen
+ * omgezet: het dichtstbijzijnde anker.
  *
  * De swirls zijn de SVG's in de Asset Manager onder `brand/swirls/`. Elk
  * bestand heeft EEN kleur; de browser kleurt het om. Dezelfde vorm in twee
@@ -32,6 +45,10 @@ export const VERHOUDINGEN = [
   { key: '4:5', label: 'Staand (4:5)' },
 ];
 const VERHOUDING_KEYS = new Set(VERHOUDINGEN.map((v) => v.key));
+
+/** Waar de voorgrond vastzit. Dezelfde lijst staat in public/om-achtergrond.js. */
+export const ANKERS = ['linksboven', 'boven', 'rechtsboven', 'links', 'midden', 'rechts', 'linksonder', 'onder', 'rechtsonder'];
+const ANKER_SET = new Set(ANKERS);
 
 // Een kleuraanduiding achteraan de bestandsnaam: die vorm bestaat in meerdere kleuren.
 const KLEUR_ACHTERVOEGSEL = /_(grey|gray|grijs|white|wit|black|zwart|blue|blauw|mint|orange|oranje|pink|roze)\d*$/i;
@@ -80,10 +97,51 @@ const adres = (v) => {
   return /^https?:\/\/[^\s]+$/i.test(s) ? s.slice(0, 1000) : '';
 };
 
+/** Het anker dat het dichtst bij een vrije plaats (v1: midden op x,y) ligt. */
+function ankerVan(x, y) {
+  const h = x < 0.4 ? 'links' : x > 0.6 ? 'rechts' : '';
+  const v = y < 0.4 ? 'boven' : y > 0.6 ? 'onder' : '';
+  return (h + v) || 'midden';
+}
+
+function normaliseerSnij(s) {
+  const o = s && typeof s === 'object' ? s : {};
+  const snij = {
+    boven: getal(o.boven, -0.5, 0.45, 0),
+    onder: getal(o.onder, -0.5, 0.45, 0),
+    links: getal(o.links, -0.5, 0.45, 0),
+    rechts: getal(o.rechts, -0.5, 0.45, 0),
+  };
+  // Er moet een stuk van het beeld overblijven.
+  if (1 - snij.links - snij.rechts < 0.05) { snij.links = 0; snij.rechts = 0; }
+  if (1 - snij.boven - snij.onder < 0.05) { snij.boven = 0; snij.onder = 0; }
+  return snij;
+}
+
+function normaliseerVoorgrond(v) {
+  if (v.voorgrond && typeof v.voorgrond === 'object') {
+    const g = v.voorgrond;
+    return {
+      anker: ANKER_SET.has(g.anker) ? g.anker : 'midden',
+      schaal: getal(g.schaal, 0.1, 1.5, 0.8),
+      marge: getal(g.marge, 0, 0.3, 0.06),
+      snij: normaliseerSnij(g.snij),
+    };
+  }
+  // Versie 1: vrij geplaatst met x/y.
+  const b = v.beeld && typeof v.beeld === 'object' ? v.beeld : {};
+  return {
+    anker: ankerVan(getal(b.x, -0.5, 1.5, 0.5), getal(b.y, -0.5, 1.5, 0.5)),
+    schaal: getal(b.schaal, 0.1, 1.5, 0.75),
+    marge: 0.06,
+    snij: normaliseerSnij(null),
+  };
+}
+
 /**
  * Enkel bekende sleutels, enkel merkkleuren, getallen binnen hun grenzen.
- * `null`/leeg = geen achtergrond. Zonder gemaakte PNG (`url`) is het geen
- * achtergrond: dan is er niets om te tonen.
+ * `null`/leeg = geen opmaak. Zonder gemaakte PNG (`url`) is het geen
+ * opmaak: dan is er niets om te tonen.
  */
 export function normaliseerAchtergrond(v) {
   if (!v || typeof v !== 'object') return null;
@@ -100,13 +158,12 @@ export function normaliseerAchtergrond(v) {
       dekking: getal(v.swirl.dekking, 0.05, 1, 1),
     }
     : null;
-  const b = v.beeld && typeof v.beeld === 'object' ? v.beeld : {};
   return {
-    v: 1,
+    v: 2,
     verhouding: VERHOUDING_KEYS.has(v.verhouding) ? v.verhouding : '16:9',
     kleur: merkkleur(v.kleur),
     swirl: s,
-    beeld: { schaal: getal(b.schaal, 0.1, 1.5, 0.75), x: getal(b.x, -0.5, 1.5, 0.5), y: getal(b.y, -0.5, 1.5, 0.5) },
+    voorgrond: normaliseerVoorgrond(v),
     bron: adres(v.bron),
     url,
   };

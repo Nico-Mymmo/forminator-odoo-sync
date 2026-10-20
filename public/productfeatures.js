@@ -223,7 +223,7 @@
     var labelTekst = String(f.eyebrow || '').trim() || (f.parent_id ? ((perId(f.parent_id) || {}).name || '') : '');
     var usps = (f.usps || []).filter(Boolean);
     return '<article style="background:#ffffff;border:1px solid ' + h.rand + ';border-radius:14px;overflow:hidden;color:' + h.tekst + ';font-size:15px;line-height:1.55;max-width:560px;margin:0 auto;width:100%">'
-      + (f.image_url ? '<img src="' + e(f.image_url) + '" alt="" style="display:block;width:100%;max-height:300px;object-fit:cover">' : '')
+      + (f.image_url ? '<img src="' + e(f.image_url) + '" alt="" style="display:block;width:100%;height:auto">' : '')
       + '<div style="padding:22px 24px 24px">'
       + (labelTekst ? '<span style="display:inline-block;background:' + h.pil + ';color:' + h.primary + ';font-size:12px;font-weight:600;padding:3px 10px;border-radius:999px">' + e(labelTekst) + '</span>' : '')
       + '<div style="font-size:24px;line-height:1.2;font-weight:700;color:' + h.titel + ';margin:12px 0 10px">' + e(f.name || 'Nog geen titel') + '</div>'
@@ -427,14 +427,7 @@
       + '<div><span class="label-text text-xs mb-1 block">Voordelen voor de klant</span>' + chips('benefits', b.voordelen, f.benefits) + '</div>'
       + '<div><span class="label-text text-xs mb-1 block">Voor wie</span>' + chips('audiences', b.doelgroepen, f.audiences) + '</div>'
       + veld('Link naar de webpagina', 'url', f.url, { type: 'url', hint: 'https://openvme.be/…' })
-      + '<div><span class="label-text text-xs mb-1 block">Beeld</span><div class="flex items-center gap-3">'
-      + (f.image_url ? '<img src="' + e(f.image_url) + '" alt="" class="h-20 w-32 object-cover rounded-lg border border-base-content/10">' : '<div class="h-20 w-32 rounded-lg border border-dashed border-base-content/20 flex items-center justify-center text-xs opacity-50">geen beeld</div>')
-      + (mag ? '<div class="flex flex-col gap-1.5"><label class="btn btn-sm btn-outline"><i data-lucide="upload" class="w-4 h-4"></i> Beeld opladen<input type="file" accept="image/*" class="hidden" data-change="beeld"></label>'
-        + '<button type="button" class="btn btn-sm btn-outline" data-action="kiezer-open"><i data-lucide="images" class="w-4 h-4"></i> Kies uit Asset Manager</button>'
-        + (f.image_url ? '<button type="button" class="btn btn-sm btn-outline" data-action="achtergrond"><i data-lucide="palette" class="w-4 h-4"></i> ' + (f.achtergrond ? 'Achtergrond aanpassen' : 'Achtergrond maken') + '</button>' : '')
-        + (f.achtergrond ? '<button type="button" class="btn btn-sm btn-ghost" data-action="achtergrond-weg">Achtergrond weghalen</button>' : '')
-        + (f.image_url ? '<button type="button" class="btn btn-sm btn-ghost" data-action="beeld-weg">Weghalen</button>' : '') + '</div>' : '')
-      + '</div>' + veld('Of een adres van een beeld', 'image_url', f.image_url, { type: 'url', hint: 'https://', uitleg: 'Wat je oplaadt, komt in de Asset Manager terecht (map Publiek › productfeatures).' }) + '</div>'
+      + beeldBlok(f, mag)
       + '<label class="label cursor-pointer justify-start gap-3"><input type="checkbox" class="checkbox checkbox-sm" data-change="veld" data-veld="is_active"' + (f.is_active !== false ? ' checked' : '') + (mag ? '' : ' disabled') + '><span class="label-text">Actief (uit = niet te kiezen in een mail, blijft in de lijst)</span></label>'
       + (mag ? '<div class="flex flex-wrap items-center gap-2 pt-2 border-t border-base-content/10">'
         + '<button class="btn btn-sm btn-primary" data-action="bewaar"><i data-lucide="save" class="w-4 h-4"></i> ' + (f.id ? 'Bewaren' : 'Aanmaken') + '</button>'
@@ -444,6 +437,74 @@
         + '</div>' : '')
       + '</div></div>';
     ikons();
+  }
+
+  /**
+   * Het beeld in het formulier. Opgemaakt (f.achtergrond) = een voorgrond op
+   * een achtergrond, gemaakt met public/om-achtergrond.js. Een ander beeld
+   * opladen of kiezen houdt die opmaak en wisselt enkel de voorgrond.
+   */
+  var ANKER_TEKST = {
+    linksboven: 'linksboven', boven: 'bovenaan', rechtsboven: 'rechtsboven', links: 'links', midden: 'in het midden',
+    rechts: 'rechts', linksonder: 'linksonder', onder: 'onderaan', rechtsonder: 'rechtsonder',
+  };
+  function beeldBlok(f, mag) {
+    var ag = f.achtergrond;
+    var anker = ag && ag.voorgrond ? ANKER_TEKST[ag.voorgrond.anker] || '' : '';
+    return '<div><span class="label-text text-xs mb-1 block">Beeld</span><div class="flex items-start gap-3">'
+      + (f.image_url
+        ? '<img src="' + e(f.image_url) + '" alt="" class="h-24 w-40 object-contain rounded-lg border border-base-content/10" style="background-color:#fff;background-image:conic-gradient(#e5e7eb 25%,transparent 0 50%,#e5e7eb 0 75%,transparent 0);background-size:12px 12px">'
+        : '<div class="h-24 w-40 rounded-lg border border-dashed border-base-content/20 flex items-center justify-center text-xs opacity-50">geen beeld</div>')
+      + (mag ? '<div class="flex flex-wrap gap-1.5">'
+        + '<label class="btn btn-sm btn-outline"><i data-lucide="upload" class="w-4 h-4"></i> ' + (f.image_url ? 'Ander beeld opladen' : 'Beeld opladen') + '<input type="file" accept="image/*" class="hidden" data-change="beeld"></label>'
+        + '<button type="button" class="btn btn-sm btn-outline" data-action="kiezer-open"><i data-lucide="images" class="w-4 h-4"></i> Kies uit Asset Manager</button>'
+        + (f.image_url ? '<button type="button" class="btn btn-sm btn-primary" data-action="achtergrond"><i data-lucide="crop" class="w-4 h-4"></i> ' + (ag ? 'Opmaak aanpassen' : 'Opmaken') + '</button>' : '')
+        + (ag ? '<button type="button" class="btn btn-sm btn-ghost" data-action="achtergrond-weg">Opmaak weghalen</button>' : '')
+        + (f.image_url ? '<button type="button" class="btn btn-sm btn-ghost" data-action="beeld-weg">Weghalen</button>' : '')
+        + '</div>' : '')
+      + '</div><p class="text-xs opacity-60 mt-1.5">'
+      + (ag
+        ? 'Opgemaakt: het beeld staat ' + e(anker) + ' op een achtergrond in de huisstijl. Een ander beeld opladen of kiezen houdt die opmaak.'
+        : 'Met Opmaken zet je het beeld op een achtergrond, kies je waar het staat en snijd je het bij.')
+      + ' Wat je oplaadt, komt in de Asset Manager (Publiek › productfeatures); wat geen enkele feature of nieuwsbrief nog gebruikt, ruimt de module zelf op.</p></div>';
+  }
+
+  /**
+   * Een nieuwe voorgrond. Zonder opmaak wordt het gewoon het beeld. Met
+   * opmaak blijft die staan (anker, grootte, achtergrond) en wordt de PNG
+   * opnieuw gemaakt; de bijsnijding begint opnieuw, want een ander beeld heeft
+   * een andere rand.
+   */
+  async function zetVoorgrond(url) {
+    var f = state.concept;
+    if (!f) return;
+    var ag = f.achtergrond;
+    if (!ag) {
+      f.image_url = url;
+      state.vuil = true;
+      tekenFormulier();
+      return;
+    }
+    var keuzes = JSON.parse(JSON.stringify(ag));
+    keuzes.bron = url;
+    if (keuzes.voorgrond) keuzes.voorgrond.snij = { boven: 0, onder: 0, links: 0, rechts: 0 };
+    try {
+      if (!state.achtergrond) state.achtergrond = await api('/achtergrond');
+      var blob = await window.OMAchtergrond.maakPng(keuzes, state.achtergrond);
+      var r = await upload(blob, (f.name || 'feature') + '-opgemaakt');
+      if (state.concept !== f) return;
+      keuzes.url = r.url;
+      f.achtergrond = keuzes;
+      f.image_url = r.url;
+      toast('Het nieuwe beeld staat in dezelfde opmaak. Vergeet niet te bewaren.');
+    } catch (err) {
+      if (state.concept !== f) return;
+      f.achtergrond = null;
+      f.image_url = url;
+      toast('De opmaak kon niet opnieuw gemaakt worden (' + err.message + '). Het beeld staat er zonder opmaak.', 'warning');
+    }
+    state.vuil = true;
+    tekenFormulier();
   }
 
   // ── Acties ────────────────────────────────────────────────────────────────
@@ -482,9 +543,8 @@
     'kiezer-open': function () { return kiezerLaad(state.kiezer && !state.kiezer.fout ? state.kiezer.prefix : 'public/productfeatures/'); },
     'kiezer-map': function (el) { return kiezerLaad(el.dataset.prefix || ''); },
     'kiezer-kies': function (el) {
-      if (state.concept) { state.concept.image_url = el.dataset.url; state.concept.achtergrond = null; state.vuil = true; }
       $('pfKiezer').close();
-      tekenFormulier();
+      return zetVoorgrond(el.dataset.url);
     },
     'kiezer-dicht': function () { $('pfKiezer').close(); },
     'beeld-weg': function () { state.concept.image_url = ''; state.concept.achtergrond = null; state.vuil = true; tekenFormulier(); },
@@ -504,9 +564,9 @@
   };
 
   /**
-   * De achtergrondbouwer (public/om-achtergrond.js). Het beeld wordt het
-   * gemaakte PNG; het oorspronkelijke componentje blijft in achtergrond.bron,
-   * zodat je de achtergrond later kan bijstellen of weghalen.
+   * De bouwer (public/om-achtergrond.js). Het beeld wordt de gemaakte PNG;
+   * de voorgrond blijft in achtergrond.bron, zodat je de opmaak later kan
+   * bijstellen of weghalen. In de bouwer kan je ook een ander beeld opladen.
    */
   async function achtergrondOpen() {
     var f = state.concept;
@@ -515,13 +575,14 @@
     var ag = f.achtergrond;
     var bron = (ag && ag.bron) || f.image_url;
     window.OMAchtergrond.open({
-      titel: 'Achtergrond voor "' + (f.name || 'deze feature') + '"',
+      titel: 'Beeld opmaken voor "' + (f.name || 'deze feature') + '"',
       beeld: bron,
       waarde: ag,
       gegevens: state.achtergrond,
+      oplaad: async function (bestand) { return (await upload(bestand, f.name || 'feature')).url; },
       opBewaar: async function (keuzes, blob) {
-        var r = await upload(blob, (f.name || 'feature') + '-achtergrond');
-        keuzes.bron = bron;
+        var r = await upload(blob, (f.name || 'feature') + '-opgemaakt');
+        keuzes.bron = keuzes.bron || bron;
         keuzes.url = r.url;
         if (state.concept !== f) return;
         f.achtergrond = keuzes;
@@ -529,7 +590,7 @@
         state.vuil = true;
         state.bewerken = true;
         tekenFormulier();
-        toast('Achtergrond klaar. Vergeet niet te bewaren.');
+        toast('Opmaak klaar. Vergeet niet te bewaren.');
       },
     });
   }
@@ -632,10 +693,7 @@
       if (!bestand || !state.concept) return;
       try {
         var r = await upload(bestand, state.concept.name);
-        state.concept.image_url = r.url;
-        state.concept.achtergrond = null;
-        state.vuil = true;
-        tekenFormulier();
+        await zetVoorgrond(r.url);
       } catch (err) { toast(err.message, 'error'); }
       el.value = '';
     },
