@@ -381,7 +381,9 @@
     }
     var so = part(el, 'soort'); if (so !== act) so.value = c.soort || 'onbekend';
     C.CASE_TEKSTEN.forEach(function (f) {
-      var ta = $('tx-' + f[0] + '-' + id); if (!ta) return;
+      // Binnen de case zoeken, niet in het document: bij het opbouwen staat de case nog niet op de pagina,
+      // en dan bleven de tekstvakken leeg terwijl de tekst wel bewaard was.
+      var ta = el.querySelector('[data-input="tekst"][data-veld="' + f[0] + '"]'); if (!ta) return;
       var w = f[0] in d ? d[f[0]] : (c[f[0]] || '');
       if (ta.value !== w && (ta !== act || !(f[0] in d))) ta.value = w;
     });
