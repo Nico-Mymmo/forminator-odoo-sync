@@ -3861,6 +3861,7 @@ tabs-boxed: het is een modus, geen tabblad, en het mag niet opvallen).
   (`leesPaneel()`), met een veld om er een te plaatsen. In Lezer wordt NIETS
   grijs, ook niet tijdens het reageren: het gekozen blok krijgt enkel een
   blauw labeltje "Je reageert op dit blok".
+  Links werken in Lezer zoals in de mail: in een nieuw tabblad (http, mailto, tel).
 - **Wie ziet opmerkingen**: de hoofdredactie en wie het blok schrijft;
   een andere collega ziet enkel zijn eigen opmerkingen
   (`zichtbareOpmerkingen()` in routes.js, op beide GET-routes). Een bolletje
@@ -3881,6 +3882,12 @@ tabs-boxed: het is een modus, geen tabblad, en het mag niet opvallen).
     ernaast (in de brief of de ruimte eromheen), Esc, of Klaar (`stapUit()`).
     Wat getypt is, wordt bewaard. Zet die randen niet terug.
   - Kop en voet: geen rand, wel een labeltje "Aanpassen" bij het aanwijzen.
+- **Op een gsm mag niets de mail breder maken** (2026-10-20): een agenda-regel
+  met een lange titel en "Inschrijven →" op één regel duwde de hele mail 30px
+  voorbij het scherm. Op een smal scherm zakt die knop onder de titel
+  (`nb-ev-link`), een gekleurde kaart krijgt 20px opvulling (`nb-paneel-in`) en
+  lange woorden mogen breken. Zet nooit `white-space:nowrap` op een cel zonder
+  regel in de media query van `huls()`.
 - **Een wijziging laadt de brief NIET opnieuw**: `laadBrief()` vervangt enkel
   de inhoud van het bestaande iframe (stijl en luisteraars blijven), en
   `NB.views.editie` bouwt de pagina niet opnieuw op als dezelfde editie er al

@@ -501,6 +501,10 @@
         if (plus) { openToevoegen(plus.closest('.nb-plus-lijn').getAttribute('data-na')); return; }
         if (ev.target.closest('.nb-werkbalk') || ev.target.closest('.nb-greep-rij')) return;
         if (lezer()) {
+          // Een link werkt zoals in de mail, in een nieuw tabblad.
+          var link = ev.target.closest('a[href]');
+          var href = link && link.getAttribute('href');
+          if (href && /^(https?:|mailto:|tel:)/i.test(href)) { window.open(href, '_blank', 'noopener'); return; }
           var lb = ev.target.closest('[data-nb-lees]');
           if (lb) kiesLees(lb.getAttribute('data-nb-lees')); else kiesLees(null);
           return;

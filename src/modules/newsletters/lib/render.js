@@ -193,7 +193,7 @@ function rij(inhoud, { padding = '40px 40px 0', id = null } = {}) {
  */
 function paneel(inhoud, bg, { padding = '36px 32px 30px', margin = '32px 40px 0', id = null } = {}) {
   const attr = id ? ` data-nb-id="${esc(id)}"` : '';
-  return `<tr${attr}><td class="nb-cel" style="padding:${margin}"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:${bg};border-radius:18px"><tr><td style="padding:${padding}">${inhoud}</td></tr></table></td></tr>`;
+  return `<tr${attr}><td class="nb-cel" style="padding:${margin}"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:${bg};border-radius:18px"><tr><td class="nb-paneel-in" style="padding:${padding}">${inhoud}</td></tr></table></td></tr>`;
 }
 
 // ─── Beelden: één manier voor elke plek ─────────────────────────────────────
@@ -734,7 +734,7 @@ function blokEvents(item, ctx, id) {
     return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#ffffff;border-radius:14px;margin-bottom:10px"><tr>
 <td width="62" align="center" valign="middle" style="padding:14px 0 14px 12px"><div style="font-family:${S.fontHead};font-size:28px;line-height:1;color:${S.primary}">${esc(d.dag)}</div><div style="font-family:${S.fontBody};font-size:11px;font-weight:700;letter-spacing:0.08em;color:${S.muted};margin-top:4px">${esc(d.maand)}</div></td>
 <td valign="middle" style="padding:14px 12px"><div style="font-family:${S.fontBody};font-size:15px;font-weight:700;line-height:1.35;color:${S.headingSoft}">${esc(e.title)}</div><div style="font-family:${S.fontBody};font-size:13px;color:${S.muted};margin-top:2px">${meta}</div></td>
-${link ? `<td align="right" valign="middle" style="padding:14px 18px 14px 0;white-space:nowrap"><a href="${link}" style="font-family:${S.fontBody};font-size:14px;font-weight:700;color:${S.primary};text-decoration:none">${esc(e.cta || 'Inschrijven')} &rarr;</a></td>` : ''}
+${link ? `<td class="nb-ev-link" align="right" valign="middle" style="padding:14px 18px 14px 0;white-space:nowrap"><a href="${link}" style="font-family:${S.fontBody};font-size:14px;font-weight:700;color:${S.primary};text-decoration:none">${esc(e.cta || 'Inschrijven')} &rarr;</a></td>` : ''}
 </tr></table>`;
   }).join('');
   const kopHtml = id
@@ -1171,7 +1171,7 @@ function huls(rijen, { tint, preheader, voetRij }) {
   return `<div style="margin:0;padding:0;background-color:${tint}">
 <style>@import url('${S.rethinkCss}');@font-face{font-family:'Gelica';src:url('${S.gelicaUrl}') format('opentype');font-weight:400;font-style:normal}
 /* Smalle schermen (Apple Mail, iOS, de Gmail-apps): kolommen onder elkaar, minder marge. Outlook negeert dit en houdt de vaste breedtes. */
-@media only screen and (max-width:480px){.nb-cel{padding-left:20px!important;padding-right:20px!important}.nb-kol{display:block!important;width:100%!important;max-width:100%!important;box-sizing:border-box!important;padding-left:0!important;padding-right:0!important}.nb-kol-na{padding-top:14px!important}.nb-gat{display:none!important}.nb-gsm-vol,.nb-kol .nb-foto{width:100%!important;max-width:100%!important}}</style>
+@media only screen and (max-width:480px){.nb-cel{padding-left:20px!important;padding-right:20px!important}.nb-kol{display:block!important;width:100%!important;max-width:100%!important;box-sizing:border-box!important;padding-left:0!important;padding-right:0!important}.nb-kol-na{padding-top:14px!important}.nb-gat{display:none!important}.nb-gsm-vol,.nb-kol .nb-foto{width:100%!important;max-width:100%!important}.nb-paneel-in{padding-left:20px!important;padding-right:20px!important}.nb-ev-link{display:block!important;text-align:left!important;white-space:normal!important;padding:0 12px 14px 74px!important}.nb-cel{overflow-wrap:break-word;word-break:break-word}}</style>
 ${preheader ? `<div style="display:none;max-height:0;max-width:0;overflow:hidden;opacity:0;mso-hide:all;font-size:1px;line-height:1px;color:${tint}">${esc(preheader)}</div>` : ''}
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:${tint}"><tr><td align="center" style="padding:28px 12px 36px">
 <table role="presentation" width="${WIDTH}" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:${WIDTH}px;background-color:#ffffff;border-radius:20px;border-collapse:separate;overflow:hidden">
