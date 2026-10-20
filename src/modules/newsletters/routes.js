@@ -32,7 +32,7 @@ import { stuurHerinnering } from './lib/cron.js';
 import { hostBeelden, BEELDEN_MAP } from './lib/beelden-hosten.js';
 import { naamVoor, medewerkerVoorOdooGebruiker, medewerkersVoorGebruikers } from '../../lib/medewerkers.js';
 import { isEmail, vasteVolgorde, VASTE_PLEK } from './lib/constants.js';
-import { taakVoorToewijzing, takenVoorVermeldingen } from './lib/taken.js';
+import { taakVoorToewijzing, takenVoorVermeldingen, zetTakenKlaar } from './lib/taken.js';
 import { lijstTekeningen, pngSleutel, vergeetTekeningen } from '../av-slides/lib/thingies.js';
 import { listIntegrations } from '../forminator-sync-v2/database.js';
 import { listVimeoVideos, getVimeoVideo, idFromVimeoUrl, resolveVideoWithoutToken } from '../event-operations-v2/lib/vimeo.js';
@@ -1058,6 +1058,8 @@ export const routes = {
         throw new NewsletterError('Onbekende stand.');
       }
       const bij = await updateContribution(env, item.id, w);
+      // De schrijftaak in Projecten: af bij inleveren of bevestigen, weer open als het terug naar de schrijver gaat.
+      await zetTakenKlaar(env, `schrijf:${item.id}`, doel !== CONTRIBUTION_STATUS.DRAFT, user.id);
       const wie = user.full_name || user.email;
       const tekst = doel === CONTRIBUTION_STATUS.SUBMITTED ? `${wie} leverde "${item.title}" in`
         : doel === CONTRIBUTION_STATUS.APPROVED ? `${wie} bevestigde "${item.title}"`
@@ -1227,7 +1229,7 @@ export const routes = {
         await logActivity(env, { editionId: edition.id, contributionId: item.id, userId: user.id, kind: 'comment', text: `Opmerking bij "${item.title}"` });
       }
       // Wie met @ vermeld wordt, krijgt een taak in Projecten (nooit fataal).
-      const vermeld = await takenVoorVermeldingen(env, { tekst: c.body, users: (await listUsers(env)).map((u) => ({ ...u, full_name: naamVoor(null, u) })), item, edition, series, userId: user.id, auteur: user.full_name || user.email });
+      const vermeld = await takenVoorVermeldingen(env, { tekst: c.body, users: (await listUsers(env)).map((u) => ({ ...u, full_name: naamVoor(null, u) })), item, edition, series, userId: user.id, auteur: user.full_name || user.email, commentId: c.id });
       return json({ success: true, data: { ...c, user_name: user.full_name || user.email, vermeld } }, 201);
     } catch (err) { return fout(err); }
   },
@@ -1239,6 +1241,8 @@ export const routes = {
       if (!c) throw new NewsletterError('Die opmerking bestaat niet meer.', 404);
       const opgelost = (await leesBody(request)).opgelost !== false;
       const bij = await resolveComment(env, c.id, user.id, opgelost);
+      // De taken van wie erin vermeld werd, volgen mee.
+      await zetTakenKlaar(env, `opm:${c.id}`, opgelost, user.id);
       return json({ success: true, data: { ...bij, resolved_name: opgelost ? (user.full_name || user.email) : null } });
     } catch (err) { return fout(err); }
   },

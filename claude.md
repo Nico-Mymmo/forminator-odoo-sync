@@ -3875,6 +3875,12 @@ tabs-boxed: het is een modus, geen tabblad, en het mag niet opvallen).
   per collega die in een opmerking met "@Volledige Naam" (of een unieke
   "@Voornaam") vermeld wordt. Nooit voor jezelf, en nooit fataal. Typ "@" in
   het opmerkingenveld voor een keuzelijst.
+  De taak VINKT ZICHZELF AF (`zetTakenKlaar()`): een schrijftaak bij inleveren
+  of bevestigen (weer open bij "terug naar de schrijver"), een vermelding als
+  die opmerking opgelost is (weer open als ze terug open gaat). Het verband is
+  een merkteken op de link in de beschrijving (`data-nb-taak="schrijf:<blok>"`
+  / `"opm:<opmerking>"`), want Projecten heeft geen herkomstkolom: haal dat
+  attribuut niet weg uit `schoonHtml()`.
 - De modus is UI: de server beperkt schrijven zoals altijd (`magSchrijven`).
   Standaard: Layouter voor de hoofdredactie, Schrijver voor de anderen.
 

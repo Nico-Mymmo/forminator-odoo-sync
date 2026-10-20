@@ -7,9 +7,16 @@
  *
  * Nooit fataal: een taak die niet lukt, mag het toewijzen of de opmerking niet
  * tegenhouden (en Projecten staat in D1, de nieuwsbrief nog in Supabase).
+ *
+ * De taak vinkt zichzelf af: een schrijftaak zodra het blok ingeleverd of
+ * bevestigd is (en weer open als het terug naar de schrijver gaat), een
+ * vermelding zodra die opmerking afgevinkt is. Het verband staat als
+ * merkteken op de link in de beschrijving (`data-nb-taak="schrijf:<blok>"`
+ * of `"opm:<opmerking>"`): Projecten heeft geen kolom voor een herkomst.
  */
 
-import { insertTask, normaliseerTaak } from '../../projecten/lib/store.js';
+import { insertTask, normaliseerTaak, updateTask } from '../../projecten/lib/store.js';
+import { getCoreDb } from '../../../lib/core-db.js';
 
 /** De dag in Europe/Brussels (YYYY-MM-DD), zoals Projecten een vervaldatum bewaart. */
 function dagInBrussel(iso) {
@@ -46,12 +53,12 @@ function blokNaam(item) {
  * @param {object} [o.series]
  * @param {string|null} o.userId wie het veroorzaakte
  */
-export async function maakTaak(env, { assigneeId, titel, tekst = '', item, edition, series, userId }) {
+export async function maakTaak(env, { assigneeId, titel, tekst = '', item, edition, series, userId, merk = '' }) {
   if (!assigneeId || !item) return null;
   try {
     const waar = [series?.name, edition?.title].filter(Boolean).map(esc).join(' · ');
     const beschrijving = `${waar ? `<p>${waar}</p>` : ''}${tekst ? `<p>${esc(tekst).replace(/\n/g, '<br>')}</p>` : ''}`
-      + `<p><a href="/nieuwsbrieven#/stukje/${esc(item.id)}">Open het blok in de nieuwsbrief</a></p>`;
+      + `<p><a href="/nieuwsbrieven#/stukje/${esc(item.id)}"${merk ? ` data-nb-taak="${esc(merk)}"` : ''}>Open het blok in de nieuwsbrief</a></p>`;
     return await insertTask(env, normaliseerTaak({
       title: String(titel).slice(0, 200),
       description: beschrijving,
@@ -76,8 +83,27 @@ export function taakVoorToewijzing(env, { item, edition, series, ownerId, userId
   return maakTaak(env, {
     assigneeId: ownerId, item, edition, series, userId,
     titel: `Nieuwsbrief: schrijf "${blokNaam(item)}"`,
-    tekst: 'Je kreeg dit blok toegewezen.',
+    tekst: 'Je kreeg dit blok toegewezen. Deze taak vinkt zichzelf af zodra je het blok inlevert.',
+    merk: `schrijf:${item.id}`,
   });
+}
+
+/**
+ * De taken met dit merkteken afvinken (`klaar`) of weer openzetten. Nooit
+ * fataal; geeft het aantal gewijzigde taken terug.
+ */
+export async function zetTakenKlaar(env, merk, klaar, userId = null) {
+  try {
+    const { data, error } = await getCoreDb(env).from('pm_tasks').select('id, done')
+      .like('description', `%data-nb-taak="${merk}"%`);
+    if (error) throw new Error(error.message);
+    const teDoen = (data || []).filter((t) => Boolean(t.done) !== Boolean(klaar));
+    for (const t of teDoen) await updateTask(env, t.id, { done: Boolean(klaar) }, userId);
+    return teDoen.length;
+  } catch (err) {
+    console.error('[newsletters] taak afvinken mislukt:', err?.message || err);
+    return 0;
+  }
 }
 
 /**
@@ -103,12 +129,13 @@ export function vermeldeGebruikers(tekst, users) {
   return [...gevonden.values()];
 }
 
-export async function takenVoorVermeldingen(env, { tekst, users, item, edition, series, userId, auteur }) {
+export async function takenVoorVermeldingen(env, { tekst, users, item, edition, series, userId, auteur, commentId = '' }) {
   const wie = vermeldeGebruikers(tekst, users).filter((u) => u.id !== userId);
   await Promise.all(wie.map((u) => maakTaak(env, {
     assigneeId: u.id, item, edition, series, userId,
     titel: `Nieuwsbrief: opmerking bij "${blokNaam(item)}"`,
-    tekst: `${auteur || 'Een collega'} schreef: ${tekst}`,
+    tekst: `${auteur || 'Een collega'} schreef: ${tekst}\n\nDeze taak vinkt zichzelf af zodra de opmerking als opgelost afgevinkt is.`,
+    merk: commentId ? `opm:${commentId}` : '',
   })));
   return wie.map((u) => u.id);
 }
