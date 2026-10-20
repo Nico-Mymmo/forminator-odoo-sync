@@ -161,6 +161,8 @@ export function normaliseerInhoud(kind, c = {}) {
   if (bg) uit.achtergrond = bg;
   // Een vast blok kan uit staan (bewaard, niet verstuurd): zie staatUit().
   if (c?.uit === true && Object.prototype.hasOwnProperty.call(VASTE_PLEK, kind)) uit.uit = true;
+  // Een eigen titel voor de regel in de inhoudstafel (tocTitel() in render.js).
+  if (typeof c?.toc_titel === 'string' && c.toc_titel.trim()) uit.toc_titel = kort(c.toc_titel, 160);
   // In of uit de inhoudstafel, als marketing dat uitdrukkelijk koos (anders de standaard per soort, inToc()).
   if (c?.in_toc === false || c?.in_toc === true) uit.in_toc = c.in_toc;
   return uit;
@@ -1003,6 +1005,7 @@ export const routes = {
         if (metOpmaak.kleur === undefined && item.content?.kleur) metOpmaak.kleur = item.content.kleur;
         if (metOpmaak.in_toc === undefined && typeof item.content?.in_toc === 'boolean') metOpmaak.in_toc = item.content.in_toc;
         if (metOpmaak.uit === undefined && item.content?.uit) metOpmaak.uit = true;
+        if (metOpmaak.toc_titel === undefined && item.content?.toc_titel) metOpmaak.toc_titel = item.content.toc_titel;
         w.content = normaliseerInhoud(kind, metOpmaak);
         // De achtergrond zet de hoofdredactie in de opmaakstand; een schrijver
         // die zijn tekst bewaart, wist ze niet.
@@ -1080,6 +1083,19 @@ export const routes = {
       const kleur = merkkleur((await leesBody(request)).kleur);
       const content = { ...(item.content || {}) };
       if (kleur) content.achtergrond = kleur; else delete content.achtergrond;
+      return json({ success: true, data: await updateContribution(env, item.id, { content }) });
+    } catch (err) { return fout(err); }
+  },
+
+  /** Een eigen titel voor de regel in de inhoudstafel; leeg (of gelijk aan het origineel) = terug naar het origineel. */
+  'POST /api/contributions/:id/toc-titel': async ({ env, user, params, request }) => {
+    try {
+      const { item, edition, series } = await stukjeMetContext(env, params.id);
+      eisEditor(user, series);
+      if (edition && !isActiveEdition(edition)) throw new NewsletterError('Deze editie is al verstuurd.', 409);
+      const titel = kort((await leesBody(request)).titel, 160).replace(/\s+/g, ' ');
+      const content = { ...(item.content || {}) };
+      if (titel && titel !== kopVan(item)) content.toc_titel = titel; else delete content.toc_titel;
       return json({ success: true, data: await updateContribution(env, item.id, { content }) });
     } catch (err) { return fout(err); }
   },

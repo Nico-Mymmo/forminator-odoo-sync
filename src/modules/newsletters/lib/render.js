@@ -414,8 +414,8 @@ function eventsVoor(item, ctx) {
  * afbeelding en de afsluiting.
  */
 export function inToc(item) {
-  // De inhoudstafel en het woordje vooraf nooit, ook niet als iemand het aanvinkte.
-  if (item?.kind === 'toc' || item?.kind === 'intro') return false;
+  // De inhoudstafel, het woordje vooraf en de afsluiting nooit, ook niet als iemand het aanvinkte.
+  if (item?.kind === 'toc' || item?.kind === 'intro' || item?.kind === 'closing') return false;
   const v = item?.content?.in_toc;
   if (v === true) return true;
   if (v === false) return false;
@@ -426,6 +426,11 @@ export function inToc(item) {
 export function kopVan(item) {
   const c = item?.content || {};
   return String(c.title || c.question || (item?.kind === 'news' ? c.heading : '') || item?.title || '').trim();
+}
+
+/** De regel in de inhoudstafel: een eigen titel (`content.toc_titel`) wint van de kop van het blok. */
+export function tocTitel(item) {
+  return String(item?.content?.toc_titel || '').trim() || kopVan(item);
 }
 
 // ─── Antwoordlinks ──────────────────────────────────────────────────────────
@@ -867,7 +872,7 @@ function tocWerkstand(item, ctx, id) {
     const kleur = x.erin ? S.headingSoft : '#9ca3af';
     const schakel = `<span data-nb-knop="toclijn:${esc(x.id)}" data-nb-toc-schakel="1" class="nb-schakel${x.erin ? ' nb-op' : ''}" title="${x.erin ? 'Staat in de inhoudstafel: klik om het eruit te halen' : 'Staat er niet in: klik om het erin te zetten'}"><i></i></span>`;
     return `<tr><td width="34" valign="baseline" style="padding:12px 0;${lijn}font-family:${S.fontHead};font-size:22px;color:${x.erin ? S.primary : '#cbd5e1'}">${x.erin ? ++nr : '&ndash;'}</td>
-<td valign="baseline" style="padding:12px 0;${lijn}font-family:${S.fontBody};font-size:16px;font-weight:600;color:${kleur};${x.erin ? '' : 'text-decoration:line-through;'}">${esc(x.t)}</td>
+<td valign="baseline" style="padding:12px 0;${lijn}font-family:${S.fontBody};font-size:16px;font-weight:600;color:${kleur};${x.erin ? '' : 'text-decoration:line-through;'}"><span data-nb-toc-titel="${esc(x.id)}" data-origineel="${esc(x.origineel)}" title="Klik om de titel in de inhoudstafel aan te passen">${esc(x.t)}</span>${x.aangepast ? ` <span data-nb-knop="toctitel-terug:${esc(x.id)}" data-nb-toc-schakel="1" class="nb-toc-eigen" title="Eigen titel. Origineel: ${esc(x.origineel)}. Klik om terug te zetten.">&#9998; &#8634;</span>` : ''}</td>
 <td width="44" align="right" valign="middle" style="padding:12px 0;${lijn}">${schakel}</td></tr>`;
   }).join('');
   return rij(`${label(item.title || 'In deze editie', S.primary)}
@@ -1184,7 +1189,7 @@ export function renderEdition({ series, edition, items, mode = 'preview', ctx = 
   // Inhoudstafel en afsluiting kijken naar wat ECHT meegaat. Welke blokken
   // erin staan, beslist marketing per blok (inToc): een vlakke, doorlopend
   // genummerde lijst in de volgorde van de brief.
-  const toc = mee.filter(inToc).map(kopVan).filter(Boolean);
+  const toc = mee.filter(inToc).map(tocTitel).filter(Boolean);
   const authors = [];
   const gezien = new Set();
   // Enkel wie in DEZE versie echt iets bijdroeg: een stukje dat wegvalt, telt niet mee.
@@ -1195,8 +1200,12 @@ export function renderEdition({ series, edition, items, mode = 'preview', ctx = 
   // In het voorbeeld toont de inhoudstafel ELK blok dat erin kan, met per lijn
   // een schakelaar erin/eruit: dat regel je in de inhoudstafel zelf, niet per blok.
   const tocAlle = mode === 'preview'
-    ? mee.filter((it) => it.kind !== 'toc' && it.kind !== 'intro')
-      .map((it) => ({ id: it.id, t: kopVan(it) || KINDS[it.kind]?.label || 'Blok', erin: inToc(it) }))
+    ? mee.filter((it) => !['toc', 'intro', 'closing'].includes(it.kind))
+      .map((it) => {
+        const origineel = kopVan(it) || KINDS[it.kind]?.label || 'Blok';
+        const eigen = String(it.content?.toc_titel || '').trim();
+        return { id: it.id, t: eigen || origineel, origineel, aangepast: Boolean(eigen), erin: inToc(it) };
+      })
     : null;
   const blokCtx = { ...ctx, toc, tocAlle, authors };
 
