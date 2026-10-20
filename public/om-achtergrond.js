@@ -708,6 +708,12 @@
       if (waarde.voorgrond) {
         k.voorgrond = Object.assign(k.voorgrond, waarde.voorgrond);
         k.voorgrond.snij = Object.assign({ boven: 0, onder: 0, links: 0, rechts: 0 }, waarde.voorgrond.snij || {});
+        // De eerste versie kende "lege ruimte erbij" (een negatieve snede):
+        // die duwde het beeld weg van zijn anker. Nu is een snede altijd >= 0.
+        ['boven', 'onder', 'links', 'rechts'].forEach(function (z) { k.voorgrond.snij[z] = klem(Number(k.voorgrond.snij[z]) || 0, 0, 0.97); });
+        if (k.voorgrond.snij.links + k.voorgrond.snij.rechts > 0.97) { k.voorgrond.snij.links = 0; k.voorgrond.snij.rechts = 0; }
+        if (k.voorgrond.snij.boven + k.voorgrond.snij.onder > 0.97) { k.voorgrond.snij.boven = 0; k.voorgrond.snij.onder = 0; }
+        k.voorgrond.schaal = klem(Number(k.voorgrond.schaal) || 0.8, 0.1, 1);
       } else if (waarde.beeld) {
         var b = waarde.beeld;
         k.voorgrond.anker = ankerVan(b.x == null ? 0.5 : b.x, b.y == null ? 0.5 : b.y);

@@ -4080,6 +4080,11 @@ swirls en kijkt de keuzes na. Geen tweede bouwer per module.**
 - **De vormen staan als knoppen BOVEN het voorbeeld** (`tekenVormen()`): een
   klik toont meteen hoe de opmaak in die vorm uitkomt. De gekozen vorm is die
   van de bewaarde PNG.
+- **Ook het voorbeeld van een feature heeft die knoppen** ("Bekijk in",
+  `tekenKaartVormen()` in productfeatures.js): een opgemaakt beeld wordt in
+  de browser in die vorm getekend met `OMAchtergrond.maakPng()`. Enkel om te
+  bekijken; er wordt niets opgeladen of bewaard. `GET /api/achtergrond` is
+  daarom ook open voor wie enkel leest.
 - **Bewaarde vorm versie 2** (`normaliseerAchtergrond()`): `voorgrond` in
   plaats van `beeld: {schaal, x, y}`. Versie 1 wordt bij het lezen omgezet
   (het dichtste anker); de bestaande PNG blijft tot iemand opnieuw bewaart.
