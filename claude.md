@@ -3989,6 +3989,7 @@ bibliotheek later aanpassen, verandert een mail niet.**
 | Routes (JSON): bootstrap, features, order, upload | `routes.js` |
 | Scherm: boom links, formulier rechts | `public/productfeatures.html` + `.js` |
 | Migratie (tabel, voorvulling uit openvme.be, module, rechten) | `supabase/migrations/20261016120200_product_features.sql` |
+| Logboek: wie paste wat aan (per feature, onder de kaart) | `lib/changelog.js`, tabel `product_feature_changes` in D1 om-core (`0009_product_feature_changes.sql`), `GET /api/features/:id/wijzigingen` |
 
 - **Boom**: `parent_id`, van globaal (Algemene vergadering, Financieel beheer,
   Communicatie, Documentenbeheer, Eigenaarsportaal, Technisch beheer,
@@ -4004,6 +4005,12 @@ bibliotheek later aanpassen, verandert een mail niet.**
   in OpenVME Pro (migratie `20261020150000_product_features_pro.sql`, D1
   `0008`). Een feature kan beide hebben. In de lijst twee labeltjes (pakket en
   een blauw "Pro") en een filter. 'pro' als pakket bestaat niet meer.
+- **Logboek** (2026-10-20): aanmaken, bewaren (enkel de velden die echt
+  veranderden), van plaats verschuiven en weghalen schrijven een regel met
+  wie, wanneer en `{label, van, naar}` in LEESBARE vorm (labels, namen, geen
+  sleutels). Geen foreign key: een weggehaalde feature houdt haar regels.
+  Schrijven faalt nooit naar buiten. Een nieuw veld op de feature = ook een
+  regel in `VELDEN` (changelog.js), anders komt het niet in het logboek.
 - **Rechten**: lezen = wie de module heeft; bewerken = admin of
   `marketing_signature` (`magBewerken`). De migratie geeft de module aan die
   twee rollen.
