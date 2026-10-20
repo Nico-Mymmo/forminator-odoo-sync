@@ -3999,6 +3999,11 @@ bibliotheek later aanpassen, verandert een mail niet.**
   (waarom we dit gemaakt hebben), image_url, usps (max 6, één per regel),
   url, category (technisch | communicatie | financieel | wettelijk), benefits
   (VOORDELEN), audiences (DOELGROEPEN), plan (PAKKETTEN), brand, is_active.
+- **Voor VME's en OpenVME Pro staan LOS van elkaar** (2026-10-20): `plan` =
+  vanaf welk pakket voor gewone VME's ('geen' = niet voor VME's), `pro` = ook
+  in OpenVME Pro (migratie `20261020150000_product_features_pro.sql`, D1
+  `0008`). Een feature kan beide hebben. In de lijst twee labeltjes (pakket en
+  een blauw "Pro") en een filter. 'pro' als pakket bestaat niet meer.
 - **Rechten**: lezen = wie de module heeft; bewerken = admin of
   `marketing_signature` (`magBewerken`). De migratie geeft de module aan die
   twee rollen.

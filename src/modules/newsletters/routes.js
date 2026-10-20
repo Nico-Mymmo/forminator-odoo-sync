@@ -746,7 +746,7 @@ export const routes = {
         success: true,
         data: featureBoom(lijst).map((f) => ({
           id: f.id, parent_id: f.parent_id, diepte: f.diepte, pad: f.pad, name: f.name, eyebrow: f.eyebrow, summary: f.summary, why: f.why,
-          usps: f.usps || [], url: f.url, image_url: f.image_url, category: f.category, plan: f.plan, benefits: f.benefits || [], audiences: f.audiences || [],
+          usps: f.usps || [], url: f.url, image_url: f.image_url, category: f.category, plan: f.plan, pro: Boolean(f.pro), benefits: f.benefits || [], audiences: f.audiences || [],
         })),
       });
     } catch (err) { return fout(err); }

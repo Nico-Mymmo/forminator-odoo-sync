@@ -42,14 +42,19 @@ export const DOELGROEPEN = [
   { key: 'boekhouder', label: 'Boekhouder' },
 ];
 
-/** Vanaf welk pakket (zoals op openvme.be/prijzen). Leeg = overal. */
+/**
+ * Voor gewone VME's: vanaf welk pakket (zoals op openvme.be/prijzen). Leeg =
+ * overal, 'geen' = niet voor VME's. OpenVME Pro staat hier NIET in: dat is
+ * een aparte schakelaar (`pro` op de feature), want een feature kan voor
+ * beide gelden (Nico, 2026-10-20).
+ */
 export const PAKKETTEN = [
-  { key: '', label: 'In elk pakket' },
-  { key: 'gratis', label: 'Gratis' },
-  { key: 'basic', label: 'Basic' },
-  { key: 'smart', label: 'Smart' },
-  { key: 'unlimited', label: 'Unlimited' },
-  { key: 'pro', label: 'OpenVME Pro' },
+  { key: '', label: 'In elk pakket', kort: 'Elk pakket' },
+  { key: 'gratis', label: 'Gratis', kort: 'Gratis' },
+  { key: 'basic', label: 'Vanaf Basic', kort: 'Basic' },
+  { key: 'smart', label: 'Vanaf Smart', kort: 'Smart' },
+  { key: 'unlimited', label: 'Unlimited', kort: 'Unlimited' },
+  { key: 'geen', label: 'Niet voor VME\'s', kort: '' },
 ];
 
 /** De merken waarvoor een feature kan bestaan. */

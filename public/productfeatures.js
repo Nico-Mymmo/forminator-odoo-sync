@@ -101,8 +101,21 @@
 
   // ── De boom ───────────────────────────────────────────────────────────────
 
+  function voorVme(f) { return f.plan !== 'geen' && f.plan !== 'pro'; }
+  function voorPro(f) { return f.pro === undefined || f.pro === null ? f.plan === 'pro' : Boolean(f.pro); }
+
+  /** Twee labeltjes: het pakket voor gewone VME's en (apart) OpenVME Pro. */
+  function pakketBadges(f) {
+    var p = (state.boot.pakketten || []).find(function (x) { return x.key === (f.plan || ''); });
+    return (voorVme(f) && p ? '<span class="badge badge-ghost badge-xs" title="Voor VME\'s: ' + e(p.label) + '">' + e(p.kort || p.label) + '</span>' : '')
+      + (voorPro(f) ? '<span class="badge badge-xs border-0 text-white" style="background:#0369a1" title="Ook in OpenVME Pro">Pro</span>' : '');
+  }
+
   function pastBijFilter(f) {
     if (state.categorie && f.category !== state.categorie) return false;
+    if (state.voor === 'vme' && !voorVme(f)) return false;
+    if (state.voor === 'pro' && !voorPro(f)) return false;
+    if (state.voor === 'enkel-pro' && (voorVme(f) || !voorPro(f))) return false;
     if (state.zoek) {
       var z = state.zoek.toLowerCase();
       return (f.name + ' ' + f.summary + ' ' + f.eyebrow + ' ' + (f.usps || []).join(' ')).toLowerCase().indexOf(z) >= 0;
@@ -129,7 +142,7 @@
         : '<span class="w-6 inline-block"></span>')
       + '<span class="pf-stip" style="background:' + (cat ? cat.kleur : '#9ca3af') + '" title="' + e(cat ? cat.label : 'Geen categorie') + '"></span>'
       + '<span class="flex-1 min-w-0 truncate' + (knoop.diepte === 0 ? ' font-semibold' : '') + '">' + e(knoop.name) + '</span>'
-      + (knoop.plan ? '<span class="badge badge-ghost badge-xs">' + e(label(state.boot.pakketten, knoop.plan)) + '</span>' : '')
+      + pakketBadges(knoop)
       + (!knoop.is_active ? '<span class="badge badge-ghost badge-xs">uit</span>' : '')
       + (kanBewerken() ? '<span class="pf-acties">'
         + '<button type="button" class="btn btn-ghost btn-xs btn-square" data-action="omhoog" data-id="' + e(knoop.id) + '" title="Omhoog"><i data-lucide="arrow-up" class="w-3.5 h-3.5"></i></button>'
@@ -250,9 +263,10 @@
       + (kanBewerken() ? '<button class="btn btn-sm btn-primary shrink-0" data-action="bewerk"><i data-lucide="pencil" class="w-4 h-4"></i> Bewerken</button>' : '')
       + '</div>'
       + '<div class="rounded-2xl bg-base-200/70 p-4 sm:p-6">' + kaartHtml(f) + '</div>'
-      + '<div class="grid sm:grid-cols-3 gap-4 pt-1">'
+      + '<div class="grid sm:grid-cols-4 gap-4 pt-1">'
       + feit('Categorie', cat ? '<span class="inline-flex items-center gap-1.5"><span class="pf-stip" style="background:' + cat.kleur + '"></span>' + e(cat.label) + '</span>' : '<span class="opacity-50">Geen categorie</span>')
-      + feit('Vanaf pakket', e(label(b.pakketten, f.plan || '')))
+      + feit('Voor VME\'s', voorVme(f) ? e(label(b.pakketten, f.plan || '')) : '<span class="opacity-50">Niet</span>')
+      + feit('OpenVME Pro', voorPro(f) ? 'Ja' : '<span class="opacity-50">Niet</span>')
       + feit('Merk', f.brand === 'syndicoach' ? 'Syndicoach' : 'OpenVME')
       + '</div>'
       + '<div class="grid sm:grid-cols-2 gap-4">'
@@ -350,9 +364,10 @@
       + ouderKeuze(f)
       + '<div class="grid sm:grid-cols-3 gap-3">'
       + keuze('Categorie', 'category', b.categorieen, f.category, { leeg: 'Geen categorie' })
-      + keuze('Vanaf pakket', 'plan', b.pakketten, f.plan)
+      + keuze('Voor VME\'s', 'plan', b.pakketten, f.plan === 'pro' ? 'geen' : f.plan)
       + keuze('Merk', 'brand', (b.merken || []).map(function (m) { return { key: m, label: m === 'openvme' ? 'OpenVME' : 'Syndicoach' }; }), f.brand || 'openvme')
       + '</div>'
+      + '<label class="label cursor-pointer justify-start gap-3 py-0"><input type="checkbox" class="checkbox checkbox-sm" data-change="veld" data-veld="pro"' + (voorPro(f) ? ' checked' : '') + (mag ? '' : ' disabled') + '><span class="label-text">Ook in <strong>OpenVME Pro</strong> (voor professionele syndici, los van het pakket hierboven)</span></label>'
       + veld('Korte uitleg: wat doet het', 'summary', f.summary, { rijen: 3, hint: 'Eén tot drie zinnen. Wat doet de feature, concreet.' })
       + veld('Waarom we dit gemaakt hebben', 'why', f.why, { rijen: 2, hint: 'Het probleem dat het oplost. Mag leeg.' })
       + veld('USP\'s: één per regel (max. ' + b.max_usps + ')', 'usps', (f.usps || []).join('\n'), { rijen: 5, hint: 'Korte, controleerbare punten. Cijfers mogen: "€5 per rekening per maand".' })
@@ -474,7 +489,7 @@
     state.concept = {
       id: null, parent_id: parentId, name: '', eyebrow: ouder ? ouder.name : '', summary: '', why: '', usps: [],
       benefits: [], audiences: ouder ? (ouder.audiences || []).slice() : [], category: ouder ? ouder.category : null,
-      plan: ouder ? ouder.plan : '', brand: ouder ? ouder.brand : 'openvme', url: '', image_url: '', is_active: true,
+      plan: ouder ? ouder.plan : '', pro: ouder ? Boolean(ouder.pro) : false, brand: ouder ? ouder.brand : 'openvme', url: '', image_url: '', is_active: true,
     };
     state.vuil = false;
     state.bewerken = true;
@@ -490,7 +505,7 @@
     if (!String(f.name || '').trim()) { toast('Geef de feature een titel.', 'warning'); return; }
     var body = {
       name: f.name, eyebrow: f.eyebrow, summary: f.summary, why: f.why, usps: f.usps, benefits: f.benefits, audiences: f.audiences,
-      category: f.category || '', plan: f.plan || '', brand: f.brand || 'openvme', url: f.url, image_url: f.image_url, is_active: f.is_active !== false,
+      category: f.category || '', plan: f.plan || '', pro: voorPro(f), brand: f.brand || 'openvme', url: f.url, image_url: f.image_url, is_active: f.is_active !== false,
       achtergrond: f.achtergrond || null,
       parent_id: f.parent_id || null,
     };
@@ -537,6 +552,7 @@
   var changes = {
     'zoek': function (el) { state.zoek = el.value.trim(); tekenBoom(); },
     'filter-categorie': function (el) { state.categorie = el.value; tekenBoom(); },
+    'filter-voor': function (el) { state.voor = el.value; tekenBoom(); },
     'veld': function (el) {
       if (!state.concept) return;
       var naam = el.dataset.veld;

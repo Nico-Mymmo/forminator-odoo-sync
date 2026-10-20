@@ -52,6 +52,12 @@
           <div class="flex items-center gap-2">
             <input id="pfZoek" type="search" class="input input-bordered input-sm flex-1" placeholder="Zoek een feature…" data-change="zoek">
             <select id="pfCategorie" class="select select-bordered select-sm" data-change="filter-categorie"></select>
+            <select id="pfVoor" class="select select-bordered select-sm" data-change="filter-voor" title="Voor wie de feature geldt">
+              <option value="">VME's en Pro</option>
+              <option value="vme">Voor VME's</option>
+              <option value="pro">Voor OpenVME Pro</option>
+              <option value="enkel-pro">Enkel OpenVME Pro</option>
+            </select>
           </div>
           <div id="pfBoom" class="text-sm"></div>
         </div>
