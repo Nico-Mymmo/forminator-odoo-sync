@@ -401,7 +401,7 @@
     + '.nb-gekozen>td>*{opacity:1!important;filter:none!important}'
     // Lezer: blokken zijn aanklikbaar om te reageren, met een labeltje bij het aanwijzen.
     + '[data-nb-lees]{cursor:pointer}[data-nb-lees]>td{position:relative}[data-nb-lees]>td>*{transition:opacity .2s}'
-    + 'body.nb-focus [data-nb-lees]:not(.nb-gekozen)>td>*:not(.nb-opm){opacity:.3}'
+    + '[data-nb-lees].nb-gekozen>td::after,[data-nb-lees].nb-gekozen:hover>td::after{content:"\\1F4AC  Je reageert op dit blok";background:#0284c7;color:#fff;border-color:#0284c7}'
     + '[data-nb-lees]:hover>td::after{content:"\\1F4AC  Opmerking plaatsen";position:absolute;top:8px;right:10px;font:600 11px/1 system-ui,-apple-system,"Segoe UI",sans-serif;padding:6px 10px;border-radius:999px;background:#fff;color:#0369a1;border:1px solid #bae6fd;box-shadow:0 1px 3px rgba(0,0,0,.08);pointer-events:none}'
     + '.nb-opm{position:absolute;top:8px;left:10px;z-index:3;font:600 11px/1 system-ui,-apple-system,"Segoe UI",sans-serif;padding:6px 9px;border-radius:999px;background:#fff;color:#334155;border:1px solid #e2e8f0;box-shadow:0 1px 3px rgba(0,0,0,.08);cursor:pointer}'
     + '.nb-opm:hover{border-color:#0284c7;color:#0369a1}'
@@ -1589,7 +1589,8 @@
     if (!doc || !doc.body) return;
     doc.querySelectorAll('.nb-opm').forEach(function (x) { if (lezer()) x.remove(); });
     if (!lezer()) return;
-    doc.body.classList.toggle('nb-focus', !!NB.state.leesId);
+    // Lezer: nooit iets grijs, ook niet tijdens het reageren; het gekozen blok krijgt enkel een labeltje.
+    doc.body.classList.remove('nb-focus');
     doc.querySelectorAll('[data-nb-lees]').forEach(function (rij) {
       var id = rij.getAttribute('data-nb-lees');
       rij.classList.toggle('nb-gekozen', id === NB.state.leesId);
