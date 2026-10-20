@@ -3862,11 +3862,19 @@ tabs-boxed: het is een modus, geen tabblad, en het mag niet opvallen).
   grijs, ook niet tijdens het reageren: het gekozen blok krijgt enkel een
   blauw labeltje "Je reageert op dit blok".
   Links werken in Lezer zoals in de mail: in een nieuw tabblad (http, mailto, tel).
-- **Wie ziet opmerkingen**: de hoofdredactie en wie het blok schrijft;
-  een andere collega ziet enkel zijn eigen opmerkingen
-  (`zichtbareOpmerkingen()` in routes.js, op beide GET-routes). Een bolletje
-  "💬 n" op een blok (`opmTeller()`) enkel voor wie ze mag zien; klikken =
-  naar Lezer met dat blok open.
+- **Opmerkingen zijn zichtbaar voor IEDEREEN met de module** (2026-10-20) en
+  kunnen afgevinkt worden als ze opgelost zijn (`resolved_at`/`resolved_by`,
+  migratie `20261020120000_newsletter_comments_opgelost.sql`, route
+  `POST /api/comments/:id/opgelost`). Het bolletje "💬 n" telt enkel wat
+  nog open is; opgelost staat ingeklapt onderaan, doorstreept.
+- **Toewijzen en @vermelden worden een TAAK in Projecten** (`lib/taken.js`):
+  een losse to-do in "Mijn taken" met label Nieuwsbrief, de inleverdatum van
+  de editie als vervaldatum (voorbij = de verzenddag) en een link naar het
+  blok. Bij een nieuw blok met een andere eigenaar, bij een andere eigenaar
+  via PUT, bij het aanmaken van een editie (rubrieken met een eigenaar), en
+  per collega die in een opmerking met "@Volledige Naam" (of een unieke
+  "@Voornaam") vermeld wordt. Nooit voor jezelf, en nooit fataal. Typ "@" in
+  het opmerkingenveld voor een keuzelijst.
 - De modus is UI: de server beperkt schrijven zoals altijd (`magSchrijven`).
   Standaard: Layouter voor de hoofdredactie, Schrijver voor de anderen.
 

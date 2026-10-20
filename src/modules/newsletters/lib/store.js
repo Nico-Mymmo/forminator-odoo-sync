@@ -228,13 +228,31 @@ export async function listComments(env, contributionId) {
   return data || [];
 }
 
+/** Het aantal OPEN opmerkingen per stukje (wat afgevinkt is, telt niet). */
 export async function countComments(env, contributionIds) {
   if (!contributionIds.length) return {};
-  const { data, error } = await db(env).from(TABLES.comments).select('contribution_id').in('contribution_id', contributionIds);
+  let { data, error } = await db(env).from(TABLES.comments).select('contribution_id, resolved_at').in('contribution_id', contributionIds);
+  // Zonder de migratie van 2026-10-20 (resolved_at) gewoon alles tellen.
+  if (error) ({ data, error } = await db(env).from(TABLES.comments).select('contribution_id').in('contribution_id', contributionIds));
   check(error, 'Opmerkingen tellen');
   const uit = {};
-  for (const r of data || []) uit[r.contribution_id] = (uit[r.contribution_id] || 0) + 1;
+  for (const r of data || []) if (!r.resolved_at) uit[r.contribution_id] = (uit[r.contribution_id] || 0) + 1;
   return uit;
+}
+
+export async function getComment(env, id) {
+  const { data, error } = await db(env).from(TABLES.comments).select('*').eq('id', id).maybeSingle();
+  check(error, 'Opmerking lezen');
+  return data;
+}
+
+/** Afvinken (opgelost) of terug openzetten. */
+export async function resolveComment(env, id, userId, opgelost) {
+  const { data, error } = await db(env).from(TABLES.comments)
+    .update(opgelost ? { resolved_at: new Date().toISOString(), resolved_by: userId } : { resolved_at: null, resolved_by: null })
+    .eq('id', id).select('*').single();
+  check(error, 'Opmerking afvinken');
+  return data;
 }
 
 export async function addComment(env, contributionId, userId, body) {
