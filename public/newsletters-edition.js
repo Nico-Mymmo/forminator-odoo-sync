@@ -665,7 +665,8 @@
       if (!it) return;
       var l = labelVan(it);
       // Schrijver: enkel je eigen blokken zijn actief, de rest staat grijs.
-      if (schrijver() && it.owner_user_id !== ik()) rij.classList.add('nb-ander');
+      // De hoofdredactie mag elk blok schrijven (om voor te bereiden): niets grijs.
+      if (schrijver() && !editor() && it.owner_user_id !== ik()) rij.classList.add('nb-ander');
       if (id === NB.state.paneelId) rij.classList.add('nb-gekozen');
       rij.title = NB.isAuto(it.kind) ? 'Vult zichzelf' : '';
       var cel = rij.firstElementChild;
@@ -787,8 +788,8 @@
     if (!rij) return;
     var soort = NB.state.concept.kind;
     var isVraag = VRAAG_KINDS.indexOf(soort) >= 0;
-    // Schrijver: je eigen blokken. Layouter: geen tekst, wel een Titel-blok (structuur).
-    var mag = s.can_edit && (schrijver() ? s.item.owner_user_id === ik() : soort === 'heading');
+    // Schrijver: je eigen blokken (de hoofdredactie: elk blok). Layouter: geen tekst, wel een Titel-blok (structuur).
+    var mag = s.can_edit && (schrijver() ? (editor() || s.item.owner_user_id === ik()) : soort === 'heading');
     var cel = rij.firstElementChild;
 
     if (mag) {
@@ -833,7 +834,7 @@
     // De werkbalk: wat je snel doet met dit blok.
     var knoppen = [];
     // Layouter op een eigen blok: een snelle weg naar het schrijven.
-    if (layout() && s.can_edit && s.item.owner_user_id === ik() && soort !== 'heading' && !NB.isAuto(soort)) knoppen.push('<button type="button" data-nb-knop="schrijf" title="Naar de modus Schrijver om dit blok in te vullen">✎ Schrijven</button>');
+    if (layout() && s.can_edit && soort !== 'heading' && !NB.isAuto(soort) && !(isVast(soort) && (NB.state.concept.content || {}).uit)) knoppen.push('<button type="button" data-nb-knop="schrijf" title="Naar de modus Schrijver om dit blok in te vullen">✎ Schrijven</button>');
     if (layout() && !isVast(soort)) knoppen.push('<span class="nb-greep" data-nb-greep="' + e(s.item.id) + '" title="Sleep om te verplaatsen">⠿</span>');
     if (mag && NB.kanAI(soort)) knoppen.push('<button type="button" data-nb-knop="ai">✨ Schrijf met AI</button>');
     if (mag && soort === 'heading') {
@@ -1144,7 +1145,7 @@
     if (NB.state.paneelId === id && NB.state.stukje && !vooraf) return;
     if (lezer()) { kiesLees(id); return; }
     var gekozen = itemVan(id);
-    if (schrijver() && gekozen && gekozen.owner_user_id !== ik()) {
+    if (schrijver() && !editor() && gekozen && gekozen.owner_user_id !== ik()) {
       NB.toast(gekozen.owner_user_id ? 'Dit blok schrijft ' + (NB.voornaam(gekozen.owner_name) || 'een collega') + '. Kies "Lezer" om een opmerking te plaatsen.' : 'Dit blok is nog aan niemand toegewezen.', 'info');
       return;
     }
