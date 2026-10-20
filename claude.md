@@ -6215,9 +6215,23 @@ Afspraken die bewust zo zijn:
 - **Meerdere patronen per case** (`controle_case_patterns`, `pos` = volgorde).
   Het technische patroon 'andere' uit de oude opslag bestaat hier niet: een case
   zonder koppelingen is een case zonder patroon (filter "Nog geen patroon").
-- **Gelijktijdig werken:** elke schrijfactie verhoogt `versie`. Het scherm stuurt
-  de versie mee die het kent; klopt die niet, dan 409 met de huidige rij, en het
-  scherm toont die. Het scherm kijkt elke halve minuut naar
+- **Gelijktijdig werken: WAT IEMAND TYPT, GAAT NOOIT VERLOREN** (2026-10-20).
+  Tot dan gaf een verouderde `versie` een 409 en gooide het scherm de getypte
+  tekst weg: met meerderen tegelijk in de controle verdween zo onderzoek dat
+  nooit bij de server aankwam. Nu:
+  - de server weigert NOOIT meer omdat iemand je voor was. Elke tekst gaat mee
+    met `basis` (de waarde waarop het typen begon); klopt die nog, dan wint de
+    nieuwe tekst, schreef iemand anders in HETZELFDE veld, dan komen beide
+    erin (`voegTekstSamen()` in store.js; het antwoord zegt `samengevoegd` en
+    het scherm meldt het). Vinkjes, soort en patronen: laatste schrijver per
+    veld. Twee schrijvers op hetzelfde moment: opnieuw lezen en proberen.
+  - het scherm gooit bij een fout NIETS weg, laat de tekst staan en probeert
+    opnieuw (5 s), en houdt elke getypte tekst als reservekopie in localStorage
+    (`oc-onbewaard`) tot de server ze heeft; bij het laden wordt wat er nog
+    staat alsnog bewaard (`herstelBackups()`).
+  - een veld zonder openstaande wijziging toont altijd de bewaarde tekst, ook
+    als je erin staat: anders typ je verder op een oude versie.
+  Zet de 409 nooit terug. Het scherm kijkt elke halve minuut naar
   `GET /api/changes?since=` (`rij_bijgewerkt`), ook voor verwijderde patronen
   (`pattern_ids`).
 - **Historiek:** elke veldwijziging in `controle_history`, met `bron`
