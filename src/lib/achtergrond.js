@@ -21,7 +21,7 @@
  * Bewaarde vorm (normaliseerAchtergrond), versie 2:
  *   { v: 2, verhouding: '16:9', kleur: '#f0f9ff' | '',
  *     swirl: { naam, kleur, schaal, x, y, draai, dekking } | null,
- *     voorgrond: { anker, schaal, marge, snij: { boven, onder, links, rechts } },
+ *     voorgrond: { modus: 'passen'|'vullen', anker, schaal, marge, snij: { boven, onder, links, rechts } },
  *     bron: <adres van de voorgrond>, url: <adres van de PNG in `verhouding`>,
  *     varianten: { '16:9': <adres>, '1:1': <adres>, ... } }
  * Een opgemaakt beeld bestaat in ELKE vorm (`varianten`, bij het bewaren
@@ -131,6 +131,9 @@ function normaliseerVoorgrond(v) {
       anker: ANKER_SET.has(g.anker) ? g.anker : 'midden',
       schaal: getal(g.schaal, 0.1, 1, 0.8),
       marge: getal(g.marge, 0, 0.3, 0.06),
+      // passen = de uitsnede staat volledig in beeld; vullen = ze bedekt het
+      // hele vak en valt weg aan de kant van het anker.
+      modus: g.modus === 'vullen' ? 'vullen' : 'passen',
       snij: normaliseerSnij(g.snij),
     };
   }
@@ -140,6 +143,7 @@ function normaliseerVoorgrond(v) {
     anker: ankerVan(getal(b.x, -0.5, 1.5, 0.5), getal(b.y, -0.5, 1.5, 0.5)),
     schaal: getal(b.schaal, 0.1, 1, 0.75),
     marge: 0.06,
+    modus: 'passen',
     snij: normaliseerSnij(null),
   };
 }

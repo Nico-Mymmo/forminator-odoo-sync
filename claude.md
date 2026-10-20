@@ -4080,6 +4080,13 @@ swirls en kijkt de keuzes na. Geen tweede bouwer per module.**
 - **De vormen staan als knoppen BOVEN het voorbeeld** (`tekenVormen()`): een
   klik toont meteen hoe de opmaak in die vorm uitkomt. De gekozen vorm is die
   van de bewaarde PNG.
+- **Passen of Vullen** (`voorgrond.modus`, 2026-10-20). Passen = de uitsnede
+  staat volledig in beeld (grootte en marge tellen). Vullen = ze bedekt het
+  hele vak (grootte en marge tellen niet) en wat te veel is, valt weg AAN DE
+  KANT VAN HET ANKER: linksboven = het beeld valt links en boven over de
+  rand, rechtsonder blijft tegen de rand. Bewust zo gevraagd (Nico), dus
+  het omgekeerde van CSS `object-position`. In Vullen versleep je het beeld
+  niet.
 - **Een opgemaakt beeld bestaat in ELKE vorm** (2026-10-20): Bewaren maakt
   het in alle `VERHOUDINGEN` (ook Hero, 3:1) op 1200 px en laadt ze op
   (`achtergrond.varianten`). Wie het beeld gebruikt, kiest de vorm die bij
