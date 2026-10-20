@@ -22,7 +22,7 @@
 import { esc, safeUrl } from '../../../lib/mail/render-blocks.js';
 import {
   STYLE as S, BRAND, KINDS, CONTRIBUTION_STATUS, BEELD_KADERS, TEKENING_MATEN, TITEL_NIVEAUS, merkkleur, isDonker,
-  VRAAG_STIJLEN, VRAAG_STANDAARD, vraagThema, staatUit,
+  VRAAG_STIJLEN, VRAAG_STANDAARD, vraagThema, staatUit, FEATURE_VORMEN,
 } from './constants.js';
 
 /** Hoe breed een beeld op zijn plek staat: een tekening naar haar grootte, een foto naar het kader. */
@@ -953,7 +953,13 @@ function blokPlaatshouder(item, id) {
 function blokFeature(item, ctx, id) {
   const c = item.content || {};
   const label_ = String(c.eyebrow || '').trim() || item.title;
-  const b = beeldVan(c, { plaats: 'tekst' });
+  // Een opgemaakt beeld bestaat in elke vorm: neem die van deze vorm van het
+  // blok. Een beeld dat iemand in de brief zelf koos, wint.
+  const vormBeeld = FEATURE_VORMEN.find((x) => x.key === (c.vorm || 'kaart'))?.beeld;
+  const variant = vormBeeld ? safeUrl((c.beeld_varianten || {})[vormBeeld]) : '';
+  const b = (c.beeld && (c.beeld.url || c.beeld.thingie)) || !variant
+    ? beeldVan(c, { plaats: 'tekst' })
+    : { url: variant, plaats: 'tekst', vulling: 'heel' };
   const usps = c.toon_usps !== false ? (c.usps || []).filter(Boolean) : [];
   const why = c.toon_why !== false ? String(c.why || '').trim() : '';
   const vink = (kleur) => `<td width="22" valign="top" style="padding:0 8px 0 0;font-family:${S.fontBody};font-size:15px;line-height:1.55;color:${kleur}">&#10003;</td>`;
@@ -999,6 +1005,14 @@ ${typbaar(id, 'summary', c.summary, { plaatshouder: 'Eén zin', optioneel: true,
 <td class="nb-kol nb-kol-na" valign="top">${tekst}</td></tr></table>`
         : tekst;
       return rij(inhoud, { padding: '40px 40px 4px', id });
+    }
+    case 'hero': {
+      // Een breed beeld (3:1) over de volle breedte van de tekstkolom.
+      const foto = beeldTag(b, ctx, 560, { radius: 14, href: c.url, alt: c.title || '' });
+      const boven = foto
+        ? `<div${id ? ' data-nb-beeld="1"' : ''} style="margin:0 0 20px">${foto}</div>`
+        : id ? `<div data-nb-beeld="1" style="margin:0 0 20px;padding:28px;text-align:center;border:1px dashed ${S.border};border-radius:14px;font-family:${S.fontBody};font-size:13px;color:${S.muted}">Klik hier voor een beeld bij de feature</div>` : '';
+      return rij(`${boven}${pil(label_, S.sky100, S.primary)}${titel}${samenvatting}${lijst()}${waarom}${link}`, { padding: '44px 40px 4px', id });
     }
     case 'lijst':
       return rij(`${pil(label_, S.sky100, S.primary)}${titel}${lijst()}${link}`, { padding: '40px 40px 4px', id });

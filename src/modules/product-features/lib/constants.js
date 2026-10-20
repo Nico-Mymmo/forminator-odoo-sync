@@ -63,12 +63,15 @@ export const MERKEN = ['openvme', 'syndicoach'];
  * Hoe een feature in een mail kan staan (de "layouts"). De renderer van de
  * nieuwsbrief kent precies deze sleutels (blokFeature in render.js).
  */
+// `beeld` = in welke vorm (src/lib/achtergrond.js VERHOUDINGEN) het opgemaakte
+// beeld op die plek komt. Een opgemaakt beeld bestaat in elke vorm.
 export const FEATURE_VORMEN = [
-  { key: 'kaart', label: 'Kaart', uitleg: 'Beeld bovenaan, label, titel, uitleg, USP\'s en een knop.' },
-  { key: 'naast', label: 'Beeld ernaast', uitleg: 'Tekst links, beeld rechts; de USP\'s als lijstje.' },
-  { key: 'uitgelicht', label: 'Uitgelicht', uitleg: 'Een gekleurd vlak met grote titel, "waarom" en een knop.' },
-  { key: 'compact', label: 'Compact', uitleg: 'Klein beeld naast label, titel en één zin.' },
-  { key: 'lijst', label: 'Lijstje', uitleg: 'Enkel titel en USP\'s, zonder beeld: voor een snelle opsomming.' },
+  { key: 'kaart', label: 'Kaart', uitleg: 'Beeld bovenaan, label, titel, uitleg, USP\'s en een knop.', beeld: '16:9' },
+  { key: 'hero', label: 'Hero', uitleg: 'Een breed beeld over de volle breedte bovenaan, dan titel, uitleg en USP\'s.', beeld: '3:1' },
+  { key: 'naast', label: 'Beeld ernaast', uitleg: 'Tekst links, beeld rechts; de USP\'s als lijstje.', beeld: '1:1' },
+  { key: 'uitgelicht', label: 'Uitgelicht', uitleg: 'Een gekleurd vlak met grote titel, "waarom" en een knop.', beeld: '16:9' },
+  { key: 'compact', label: 'Compact', uitleg: 'Klein beeld naast label, titel en één zin.', beeld: '1:1' },
+  { key: 'lijst', label: 'Lijstje', uitleg: 'Enkel titel en USP\'s, zonder beeld: voor een snelle opsomming.', beeld: null },
 ];
 
 export const MAX_USPS = 6;
