@@ -17,6 +17,7 @@ import {
   ASSET_CATEGORY_PREFIXES, isWithinAssetNamespace, canReadAssetPrefix, listDynamicAssetCategories,
 } from '../asset-manager/lib/namespace.js';
 import { bouwerGegevens } from '../../lib/achtergrond.js';
+import { inhoudVanSoort } from '../newsletters/lib/store.js';
 import { verschillen, logWijziging, listWijzigingen } from './lib/changelog.js';
 
 const MAX_BEELD = 3 * 1024 * 1024;
@@ -44,6 +45,56 @@ function houdAchtergrondBijBeeld(waarden, huidig = {}) {
   const ag = waarden.achtergrond !== undefined ? waarden.achtergrond : huidig.achtergrond;
   const beeld = waarden.image_url !== undefined ? waarden.image_url : huidig.image_url;
   if (ag && ag.url !== beeld) waarden.achtergrond = null;
+}
+
+// ── Opruimen ──────────────────────────────────────────────────────────────
+
+// Een adres op onze /assets/ in de map van deze module, waar het ook staat.
+const EIGEN_BEELD = /\/assets\/(public\/productfeatures\/[^"'\s?#)]+)/g;
+const GRATIE_MS = 24 * 3600 * 1000;
+
+function sleutelsIn(waarde) {
+  const uit = new Set();
+  for (const m of JSON.stringify(waarde ?? null).matchAll(EIGEN_BEELD)) {
+    try { uit.add(decodeURIComponent(m[1])); } catch { uit.add(m[1]); }
+  }
+  return uit;
+}
+const sleutelsVan = (f) => sleutelsIn([f?.image_url, f?.achtergrond]);
+
+/**
+ * Haalt beelden uit de map van deze module weg die NIEMAND nog gebruikt:
+ * geen feature (beeld, opmaak, voorgrond) en geen stukje in een nieuwsbrief
+ * (een mail die al vertrok, wijst ernaar). Enkel wat deze module zelf
+ * oplaadde (customMetadata.module); wat iemand met de hand in de map zette,
+ * blijft. `weg` = net vervangen door een bewaring: meteen weg. De rest pas
+ * na een dag: dan kan het geen beeld zijn waaraan iemand nog werkt zonder
+ * te bewaren. Faalt het lezen van wat in gebruik is, dan gaat er niets weg.
+ */
+async function ruimBeeldenOp(env, weg = new Set()) {
+  const inGebruik = new Set();
+  for (const f of await listFeatures(env)) for (const k of sleutelsVan(f)) inGebruik.add(k);
+  for (const c of await inhoudVanSoort(env, 'feature')) for (const k of sleutelsIn(c)) inGebruik.add(k);
+  const grens = Date.now() - GRATIE_MS;
+  const kandidaten = [];
+  let cursor;
+  do {
+    const lijst = await env.R2_ASSETS.list({ prefix: BEELDEN_MAP, cursor, limit: 1000, include: ['customMetadata'] });
+    for (const o of lijst.objects || []) {
+      if (o.customMetadata?.module !== 'product_features' || inGebruik.has(o.key)) continue;
+      if (weg.has(o.key) || new Date(o.uploaded).getTime() < grens) kandidaten.push(o.key);
+    }
+    cursor = lijst.truncated ? lijst.cursor : undefined;
+  } while (cursor);
+  for (let i = 0; i < kandidaten.length; i += 1000) await env.R2_ASSETS.delete(kandidaten.slice(i, i + 1000));
+  if (kandidaten.length) console.log(LOG_PREFIX, `${kandidaten.length} ongebruikte beelden opgeruimd`);
+  return kandidaten.length;
+}
+
+/** Na het antwoord opruimen: een bewaring wacht er niet op en faalt er nooit door. */
+function ruimOpNa(ctx, env, weg) {
+  const taak = ruimBeeldenOp(env, weg).catch((err) => console.error(LOG_PREFIX, 'opruimen mislukt:', err?.message));
+  if (ctx?.waitUntil) ctx.waitUntil(taak);
 }
 
 function fout(err) {
@@ -125,7 +176,7 @@ export const routes = {
     } catch (err) { return fout(err); }
   },
 
-  'PUT /api/features/:id': async ({ env, user, params, request }) => {
+  'PUT /api/features/:id': async ({ env, ctx, user, params, request }) => {
     try {
       eisBewerken(user);
       const f = await getFeature(env, params.id);
@@ -135,6 +186,8 @@ export const routes = {
       if (waarden.name === '') throw new FeatureError('De titel mag niet leeg zijn.');
       houdAchtergrondBijBeeld(waarden, f);
       const bij = await updateFeature(env, f.id, waarden, user.id);
+      const nogNodig = sleutelsVan(bij);
+      ruimOpNa(ctx, env, new Set([...sleutelsVan(f)].filter((k) => !nogNodig.has(k))));
       const namen = new Map((await listFeatures(env)).map((x) => [x.id, x.name]));
       const wat = verschillen(f, waarden, namen);
       if (wat.length) await logWijziging(env, { feature: bij, action: 'gewijzigd', changes: wat, user });
@@ -163,12 +216,13 @@ export const routes = {
     } catch (err) { return fout(err); }
   },
 
-  'DELETE /api/features/:id': async ({ env, user, params }) => {
+  'DELETE /api/features/:id': async ({ env, ctx, user, params }) => {
     try {
       eisBewerken(user);
       const f = await getFeature(env, params.id);
       if (!f) throw new FeatureError('Feature niet gevonden.', 404);
       await deleteFeature(env, f.id);
+      ruimOpNa(ctx, env, sleutelsVan(f));
       await logWijziging(env, { feature: f, action: 'weggehaald', user });
       return json({ success: true });
     } catch (err) { return fout(err); }
@@ -218,7 +272,10 @@ export const routes = {
   /**
    * Een beeld bij een feature: naar R2 (in de Asset Manager, map Publiek >
    * productfeatures), publiek via /assets/. De naam van de feature zit in de
-   * bestandsnaam, zodat je het daar terugvindt.
+   * bestandsnaam, zodat je het daar terugvindt; daarachter een hash van de
+   * BYTES, zodat hetzelfde beeld nooit twee bestanden wordt. Een gewijzigd
+   * beeld heeft andere bytes, dus een ander adres: geen oude versie uit een
+   * cache (public/ wordt een jaar bewaard).
    */
   'POST /api/upload': async ({ env, user, request }) => {
     try {
@@ -229,7 +286,11 @@ export const routes = {
       const bytes = await request.arrayBuffer();
       if (!bytes.byteLength || bytes.byteLength > MAX_BEELD) throw new FeatureError('Het beeld is leeg of groter dan 3 MB.');
       const naam = new URL(request.url).searchParams.get('naam');
-      const key = `${BEELDEN_MAP}${slug(naam)}-${crypto.randomUUID().slice(0, 8)}.${ext}`;
+      const hash = [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))].slice(0, 8)
+        .map((b) => b.toString(16).padStart(2, '0')).join('');
+      const key = `${BEELDEN_MAP}${slug(naam)}-${hash}.${ext}`;
+      // Altijd (opnieuw) wegschrijven: dat zet de datum van het bestand op nu,
+      // zodat het opruimen het niet meteen als oud en ongebruikt ziet.
       await env.R2_ASSETS.put(key, bytes, {
         httpMetadata: { contentType: type },
         customMetadata: { uploadedBy: user.id, module: 'product_features', uploadedAt: new Date().toISOString() },

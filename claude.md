@@ -4024,21 +4024,61 @@ bibliotheek later aanpassen, verandert een mail niet.**
   `content.feature_id` onthoudt de bron ("staat erin" in het venster).
 - **Later**: dezelfde bibliotheek dynamisch per klant (welke features die
   nog niet gebruikt), daarom staan voordelen, doelgroepen en pakket erbij.
-- **Achtergrond bij een beeld** (2026-10-19): een componentje met een
-  doorzichtige achtergrond krijgt een vlak in een merkkleur en optioneel een
-  swirl in een tweede merkkleur (knop "Achtergrond maken" bij het beeld).
+- **Beeld opmaken** (2026-10-19, herzien 2026-10-20): knop "Opmaken" bij het
+  beeld. Twee lagen die apart blijven: een ACHTERGROND (merkkleur + swirl, vult
+  altijd het vak) en een VOORGROND (het opgeladen beeld) aan een ANKER
+  (midden, rand of hoek) met een marge, bij te snijden per zijde (positief =
+  eraf, negatief = lege ruimte erbij; "Lege rand wegknippen" meet het zelf).
+  Het anker rekent met het bijgesneden beeld. Zie "Achtergrondbouwer".
   `image_url` wordt de gemaakte PNG (dus mail en kaart hoeven niets te weten);
-  `achtergrond` (jsonb) bewaart de keuzes en het oorspronkelijke beeld
-  (`bron`), zodat je ze kan bijstellen of weghalen. Een ander beeld kiezen
-  laat de achtergrond vallen (`houdAchtergrondBijBeeld()` in routes.js).
+  `achtergrond` (jsonb) bewaart de keuzes en de voorgrond (`bron`), zodat je
+  ze kan bijstellen of weghalen. **Een ander beeld opladen of kiezen HOUDT de
+  opmaak** (`zetVoorgrond()` in productfeatures.js maakt de PNG opnieuw met
+  `OMAchtergrond.maakPng()`); enkel de bijsnijding begint opnieuw. Tot
+  2026-10-20 viel de opmaak dan weg. `houdAchtergrondBijBeeld()` in routes.js
+  laat ze vallen als `image_url` iets anders is dan de gemaakte PNG.
+- **Beelden: geen kopieën, en wat niemand gebruikt gaat weg** (2026-10-20).
+  De bestandsnaam van een opgeladen beeld is `<naam>-<hash van de bytes>`:
+  hetzelfde beeld wordt nooit twee bestanden, en een gewijzigd beeld krijgt
+  een nieuw adres (public/ staat een jaar in de cache, dus hetzelfde adres
+  overschrijven zou de oude versie blijven tonen). Na elke bewaring en elk
+  weghalen ruimt `ruimBeeldenOp()` (routes.js) de map
+  `public/productfeatures/` op: wat de bewaring verving meteen, al de rest pas
+  na 24 uur (iemand kan eraan werken zonder te bewaren). Weg gaat enkel wat
+  DEZE module oplaadde (`customMetadata.module`) en wat geen enkele feature
+  en geen enkel nieuwsbriefblok (`inhoudVanSoort(env, 'feature')` in
+  newsletters/lib/store.js) nog noemt: een verstuurde mail wijst naar het
+  bestand. Faalt het lezen van die twee, dan gaat er niets weg. Een feature
+  in een nieuwsbrief verwijst naar HETZELFDE bestand (geen kopie);
+  `hostBeelden()` kopieert niets wat al in public/ staat.
   Migraties: Supabase `20261019140000_product_features_achtergrond.sql` en
   om-core `0004_product_features_achtergrond.sql` -- allebei VOOR de deploy.
 
-## Achtergrondbouwer -- gedeeld (2026-10-19)
+## Achtergrondbouwer -- gedeeld (2026-10-19, lagen sinds 2026-10-20)
 
-**Regel: een achtergrond in de huisstijl maak je met EEN bouwer, waar ook in
+**Regel: een beeld in de huisstijl opmaken doe je met EEN bouwer, waar ook in
 de OM. De browser tekent en maakt de PNG; de server kent het palet, de
 swirls en kijkt de keuzes na. Geen tweede bouwer per module.**
+
+- **Twee lagen, en ze blijven apart.** Achtergrond = kleur + swirl en vult
+  ALTIJD het vak (de swirl schaalt met de langste zijde). Voorgrond = het
+  beeld, aan een anker (`ANKERS`: 3x3, op twee plekken: src/lib/achtergrond.js
+  en public/om-achtergrond.js) met een marge (deel van de korte zijde) en een
+  grootte (past binnen dat deel van het vak). Een andere vorm van het vak laat
+  de voorgrond op haar anker staan. Geen vrije x/y meer: slepen springt naar
+  het dichtste anker (`ankerUitPlaats()`).
+- **Bijsnijden** = `voorgrond.snij` per zijde, een deel van het beeld:
+  positief knipt weg, negatief zet er lege ruimte bij. Het anker rekent met
+  het BIJGESNEDEN beeld (`plaatsVoorgrond()`), dus "onderaan + onderaan iets
+  eraf" laat het beeld achter de rand wegvallen. "Lege rand wegknippen"
+  (`legeRand()`) meet de doorzichtige rand, of de kleur van de hoek bij een
+  beeld zonder doorzichtigheid.
+- **Bewaarde vorm versie 2** (`normaliseerAchtergrond()`): `voorgrond` in
+  plaats van `beeld: {schaal, x, y}`. Versie 1 wordt bij het lezen omgezet
+  (het dichtste anker); de bestaande PNG blijft tot iemand opnieuw bewaart.
+- **`OMAchtergrond.maakPng(keuzes, gegevens)`** maakt de PNG zonder venster,
+  met dezelfde tekenfunctie: voor een nieuwe voorgrond in een bestaande
+  opmaak. `oplaad` (optioneel) zet de knop "Ander beeld" in het venster.
 
 | Wat | Waar |
 |---|---|
@@ -4060,8 +4100,9 @@ swirls en kijkt de keuzes na. Geen tweede bouwer per module.**
 - **Beelden via de EIGEN oorsprong** (`eigenAdres()`: link.openvme.be/assets/...
   -> `/assets/...`): een canvas met een beeld van een andere website kan je
   niet bewaren. Een beeld van elders: eerst opladen.
-- **De bouwer laadt niets op en bewaart niets.** `opBewaar(keuzes, blob)`
-  is van de module: die kent haar eigen map en rechten. Bewaar altijd de
+- **De bouwer bewaart niets.** `opBewaar(keuzes, blob)` en `oplaad(bestand)`
+  zijn van de module: die kent haar eigen map en rechten. `keuzes.bron` is de
+  voorgrond zoals ze op het einde in het venster stond. Bewaar altijd de
   KEUZES (`normaliseerAchtergrond()`) naast de PNG, anders kan niemand ze
   later bijstellen.
 - **Nog niet gebouwd:** de bouwer in de nieuwsbrief, AV-slides of mymmo-cards;
@@ -5993,7 +6034,9 @@ Afspraken die bewust zo zijn:
   Enkel PNG/JPEG/GIF; wat niet lukt, meldt de test, en een echte verzending
   weigert dan. Uploads gaan sinds dan ook naar `public/nieuwsbrieven/`: een eigen
   map in Assetbeheer (categorie public). **Gevolg: wie daar iets wist, breekt
-  het beeld in een al verstuurde mail.**
+  het beeld in een al verstuurde mail.** Sinds 2026-10-20 heet een opgeladen of
+  geimporteerd beeld naar een hash van zijn BYTES (`inhoudHash()` in
+  routes.js): dezelfde uitsnede of foto nog eens wordt geen tweede bestand.
 - **Een interessant artikel komt ALTIJD uit Nieuws & updates.** Er is geen blokje
   meer om zelf een link te plakken ("Interessant gelezen" is weg); bestaande
   link-blokken werken nog. Laden de berichten niet, dan toont het paneel de
