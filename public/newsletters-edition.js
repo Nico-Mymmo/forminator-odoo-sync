@@ -29,7 +29,6 @@
    */
   var SJABLONEN = [
     { key: 'titel', groep: 'opbouw', kind: 'heading', naam: 'Titel', titel: 'Titel', icoon: 'heading', uitleg: 'Een kop boven een reeks blokken; komt in de inhoudstafel.', enkelRedactie: true },
-    { key: 'vooraf', groep: 'opbouw', kind: 'intro', naam: 'Woordje vooraf', titel: 'Woordje vooraf', icoon: 'hand-heart', uitleg: 'Een korte inleiding bovenaan, ondertekend met foto.' },
     { key: 'tekstblok', groep: 'opbouw', kind: 'article', naam: 'Tekstblok', titel: '', icoon: 'align-left', uitleg: 'Titel, subtitel, alinea\'s en een beeld.' },
     { key: 'bericht', groep: 'nieuws', kind: 'snippet', naam: 'Eén bericht', titel: 'Interessant voor jou', icoon: 'rss', uitleg: 'Een bericht uit Nieuws & updates, groot in beeld.' },
     { key: 'kortnieuws', groep: 'nieuws', kind: 'news', naam: 'Kort nieuws', titel: 'Kort nieuws', icoon: 'newspaper', uitleg: 'Twee of drie kleinere berichten naast elkaar.', inhoud: { vorm: 'kolommen', heading: '' } },
@@ -41,9 +40,11 @@
     { key: 'video', groep: 'media', kind: 'video', naam: 'Video', titel: 'Video', icoon: 'circle-play', uitleg: 'Een filmpje, met een stilstaand beeld.' },
     { key: 'linkedin', groep: 'media', kind: 'linkedin', naam: 'Op LinkedIn', titel: 'Op LinkedIn', icoon: 'share-2', uitleg: 'Een post die het delen waard is.' },
     // Blokken die de OM zelf vult: één per mailing, enkel de hoofdredactie (een nieuwsbrief heeft ze al, een blanco mailing niet).
-    { key: 'inhoudstafel', groep: 'vanzelf', kind: 'toc', naam: 'Inhoudstafel', titel: 'In deze editie', icoon: 'list-ordered', uitleg: 'Genummerde lijst van de blokken; vult zichzelf.', enkelRedactie: true, eenmalig: true },
+    // Vaste plek: één per mailing, altijd op dezelfde plaats (VASTE_PLEK in lib/constants.js); aan/uit ook in het paneel.
+    { key: 'vooraf', groep: 'vast', kind: 'intro', naam: 'Woordje vooraf', titel: 'Woordje vooraf', icoon: 'hand-heart', uitleg: 'Altijd bovenaan, ondertekend met foto.', enkelRedactie: true, eenmalig: true },
+    { key: 'inhoudstafel', groep: 'vast', kind: 'toc', naam: 'Inhoudstafel', titel: 'In deze editie', icoon: 'list-ordered', uitleg: 'Altijd onder het woordje vooraf; vult zichzelf.', enkelRedactie: true, eenmalig: true },
     { key: 'agenda', groep: 'vanzelf', kind: 'events', naam: 'Agenda', titel: 'Agenda', icoon: 'calendar-days', uitleg: 'De komende events uit Eventbeheer; vult zichzelf.', enkelRedactie: true, eenmalig: true, inhoud: { heading: 'Kom ons ontmoeten', exclude_ids: [] } },
-    { key: 'afsluiting', groep: 'vanzelf', kind: 'closing', naam: 'Afsluiting', titel: 'Tot de volgende', icoon: 'hand', uitleg: 'Het slotwoord met wie meeschreef; altijd onderaan.', enkelRedactie: true, eenmalig: true, inhoud: { text: '', button_label: '', button_url: '' } },
+    { key: 'afsluiting', groep: 'vast', kind: 'closing', naam: 'Afsluiting', titel: 'Tot de volgende', icoon: 'hand', uitleg: 'Altijd onderaan; het slotwoord met wie meeschreef.', enkelRedactie: true, eenmalig: true, inhoud: { text: '', button_label: '', button_url: '' } },
   ];
   var GROEPEN = [
     { key: 'opbouw', naam: 'Opbouw' },
@@ -52,11 +53,17 @@
     { key: 'verhaal', naam: 'Verhalen' },
     { key: 'media', naam: 'Beeld en media' },
     { key: 'vanzelf', naam: 'Vult zichzelf' },
+    { key: 'vast', naam: 'Vaste plek (bovenaan of onderaan)' },
   ];
   var SJ = {};
   SJABLONEN.forEach(function (s) { SJ[s.key] = s; });
 
   var VRAAG_KINDS = ['question', 'statement', 'poll'];
+
+  /** Woordje vooraf en inhoudstafel bovenaan, afsluiting onderaan: aan of uit, nooit ergens anders (zelfde regel als VASTE_PLEK op de server). */
+  var VAST = { intro: 'boven', toc: 'boven', closing: 'onder' };
+  function isVast(kind) { return Object.prototype.hasOwnProperty.call(VAST, kind); }
+  function vastBoven(it) { return !!it && VAST[it.kind] === 'boven'; }
 
   function d() { return NB.state.editie; }
   function ik() { return NB.state.boot.me.id; }
@@ -216,6 +223,18 @@
       + (mag ? '<button class="btn btn-xs btn-ghost self-start opacity-60" data-action="annuleer-editie">Editie annuleren</button>' : ''));
   }
 
+  /** Aan/uit voor de blokken met een vaste plek (enkel de hoofdredactie). */
+  function vasteBlokken() {
+    if (!editor() || !actief()) return '';
+    var rij = function (kind, naam, waar) {
+      var aan = d().items.some(function (i) { return i.kind === kind; });
+      return '<label class="flex items-center gap-3 py-1.5 cursor-pointer"><input type="checkbox" class="toggle toggle-sm toggle-primary" data-change="vast-blok" data-kind="' + kind + '"' + (aan ? ' checked' : '') + '>'
+        + '<span class="flex-1 min-w-0"><span class="block text-sm font-medium">' + e(naam) + '</span><span class="block text-xs opacity-60">' + e(waar) + '</span></span></label>';
+    };
+    return kaart('<h3 class="font-semibold flex items-center gap-2"><i data-lucide="pin" class="w-4 h-4"></i> Vaste blokken</h3>'
+      + '<div>' + rij('intro', 'Woordje vooraf', 'Altijd bovenaan') + rij('toc', 'Inhoudstafel', 'Altijd onder het woordje vooraf') + rij('closing', 'Tot de volgende', 'Altijd onderaan') + '</div>');
+  }
+
   function voorJou() {
     var mijn = d().items.filter(function (i) { return i.owner_user_id === ik() && !NB.isAuto(i.kind); });
     var open = mijn.filter(function (i) { return i.status === 'open' || i.status === 'draft'; });
@@ -255,7 +274,7 @@
 
   function paneelOverzicht() {
     if (editor()) {
-      return '<div class="flex flex-col gap-3">' + teBevestigen() + checklistKaart() + voorJou() + editieKaart() + verloop() + '</div>';
+      return '<div class="flex flex-col gap-3">' + teBevestigen() + checklistKaart() + voorJou() + vasteBlokken() + editieKaart() + verloop() + '</div>';
     }
     return '<div class="flex flex-col gap-3">' + voorJou() + verloop() + '</div>';
   }
@@ -553,7 +572,7 @@
     doc.querySelectorAll('[data-nb-id]').forEach(function (rij) {
       var it = itemVan(rij.getAttribute('data-nb-id'));
       var cel = rij.firstElementChild;
-      if (!it || !cel || it.id === NB.state.paneelId) return;
+      if (!it || !cel || it.id === NB.state.paneelId || isVast(it.kind)) return;
       var balk = doc.createElement('div');
       balk.className = 'nb-greep-rij';
       var g = doc.createElement('div');
@@ -602,7 +621,7 @@
     doc.addEventListener('pointermove', function (ev) {
       if (!sleep) return;
       sleep.y = ev.clientY;
-      var rijen = Array.prototype.filter.call(doc.querySelectorAll('[data-nb-id]'), function (r) { return r !== sleep.rij; });
+      var rijen = Array.prototype.filter.call(doc.querySelectorAll('[data-nb-id]'), function (r) { return r !== sleep.rij && !isVast((itemVan(r.getAttribute('data-nb-id')) || {}).kind); });
       var doel = null;
       for (var i = 0; i < rijen.length; i++) {
         var r = rijen[i].getBoundingClientRect();
@@ -686,7 +705,7 @@
 
     // De werkbalk: wat je snel doet met dit blok.
     var knoppen = [];
-    if (editor()) knoppen.push('<span class="nb-greep" data-nb-greep="' + e(s.item.id) + '" title="Sleep om te verplaatsen">⠿</span>');
+    if (editor() && !isVast(soort)) knoppen.push('<span class="nb-greep" data-nb-greep="' + e(s.item.id) + '" title="Sleep om te verplaatsen">⠿</span>');
     if (mag && NB.kanAI(soort)) knoppen.push('<button type="button" data-nb-knop="ai">✨ Schrijf met AI</button>');
     if (mag && soort === 'heading') {
       var nuNiveau = (NB.state.concept.content || {}).niveau || 'h1';
@@ -706,17 +725,22 @@
     }
     if (editor()) {
       if (knoppen.length > 1) knoppen.push('<span class="nb-scheid"></span>');
-      var ids = d().items.map(function (i) { return i.id; });
-      var i = ids.indexOf(s.item.id);
-      knoppen.push('<button type="button" data-nb-knop="omhoog" title="Hoger"' + (i <= 0 ? ' disabled' : '') + '>↑</button>');
-      knoppen.push('<button type="button" data-nb-knop="omlaag" title="Lager"' + (i >= ids.length - 1 ? ' disabled' : '') + '>↓</button>');
+      if (!isVast(soort)) {
+        var lijst = d().items;
+        var i = lijst.map(function (x) { return x.id; }).indexOf(s.item.id);
+        var hoger = i > 0 && !vastBoven(lijst[i - 1]);
+        var lager = i >= 0 && i < lijst.length - 1 && lijst[i + 1].kind !== 'closing';
+        knoppen.push('<button type="button" data-nb-knop="omhoog" title="Hoger"' + (hoger ? '' : ' disabled') + '>↑</button>');
+        knoppen.push('<button type="button" data-nb-knop="omlaag" title="Lager"' + (lager ? '' : ' disabled') + '>↓</button>');
+      }
       var bg = (NB.state.concept.content || {}).achtergrond;
       knoppen.push('<button type="button" data-nb-knop="kleur" title="Achtergrondkleur van dit blok"><span class="nb-kleurbol" style="background:' + e(bg || '#ffffff') + '"></span></button>');
       if (soort !== 'toc') {
         var inToc = NB.inToc(s.item, NB.state.concept.content);
         knoppen.push('<button type="button" data-nb-knop="toc"' + (inToc ? ' class="nb-aan"' : '') + ' title="' + (inToc ? 'Staat in de inhoudstafel; klik om het eruit te halen' : 'Staat niet in de inhoudstafel; klik om het erin te zetten') + '">' + (inToc ? '✓ ' : '') + 'Inhoudstafel</button>');
       }
-      if (!NB.isAuto(soort)) knoppen.push('<button type="button" class="nb-weg" data-nb-knop="weg" title="Uit de brief halen">\u{1F5D1}</button>');
+      if (isVast(soort)) knoppen.push('<button type="button" class="nb-weg" data-nb-knop="weg" title="Dit blok uitzetten; aanzetten kan in het paneel onder Vaste blokken">Uitzetten</button>');
+      else if (!NB.isAuto(soort)) knoppen.push('<button type="button" class="nb-weg" data-nb-knop="weg" title="Uit de brief halen">\u{1F5D1}</button>');
     }
     if (knoppen.length && cel) {
       var bar = doc.createElement('div');
@@ -925,10 +949,13 @@
       hoogteBij();
       return;
     }
-    blokken[0].parentNode.insertBefore(maak(''), blokken[0]);
-    blokken.forEach(function (rij) {
+    // Niets boven of tussen de vaste blokken bovenaan, en niets na de afsluiting.
+    if (!vastBoven(itemVan(blokken[0].getAttribute('data-nb-id')))) blokken[0].parentNode.insertBefore(maak(''), blokken[0]);
+    blokken.forEach(function (rij, i) {
       var it = itemVan(rij.getAttribute('data-nb-id'));
       if (it && it.kind === 'closing') return;
+      var volgende = blokken[i + 1] && itemVan(blokken[i + 1].getAttribute('data-nb-id'));
+      if (vastBoven(it) && vastBoven(volgende)) return;
       rij.parentNode.insertBefore(maak(rij.getAttribute('data-nb-id')), rij.nextSibling);
     });
     hoogteBij();
@@ -1153,6 +1180,19 @@
     };
   }
   function eventVan(id) { return ((d().suggesties && d().suggesties.events) || []).filter(function (x) { return Number(x.id) === Number(id); })[0]; }
+
+  /** Vaste blokken aan of uit (paneel): aan = op zijn vaste plek, uit = weghalen. */
+  NB.changes['vast-blok'] = async function (el) {
+    var kind = el.dataset.kind;
+    var it = d().items.filter(function (i) { return i.kind === kind; })[0];
+    if (el.checked && !it) {
+      var sj = SJABLONEN.filter(function (x) { return x.kind === kind && x.groep === 'vast'; })[0];
+      if (sj) await plaats({ kind: kind, title: sj.titel, content: sj.inhoud || undefined }, '');
+    } else if (!el.checked && it) {
+      el.checked = true; // pas na de bevestiging echt uit
+      await NB.actions['blok-weg']({ dataset: { id: it.id } });
+    }
+  };
 
   NB.changes['event-vink'] = function () {
     var n = document.querySelectorAll('#dlgToevoegen input[data-change="event-vink"]:checked').length;
@@ -1454,8 +1494,11 @@
 
   NB.actions['blok-weg'] = async function (el) {
     var it = itemVan(el.dataset.id);
-    var ja = await NB.bevestig({ titel: 'Uit de brief halen?', tekst: '"' + NB.blokNaam(it) + '" verdwijnt uit deze editie, met wat erin getypt is.', knop: 'Weghalen' });
-    if (!ja) return;
+    var vast = it && isVast(it.kind);
+    var ja = await NB.bevestig(vast
+      ? { titel: 'Uitzetten?', tekst: '"' + NB.blokNaam(it) + '" verdwijnt uit deze editie, met wat erin getypt is. Weer aanzetten kan onder Vaste blokken (dan begin je leeg).', knop: 'Uitzetten' }
+      : { titel: 'Uit de brief halen?', tekst: '"' + NB.blokNaam(it) + '" verdwijnt uit deze editie, met wat erin getypt is.', knop: 'Weghalen' });
+    if (!ja) return false;
     try {
       NB.state.vuil = false;
       await NB.api('/api/contributions/' + el.dataset.id, { method: 'DELETE' });
