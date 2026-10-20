@@ -643,9 +643,9 @@ export const routes = {
         if (typeof h.titel === 'string') nieuw.titel = kort(h.titel, 120);
         if (typeof h.ondertitel === 'string') nieuw.ondertitel = kort(h.ondertitel, 120);
         if (typeof h.logo_url === 'string' && url(h.logo_url)) nieuw.logo_url = url(h.logo_url);
-        // De kleur van het vlak van de brief: enkel een merkkleur; ontbreekt ze, dan blijft de vorige.
-        if (h.body_kleur === undefined) { if (edition.header?.body_kleur) nieuw.body_kleur = edition.header.body_kleur; }
-        else if (merkkleur(h.body_kleur)) nieuw.body_kleur = merkkleur(h.body_kleur);
+        // De achtergrond rond de brief: enkel een merkkleur; ontbreekt ze, dan blijft de vorige.
+        if (h.tint === undefined) { if (edition.header?.tint) nieuw.tint = edition.header.tint; }
+        else if (merkkleur(h.tint)) nieuw.tint = merkkleur(h.tint);
         w.header = nieuw;
       }
       for (const k of ['send_at', 'deadline_at']) {

@@ -876,7 +876,7 @@ function tocWerkstand(item, ctx, id) {
 <td width="44" align="right" valign="middle" style="padding:12px 0;${lijn}">${schakel}</td></tr>`;
   }).join('');
   return rij(`${label(item.title || 'In deze editie', S.primary)}
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:8px">${rijen}</table>`, { padding: '36px 40px 0', id });
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:8px">${rijen}</table>`, { padding: '36px 40px 24px', id });
 }
 
 function blokToc(item, ctx, id) {
@@ -892,7 +892,7 @@ function blokToc(item, ctx, id) {
 <td valign="baseline" style="padding:12px 0;${lijn}font-family:${S.fontBody};font-size:16px;font-weight:600;color:${S.headingSoft}">${esc(t)}</td></tr>`;
   }).join('');
   return rij(`${label(item.title || 'In deze editie', S.primary)}
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:8px">${rijen}</table>`, { padding: '36px 40px 0', id });
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:8px">${rijen}</table>`, { padding: '36px 40px 24px', id });
 }
 
 function blokClosing(item, ctx, id) {
@@ -1134,9 +1134,13 @@ export function kopWaarden(series, edition) {
   };
 }
 
-/** De kleur van het vlak van de brief: `edition.header.body_kleur` (merkkleur), anders wit. */
-export function bodyKleur(edition) {
-  return merkkleur(edition?.header?.body_kleur) || '#ffffff';
+/**
+ * De achtergrond rond de brief (het witte vlak blijft wit): per mailing
+ * `edition.header.tint` (enkel een merkkleur), anders die van de reeks of het merk.
+ */
+export function mailTint(series, edition) {
+  const brand = BRAND[series?.brand] || BRAND.openvme;
+  return merkkleur(edition?.header?.tint) || series?.tint || brand.tint;
 }
 
 function kopRij(series, edition, mode) {
@@ -1186,14 +1190,14 @@ export function voetWaarden(series, ctx = {}) {
   };
 }
 
-function huls(rijen, { tint, body = '#ffffff', preheader, voetRij }) {
+function huls(rijen, { tint, preheader, voetRij }) {
   return `<div style="margin:0;padding:0;background-color:${tint}">
 <style>@import url('${S.rethinkCss}');@font-face{font-family:'Gelica';src:url('${S.gelicaUrl}') format('opentype');font-weight:400;font-style:normal}
 /* Smalle schermen (Apple Mail, iOS, de Gmail-apps): kolommen onder elkaar, minder marge. Outlook negeert dit en houdt de vaste breedtes. */
 @media only screen and (max-width:480px){.nb-cel{padding-left:20px!important;padding-right:20px!important}.nb-kol{display:block!important;width:100%!important;max-width:100%!important;box-sizing:border-box!important;padding-left:0!important;padding-right:0!important}.nb-kol-na{padding-top:14px!important}.nb-gat{display:none!important}.nb-gsm-vol,.nb-kol .nb-foto{width:100%!important;max-width:100%!important}.nb-paneel-in{padding-left:20px!important;padding-right:20px!important}.nb-ev-link{display:block!important;text-align:left!important;white-space:normal!important;padding:0 12px 14px 74px!important}.nb-cel{overflow-wrap:break-word;word-break:break-word}}</style>
 ${preheader ? `<div style="display:none;max-height:0;max-width:0;overflow:hidden;opacity:0;mso-hide:all;font-size:1px;line-height:1px;color:${tint}">${esc(preheader)}</div>` : ''}
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:${tint}"><tr><td align="center" style="padding:28px 12px 36px">
-<table role="presentation" width="${WIDTH}" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:${WIDTH}px;background-color:${body};border-radius:20px;border-collapse:separate;overflow:hidden">
+<table role="presentation" width="${WIDTH}" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:${WIDTH}px;background-color:#ffffff;border-radius:20px;border-collapse:separate;overflow:hidden">
 ${rijen.join('\n')}
 </table>
 <table role="presentation" width="${WIDTH}" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:${WIDTH}px">${voetRij}</table>
@@ -1212,12 +1216,8 @@ ${rijen.join('\n')}
  */
 export function renderEdition({ series, edition, items, mode = 'preview', ctx = {} }) {
   const brand = BRAND[series.brand] || BRAND.openvme;
-  const tint = series.tint || brand.tint;
-  // De kleur van het vlak waarin de brief staat (per mailing, enkel een merkkleur).
-  const body = bodyKleur(edition);
-  // Op een donker vlak wordt gewone tekst licht; een blok met een eigen
-  // achtergrond of een eigen kader houdt zijn kleuren.
-  const opBody = (html, it) => (isDonker(body) && html && !merkkleur(it?.content?.achtergrond) && !MET_KADER.has(it?.kind) ? lichteTekst(html) : html);
+  // De achtergrond rond de brief: per mailing een merkkleur, anders die van de reeks.
+  const tint = mailTint(series, edition);
   const mee = items.filter((it) => doetMee(it, mode, ctx));
   const meeIds = new Set(mee.map((it) => it.id));
 
@@ -1244,7 +1244,7 @@ export function renderEdition({ series, edition, items, mode = 'preview', ctx = 
     : null;
   const blokCtx = { ...ctx, toc, tocAlle, authors };
 
-  const rijen = [opBody(kopRij(series, edition, mode))];
+  const rijen = [kopRij(series, edition, mode)];
   const open = [];
   for (const it of items) {
     const id = mode === 'preview' ? it.id : null;
@@ -1255,14 +1255,14 @@ export function renderEdition({ series, edition, items, mode = 'preview', ctx = 
     if (meeIds.has(it.id)) {
       const maak = BLOKKEN[it.kind];
       if (maak) {
-        const html = opBody(metAchtergrond(maak(it, blokCtx, id), it.content?.achtergrond, it.kind), it);
+        const html = metAchtergrond(maak(it, blokCtx, id), it.content?.achtergrond, it.kind);
         // Lezer in de OM: het blok aanwijsbaar maken voor een opmerking (nooit in een echte mail).
         rijen.push(ctx.markeer && html ? html.replace(/<tr/, `<tr data-nb-lees="${esc(it.id)}"`) : html);
       }
     } else if (mode === 'preview' && IN_DE_BRIEF.has(it.kind)) {
       // Wat je IN de brief invult, staat er ook leeg al (met plaatshouders).
       open.push(it);
-      rijen.push(opBody(metAchtergrond(BLOKKEN[it.kind](it, blokCtx, id), it.content?.achtergrond, it.kind), it));
+      rijen.push(metAchtergrond(BLOKKEN[it.kind](it, blokCtx, id), it.content?.achtergrond, it.kind));
     } else if (mode === 'preview' && !KINDS[it.kind]?.auto) {
       open.push(it);
       rijen.push(blokPlaatshouder(it, id));
@@ -1270,7 +1270,7 @@ export function renderEdition({ series, edition, items, mode = 'preview', ctx = 
   }
 
   return {
-    html: huls(rijen.filter(Boolean), { tint, body, preheader: edition.preheader, voetRij: isDonker(tint) ? lichteTekst(voet(series, ctx, mode)) : voet(series, ctx, mode) }),
+    html: huls(rijen.filter(Boolean), { tint, preheader: edition.preheader, voetRij: isDonker(tint) ? lichteTekst(voet(series, ctx, mode)) : voet(series, ctx, mode) }),
     included: [...meeIds],
     open,
   };

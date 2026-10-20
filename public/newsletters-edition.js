@@ -257,7 +257,7 @@
       + '<label class="form-control"><span class="label-text text-xs">Voorbeeldtekst (de grijze regel in de inbox)</span><input id="edPreheader" class="input input-bordered input-sm" maxlength="200" placeholder="Voorbeeldtekst" value="' + e(ed.preheader) + '"' + (mag ? '' : ' disabled') + '></label>'
       + '<div id="edVoorstellen" class="flex flex-col gap-1"></div>'
       + (mag && editor() ? '<button class="btn btn-sm btn-ghost self-start" data-action="open-kop"><i data-lucide="image" class="w-4 h-4"></i> Logo en teksten van de mail</button>' : '')
-      + (mag && editor() ? '<div class="flex items-center gap-3"><span class="label-text text-xs">Kleur van de mail</span><button type="button" class="btn btn-sm btn-ghost gap-2 px-2" data-action="body-kleur-kies">' + NB.kleurBol((ed.header || {}).body_kleur || '#ffffff') + '<span>' + ((ed.header || {}).body_kleur ? e(String(ed.header.body_kleur).toUpperCase()) : 'Wit (standaard)') + '</span></button></div>' : '')
+      + (mag && editor() ? '<div class="flex items-center gap-3"><span class="label-text text-xs">Achtergrond rond de mail</span><button type="button" class="btn btn-sm btn-ghost gap-2 px-2" data-action="mail-tint-kies">' + NB.kleurBol((ed.header || {}).tint || d().series.tint || '#f0f9ff') + '<span>' + ((ed.header || {}).tint ? e(String(ed.header.tint).toUpperCase()) : 'Standaard van de nieuwsbrief') + '</span></button></div>' : '')
       + (mag ? '<div class="flex gap-2"><button class="btn btn-sm btn-ghost" data-action="ai-onderwerp"><i data-lucide="sparkles" class="w-4 h-4"></i> Stel voor</button>'
         + '<button class="btn btn-sm btn-primary ml-auto" data-action="bewaar-onderwerp">Bewaren</button></div>' : '')
       + '<div class="divider my-1"></div>'
@@ -607,16 +607,17 @@
   }
   NB.actions['open-kop'] = function () { openKop('kop'); };
 
-  /** De kleur van het vlak van de brief, voor deze mailing; enkel merkkleuren (Wissen = wit). */
-  NB.actions['body-kleur-kies'] = function (el) {
+  /** De achtergrond rond de brief, voor deze mailing; enkel merkkleuren (Wissen = die van de nieuwsbrief). */
+  NB.actions['mail-tint-kies'] = function (el) {
     var r = el.getBoundingClientRect();
     var h = d().edition.header || {};
     NB.kleur.open({
-      x: r.left, y: r.bottom, huidige: h.body_kleur || '#ffffff',
+      x: r.left, y: r.bottom, huidige: h.tint || d().series.tint,
       opKies: async function (kleur) {
         try {
           var nieuw = Object.assign({}, h);
-          nieuw.body_kleur = kleur && kleur.toLowerCase() !== '#ffffff' ? kleur : '';
+          delete nieuw.body_kleur;
+          nieuw.tint = kleur || '';
           var bij = await NB.api('/api/editions/' + d().edition.id, { method: 'PUT', body: { header: nieuw } });
           d().edition.header = (bij && bij.header) || nieuw;
           herlaad();
