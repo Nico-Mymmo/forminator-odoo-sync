@@ -3858,7 +3858,9 @@ tabs-boxed: het is een modus, geen tabblad, en het mag niet opvallen).
 - **Lezer**: de mail zoals verstuurd (`mode: 'test'`), met elk blok
   aanklikbaar (`lees: true` -> `data-nb-lees` op de eerste rij, `ctx.markeer`
   in render.js, nooit in een echte mail). Klik = opmerkingen in het paneel
-  (`leesPaneel()`), met een veld om er een te plaatsen.
+  (`leesPaneel()`), met een veld om er een te plaatsen. In Lezer wordt NIETS
+  grijs, ook niet tijdens het reageren: het gekozen blok krijgt enkel een
+  blauw labeltje "Je reageert op dit blok".
 - **Wie ziet opmerkingen**: de hoofdredactie en wie het blok schrijft;
   een andere collega ziet enkel zijn eigen opmerkingen
   (`zichtbareOpmerkingen()` in routes.js, op beide GET-routes). Een bolletje
