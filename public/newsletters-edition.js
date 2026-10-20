@@ -864,7 +864,8 @@
       }
       var bg = (NB.state.concept.content || {}).achtergrond;
       knoppen.push('<button type="button" data-nb-knop="kleur" title="Achtergrondkleur van dit blok"><span class="nb-kleurbol" style="background:' + e(bg || '#ffffff') + '"></span></button>');
-      if (!NB.isAuto(soort) && !isVast(soort)) knoppen.push('<button type="button" class="nb-weg" data-nb-knop="weg" title="Uit de brief halen">\u{1F5D1}</button>');
+      // Elk blok kan weg, ook een dat zichzelf vult (agenda); enkel de vaste blokken hebben een schakelaar.
+      if (!isVast(soort)) knoppen.push('<button type="button" class="nb-weg" data-nb-knop="weg" title="Uit de brief halen">\u{1F5D1}</button>');
     }
     // Een vast blok: een schakelaar aan/uit. Staat het uit, dan is dat het enige.
     if (isVast(soort) && layout()) {
