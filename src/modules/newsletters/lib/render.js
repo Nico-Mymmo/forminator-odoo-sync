@@ -1073,12 +1073,23 @@ function uitRij(item) {
   return `<tr data-nb-id="${esc(item.id)}" data-nb-uit="1"><td class="nb-cel" style="padding:14px 40px 6px"><div style="border:1px dashed #cbd5e1;border-radius:10px;padding:11px 16px;background-color:#f8fafc;font-family:${S.fontBody};font-size:13px;line-height:1.4;color:#94a3b8"><strong style="color:#64748b">${esc(naam)}</strong> staat uit &middot; komt niet in de verstuurde mail. Klik om het aan te zetten.</div></td></tr>`;
 }
 
+/**
+ * Een blok met een eigen achtergrond heeft onderaan eigen ruimte nodig: zonder
+ * kleur leunt het op de bovenmarge van het volgende blok (vaak maar 4px eigen
+ * ruimte), met kleur komt de tekst dan tot aan de rand van het vlak.
+ */
+const RUIMTE_ONDER_MIN = 36;
+function ruimteOnder(stijl) {
+  return stijl.replace(/padding:\s*(\d+)px\s+(\d+)px\s+(\d+)px(\s+\d+px)?/, (heel, boven, zij, onder, links) =>
+    Number(onder) >= RUIMTE_ONDER_MIN ? heel : `padding:${boven}px ${zij}px ${RUIMTE_ONDER_MIN}px${links || ''}`);
+}
+
 /** Een blok met een eigen achtergrond: over de hele breedte van het blok. */
 function metAchtergrond(html, kleur, kind) {
   const k = merkkleur(kleur);
   if (!k || !html) return html;
   // De eerste cel van het blok; die draagt ook `class="nb-cel"` (gsm-weergave).
-  const gekleurd = html.replace(/<td((?:\s+class="[^"]*")?) style="([^"]*)"/, (_, klasse, stijl) => `<td${klasse} style="${stijl};background-color:${k}"`);
+  const gekleurd = html.replace(/<td((?:\s+class="[^"]*")?) style="([^"]*)"/, (_, klasse, stijl) => `<td${klasse} style="${ruimteOnder(stijl)};background-color:${k}"`);
   if (!isDonker(k) || MET_KADER.has(kind)) return gekleurd;
   // De eerste td (net gekleurd) niet nog eens: die heeft nu een achtergrond.
   return lichteTekst(gekleurd);
