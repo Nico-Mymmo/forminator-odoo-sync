@@ -8,9 +8,10 @@
  *     de langste zijde).
  *   - VOORGROND: het opgeladen beeld, vast aan een ANKER (midden, een rand
  *     of een hoek) met een marge. Een andere vorm van het vak laat het op
- *     datzelfde anker staan. Bijsnijden per zijde: positief knipt weg,
- *     negatief zet er lege ruimte bij; het anker rekent met het bijgesneden
- *     beeld.
+ *     datzelfde anker staan. BIJSNIJDEN gaat zoals in elk fotoprogramma: een
+ *     kader met grepen over het hele beeld. Wat binnen dat kader valt, staat
+ *     ALTIJD volledig in beeld, welke vorm het vak ook heeft; de ruimte die
+ *     overblijft, vult de achtergrond.
  *
  * Gebruik:
  *   OMAchtergrond.open({
@@ -123,12 +124,15 @@
     var s = g.snij;
     var sw = Math.max(iw * 0.05, iw * (1 - s.links - s.rechts));
     var sh = Math.max(ih * 0.05, ih * (1 - s.boven - s.onder));
-    var f = Math.min(g.schaal * W / sw, g.schaal * H / sh);
-    var dw = sw * f;
-    var dh = sh * f;
     var m = g.marge * Math.min(W, H);
     var h = hor(g.anker);
     var vv = ver(g.anker);
+    // De uitsnede past ALTIJD volledig, ook met de marge erbij.
+    var ruimW = Math.max(1, W - (h === 1 ? 0 : m));
+    var ruimH = Math.max(1, H - (vv === 1 ? 0 : m));
+    var f = Math.min(Math.min(1, g.schaal) * W / sw, Math.min(1, g.schaal) * H / sh, ruimW / sw, ruimH / sh);
+    var dw = sw * f;
+    var dh = sh * f;
     var x = h === 0 ? m : h === 2 ? W - dw - m : (W - dw) / 2;
     var y = vv === 0 ? m : vv === 2 ? H - dh - m : (H - dh) / 2;
     return {
@@ -254,10 +258,6 @@
       + '<input type="range" class="range range-xs range-primary" data-oma-schuif="' + actie + '" min="' + min + '" max="' + max + '" step="' + stap + '" value="' + e(waarde) + '"></label>';
   }
 
-  function snijTekst(n) {
-    var p = Math.round(n * 100);
-    return p === 0 ? '0' : p > 0 ? p + '% eraf' : (-p) + '% ruimte';
-  }
   function procent(n) { return Math.round(n * 100) + '%'; }
 
   function swirlLijst() {
@@ -287,10 +287,7 @@
     var k = v.keuzes;
     var s = k.swirl;
     var g = k.voorgrond;
-    var verhoudingKeuze = '<section><h4 class="font-semibold text-sm mb-1.5">Vorm van het vak</h4>'
-      + '<select class="select select-bordered select-sm w-full" data-oma-keuze="verhouding">'
-      + (v.gegevens.verhoudingen || []).map(function (x) { return '<option value="' + e(x.key) + '"' + (x.key === k.verhouding ? ' selected' : '') + '>' + e(x.label) + '</option>'; }).join('')
-      + '</select><p class="text-xs opacity-60 mt-1">Een andere vorm laat het beeld aan zijn anker staan; de achtergrond vult het vak altijd.</p></section>';
+    tekenVormen();
 
     var voorgrond = '<div class="flex flex-col gap-4">'
       + '<section><h4 class="font-semibold text-sm mb-1.5">Beeld</h4><div class="flex flex-wrap gap-1.5">'
@@ -298,19 +295,13 @@
       + '</div></section>'
       + '<section><h4 class="font-semibold text-sm mb-1.5">Plaats</h4><div class="flex gap-4 items-start">' + ankerRaster(g.anker)
       + '<div class="flex-1 flex flex-col gap-2">'
-      + schuif('Grootte', 'vg-schaal', g.schaal, 0.1, 1.5, 0.01, procent)
+      + schuif('Grootte', 'vg-schaal', Math.min(1, g.schaal), 0.1, 1, 0.01, procent)
       + schuif('Afstand tot de rand', 'vg-marge', g.marge, 0, 0.3, 0.005, procent)
       + '</div></div><p class="text-xs opacity-60 mt-1">Je kan het beeld ook verslepen: het springt naar het dichtste anker.</p></section>'
       + '<section><h4 class="font-semibold text-sm mb-1.5">Bijsnijden</h4>'
-      + '<div class="flex flex-wrap gap-1.5 mb-2"><button type="button" class="btn btn-xs btn-outline" data-oma="rand-weg">Lege rand wegknippen</button>'
-      + '<button type="button" class="btn btn-xs btn-ghost" data-oma="snij-nul">Niets bijsnijden</button></div>'
-      + '<div class="flex flex-col gap-2">'
-      + schuif('Boven', 'snij-boven', g.snij.boven, -0.5, 0.45, 0.005, snijTekst)
-      + schuif('Onder', 'snij-onder', g.snij.onder, -0.5, 0.45, 0.005, snijTekst)
-      + schuif('Links', 'snij-links', g.snij.links, -0.5, 0.45, 0.005, snijTekst)
-      + schuif('Rechts', 'snij-rechts', g.snij.rechts, -0.5, 0.45, 0.005, snijTekst)
-      + '</div><p class="text-xs opacity-60 mt-1">Naar rechts knipt een stuk weg, naar links zet je er lege ruimte bij. Knip je onderaan iets weg en staat het beeld onderaan, dan lijkt het achter de rand te vallen.</p></section>'
-      + verhoudingKeuze
+      + '<div class="flex flex-wrap gap-1.5"><button type="button" class="btn btn-sm btn-outline" data-oma="snij-aan"><i data-lucide="crop" class="w-4 h-4"></i> Bijsnijden</button>'
+      + (bijgesneden(g.snij) ? '<button type="button" class="btn btn-sm btn-ghost" data-oma="snij-nul">Hele beeld</button>' : '')
+      + '</div><p class="text-xs opacity-60 mt-1">Wat je uitsnijdt, staat altijd volledig in beeld. De ruimte die overblijft, vult de achtergrond.</p></section>'
       + '</div>';
 
     var achtergrond = '<div class="flex flex-col gap-4">'
@@ -324,14 +315,102 @@
         + schuif('Doorzichtig', 'swirl-dekking', 1.05 - s.dekking, 0.05, 1, 0.01)
         + '</div>' : '')
       + '<p class="text-xs opacity-60 mt-1">De swirl versleep je in het voorbeeld op een plek waar het beeld doorzichtig is.</p></section>'
-      + verhoudingKeuze
       + '</div>';
 
+    if (v.snijModus) {
+      v.bediening.innerHTML = '<div class="flex flex-col gap-4">'
+        + '<section><h4 class="font-semibold text-sm mb-1.5">Bijsnijden</h4>'
+        + '<p class="text-sm opacity-80">Sleep aan de hoeken of de randen van het kader. Sleep binnen het kader om het te verplaatsen.</p></section>'
+        + '<div class="flex flex-wrap gap-1.5">'
+        + '<button type="button" class="btn btn-sm btn-outline" data-oma="rand-weg">Lege rand wegknippen</button>'
+        + '<button type="button" class="btn btn-sm btn-ghost" data-oma="snij-nul">Hele beeld</button></div>'
+        + '<button type="button" class="btn btn-sm btn-primary self-start" data-oma="snij-klaar">Klaar met bijsnijden</button>'
+        + '</div>';
+      if (window.lucide) window.lucide.createIcons();
+      return;
+    }
     v.bediening.innerHTML = '<div role="tablist" class="tabs tabs-boxed mb-4 w-fit">' + tabKnop('voorgrond', 'Voorgrond') + tabKnop('achtergrond', 'Achtergrond') + '</div>'
       + (v.tab === 'achtergrond' ? achtergrond : voorgrond);
+    if (window.lucide) window.lucide.createIcons();
+  }
+
+  /**
+   * De vormen van het vak als knoppen boven het voorbeeld: een klik toont
+   * meteen hoe het beeld in die vorm uitkomt. De gekozen vorm is ook die
+   * van de PNG die bewaard wordt.
+   */
+  function tekenVormen() {
+    var k = v.keuzes;
+    v.vormen.hidden = Boolean(v.snijModus);
+    v.vormen.innerHTML = '<span class="text-xs opacity-70">Vorm</span><div class="join">'
+      + (v.gegevens.verhoudingen || []).map(function (x) {
+        return '<button type="button" class="btn btn-xs join-item ' + (x.key === k.verhouding ? 'btn-primary' : 'btn-ghost border border-base-content/15') + '" data-oma="vorm" data-waarde="' + e(x.key) + '" title="' + e(x.label) + '">' + e(x.key === '1:1' ? 'Vierkant' : x.key) + '</button>';
+      }).join('') + '</div>';
+  }
+
+  function bijgesneden(s) { return s.boven > 0 || s.onder > 0 || s.links > 0 || s.rechts > 0; }
+
+  /**
+   * Het bijsnijkader: het HELE beeld, met daarover het kader en zijn grepen.
+   * Wat buiten het kader valt, wordt donker. Enkel in het voorbeeld.
+   */
+  var GREPEN = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
+  function snijVlak(img) {
+    var iw = img.naturalWidth || 1;
+    var ih = img.naturalHeight || 1;
+    return ih > iw ? { W: Math.round(BREEDTE * iw / ih), H: BREEDTE } : { W: BREEDTE, H: Math.round(BREEDTE * ih / iw) };
+  }
+  function snijRect(W, H) {
+    var s = v.keuzes.voorgrond.snij;
+    return { x0: s.links * W, y0: s.boven * H, x1: (1 - s.rechts) * W, y1: (1 - s.onder) * H };
+  }
+  function grepen(r) {
+    var mx = (r.x0 + r.x1) / 2;
+    var my = (r.y0 + r.y1) / 2;
+    return { nw: [r.x0, r.y0], n: [mx, r.y0], ne: [r.x1, r.y0], e: [r.x1, my], se: [r.x1, r.y1], s: [mx, r.y1], sw: [r.x0, r.y1], w: [r.x0, my] };
+  }
+  function tekenSnij() {
+    var img = v.beeld;
+    if (!img) return;
+    var vlak = snijVlak(img);
+    var W = vlak.W;
+    var H = vlak.H;
+    if (v.canvas.width !== W || v.canvas.height !== H) { v.canvas.width = W; v.canvas.height = H; }
+    var ctx = v.canvas.getContext('2d');
+    ctx.clearRect(0, 0, W, H);
+    ctx.drawImage(img, 0, 0, W, H);
+    var r = snijRect(W, H);
+    ctx.save();
+    ctx.fillStyle = 'rgba(15,23,42,0.55)';
+    ctx.fillRect(0, 0, W, r.y0);
+    ctx.fillRect(0, r.y1, W, H - r.y1);
+    ctx.fillRect(0, r.y0, r.x0, r.y1 - r.y0);
+    ctx.fillRect(r.x1, r.y0, W - r.x1, r.y1 - r.y0);
+    var lijn = Math.max(2, W / 500);
+    ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+    ctx.lineWidth = lijn / 2;
+    for (var i = 1; i < 3; i++) {
+      var x = r.x0 + (r.x1 - r.x0) * i / 3;
+      var y = r.y0 + (r.y1 - r.y0) * i / 3;
+      ctx.beginPath(); ctx.moveTo(x, r.y0); ctx.lineTo(x, r.y1); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(r.x0, y); ctx.lineTo(r.x1, y); ctx.stroke();
+    }
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = lijn;
+    ctx.strokeRect(r.x0, r.y0, r.x1 - r.x0, r.y1 - r.y0);
+    var g = grepen(r);
+    var d = Math.max(10, W / 90);
+    ctx.fillStyle = '#ffffff';
+    ctx.strokeStyle = '#0369a1';
+    GREPEN.forEach(function (k) {
+      ctx.fillRect(g[k][0] - d / 2, g[k][1] - d / 2, d, d);
+      ctx.strokeRect(g[k][0] - d / 2, g[k][1] - d / 2, d, d);
+    });
+    ctx.restore();
   }
 
   async function hertekenVoorbeeld() {
+    if (v.snijModus) { v.teller++; tekenSnij(); return; }
     var k = v.keuzes;
     var W = BREEDTE;
     var H = Math.round(W * verhouding(k.verhouding));
@@ -361,7 +440,10 @@
   }
 
   var acties = {
-    'tab': function (w) { v.tab = w; tekenBediening(); },
+    'vorm': function (w) { v.keuzes.verhouding = w; wijzig(true); },
+    'tab': function (w) { v.tab = w; v.snijModus = false; wijzig(true); },
+    'snij-aan': function () { if (v.beeld) { v.snijModus = true; wijzig(true); } },
+    'snij-klaar': function () { v.snijModus = false; wijzig(true); },
     'kleur': function (w) { v.keuzes.kleur = w || ''; wijzig(true); },
     'swirl': function (w) {
       if (!w) { v.keuzes.swirl = null; wijzig(true); return; }
@@ -385,12 +467,6 @@
     'bewaar': bewaar,
   };
 
-  function zetSnij(zijde, n) {
-    var s = v.keuzes.voorgrond.snij;
-    var tegen = { boven: 'onder', onder: 'boven', links: 'rechts', rechts: 'links' }[zijde];
-    s[zijde] = Math.min(n, 0.95 - s[tegen]);
-  }
-
   var schuiven = {
     'swirl-schaal': function (n) { v.keuzes.swirl.schaal = n; },
     'swirl-draai': function (n) { v.keuzes.swirl.draai = n; },
@@ -399,12 +475,8 @@
     'swirl-dekking': function (n) { v.keuzes.swirl.dekking = Math.round((1.05 - n) * 100) / 100; },
     'vg-schaal': function (n) { v.keuzes.voorgrond.schaal = n; },
     'vg-marge': function (n) { v.keuzes.voorgrond.marge = n; },
-    'snij-boven': function (n) { zetSnij('boven', n); },
-    'snij-onder': function (n) { zetSnij('onder', n); },
-    'snij-links': function (n) { zetSnij('links', n); },
-    'snij-rechts': function (n) { zetSnij('rechts', n); },
   };
-  var toonWaarde = { 'vg-schaal': procent, 'vg-marge': procent, 'snij-boven': snijTekst, 'snij-onder': snijTekst, 'snij-links': snijTekst, 'snij-rechts': snijTekst };
+  var toonWaarde = { 'vg-schaal': procent, 'vg-marge': procent };
 
   async function bewaar() {
     var knop = v.dlg.querySelector('[data-oma="bewaar"]');
@@ -508,8 +580,63 @@
       if (v.keuzes.swirl && binnen(p, randen.swirl)) return 'swirl';
       return binnen(p, randen.kader) ? 'beeld' : null;
     }
+    // ── Bijsnijden: grepen en kader ──
+    var snij = null;
+    function tolerantie() { return 14 * c.width / (c.getBoundingClientRect().width || c.width); }
+    function snijGreep(p) {
+      var r = snijRect(c.width, c.height);
+      var g = grepen(r);
+      var t = tolerantie();
+      for (var i = 0; i < GREPEN.length; i++) {
+        var k = GREPEN[i];
+        if (Math.abs(p.x - g[k][0]) <= t && Math.abs(p.y - g[k][1]) <= t) return k;
+      }
+      var inY = p.y >= r.y0 - t && p.y <= r.y1 + t;
+      var inX = p.x >= r.x0 - t && p.x <= r.x1 + t;
+      if (inY && Math.abs(p.x - r.x0) <= t) return 'w';
+      if (inY && Math.abs(p.x - r.x1) <= t) return 'e';
+      if (inX && Math.abs(p.y - r.y0) <= t) return 'n';
+      if (inX && Math.abs(p.y - r.y1) <= t) return 's';
+      if (p.x > r.x0 && p.x < r.x1 && p.y > r.y0 && p.y < r.y1) return 'move';
+      return null;
+    }
+    var CURSOR = { nw: 'nwse-resize', se: 'nwse-resize', ne: 'nesw-resize', sw: 'nesw-resize', n: 'ns-resize', s: 'ns-resize', e: 'ew-resize', w: 'ew-resize', move: 'move' };
+    function snijSleep(p) {
+      var MIN = 0.03;
+      var s0 = snij.start;
+      var dx = (p.x - snij.p.x) / c.width;
+      var dy = (p.y - snij.p.y) / c.height;
+      var l = s0.links;
+      var t = s0.boven;
+      var r = 1 - s0.rechts;
+      var b = 1 - s0.onder;
+      if (snij.greep === 'move') {
+        var bw = r - l;
+        var bh = b - t;
+        l = klem(l + dx, 0, 1 - bw);
+        t = klem(t + dy, 0, 1 - bh);
+        r = l + bw;
+        b = t + bh;
+      } else {
+        if (/w/.test(snij.greep)) l = klem(l + dx, 0, r - MIN);
+        if (/e/.test(snij.greep)) r = klem(r + dx, l + MIN, 1);
+        if (/n/.test(snij.greep)) t = klem(t + dy, 0, b - MIN);
+        if (/s/.test(snij.greep)) b = klem(b + dy, t + MIN, 1);
+      }
+      var rond = function (n) { return Math.round(n * 10000) / 10000; };
+      v.keuzes.voorgrond.snij = { links: rond(l), boven: rond(t), rechts: rond(1 - r), onder: rond(1 - b) };
+      tekenSnij();
+    }
+
     c.addEventListener('pointerdown', function (ev) {
       var p = punt(ev);
+      if (v.snijModus) {
+        var greep = snijGreep(p);
+        if (!greep) return;
+        snij = { greep: greep, p: p, start: Object.assign({}, v.keuzes.voorgrond.snij) };
+        c.setPointerCapture(ev.pointerId);
+        return;
+      }
       var laag = laagOp(p);
       if (!laag) return;
       sleep = laag === 'swirl'
@@ -520,6 +647,11 @@
     });
     c.addEventListener('pointermove', function (ev) {
       var p = punt(ev);
+      if (v.snijModus) {
+        if (snij) snijSleep(p);
+        else c.style.cursor = CURSOR[snijGreep(p)] || 'default';
+        return;
+      }
       if (!sleep) {
         c.style.cursor = laagOp(p) ? 'grab' : 'default';
         return;
@@ -545,6 +677,7 @@
       hertekenVoorbeeld();
     });
     function los() {
+      snij = null;
       if (sleep && sleep.bediening) tekenBediening();
       sleep = null;
       c.style.cursor = 'default';
@@ -618,7 +751,8 @@
       + '<h3 class="font-bold text-lg">' + e(o.titel || 'Beeld opmaken') + '</h3>'
       + '<button type="button" class="btn btn-sm btn-ghost btn-circle" data-oma="annuleer" aria-label="Sluiten">✕</button></div>'
       + '<div class="grid lg:grid-cols-[minmax(0,1fr)_340px]">'
-      + '<div class="p-5 bg-base-200/60 flex items-center justify-center min-h-[320px]">'
+      + '<div class="p-5 bg-base-200/60 flex flex-col items-center justify-center gap-3 min-h-[320px]">'
+      + '<div class="flex flex-wrap items-center justify-center gap-2" data-oma-vormen></div>'
       + '<canvas data-oma-canvas class="rounded-xl shadow" style="max-width:100%;max-height:62vh;width:auto;height:auto;'
       + 'background-color:#fff;background-image:conic-gradient(#e5e7eb 25%,transparent 0 50%,#e5e7eb 0 75%,transparent 0);background-size:24px 24px"></canvas></div>'
       + '<div class="p-5 overflow-y-auto" style="max-height:72vh" data-oma-bediening><span class="loading loading-spinner"></span></div></div>'
@@ -630,6 +764,7 @@
     v = {
       dlg: dlg,
       canvas: dlg.querySelector('[data-oma-canvas]'),
+      vormen: dlg.querySelector('[data-oma-vormen]'),
       bediening: dlg.querySelector('[data-oma-bediening]'),
       melding: dlg.querySelector('[data-oma-melding]'),
       gegevens: o.gegevens || { palet: [], verhoudingen: [], swirls: [] },
@@ -664,15 +799,12 @@
       fn(Number(el.value));
       var toon = v.bediening.querySelector('[data-oma-waarde="' + naam + '"]');
       if (toon && toonWaarde[naam]) {
-        var nu = naam.indexOf('snij-') === 0 ? v.keuzes.voorgrond.snij[naam.slice(5)] : Number(el.value);
-        toon.textContent = toonWaarde[naam](nu);
+        toon.textContent = toonWaarde[naam](Number(el.value));
       }
       hertekenVoorbeeld();
     });
     dlg.addEventListener('change', function (ev) {
       if (!v) return;
-      var keuze = ev.target.closest('[data-oma-keuze="verhouding"]');
-      if (keuze) { v.keuzes.verhouding = keuze.value; tekenBediening(); hertekenVoorbeeld(); return; }
       var bestand = ev.target.closest('[data-oma-bestand]');
       if (bestand) nieuwBeeld(bestand.files && bestand.files[0]);
     });

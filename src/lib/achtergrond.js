@@ -9,10 +9,10 @@
  *     Het staat RELATIEF: aan een anker (midden, een rand of een hoek), met
  *     een marge tot die rand. Verandert de vorm van het vak, dan blijft het
  *     aan datzelfde anker staan.
- * De voorgrond kan BIJGESNEDEN worden (`snij`, per zijde een deel van het
- * beeld): positief knipt weg, negatief zet er lege ruimte bij. Het anker
- * rekent met het bijgesneden beeld, dus "onderaan, met een stuk eraf"
- * laat het beeld achter de onderrand wegvallen.
+ * De voorgrond kan BIJGESNEDEN worden (`snij`: per zijde het deel van het
+ * beeld dat eraf gaat, 0 = niets). Wat binnen de uitsnede valt, staat ALTIJD
+ * volledig in beeld, welke vorm het vak ook heeft (grootte hoogstens 100%);
+ * de ruimte die overblijft, vult de achtergrond.
  *
  * De browser tekent en maakt er een PNG van (public/om-achtergrond.js); de
  * server bewaart enkel de KEUZES, zodat je ze later kan bijstellen, plus het
@@ -107,14 +107,14 @@ function ankerVan(x, y) {
 function normaliseerSnij(s) {
   const o = s && typeof s === 'object' ? s : {};
   const snij = {
-    boven: getal(o.boven, -0.5, 0.45, 0),
-    onder: getal(o.onder, -0.5, 0.45, 0),
-    links: getal(o.links, -0.5, 0.45, 0),
-    rechts: getal(o.rechts, -0.5, 0.45, 0),
+    boven: getal(o.boven, 0, 0.97, 0),
+    onder: getal(o.onder, 0, 0.97, 0),
+    links: getal(o.links, 0, 0.97, 0),
+    rechts: getal(o.rechts, 0, 0.97, 0),
   };
   // Er moet een stuk van het beeld overblijven.
-  if (1 - snij.links - snij.rechts < 0.05) { snij.links = 0; snij.rechts = 0; }
-  if (1 - snij.boven - snij.onder < 0.05) { snij.boven = 0; snij.onder = 0; }
+  if (1 - snij.links - snij.rechts < 0.03) { snij.links = 0; snij.rechts = 0; }
+  if (1 - snij.boven - snij.onder < 0.03) { snij.boven = 0; snij.onder = 0; }
   return snij;
 }
 
@@ -123,7 +123,7 @@ function normaliseerVoorgrond(v) {
     const g = v.voorgrond;
     return {
       anker: ANKER_SET.has(g.anker) ? g.anker : 'midden',
-      schaal: getal(g.schaal, 0.1, 1.5, 0.8),
+      schaal: getal(g.schaal, 0.1, 1, 0.8),
       marge: getal(g.marge, 0, 0.3, 0.06),
       snij: normaliseerSnij(g.snij),
     };
@@ -132,7 +132,7 @@ function normaliseerVoorgrond(v) {
   const b = v.beeld && typeof v.beeld === 'object' ? v.beeld : {};
   return {
     anker: ankerVan(getal(b.x, -0.5, 1.5, 0.5), getal(b.y, -0.5, 1.5, 0.5)),
-    schaal: getal(b.schaal, 0.1, 1.5, 0.75),
+    schaal: getal(b.schaal, 0.1, 1, 0.75),
     marge: 0.06,
     snij: normaliseerSnij(null),
   };
