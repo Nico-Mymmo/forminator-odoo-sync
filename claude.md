@@ -4080,6 +4080,11 @@ swirls en kijkt de keuzes na. Geen tweede bouwer per module.**
 - **De vormen staan als knoppen BOVEN het voorbeeld** (`tekenVormen()`): een
   klik toont meteen hoe de opmaak in die vorm uitkomt. De gekozen vorm is die
   van de bewaarde PNG.
+- **Schaduw** (`voorgrond.schaduw`: geen, zacht, sterk; 2026-10-20). Twee
+  lagen (`SCHADUWEN` in om-achtergrond.js), in 1% van de korte zijde. De
+  schaduw volgt de NIET-DOORZICHTIGE pixels (canvasschaduw op de voorgrond
+  alleen), nooit het hele vierkant. De voorgrond wordt eerst apart
+  bijgesneden, zodat de schaduw over de rand van de uitsnede mag.
 - **Passen of Vullen** (`voorgrond.modus`, 2026-10-20). Passen = de uitsnede
   staat volledig in beeld (grootte en marge tellen). Vullen = ze bedekt het
   hele vak (grootte en marge tellen niet) en wat te veel is, valt weg AAN DE

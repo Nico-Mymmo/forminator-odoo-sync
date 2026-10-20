@@ -49,7 +49,19 @@
     verhouding: '16:9',
     kleur: '#f0f9ff',
     swirl: { naam: '', kleur: '#bae6fd', schaal: 1.1, x: 0.75, y: 0.35, draai: 0, dekking: 1 },
-    voorgrond: { modus: 'passen', anker: 'midden', schaal: 0.8, marge: 0.06, snij: { boven: 0, onder: 0, links: 0, rechts: 0 } },
+    voorgrond: { modus: 'passen', schaduw: 'geen', anker: 'midden', schaal: 0.8, marge: 0.06, snij: { boven: 0, onder: 0, links: 0, rechts: 0 } },
+  };
+
+  /**
+   * De schaduw onder de voorgrond: twee lagen (een korte, scherpe en een
+   * grote, zachte), zoals een moderne kaart. In eenheden van 1% van de korte
+   * zijde, zodat ze in elke vorm even zwaar oogt. Een canvasschaduw volgt de
+   * niet-doorzichtige pixels: een componentje krijgt dus een schaduw rond
+   * zijn vorm, niet rond het hele beeld.
+   */
+  var SCHADUWEN = {
+    zacht: [{ blur: 1.2, y: 0.4, a: 0.10 }, { blur: 6, y: 3, a: 0.12 }],
+    sterk: [{ blur: 1.6, y: 0.6, a: 0.16 }, { blur: 9, y: 5, a: 0.22 }],
   };
 
   var svgTekst = {};   // pad -> tekst van de SVG (eenmaal ophalen)
@@ -185,12 +197,32 @@
     // Voorgrond: aan zijn anker, bijgesneden tot zijn kader.
     if (imgs.beeld) {
       var p = plaatsVoorgrond(W, H, k.voorgrond, imgs.beeld.naturalWidth || 1, imgs.beeld.naturalHeight || 1);
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect(p.kader.x, p.kader.y, p.kader.w, p.kader.h);
-      ctx.clip();
-      ctx.drawImage(imgs.beeld, p.beeld.x, p.beeld.y, p.beeld.w, p.beeld.h);
-      ctx.restore();
+      // Eerst de bijgesneden voorgrond apart: de schaduw moet over de rand
+      // van de uitsnede heen kunnen, en mag dus niet mee geknipt worden.
+      var laag = document.createElement('canvas');
+      laag.width = W;
+      laag.height = H;
+      var lc = laag.getContext('2d');
+      lc.beginPath();
+      lc.rect(p.kader.x, p.kader.y, p.kader.w, p.kader.h);
+      lc.clip();
+      lc.drawImage(imgs.beeld, p.beeld.x, p.beeld.y, p.beeld.w, p.beeld.h);
+      var lagen = SCHADUWEN[k.voorgrond.schaduw];
+      if (lagen) {
+        var u = Math.min(W, H) / 100;
+        lagen.forEach(function (l) {
+          // Enkel de schaduw: het beeld zelf ligt buiten het vak, de schaduw
+          // wordt er met de verschuiving terug in gezet.
+          ctx.save();
+          ctx.shadowColor = 'rgba(15,23,42,' + l.a + ')';
+          ctx.shadowBlur = l.blur * u;
+          ctx.shadowOffsetX = W * 2;
+          ctx.shadowOffsetY = l.y * u;
+          ctx.drawImage(laag, -W * 2, 0);
+          ctx.restore();
+        });
+      }
+      ctx.drawImage(laag, 0, 0);
       randen.kader = p.kader;
       randen.beeld = p.beeld;
     }
@@ -327,6 +359,10 @@
       + '</div>'
       + (g.modus === 'vullen' ? '' : '<p class="text-xs opacity-60 mt-1">Passen: het beeld staat altijd volledig in beeld. Je kan het ook verslepen: het springt naar het dichtste anker.</p>')
       + '</section>'
+      + '<section><h4 class="font-semibold text-sm mb-1.5">Schaduw</h4><div class="join">'
+      + [['geen', 'Geen'], ['zacht', 'Zacht'], ['sterk', 'Sterk']].map(function (x) {
+        return '<button type="button" class="btn btn-sm join-item ' + ((g.schaduw || 'geen') === x[0] ? 'btn-primary' : 'btn-ghost border border-base-content/15') + '" data-oma="schaduw" data-waarde="' + x[0] + '">' + x[1] + '</button>';
+      }).join('') + '</div><p class="text-xs opacity-60 mt-1">De schaduw volgt de vorm van het beeld, niet het hele vierkant eromheen.</p></section>'
       + '<section><h4 class="font-semibold text-sm mb-1.5">Bijsnijden</h4>'
       + '<div class="flex flex-wrap gap-1.5"><button type="button" class="btn btn-sm btn-outline" data-oma="snij-aan"><i data-lucide="crop" class="w-4 h-4"></i> Bijsnijden</button>'
       + (bijgesneden(g.snij) ? '<button type="button" class="btn btn-sm btn-ghost" data-oma="snij-nul">Hele beeld</button>' : '')
@@ -485,6 +521,7 @@
       wijzig(true);
     },
     'swirl-kleur': function (w) { if (v.keuzes.swirl) { v.keuzes.swirl.kleur = w; wijzig(true); } },
+    'schaduw': function (w) { v.keuzes.voorgrond.schaduw = SCHADUWEN[w] ? w : 'geen'; wijzig(true); },
     'modus': function (w) { v.keuzes.voorgrond.modus = w === 'vullen' ? 'vullen' : 'passen'; wijzig(true); },
     'anker': function (w) { if (ANKERS.indexOf(w) >= 0) { v.keuzes.voorgrond.anker = w; wijzig(true); } },
     'rand-weg': function () {
