@@ -380,6 +380,11 @@
     + '.nb-schakel i::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.25);transition:left .15s}'
     + '.nb-schakel.nb-op i{background:#0284c7}.nb-schakel.nb-op i::after{left:14px}'
     + '[data-nb-toc-schakel]{display:inline-flex;cursor:pointer;vertical-align:middle}'
+    + '.nb-toc-eigen{margin-left:6px;padding:2px 7px;border-radius:999px;background:#fef3c7;color:#92400e;font:600 11px/1.4 system-ui,sans-serif;text-decoration:none}'
+    + '.nb-toc-eigen:hover{background:#92400e;color:#fff}'
+    + '[data-nb-toc-titel][contenteditable]{outline:none;border-radius:4px;cursor:text}'
+    + '[data-nb-toc-titel][contenteditable]:hover{box-shadow:0 0 0 2px rgba(56,189,248,.35)}'
+    + '[data-nb-toc-titel][contenteditable]:focus{box-shadow:0 0 0 2px #38bdf8;text-decoration:none}'
     + '[data-nb-uit]:hover>td{box-shadow:none}[data-nb-uit]:hover div{border-color:#94a3b8}'
     + '.nb-werkbalk .nb-scheid{width:1px;height:18px;background:#e5e7eb;margin:0 2px}'
     + '.nb-werkbalk .nb-greep{cursor:grab;color:#64748b;padding:7px 6px;touch-action:none;user-select:none}'
@@ -475,6 +480,23 @@
       });
       koppelHerordenen(doc);
       if (NB.opmaak) NB.opmaak.koppel(doc);
+      doc.addEventListener('keydown', function (ev) {
+        var t = ev.target.closest && ev.target.closest('[data-nb-toc-titel][contenteditable]');
+        if (!t) return;
+        if (ev.key === 'Enter') { ev.preventDefault(); t.blur(); }
+        else if (ev.key === 'Escape') { ev.preventDefault(); t.setAttribute('data-nb-annuleer', '1'); t.blur(); }
+      });
+      doc.addEventListener('focusout', function (ev) {
+        var t = ev.target.closest && ev.target.closest('[data-nb-toc-titel][contenteditable]');
+        if (!t) return;
+        var id = t.getAttribute('data-nb-toc-titel');
+        var it = itemVan(id);
+        var nu = String((it && it.content && it.content.toc_titel) || '').trim() || t.getAttribute('data-origineel');
+        if (t.hasAttribute('data-nb-annuleer')) { t.removeAttribute('data-nb-annuleer'); t.textContent = nu; return; }
+        var nieuw = t.textContent.replace(/\s+/g, ' ').trim();
+        if (nieuw === nu) return;
+        zetTocTitel(id, nieuw === t.getAttribute('data-origineel') ? '' : nieuw);
+      });
     }
     labels(doc);
     plusLijnen(doc);
@@ -732,6 +754,11 @@
       }
     }
 
+    // De inhoudstafel gekozen: elke regel is typbaar (eigen titel voor die regel).
+    if (soort === 'toc' && editor()) {
+      rij.querySelectorAll('[data-nb-toc-titel]').forEach(function (x) { x.setAttribute('contenteditable', 'true'); x.setAttribute('spellcheck', 'true'); });
+    }
+
     // De werkbalk: wat je snel doet met dit blok.
     var knoppen = [];
     if (editor() && !isVast(soort)) knoppen.push('<span class="nb-greep" data-nb-greep="' + e(s.item.id) + '" title="Sleep om te verplaatsen">⠿</span>');
@@ -883,6 +910,7 @@
     else if (wat === 'omhoog' || wat === 'omlaag') verplaats(s.item.id, wat === 'omhoog' ? -1 : 1);
     else if (wat === 'kleur') kiesBlokKleur(s.item.id, anker);
     else if (wat.indexOf('toclijn:') === 0) zetInToc(wat.slice(8));
+    else if (wat.indexOf('toctitel-terug:') === 0) zetTocTitel(wat.slice(15), '');
     else if (wat === 'weg') NB.actions['blok-weg']({ dataset: { id: s.item.id } });
     else if (wat === 'aanuit') zetAan(s.item.id, !!(NB.state.concept.content || {}).uit);
   }
@@ -931,6 +959,24 @@
       if (NB.state.stukje && NB.state.stukje.item.id === id) {
         NB.state.stukje.item.content = bij.content;
         if (NB.state.concept) NB.state.concept.content.in_toc = aan;
+      }
+      laadBrief();
+    } catch (err) { NB.fout(err); }
+  }
+
+  /** Eigen titel voor een regel in de inhoudstafel; '' = terug naar het origineel. */
+  async function zetTocTitel(id, titel) {
+    var it = itemVan(id);
+    if (!it) return;
+    try {
+      var bij = await NB.api('/api/contributions/' + id + '/toc-titel', { method: 'POST', body: { titel: titel } });
+      it.content = bij.content;
+      if (NB.state.stukje && NB.state.stukje.item.id === id) {
+        NB.state.stukje.item.content = bij.content;
+        if (NB.state.concept) {
+          if (bij.content.toc_titel) NB.state.concept.content.toc_titel = bij.content.toc_titel;
+          else delete NB.state.concept.content.toc_titel;
+        }
       }
       laadBrief();
     } catch (err) { NB.fout(err); }

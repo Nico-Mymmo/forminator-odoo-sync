@@ -3861,6 +3861,11 @@ bleken drie dingen niet te kloppen. Alle drie zijn gefixt in `lib/sync.js`,
   in render.js, `ctx.tocAlle`); wat eruit staat is grijs en doorstreept, zonder
   nummer. Bewaard blijft `content.in_toc` per blok (route `/in-toc`). Er is GEEN
   knop meer per blok (werkbalk of paneel). In de mail enkel wat erin staat.
+  Woordje vooraf en "Tot de volgende" staan er nooit in (ook niet als lijn).
+  Een regel krijgt een EIGEN titel door erin te typen als de inhoudstafel
+  gekozen is (`content.toc_titel` op het blok, route `/toc-titel`,
+  `tocTitel()` in render.js); een geel labeltje toont dat ze aangepast is en
+  zet ze met een klik terug naar het origineel (de kop van het blok).
 - **Het woordje vooraf staat NOOIT in de inhoudstafel**, ook niet met een
   oude `in_toc: true`: `inToc()` (render.js) en `NB.inToc()` geven altijd
   false, en de knop Inhoudstafel staat er niet bij.
