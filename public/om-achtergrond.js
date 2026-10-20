@@ -49,7 +49,7 @@
     verhouding: '16:9',
     kleur: '#f0f9ff',
     swirl: { naam: '', kleur: '#bae6fd', schaal: 1.1, x: 0.75, y: 0.35, draai: 0, dekking: 1 },
-    voorgrond: { anker: 'midden', schaal: 0.8, marge: 0.06, snij: { boven: 0, onder: 0, links: 0, rechts: 0 } },
+    voorgrond: { modus: 'passen', anker: 'midden', schaal: 0.8, marge: 0.06, snij: { boven: 0, onder: 0, links: 0, rechts: 0 } },
   };
 
   var svgTekst = {};   // pad -> tekst van de SVG (eenmaal ophalen)
@@ -133,7 +133,21 @@
     var m = g.marge * Math.min(W, H);
     var h = hor(g.anker);
     var vv = ver(g.anker);
-    // De uitsnede past ALTIJD volledig, ook met de marge erbij.
+    if (g.modus === 'vullen') {
+      // VULLEN: de uitsnede bedekt het hele vak. Wat te veel is, valt over de
+      // rand AAN DE KANT VAN HET ANKER: linksboven = het beeld schuift naar
+      // linksboven en valt daar weg; rechtsonder blijft tegen de rand.
+      var fv = Math.max(W / sw, H / sh);
+      var vw = sw * fv;
+      var vh = sh * fv;
+      var vx = h === 0 ? W - vw : h === 2 ? 0 : (W - vw) / 2;
+      var vy = vv === 0 ? H - vh : vv === 2 ? 0 : (H - vh) / 2;
+      return {
+        kader: { x: vx, y: vy, w: vw, h: vh },
+        beeld: { x: vx - s.links * iw * fv, y: vy - s.boven * ih * fv, w: iw * fv, h: ih * fv },
+      };
+    }
+    // PASSEN: de uitsnede staat ALTIJD volledig in beeld, ook met de marge erbij.
     var ruimW = Math.max(1, W - (h === 1 ? 0 : m));
     var ruimH = Math.max(1, H - (vv === 1 ? 0 : m));
     var f = Math.min(Math.min(1, g.schaal) * W / sw, Math.min(1, g.schaal) * H / sh, ruimW / sw, ruimH / sh);
@@ -299,11 +313,20 @@
       + '<section><h4 class="font-semibold text-sm mb-1.5">Beeld</h4><div class="flex flex-wrap gap-1.5">'
       + (v.oplaad ? '<label class="btn btn-xs btn-outline">Ander beeld…<input type="file" accept="image/*" class="hidden" data-oma-bestand></label>' : '')
       + '</div></section>'
-      + '<section><h4 class="font-semibold text-sm mb-1.5">Plaats</h4><div class="flex gap-4 items-start">' + ankerRaster(g.anker)
-      + '<div class="flex-1 flex flex-col gap-2">'
-      + schuif('Grootte', 'vg-schaal', Math.min(1, g.schaal), 0.1, 1, 0.01, procent)
-      + schuif('Afstand tot de rand', 'vg-marge', g.marge, 0, 0.3, 0.005, procent)
-      + '</div></div><p class="text-xs opacity-60 mt-1">Je kan het beeld ook verslepen: het springt naar het dichtste anker.</p></section>'
+      + '<section><h4 class="font-semibold text-sm mb-1.5">Plaats</h4>'
+      + '<div class="join mb-3">'
+      + '<button type="button" class="btn btn-sm join-item ' + (g.modus !== 'vullen' ? 'btn-primary' : 'btn-ghost border border-base-content/15') + '" data-oma="modus" data-waarde="passen">Passen</button>'
+      + '<button type="button" class="btn btn-sm join-item ' + (g.modus === 'vullen' ? 'btn-primary' : 'btn-ghost border border-base-content/15') + '" data-oma="modus" data-waarde="vullen">Vullen</button></div>'
+      + '<div class="flex gap-4 items-start">' + ankerRaster(g.anker)
+      + (g.modus === 'vullen'
+        ? '<p class="flex-1 text-xs opacity-70">Het beeld vult het hele vak. Wat te veel is, valt weg aan de kant die je kiest: linksboven = wat te veel is valt links en boven weg.</p>'
+        : '<div class="flex-1 flex flex-col gap-2">'
+          + schuif('Grootte', 'vg-schaal', Math.min(1, g.schaal), 0.1, 1, 0.01, procent)
+          + schuif('Afstand tot de rand', 'vg-marge', g.marge, 0, 0.3, 0.005, procent)
+          + '</div>')
+      + '</div>'
+      + (g.modus === 'vullen' ? '' : '<p class="text-xs opacity-60 mt-1">Passen: het beeld staat altijd volledig in beeld. Je kan het ook verslepen: het springt naar het dichtste anker.</p>')
+      + '</section>'
       + '<section><h4 class="font-semibold text-sm mb-1.5">Bijsnijden</h4>'
       + '<div class="flex flex-wrap gap-1.5"><button type="button" class="btn btn-sm btn-outline" data-oma="snij-aan"><i data-lucide="crop" class="w-4 h-4"></i> Bijsnijden</button>'
       + (bijgesneden(g.snij) ? '<button type="button" class="btn btn-sm btn-ghost" data-oma="snij-nul">Hele beeld</button>' : '')
@@ -462,6 +485,7 @@
       wijzig(true);
     },
     'swirl-kleur': function (w) { if (v.keuzes.swirl) { v.keuzes.swirl.kleur = w; wijzig(true); } },
+    'modus': function (w) { v.keuzes.voorgrond.modus = w === 'vullen' ? 'vullen' : 'passen'; wijzig(true); },
     'anker': function (w) { if (ANKERS.indexOf(w) >= 0) { v.keuzes.voorgrond.anker = w; wijzig(true); } },
     'rand-weg': function () {
       if (!v.beeld) return;
@@ -659,6 +683,8 @@
       }
       var laag = laagOp(p);
       if (!laag) return;
+      // Bij Vullen ligt het beeld vast tegen de randen: niets te verslepen.
+      if (laag === 'beeld' && v.keuzes.voorgrond.modus === 'vullen') return;
       sleep = laag === 'swirl'
         ? { laag: laag, p: p, x: v.keuzes.swirl.x, y: v.keuzes.swirl.y }
         : { laag: laag, p: p, kader: Object.assign({}, v.randen.kader) };
