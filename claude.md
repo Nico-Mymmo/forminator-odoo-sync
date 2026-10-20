@@ -3839,6 +3839,18 @@ bleken drie dingen niet te kloppen. Alle drie zijn gefixt in `lib/sync.js`,
   eerder bericht in die draad op. Zonder die aanpassing zou een antwoord op een mail die
   destijds naar twee leads ging, alsnog maar bij één van de twee terechtkomen.
 
+## Nieuwsbrief: een mailing verwijderen (2026-10-20)
+
+- De hoofdredactie kan een mailing echt VERWIJDEREN (`DELETE /api/editions/:id`,
+  `deleteEdition()` in store.js): in het paneel Editie ("Mailing verwijderen") en
+  met het vuilbakje in het paneel van de kalender. Eerst de blokken (hun
+  `edition_id` staat op SET NULL: anders belanden ze als ideeën in de voorraad),
+  dan de editie; opmerkingen, antwoorden en activiteit gaan mee. Een verstuurde
+  of al aan Odoo gegeven mailing kan niet weg (archief). De schrijftaken in
+  Projecten worden afgevinkt. "Editie annuleren" is daarmee uit het scherm.
+- Een gewone MAANDeditie maakt de cron nadien opnieuw aan (`zorgVoorEdities`
+  telt enkel wat bestaat en niet geannuleerd is); dat staat in de bevestiging.
+
 ## Nieuwsbrief: drie modi -- Layouter, Schrijver, Lezer (2026-10-20)
 
 Bovenaan de redactietafel (`modusSchakel()` in newsletters-edition.js): tekst met

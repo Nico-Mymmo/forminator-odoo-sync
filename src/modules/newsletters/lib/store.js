@@ -160,6 +160,18 @@ export async function updateEdition(env, id, values) {
   return data;
 }
 
+/**
+ * Een editie echt weghalen, met haar blokken. Eerst de blokken: hun
+ * `edition_id` staat op SET NULL, en dan zouden ze als ideeën in de voorraad
+ * belanden. Opmerkingen, antwoorden en activiteit gaan mee (CASCADE).
+ */
+export async function deleteEdition(env, id) {
+  const { error: e1 } = await db(env).from(TABLES.contributions).delete().eq('edition_id', id);
+  check(e1, 'Blokken van de editie verwijderen');
+  const { error } = await db(env).from(TABLES.editions).delete().eq('id', id);
+  check(error, 'Editie verwijderen');
+}
+
 // ─── Bijdragen ──────────────────────────────────────────────────────────────
 
 export async function listContributions(env, editionId) {

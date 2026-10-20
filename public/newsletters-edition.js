@@ -268,7 +268,7 @@
       + '<div class="divider my-1"></div>'
       + '<div class="text-sm"><span class="text-xs opacity-60 block">Ontvangers</span>' + (sm === 'live' ? lijstNamen() : '<span class="opacity-80">Teststand: een testmail gaat enkel naar de collega\'s die je aanvinkt.</span><span class="block text-xs opacity-60">Bij een echte verzending: ' + lijstNamen() + '</span>') + '</div>'
       + (d().series.chat_channel && mag ? '<button class="btn btn-sm btn-ghost self-start" data-action="herinner"><i data-lucide="bell" class="w-4 h-4"></i> Herinner iedereen in de chat</button>' : '')
-      + (mag ? '<button class="btn btn-xs btn-ghost self-start opacity-60" data-action="annuleer-editie">Editie annuleren</button>' : ''));
+      + (mag || (ed.status === 'scheduled' && !ed.odoo_mailing_id) ? '<button class="btn btn-sm btn-ghost text-error self-start" data-action="verwijder-editie" data-id="' + e(ed.id) + '"><i data-lucide="trash-2" class="w-4 h-4"></i> Mailing verwijderen</button>' : ''));
   }
 
   /** Aan/uit voor de blokken met een vaste plek (enkel de hoofdredactie). */
@@ -1879,6 +1879,22 @@
       NB.state.concept = null;
       history.replaceState(null, '', '#/editie/' + d().edition.id);
       herlaad({ open: null });
+    } catch (err) { NB.fout(err); }
+  };
+
+  /** Een mailing weghalen, met al haar blokken (hoofdredactie; niet als ze verstuurd is). Ook vanuit de kalender. */
+  NB.actions['verwijder-editie'] = async function (el) {
+    var id = el.dataset.id || (d() && d().edition.id);
+    if (!id) return;
+    var ja = await NB.bevestig({ titel: 'Mailing verwijderen?', tekst: 'De mailing verdwijnt, met alle blokken, tekst en opmerkingen erin. Dit kan niet ongedaan gemaakt worden. (Een gewone maandeditie maakt de OM nadien vanzelf opnieuw aan, leeg.)', knop: 'Verwijderen' });
+    if (!ja) return;
+    try {
+      NB.state.vuil = false;
+      NB.state.inlineVuil = false;
+      await NB.api('/api/editions/' + id, { method: 'DELETE' });
+      NB.toast('Mailing verwijderd.', 'info');
+      NB.state.paneelEditie = null;
+      NB.ga('#/');
     } catch (err) { NB.fout(err); }
   };
 

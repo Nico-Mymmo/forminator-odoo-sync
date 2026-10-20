@@ -9,7 +9,7 @@
 
 import {
   NewsletterError, listSeries, getSeries, insertSeries, updateSeries, normalizeSeriesPayload,
-  listEditions, listEditionsRange, getEdition, updateEdition, listContributions, listContributionsForEditions,
+  listEditions, listEditionsRange, getEdition, updateEdition, deleteEdition, listContributions, listContributionsForEditions,
   listPool, listMine, getContribution, insertContributions, updateContribution, deleteContribution,
   listComments, countComments, addComment, getComment, resolveComment, logActivity, listActivity, listUsers, isActiveEdition,
 } from './lib/store.js';
@@ -656,6 +656,25 @@ export const routes = {
         if (edition.status === EDITION_STATUS.REVIEW && deadline > new Date() && !isBlanco(edition)) w.status = EDITION_STATUS.COLLECTING;
       }
       return json({ success: true, data: await updateEdition(env, edition.id, w) });
+    } catch (err) { return fout(err); }
+  },
+
+  /**
+   * Een mailing verwijderen (enkel de hoofdredactie). Niet als ze verstuurd
+   * is of al aan Odoo gegeven: dat is het archief. De schrijftaken in
+   * Projecten worden afgevinkt, ze wijzen nergens meer naar.
+   */
+  'DELETE /api/editions/:id': async ({ env, user, params }) => {
+    try {
+      const { edition, series } = await editieMetReeks(env, params.id);
+      eisEditor(user, series);
+      if (edition.status === EDITION_STATUS.SENT || edition.odoo_mailing_id) {
+        throw new NewsletterError('Een verstuurde mailing blijft bewaard en kan niet verwijderd worden.', 409);
+      }
+      const items = await listContributions(env, edition.id);
+      await deleteEdition(env, edition.id);
+      for (const it of items) await zetTakenKlaar(env, `schrijf:${it.id}`, true, user.id);
+      return json({ success: true });
     } catch (err) { return fout(err); }
   },
 
