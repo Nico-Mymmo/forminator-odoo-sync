@@ -69,8 +69,8 @@
     .nb-toast { position: fixed; right: 1rem; bottom: 1rem; z-index: 1000; display: flex; flex-direction: column; gap: .5rem; }
 
     /* De redactietafel: dezelfde pagina als de kalender (zelfde breedte, kop
-       en achtergrond), maar ze vult de hoogte: links de brief in een kaart die
-       zelf scrolt, rechts de regie die zelf scrolt. Elk vak EEN scrollbar. */
+       en achtergrond), maar ze vult de hoogte: links de brief, rechtstreeks op de
+       achtergrond (geen kaart eromheen), die zelf scrolt, rechts de regie die zelf scrolt. Elk vak EEN scrollbar. */
     body.nb-werk { overflow: hidden; }
     body.nb-werk #nbBanner { display: none; }
     body.nb-werk main { height: 100vh; box-sizing: border-box; padding-bottom: 1rem !important; display: flex; flex-direction: column; }
@@ -79,7 +79,7 @@
     .nb-werkvenster { height: 100%; display: flex; flex-direction: column; min-height: 0; }
     .nb-kop { flex: none; margin-bottom: 1rem; }
     .nb-werkvlak { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 400px; grid-template-rows: minmax(0, 1fr); gap: 1rem; }
-    .nb-briefvak { overflow-y: auto; overflow-x: hidden; padding: 1.25rem 1.25rem 4rem; scroll-behavior: smooth; background: oklch(var(--b1)); border: 1px solid oklch(var(--bc) / .1); border-radius: var(--rounded-box, 1rem); }
+    .nb-briefvak { overflow-y: auto; overflow-x: hidden; padding: 0 0 4rem; scroll-behavior: smooth; }
     .nb-briefkader { margin: 0 auto; max-width: 700px; transition: max-width .2s; }
     .nb-briefkader.nb-gsm { max-width: 375px; }
     .nb-regie { overflow-y: auto; padding-right: .25rem; }

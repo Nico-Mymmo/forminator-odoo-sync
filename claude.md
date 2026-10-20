@@ -5742,8 +5742,9 @@ Afspraken die bewust zo zijn:
   (`max-w-7xl`), achtergrond en kop (titel met icoon, een regel uitleg, acties
   rechts: Blok, Testmail, Verzenden), daaronder de stappen Verzamelen ->
   Nalezen -> Testen -> Inplannen -> Verzonden en Werken/Als lezer,
-  computer/gsm. Ze vult wel de hoogte (`body.nb-werk`): links de brief in een
-  kaart die zelf scrolt (`#nbBriefvak`), rechts de regie die zelf scrolt
+  computer/gsm. Ze vult wel de hoogte (`body.nb-werk`): links de brief, zonder
+  kaart eromheen (die witte schil was overbodig), in een vak dat zelf scrolt
+  (`#nbBriefvak`), rechts de regie die zelf scrolt
   (`#nbPaneel`). De pagina zelf scrolt niet: elk vak EEN scrollbar.
   De brief komt van `POST /api/editions/:id/preview` (dezelfde renderer); wat
   je typt gaat als `override` mee. Klik op een blok: het paneel toont zijn
