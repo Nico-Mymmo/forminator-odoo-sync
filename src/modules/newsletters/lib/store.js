@@ -3,7 +3,7 @@
  */
 
 import { getSupabaseClient } from '../../../lib/database.js';
-import { TABLES, CONTRIBUTION_STATUS, EDITION_STATUS, KINDS, isKind } from './constants.js';
+import { TABLES, CONTRIBUTION_STATUS, EDITION_STATUS, KINDS, isKind, vasteVolgorde } from './constants.js';
 
 export class NewsletterError extends Error {
   constructor(message, status = 400) {
@@ -166,7 +166,8 @@ export async function listContributions(env, editionId) {
   const { data, error } = await db(env).from(TABLES.contributions).select('*')
     .eq('edition_id', editionId).order('position').order('created_at');
   check(error, 'Stukjes lezen');
-  return data || [];
+  // Woordje vooraf en inhoudstafel bovenaan, afsluiting onderaan (VASTE_PLEK).
+  return vasteVolgorde(data || []);
 }
 
 export async function listContributionsForEditions(env, editionIds) {

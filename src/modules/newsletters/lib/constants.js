@@ -38,6 +38,26 @@ export const CONTRIBUTION_STATUS = {
  * De SLEUTELS liggen vast zodra er bijdragen bestaan: ze staan in
  * newsletter_contributions.kind.
  */
+/**
+ * Blokken met een VASTE plek (2026-10-20): het woordje vooraf staat altijd
+ * bovenaan, de inhoudstafel er meteen onder, de afsluiting altijd onderaan.
+ * De hoofdredactie zet ze aan of uit, maar kan ze nergens anders zetten.
+ * EEN regel voor lezen (listContributions), toevoegen en herordenen.
+ */
+export const VASTE_PLEK = { intro: 0, toc: 1, closing: 3 };
+const GEWONE_PLEK = 2;
+
+export function plekRang(kind) {
+  return Object.prototype.hasOwnProperty.call(VASTE_PLEK, kind) ? VASTE_PLEK[kind] : GEWONE_PLEK;
+}
+
+/** Dezelfde lijst, met de vaste blokken op hun plek; de rest houdt zijn volgorde. */
+export function vasteVolgorde(items) {
+  return items.map((it, i) => [it, i])
+    .sort((a, b) => plekRang(a[0].kind) - plekRang(b[0].kind) || a[1] - b[1])
+    .map((x) => x[0]);
+}
+
 export const KINDS = {
   intro:     { label: 'Woordje vooraf' },
   heading:   { label: 'Titel boven een reeks blokken' },

@@ -3839,6 +3839,18 @@ bleken drie dingen niet te kloppen. Alle drie zijn gefixt in `lib/sync.js`,
   eerder bericht in die draad op. Zonder die aanpassing zou een antwoord op een mail die
   destijds naar twee leads ging, alsnog maar bij één van de twee terechtkomen.
 
+## Nieuwsbrief: vaste blokken (2026-10-20)
+
+- **Woordje vooraf staat altijd bovenaan, de inhoudstafel er meteen onder,
+  "Tot de volgende" altijd onderaan.** De hoofdredactie zet ze aan of uit
+  (paneel "Vaste blokken", of "Iets toevoegen" -> Vaste plek), maar kan ze
+  nergens anders zetten: geen handvat, geen omhoog/omlaag, geen "+" ervoor of
+  ertussen. Een per mailing (ook het woordje vooraf, en enkel de hoofdredactie).
+- EEN regel: `VASTE_PLEK` + `vasteVolgorde()` in lib/constants.js, toegepast
+  bij het lezen (`listContributions()`), bij het toevoegen en bij `/order`. Het
+  scherm volgt dezelfde regel (`VAST` in newsletters-edition.js). Uitzetten =
+  het blok weghalen (met de tekst erin); aanzetten begint leeg.
+
 ## Nieuwsbrief: een blanco mailing (2026-10-15)
 
 - **Wat**: marketing (hoofdredactie van de reeks) maakt in "Nieuwe editie" een

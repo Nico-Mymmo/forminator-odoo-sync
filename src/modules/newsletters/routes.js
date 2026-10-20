@@ -31,7 +31,7 @@ import { linkVoorbeeld, eventsVoorEditie, auteurs, tekeningen, eventsTussen, bed
 import { stuurHerinnering } from './lib/cron.js';
 import { hostBeelden, BEELDEN_MAP } from './lib/beelden-hosten.js';
 import { naamVoor, medewerkerVoorOdooGebruiker, medewerkersVoorGebruikers } from '../../lib/medewerkers.js';
-import { isEmail } from './lib/constants.js';
+import { isEmail, vasteVolgorde } from './lib/constants.js';
 import { lijstTekeningen, pngSleutel, vergeetTekeningen } from '../av-slides/lib/thingies.js';
 import { listIntegrations } from '../forminator-sync-v2/database.js';
 import { listVimeoVideos, getVimeoVideo, idFromVimeoUrl, resolveVideoWithoutToken } from '../event-operations-v2/lib/vimeo.js';
@@ -749,17 +749,18 @@ export const routes = {
       const positie = afsluiting ? afsluiting.position - 1 : laatste + 10;
 
       // Gekozen plek in de brief: `after_id` = het stukje waarna het komt,
-      // '' = helemaal bovenaan. Iedereen die iets toevoegt, kiest zijn plek;
-      // de hoofdredactie kan het nadien nog verschuiven.
-      const plaats = async (nieuwId) => {
-        if (b.after_id === undefined || b.after_id === null) return;
-        const volgorde = items.map((i) => i.id).filter((id) => id !== nieuwId);
-        const na = b.after_id ? volgorde.indexOf(String(b.after_id)) : -1;
-        if (b.after_id && na < 0) return;
-        volgorde.splice(na + 1, 0, nieuwId);
+      // '' = helemaal bovenaan, niets = net voor de afsluiting. Iedereen die
+      // iets toevoegt, kiest zijn plek; de hoofdredactie kan het nadien nog
+      // verschuiven. Woordje vooraf, inhoudstafel en afsluiting gaan altijd
+      // naar hun vaste plek (VASTE_PLEK), wat er ook gekozen is.
+      const plaats = async (nieuwId, nieuwKind) => {
+        const volgorde = items.filter((i) => i.id !== nieuwId).map((i) => ({ id: i.id, kind: i.kind }));
+        let na = b.after_id ? volgorde.findIndex((i) => i.id === String(b.after_id)) : -1;
+        if (b.after_id === undefined || b.after_id === null || (b.after_id && na < 0)) na = volgorde.length - 1;
+        volgorde.splice(na + 1, 0, { id: nieuwId, kind: nieuwKind });
         const oud = new Map(items.map((i) => [i.id, i.position]));
         let pos = 10;
-        for (const id of volgorde) {
+        for (const { id } of vasteVolgorde(volgorde)) {
           if (oud.get(id) !== pos) await updateContribution(env, id, { position: pos });
           pos += 10;
         }
@@ -770,15 +771,16 @@ export const routes = {
         const p = await getContribution(env, b.from_pool_id);
         if (!p || p.edition_id) throw new NewsletterError('Dat idee staat niet (meer) in de voorraad.', 404);
         const bij = await updateContribution(env, p.id, { edition_id: edition.id, position: positie });
-        await plaats(p.id);
+        await plaats(p.id, p.kind);
         await logActivity(env, { editionId: edition.id, contributionId: p.id, userId: user.id, kind: 'added', text: `"${p.title}" uit de voorraad opgenomen` });
         return json({ success: true, data: bij }, 201);
       }
 
       const kind = String(b.kind || '');
       if (!isKind(kind)) throw new NewsletterError('Onbekende soort stukje.');
-      // Een blok dat zichzelf vult (inhoudstafel, agenda, afsluiting): enkel de hoofdredactie, en maar één per mailing.
-      if (KINDS[kind].auto) {
+      // Een blok dat zichzelf vult (inhoudstafel, agenda, afsluiting) en het
+      // woordje vooraf: enkel de hoofdredactie zet ze aan, en maar één per mailing.
+      if (KINDS[kind].auto || kind === 'intro') {
         eisEditor(user, series);
         if (items.some((i) => i.kind === kind)) throw new NewsletterError(`Er staat al een ${KINDS[kind].label.toLowerCase()} in deze mailing.`, 409);
       }
@@ -800,7 +802,7 @@ export const routes = {
         source: kort(b.source, 300),
         created_by: user.id,
       }]);
-      await plaats(rij.id);
+      await plaats(rij.id, kind);
       await logActivity(env, { editionId: edition.id, contributionId: rij.id, userId: user.id, kind: 'added', text: `Stukje "${rij.title}" toegevoegd` });
       return json({ success: true, data: rij }, 201);
     } catch (err) { return fout(err); }
@@ -812,11 +814,12 @@ export const routes = {
       eisEditor(user, series);
       const ids = (await leesBody(request)).ids || [];
       const items = await listContributions(env, edition.id);
-      const bekend = new Set(items.map((i) => i.id));
+      const perId = new Map(items.map((i) => [i.id, i]));
+      // De vaste blokken blijven op hun plek, waar ze ook naartoe gesleept werden.
+      const volgorde = vasteVolgorde(ids.filter((id) => perId.has(id)).map((id) => perId.get(id)));
       let pos = 10;
-      for (const id of ids) {
-        if (!bekend.has(id)) continue;
-        await updateContribution(env, id, { position: pos });
+      for (const it of volgorde) {
+        if (it.position !== pos) await updateContribution(env, it.id, { position: pos });
         pos += 10;
       }
       return json({ success: true });
