@@ -90,6 +90,13 @@
     .nb-stap-nu { background: oklch(var(--p) / .12); color: oklch(var(--p)); font-weight: 600; }
     .nb-stap + .nb-stap::before { content: ''; }
     .nb-pijl { opacity: .3; }
+    /* De drie modi: tekst met een streepje onder de gekozen modus, geen vlak (bewust
+       geen tabs-boxed: het is een modus, geen tabblad, en het mag niet opvallen). */
+    .nb-modi { display: inline-flex; gap: 1.25rem; border-bottom: 1px solid oklch(var(--bc) / .1); }
+    .nb-modus { display: inline-flex; align-items: center; gap: .4rem; padding: .35rem 0 .45rem; margin-bottom: -1px; border-bottom: 2px solid transparent; font-size: .875rem; font-weight: 500; color: oklch(var(--bc) / .55); transition: color .15s, border-color .15s; }
+    .nb-modus:hover:not([disabled]) { color: oklch(var(--bc)); }
+    .nb-modus-aan { color: oklch(var(--p)); border-bottom-color: oklch(var(--p)); }
+    .nb-modus[disabled] { opacity: .35; cursor: not-allowed; }
     @media (max-width: 1023px) {
       body.nb-werk { overflow: auto; }
       body.nb-werk main { height: auto; display: block; }

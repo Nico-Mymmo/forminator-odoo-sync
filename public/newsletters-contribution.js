@@ -906,7 +906,7 @@
     var naam = NAAM_HIER[kind] && !auto
       ? '<input class="input input-ghost input-sm text-base font-bold px-1 w-full" data-veld="title" value="' + e(c().title) + '" placeholder="' + e(NB.soort(kind)) + '" aria-label="Naam boven het blok" title="Het labeltje boven het blok in de mail"' + (st.can_edit ? '' : ' disabled') + '>'
       : '<div class="text-base font-bold px-1 truncate">' + e(NB.blokNaam(Object.assign({}, it, { title: c().title, content: c().content }))) + '</div>';
-    var beheer = editor() && actiefEditie()
+    var beheer = editor() && actiefEditie() && (!NB.isLayout || NB.isLayout())
       ? '<details class="collapse collapse-arrow bg-base-100 border border-base-content/10"><summary class="collapse-title font-semibold text-sm min-h-0 py-3">Hoofdredactie</summary><div class="collapse-content flex flex-col gap-3">'
         + (auto ? '<p class="text-sm opacity-70">Dit blok vult zichzelf.</p>' : '<label class="form-control"><span class="label-text text-xs mb-1">Wie schrijft het?</span><select class="select select-bordered select-sm" data-change="eigenaar" data-id="' + e(it.id) + '">' + NB.gebruikersOpties(it.owner_user_id, true) + '</select></label>')
         + (auto ? '' : '<div><span class="label-text text-xs">Soort blok</span><div class="mt-1">' + soortKeuze() + '</div></div>')
@@ -924,7 +924,7 @@
       + '<div class="flex flex-col gap-3">' + instellingen(kind) + '</div>'
       + '</div></div>'
       + (knoppen.length ? '<div class="sticky bottom-0 z-10 bg-base-100 border border-base-content/10 rounded-xl p-2 flex flex-wrap gap-2 shadow-sm">' + knoppen.join('') + '</div>' : '')
-      + opmaakKaart() + beheer + opmerkingen()
+      + (NB.isSchrijver && NB.isSchrijver() ? '' : opmaakKaart()) + beheer + opmerkingen()
       + '</div>';
     NB.ikons();
   }

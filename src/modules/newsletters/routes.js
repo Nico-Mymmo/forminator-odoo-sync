@@ -79,6 +79,15 @@ async function editieMetReeks(env, id) {
   return { edition, series };
 }
 
+/**
+ * Opmerkingen bij een blok zien de hoofdredactie en wie het blok schrijft;
+ * een andere collega (lezer) ziet enkel wat hij zelf schreef.
+ */
+function zichtbareOpmerkingen(rijen, user, item, series) {
+  if (isEditorVan(user, series) || item.owner_user_id === user.id) return rijen;
+  return rijen.filter((c) => c.user_id === user.id);
+}
+
 async function stukjeMetContext(env, id) {
   const item = await getContribution(env, id);
   if (!item) throw new NewsletterError('Stukje niet gevonden.', 404);
@@ -688,6 +697,8 @@ export const routes = {
       const { edition, series } = await editieMetReeks(env, params.id);
       const b = await leesBody(request);
       const mode = b.mode === 'test' ? 'test' : 'preview';
+      // Lezer in de OM: de mail zoals verstuurd, maar elk blok aanklikbaar (opmerkingen).
+      const markeer = mode === 'test' && b.lees === true;
       const v = await verzamel(env, series, edition, { png: mode !== 'preview' });
       const o = b.override && typeof b.override === 'object' ? b.override : null;
       let items = o?.id ? v.items.map((it) => {
@@ -705,7 +716,7 @@ export const routes = {
       items = items.map((it) => metOndertekening(it, v.auteurs));
       const { html, open } = renderEdition({
         series, edition, items, mode,
-        ctx: { ...v.ctx, answerLink: antwoordLinks(series, 'preview', false) },
+        ctx: { ...v.ctx, answerLink: antwoordLinks(series, 'preview', false), markeer },
       });
       return json({ success: true, data: { html, open: open.length } });
     } catch (err) { return fout(err); }
@@ -971,7 +982,8 @@ export const routes = {
   'GET /api/contributions/:id': async ({ env, user, params }) => {
     try {
       const { item, edition, series } = await stukjeMetContext(env, params.id);
-      const [users, comments] = await Promise.all([listUsers(env), listComments(env, item.id)]);
+      const [users, alle] = await Promise.all([listUsers(env), listComments(env, item.id)]);
+      const comments = zichtbareOpmerkingen(alle, user, item, series);
       const sectie = (series?.sections || []).find((s) => s.key === item.section_key) || null;
       return json({
         success: true,
@@ -1195,10 +1207,12 @@ export const routes = {
     } catch (err) { return fout(err); }
   },
 
-  'GET /api/contributions/:id/comments': async ({ env, params }) => {
+  'GET /api/contributions/:id/comments': async ({ env, user, params }) => {
     try {
-      const [rijen, users] = await Promise.all([listComments(env, params.id), listUsers(env)]);
-      return json({ success: true, data: rijen.map((c) => ({ ...c, user_name: naamVan(users, c.user_id) })) });
+      const { item, series } = await stukjeMetContext(env, params.id);
+      const [rijen, users] = await Promise.all([listComments(env, item.id), listUsers(env)]);
+      const zichtbaar = zichtbareOpmerkingen(rijen, user, item, series);
+      return json({ success: true, data: zichtbaar.map((c) => ({ ...c, user_name: naamVan(users, c.user_id) })) });
     } catch (err) { return fout(err); }
   },
 

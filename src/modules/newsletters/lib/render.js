@@ -1219,7 +1219,11 @@ export function renderEdition({ series, edition, items, mode = 'preview', ctx = 
     }
     if (meeIds.has(it.id)) {
       const maak = BLOKKEN[it.kind];
-      if (maak) rijen.push(metAchtergrond(maak(it, blokCtx, id), it.content?.achtergrond, it.kind));
+      if (maak) {
+        const html = metAchtergrond(maak(it, blokCtx, id), it.content?.achtergrond, it.kind);
+        // Lezer in de OM: het blok aanwijsbaar maken voor een opmerking (nooit in een echte mail).
+        rijen.push(ctx.markeer && html ? html.replace(/<tr/, `<tr data-nb-lees="${esc(it.id)}"`) : html);
+      }
     } else if (mode === 'preview' && IN_DE_BRIEF.has(it.kind)) {
       // Wat je IN de brief invult, staat er ook leeg al (met plaatshouders).
       open.push(it);
