@@ -154,7 +154,7 @@
     // Dezelfde kop als de kalender (newsletters-overview.js): titel met icoon,
     // een regel uitleg eronder, de acties rechts. Daaronder de stappen en de weergave.
     var info = [];
-    info.push('<a class="hover:underline" href="#/">Nieuwsbrieven</a> · ' + e(d().series.name));
+    info.push(e(d().series.name));
     if (wanneer) info.push(wanneer);
     if (actief()) {
       info.push('verzenddag ' + e(NB.datum(ed.send_at, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })));
@@ -162,7 +162,8 @@
     }
     if (stats) info.push((stats.sent || 0) + ' verzonden · ' + Math.round(stats.opened_ratio || 0) + '% geopend · ' + Math.round(stats.clicks_ratio || 0) + '% geklikt');
     return '<div class="flex flex-wrap items-center justify-between gap-3">'
-      + '<div class="min-w-0"><h1 class="text-2xl font-bold flex flex-wrap items-center gap-2"><a href="#/" title="Terug naar de kalender" class="flex"><i data-lucide="newspaper" class="w-6 h-6 text-primary"></i></a>'
+      + '<div class="min-w-0"><a href="#/" data-action="ga" data-hash="#/" class="btn btn-sm btn-ghost -ml-3 mb-1 gap-1"><i data-lucide="arrow-left" class="w-4 h-4"></i> Kalender</a>'
+      + '<h1 class="text-2xl font-bold flex flex-wrap items-center gap-2"><i data-lucide="newspaper" class="w-6 h-6 text-primary"></i>'
       + '<span class="min-w-0 truncate">' + e(ed.title) + '</span>' + NB.editieBadge(ed.status) + '</h1>'
       + '<p class="text-sm opacity-60 mt-0.5">' + info.join(' · ') + '</p></div>'
       + '<div class="flex flex-wrap items-center gap-2 shrink-0">' + knoppen.join('') + '</div></div>'
