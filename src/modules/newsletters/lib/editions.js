@@ -11,6 +11,7 @@ import {
 import { EDITION_STATUS, CONTRIBUTION_STATUS, KINDS, DEFAULT_OPTIONS, LOG_PREFIX } from './constants.js';
 import { eventsVoorEditie, nieuwsSinds, auteurs, bedrijf, tekeningen } from './sources.js';
 import { maandLabel } from './render.js';
+import { taakVoorToewijzing } from './taken.js';
 
 const DAG_MS = 24 * 60 * 60 * 1000;
 
@@ -157,7 +158,9 @@ export async function maakEditie(env, series, { send, deadline, userId = null, t
       created_by: userId,
     };
   });
-  await insertContributions(env, rijen);
+  const gemaakt = await insertContributions(env, rijen);
+  // Elk toegewezen blok wordt een taak in Projecten voor zijn schrijver.
+  await Promise.all(gemaakt.filter((r) => r.owner_user_id).map((r) => taakVoorToewijzing(env, { item: r, edition: editie, series, ownerId: r.owner_user_id, userId })));
   await logActivity(env, { editionId: editie.id, userId, kind: 'created', text: userId ? 'Editie aangemaakt' : 'Editie automatisch aangemaakt' });
   return editie;
 }

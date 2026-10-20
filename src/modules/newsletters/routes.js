@@ -11,7 +11,7 @@ import {
   NewsletterError, listSeries, getSeries, insertSeries, updateSeries, normalizeSeriesPayload,
   listEditions, listEditionsRange, getEdition, updateEdition, listContributions, listContributionsForEditions,
   listPool, listMine, getContribution, insertContributions, updateContribution, deleteContribution,
-  listComments, countComments, addComment, logActivity, listActivity, listUsers, isActiveEdition,
+  listComments, countComments, addComment, getComment, resolveComment, logActivity, listActivity, listUsers, isActiveEdition,
 } from './lib/store.js';
 import {
   KINDS, isKind, DEFAULT_OPTIONS, EDITION_STATUS, CONTRIBUTION_STATUS, LOG_PREFIX, ASSET_ORIGIN,
@@ -32,6 +32,7 @@ import { stuurHerinnering } from './lib/cron.js';
 import { hostBeelden, BEELDEN_MAP } from './lib/beelden-hosten.js';
 import { naamVoor, medewerkerVoorOdooGebruiker, medewerkersVoorGebruikers } from '../../lib/medewerkers.js';
 import { isEmail, vasteVolgorde, VASTE_PLEK } from './lib/constants.js';
+import { taakVoorToewijzing, takenVoorVermeldingen } from './lib/taken.js';
 import { lijstTekeningen, pngSleutel, vergeetTekeningen } from '../av-slides/lib/thingies.js';
 import { listIntegrations } from '../forminator-sync-v2/database.js';
 import { listVimeoVideos, getVimeoVideo, idFromVimeoUrl, resolveVideoWithoutToken } from '../event-operations-v2/lib/vimeo.js';
@@ -79,13 +80,9 @@ async function editieMetReeks(env, id) {
   return { edition, series };
 }
 
-/**
- * Opmerkingen bij een blok zien de hoofdredactie en wie het blok schrijft;
- * een andere collega (lezer) ziet enkel wat hij zelf schreef.
- */
-function zichtbareOpmerkingen(rijen, user, item, series) {
-  if (isEditorVan(user, series) || item.owner_user_id === user.id) return rijen;
-  return rijen.filter((c) => c.user_id === user.id);
+/** Opmerkingen zijn zichtbaar voor iedereen met de module (2026-10-20), met wie ze afvinkte. */
+function zichtbareOpmerkingen(rijen) {
+  return rijen;
 }
 
 async function stukjeMetContext(env, id) {
@@ -818,6 +815,7 @@ export const routes = {
         created_by: user.id,
       }]);
       await plaats(rij.id, kind);
+      await taakVoorToewijzing(env, { item: rij, edition, series, ownerId: rij.owner_user_id, userId: user.id });
       await logActivity(env, { editionId: edition.id, contributionId: rij.id, userId: user.id, kind: 'added', text: `Stukje "${rij.title}" toegevoegd` });
       return json({ success: true, data: rij }, 201);
     } catch (err) { return fout(err); }
@@ -992,7 +990,7 @@ export const routes = {
           edition, series: series ? { ...series, is_editor: isEditorVan(user, series) } : null,
           hint: sectie?.hint || '',
           can_edit: magSchrijven(user, item, series),
-          comments: comments.map((c) => ({ ...c, user_name: naamVan(users, c.user_id) })),
+          comments: comments.map((c) => ({ ...c, user_name: naamVan(users, c.user_id), resolved_name: c.resolved_by ? naamVan(users, c.resolved_by) : null })),
         },
       });
     } catch (err) { return fout(err); }
@@ -1030,7 +1028,12 @@ export const routes = {
       // stukje, zet het terug op "ingeleverd": het moet opnieuw nagelezen.
       if (!editor && (w.content || w.title) && item.status === CONTRIBUTION_STATUS.APPROVED) w.status = CONTRIBUTION_STATUS.SUBMITTED;
       if ((w.content || w.title || w.raw_notes) && item.status === CONTRIBUTION_STATUS.OPEN) w.status = CONTRIBUTION_STATUS.DRAFT;
-      return json({ success: true, data: await updateContribution(env, item.id, w) });
+      const bijgewerkt = await updateContribution(env, item.id, w);
+      // Een ander toegewezen: die krijgt een taak in Projecten.
+      if (w.owner_user_id && w.owner_user_id !== item.owner_user_id) {
+        await taakVoorToewijzing(env, { item: bijgewerkt, edition, series, ownerId: w.owner_user_id, userId: user.id });
+      }
+      return json({ success: true, data: bijgewerkt });
     } catch (err) { return fout(err); }
   },
 
@@ -1212,18 +1215,31 @@ export const routes = {
       const { item, series } = await stukjeMetContext(env, params.id);
       const [rijen, users] = await Promise.all([listComments(env, item.id), listUsers(env)]);
       const zichtbaar = zichtbareOpmerkingen(rijen, user, item, series);
-      return json({ success: true, data: zichtbaar.map((c) => ({ ...c, user_name: naamVan(users, c.user_id) })) });
+      return json({ success: true, data: zichtbaar.map((c) => ({ ...c, user_name: naamVan(users, c.user_id), resolved_name: c.resolved_by ? naamVan(users, c.resolved_by) : null })) });
     } catch (err) { return fout(err); }
   },
 
   'POST /api/contributions/:id/comments': async ({ env, user, params, request }) => {
     try {
-      const { item, edition } = await stukjeMetContext(env, params.id);
+      const { item, edition, series } = await stukjeMetContext(env, params.id);
       const c = await addComment(env, item.id, user.id, (await leesBody(request)).body);
       if (edition) {
         await logActivity(env, { editionId: edition.id, contributionId: item.id, userId: user.id, kind: 'comment', text: `Opmerking bij "${item.title}"` });
       }
-      return json({ success: true, data: { ...c, user_name: user.full_name || user.email } }, 201);
+      // Wie met @ vermeld wordt, krijgt een taak in Projecten (nooit fataal).
+      const vermeld = await takenVoorVermeldingen(env, { tekst: c.body, users: (await listUsers(env)).map((u) => ({ ...u, full_name: naamVoor(null, u) })), item, edition, series, userId: user.id, auteur: user.full_name || user.email });
+      return json({ success: true, data: { ...c, user_name: user.full_name || user.email, vermeld } }, 201);
+    } catch (err) { return fout(err); }
+  },
+
+  /** Een opmerking afvinken (opgelost) of terug openzetten; dat mag iedereen. */
+  'POST /api/comments/:id/opgelost': async ({ env, user, params, request }) => {
+    try {
+      const c = await getComment(env, params.id);
+      if (!c) throw new NewsletterError('Die opmerking bestaat niet meer.', 404);
+      const opgelost = (await leesBody(request)).opgelost !== false;
+      const bij = await resolveComment(env, c.id, user.id, opgelost);
+      return json({ success: true, data: { ...bij, resolved_name: opgelost ? (user.full_name || user.email) : null } });
     } catch (err) { return fout(err); }
   },
 

@@ -333,6 +333,7 @@
     if (!bak) return;
     bak.innerHTML = paneelOverzicht();
     NB.ikons();
+    if (lezer()) koppelNoemen();
   }
 
   // ─── De brief ─────────────────────────────────────────────────────────────
@@ -401,8 +402,8 @@
     + '.nb-gekozen>td>*{opacity:1!important;filter:none!important}'
     // Lezer: blokken zijn aanklikbaar om te reageren, met een labeltje bij het aanwijzen.
     + '[data-nb-lees]{cursor:pointer}[data-nb-lees]>td{position:relative}[data-nb-lees]>td>*{transition:opacity .2s}'
+    + '[data-nb-lees]:hover>td::after,[data-nb-lees].nb-gekozen>td::after{content:"\\1F4AC  Opmerking plaatsen";position:absolute;top:8px;right:10px;font:600 11px/1 system-ui,-apple-system,"Segoe UI",sans-serif;padding:6px 10px;border-radius:999px;background:#fff;color:#0369a1;border:1px solid #bae6fd;box-shadow:0 1px 3px rgba(0,0,0,.08);pointer-events:none}'
     + '[data-nb-lees].nb-gekozen>td::after,[data-nb-lees].nb-gekozen:hover>td::after{content:"\\1F4AC  Je reageert op dit blok";background:#0284c7;color:#fff;border-color:#0284c7}'
-    + '[data-nb-lees]:hover>td::after{content:"\\1F4AC  Opmerking plaatsen";position:absolute;top:8px;right:10px;font:600 11px/1 system-ui,-apple-system,"Segoe UI",sans-serif;padding:6px 10px;border-radius:999px;background:#fff;color:#0369a1;border:1px solid #bae6fd;box-shadow:0 1px 3px rgba(0,0,0,.08);pointer-events:none}'
     + '.nb-opm{position:absolute;top:8px;left:10px;z-index:3;font:600 11px/1 system-ui,-apple-system,"Segoe UI",sans-serif;padding:6px 9px;border-radius:999px;background:#fff;color:#334155;border:1px solid #e2e8f0;box-shadow:0 1px 3px rgba(0,0,0,.08);cursor:pointer}'
     + '.nb-opm:hover{border-color:#0284c7;color:#0369a1}'
     + '.nb-label{position:absolute;top:8px;right:10px;z-index:2;pointer-events:none;font:600 11px/1 system-ui,-apple-system,"Segoe UI",sans-serif;padding:6px 10px;border-radius:999px;white-space:nowrap}'
@@ -1573,8 +1574,8 @@
 
   // ─── Lezer: opmerkingen per blok ─────────────────────────────────────────
 
-  /** Mag ik de opmerkingen van dit blok zien? De hoofdredactie en wie het schrijft. */
-  function ziet(it) { return !!it && (editor() || it.owner_user_id === ik()); }
+  /** Opmerkingen zijn zichtbaar voor iedereen met de module (2026-10-20). */
+  function ziet(it) { return !!it; }
 
   /** Een klein bolletje met het aantal opmerkingen (enkel voor wie ze mag zien). */
   function opmTeller(doc, it, cel) {
@@ -1583,7 +1584,7 @@
     var b = doc.createElement('div');
     b.className = 'nb-opm';
     b.setAttribute('data-nb-knop', 'opm:' + it.id);
-    b.title = n + (n === 1 ? ' opmerking' : ' opmerkingen') + ': klik om te lezen';
+    b.title = n + (n === 1 ? ' open opmerking' : ' open opmerkingen') + ': klik om te lezen';
     b.textContent = '💬 ' + n;
     cel.appendChild(b);
   }
@@ -1626,20 +1627,104 @@
         + (met.length ? '<div>' + met.map(function (i) { return blokRij(i, '<span class="badge badge-sm badge-ghost">💬 ' + i.comment_count + '</span>').replace('data-action="kies-blok"', 'data-action="lees-blok"'); }).join('') + '</div>' : '')) + '</div>';
     }
     var lijst = NB.state.leesOpm;
+    var eenOpm = function (m) {
+      var af = !!m.resolved_at;
+      return '<div class="flex gap-2' + (af ? ' opacity-50' : '') + '">' + NB.gezicht(m.user_name)
+        + '<div class="bg-base-200 rounded-xl px-3 py-2 text-sm flex-1 min-w-0"><div class="flex items-start gap-2"><div class="flex-1 min-w-0"><strong>' + e(NB.voornaam(m.user_name)) + '</strong> <span class="opacity-50 text-xs">' + e(NB.datum(m.created_at, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })) + '</span></div>'
+        + '<label class="flex items-center gap-1 text-xs cursor-pointer shrink-0" title="' + (af ? 'Terug openzetten' : 'Afvinken als opgelost') + '"><input type="checkbox" class="checkbox checkbox-xs checkbox-success" data-change="opm-opgelost" data-id="' + e(m.id) + '"' + (af ? ' checked' : '') + '>Opgelost</label></div>'
+        + '<div class="whitespace-pre-line break-words' + (af ? ' line-through' : '') + '">' + metVermeldingen(m.body) + '</div>'
+        + (af && m.resolved_name ? '<div class="text-xs opacity-70 mt-1">Afgevinkt door ' + e(NB.voornaam(m.resolved_name)) + '</div>' : '') + '</div></div>';
+    };
+    var open = (lijst || []).filter(function (m) { return !m.resolved_at; });
+    var af = (lijst || []).filter(function (m) { return m.resolved_at; });
     var opm = lijst === null || lijst === undefined
       ? '<div class="flex justify-center py-4"><span class="loading loading-spinner loading-sm"></span></div>'
       : lijst.length
-        ? lijst.map(function (m) {
-          return '<div class="flex gap-2">' + NB.gezicht(m.user_name) + '<div class="bg-base-200 rounded-xl px-3 py-2 text-sm flex-1 min-w-0"><strong>' + e(NB.voornaam(m.user_name)) + '</strong> <span class="opacity-50 text-xs">' + e(NB.datum(m.created_at, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })) + '</span><div class="whitespace-pre-line break-words">' + e(m.body) + '</div></div></div>';
-        }).join('')
-        : '<p class="text-sm opacity-60">' + (ziet(it) ? 'Nog geen opmerkingen bij dit blok.' : 'Nog geen opmerkingen van jou bij dit blok.') + '</p>';
-    var wie = it.owner_user_id ? (it.owner_user_id === ik() ? 'jij' : NB.voornaam(it.owner_name) || 'een collega') : null;
+        ? open.map(eenOpm).join('') + (af.length ? '<details class="text-sm"' + (open.length ? '' : ' open') + '><summary class="cursor-pointer text-xs opacity-60 py-1">' + af.length + ' opgelost</summary><div class="flex flex-col gap-3 mt-2">' + af.map(eenOpm).join('') + '</div></details>' : '')
+        : '<p class="text-sm opacity-60">Nog geen opmerkingen bij dit blok.</p>';
     return '<div class="flex flex-col gap-3">' + kaart('<div class="flex items-center gap-2"><h3 class="font-semibold flex-1 min-w-0 truncate">' + e(NB.blokNaam(it)) + '</h3><button class="btn btn-ghost btn-xs btn-square" data-action="lees-sluit" title="Sluiten (Esc)"><i data-lucide="x" class="w-4 h-4"></i></button></div>'
-      + '<p class="text-xs opacity-60">Zichtbaar voor de hoofdredactie' + (wie ? ' en ' + e(wie) + ' (schrijft dit blok)' : '') + '.</p>'
+      + '<p class="text-xs opacity-60">Iedereen ziet de opmerkingen en kan ze afvinken. Typ <strong>@</strong> om een collega te vermelden: die krijgt een taak in Projecten.</p>'
       + '<div class="flex flex-col gap-3">' + opm + '</div>'
-      + '<textarea id="leesOpmerking" class="textarea textarea-bordered textarea-sm mt-1" rows="3" placeholder="Wat valt je op? Een vraag, een fout, een idee…"></textarea>'
+      + '<div class="relative"><textarea id="leesOpmerking" class="textarea textarea-bordered textarea-sm w-full mt-1" rows="3" placeholder="Wat valt je op? Een vraag, een fout, een idee… (@ om iemand te vermelden)"></textarea>'
+      + '<div id="leesNoem" class="hidden absolute left-0 right-0 z-20 mt-1 bg-base-100 border border-base-content/10 rounded-xl shadow-lg p-1 max-h-56 overflow-y-auto"></div></div>'
       + '<button class="btn btn-sm btn-primary self-end" data-action="lees-plaats">Plaatsen</button>') + '</div>';
   }
+
+  /** "@Naam" in een opmerking in het blauw, als die naam een collega is. */
+  function metVermeldingen(tekst) {
+    var html = e(tekst);
+    var namen = (NB.state.boot.users || []).map(function (u) { return String(u.name || '').trim(); }).filter(Boolean)
+      .sort(function (a, b) { return b.length - a.length; });
+    namen.forEach(function (n) {
+      var veilig = e(n).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      html = html.replace(new RegExp('@' + veilig, 'gi'), function (m) { return '<span class="text-primary font-semibold">' + m + '</span>'; });
+    });
+    return html;
+  }
+
+  /** De keuzelijst bij "@": collega's die beginnen met wat je typt. */
+  var noemKeuze = 0;
+  function noemZoek() {
+    var ta = document.getElementById('leesOpmerking');
+    var bak = document.getElementById('leesNoem');
+    if (!ta || !bak) return null;
+    var voor = ta.value.slice(0, ta.selectionStart);
+    var m = /(^|\s)@([^\s@]{0,30}(?: [^\s@]{0,30})?)$/.exec(voor);
+    if (!m) { bak.classList.add('hidden'); return null; }
+    var q = m[2].toLowerCase();
+    var lijst = (NB.state.boot.users || []).filter(function (u) {
+      var n = String(u.name || '').toLowerCase();
+      return n && (n.indexOf(q) === 0 || n.split(/\s+/).some(function (w) { return w.indexOf(q) === 0; }));
+    }).slice(0, 6);
+    if (!lijst.length) { bak.classList.add('hidden'); return null; }
+    if (noemKeuze >= lijst.length) noemKeuze = 0;
+    bak.innerHTML = lijst.map(function (u, i) {
+      return '<button type="button" class="w-full text-left flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm' + (i === noemKeuze ? ' bg-base-200' : ' hover:bg-base-200') + '" data-action="lees-noem" data-naam="' + e(u.name) + '">' + NB.gezicht(u.name) + '<span class="truncate">' + e(u.name) + '</span></button>';
+    }).join('');
+    bak.classList.remove('hidden');
+    return { start: voor.length - m[2].length - 1, lijst: lijst };
+  }
+  function noemKies(naam) {
+    var ta = document.getElementById('leesOpmerking');
+    if (!ta) return;
+    var z = noemZoek();
+    if (!z) return;
+    var na = ta.value.slice(ta.selectionStart);
+    ta.value = ta.value.slice(0, z.start) + '@' + naam + ' ' + na;
+    var pos = z.start + naam.length + 2;
+    ta.focus();
+    ta.setSelectionRange(pos, pos);
+    document.getElementById('leesNoem').classList.add('hidden');
+  }
+  function koppelNoemen() {
+    var ta = document.getElementById('leesOpmerking');
+    if (!ta || ta.dataset.gekoppeld) return;
+    ta.dataset.gekoppeld = '1';
+    ta.addEventListener('input', function () { noemKeuze = 0; noemZoek(); });
+    ta.addEventListener('keydown', function (ev) {
+      var bak = document.getElementById('leesNoem');
+      if (!bak || bak.classList.contains('hidden')) return;
+      var z = noemZoek();
+      if (!z) return;
+      if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') { ev.preventDefault(); noemKeuze = (noemKeuze + (ev.key === 'ArrowDown' ? 1 : z.lijst.length - 1)) % z.lijst.length; noemZoek(); }
+      else if (ev.key === 'Enter' || ev.key === 'Tab') { ev.preventDefault(); noemKies(z.lijst[noemKeuze].name); }
+      else if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); bak.classList.add('hidden'); }
+    });
+    ta.addEventListener('blur', function () { setTimeout(function () { var bak = document.getElementById('leesNoem'); if (bak) bak.classList.add('hidden'); }, 150); });
+  }
+  NB.actions['lees-noem'] = function (el) { noemKies(el.dataset.naam); };
+
+  NB.changes['opm-opgelost'] = async function (el) {
+    var id = el.dataset.id;
+    try {
+      var bij = await NB.api('/api/comments/' + id + '/opgelost', { method: 'POST', body: { opgelost: el.checked } });
+      (NB.state.leesOpm || []).forEach(function (m) { if (m.id === id) { m.resolved_at = bij.resolved_at; m.resolved_by = bij.resolved_by; m.resolved_name = bij.resolved_name; } });
+      var it = itemVan(NB.state.leesId);
+      if (it) it.comment_count = (NB.state.leesOpm || []).filter(function (m) { return !m.resolved_at; }).length;
+      toonPaneel();
+      markeerLees(briefDoc());
+    } catch (err) { el.checked = !el.checked; NB.fout(err); }
+  };
 
   NB.actions['lees-blok'] = function (el) { kiesLees(el.dataset.id); };
   NB.actions['lees-sluit'] = function () { kiesLees(null); };
@@ -1653,7 +1738,8 @@
       (NB.state.leesOpm = NB.state.leesOpm || []).push(c);
       var it = itemVan(id);
       if (it) it.comment_count = (it.comment_count || 0) + 1;
-      NB.toast('Opmerking geplaatst.', 'info');
+      var n = (c.vermeld || []).length;
+      NB.toast(n ? 'Opmerking geplaatst. ' + (n === 1 ? 'De vermelde collega krijgt' : 'De ' + n + ' vermelde collega\'s krijgen') + ' een taak in Projecten.' : 'Opmerking geplaatst.', 'info');
       toonPaneel();
       markeerLees(briefDoc());
     } catch (err) { NB.fout(err); }
