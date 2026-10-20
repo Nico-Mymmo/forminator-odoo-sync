@@ -16,6 +16,7 @@ import { beoordeelPatroon, beoordeelCase, zoekPatroon } from './lib/ai.js';
 import { kijkNaInOdoo, odooDigest } from './lib/odoo-lookup.js';
 import { skillMarkdown } from './lib/skill.js';
 import { zetExportOm } from './lib/import.js';
+import { maakTaakVoorCase, takenVanCase, personen } from './lib/taak.js';
 
 const MAX_IMPORT_BYTES = 8 * 1024 * 1024;
 
@@ -143,6 +144,31 @@ export const routes = {
       const patronen = await allePatronen(env);
       const voorstel = await zoekPatroon(env, user, { c, patronen, hint: String(body.hint || '').slice(0, 2000), forceNew: body.force_new === true });
       return json({ success: true, data: voorstel });
+    } catch (err) { return fout(err); }
+  },
+
+  // ─── Taken in Projecten ───────────────────────────────────────────────────
+
+  /** Wie een taak kan krijgen (dezelfde lijst als in Projecten). */
+  'GET /api/mensen': async ({ env }) => {
+    try {
+      return json({ success: true, data: await personen(env) });
+    } catch (err) { return fout(err); }
+  },
+
+  'GET /api/cases/:id/taken': async ({ env, params }) => {
+    try {
+      return json({ success: true, data: await takenVanCase(env, params.id) });
+    } catch (err) { return fout(err); }
+  },
+
+  /** Van een case een taak maken, bij de persoonlijke doelen van wie ze krijgt. */
+  'POST /api/cases/:id/taken': async ({ env, user, params, request }) => {
+    try {
+      const body = (await leesBody(request)) || {};
+      const c = await caseOp(env, params.id);
+      if (!c) throw new ControleError('Deze case bestaat niet (meer).', 404);
+      return json({ success: true, data: await maakTaakVoorCase(env, user, c, body) }, 201);
     } catch (err) { return fout(err); }
   },
 

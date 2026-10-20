@@ -261,8 +261,9 @@
       + '      <div><div class="text-xs uppercase tracking-wider opacity-60 mb-1">Voorstel</div><p class="oc-tekst" data-part="voorstel"></p></div>'
       + '      <div><div class="text-xs uppercase tracking-wider opacity-60 mb-1">In Odoo</div><div class="flex flex-wrap gap-1.5" data-part="refs"></div>'
       + '        <div class="mt-2 flex flex-wrap gap-2"><button type="button" class="btn btn-outline btn-xs" data-action="odoo" data-id="' + id + '"><i data-lucide="search" class="w-3.5 h-3.5"></i> Nakijken in Odoo</button>'
-      + '        <button type="button" class="btn btn-ghost btn-xs" data-action="history" data-kind="case" data-id="' + id + '"><i data-lucide="history" class="w-3.5 h-3.5"></i> Historiek</button></div>'
-      + '        <div data-part="odoo"></div><div data-part="hist"></div></div>'
+      + '        <button type="button" class="btn btn-ghost btn-xs" data-action="history" data-kind="case" data-id="' + id + '"><i data-lucide="history" class="w-3.5 h-3.5"></i> Historiek</button>'
+      + '        <button type="button" class="btn btn-outline btn-xs" data-action="task-new" data-id="' + id + '"><i data-lucide="list-plus" class="w-3.5 h-3.5"></i> Taak maken</button></div>'
+      + '        <div data-part="taken"></div><div data-part="odoo"></div><div data-part="hist"></div></div>'
       + '      <div class="rounded-lg bg-base-200 p-3 space-y-2" data-part="patrule"></div>'
       + '    </div>'
       + '    <fieldset class="space-y-3" data-part="fs">'
@@ -383,6 +384,60 @@
     el.querySelector('.oc-row').setAttribute('aria-expanded', on ? 'true' : 'false');
     if (on) open.add(id); else open.delete(id);
     keep('oc-open', Array.from(open));
+    if (on) { if (takenVan.has(id)) paintTaken(id); else loadTaken(id); }
+  }
+
+  // ── Taken in Projecten (bij de persoonlijke doelen van wie ze krijgt) ──────
+
+  var takenVan = new Map(), personenLijst = null, taakCase = null;
+  function loadTaken(id) {
+    takenVan.set(id, { state: 'busy', rows: [] });
+    api('/cases/' + encodeURIComponent(id) + '/taken').then(function (res) { takenVan.set(id, { state: 'done', rows: res.data }); },
+      function () { takenVan.set(id, { state: 'error', rows: [] }); }).then(function () { paintTaken(id); });
+  }
+  function paintTaken(id) {
+    var el = built.get(id); if (!el) return;
+    var box = part(el, 'taken'), st = takenVan.get(id);
+    if (!st || !st.rows.length) { box.innerHTML = ''; return; }
+    box.innerHTML = '<div class="mt-2 space-y-1"><div class="text-xs uppercase tracking-wider opacity-60">Taken in Projecten</div>' + st.rows.map(function (t) {
+      return '<a class="flex flex-wrap items-center gap-x-2 text-xs link link-hover" href="' + esc(t.url) + '" target="_blank" rel="noopener">'
+        + '<i data-lucide="' + (t.done ? 'check-circle-2' : 'circle') + '" class="w-3.5 h-3.5 ' + (t.done ? 'text-success' : 'opacity-60') + '"></i>'
+        + '<span class="' + (t.done ? 'line-through opacity-60' : '') + '">' + esc(t.title) + '</span>'
+        + '<span class="opacity-60">' + esc([t.assignee_naam, t.due_date ? 'tegen ' + dayLabel(t.due_date) : ''].filter(Boolean).join(' · ')) + '</span></a>';
+    }).join('') + '</div>';
+    icons();
+  }
+  function openTaak(id) {
+    var c = cases.get(id); if (!c) return;
+    taakCase = id;
+    $('tk-error').classList.add('hidden');
+    $('tk-case').textContent = '#' + c.nr + ' ' + (c.klant || '') + (c.titel ? ' – ' + c.titel : '');
+    $('tk-titel').value = 'Odoo-controle #' + c.nr + ': ' + (c.klant || '') + (c.titel ? ' – ' + c.titel : '');
+    $('tk-notitie').value = '';
+    var dl = c.deadline || c.vervaldag || '';
+    $('tk-due').value = dl && daysFrom(dl) >= 0 ? String(dl).slice(0, 10) : '';
+    var vul = function () {
+      $('tk-wie').innerHTML = '<option value="">Kies een collega…</option>' + personenLijst.map(function (m) { return '<option value="' + esc(m.id) + '">' + esc(m.naam) + (m.functie ? ' – ' + esc(m.functie) : '') + '</option>'; }).join('');
+      if (me && personenLijst.some(function (m) { return m.id === me.id; })) $('tk-wie').value = me.id;
+    };
+    if (personenLijst) vul();
+    else {
+      $('tk-wie').innerHTML = '<option value="">Laden…</option>';
+      api('/mensen').then(function (res) { personenLijst = res.data; vul(); }, function (e) { $('tk-wie').innerHTML = '<option value="">De collega\'s konden niet geladen worden</option>'; toast(e.message, 'error'); });
+    }
+    $('taskModal').showModal();
+  }
+  function saveTaak() {
+    var id = taakCase, err = $('tk-error'), body = {
+      assignee_id: $('tk-wie').value, due_date: $('tk-due').value || null, titel: $('tk-titel').value.trim(), notitie: $('tk-notitie').value.trim(),
+    };
+    if (!body.assignee_id) { err.textContent = 'Kies voor wie de taak is.'; err.classList.remove('hidden'); return; }
+    var btn = $('tk-save'); btn.disabled = true;
+    api('/cases/' + encodeURIComponent(id) + '/taken', { method: 'POST', body: JSON.stringify(body) }).then(function (res) {
+      $('taskModal').close();
+      var st = takenVan.get(id) || { state: 'done', rows: [] }; st.rows = st.rows.concat([res.data]); takenVan.set(id, st); paintTaken(id);
+      toast('Taak gemaakt bij ' + (res.data.project_name || 'Projecten'), 'success');
+    }, function (e) { err.textContent = e.message; err.classList.remove('hidden'); }).then(function () { btn.disabled = false; });
   }
 
   // ── Lijst, filters, tellers ────────────────────────────────────────────────
@@ -894,6 +949,9 @@
       case 'new-case': openNewCase(); break;
       case 'save-new-case': saveNewCase(); break;
       case 'close-new-case': $('newCaseModal').close(); break;
+      case 'task-new': openTaak(id); break;
+      case 'task-save': saveTaak(); break;
+      case 'task-close': $('taskModal').close(); break;
       case 'remove-pat': setPats(id, patsOf(cases.get(id) || {}).filter(function (x) { return x !== el.dataset.pid; }), 'Patroon weggehaald'); break;
       case 'go-pattern': goPattern(el.dataset.pid); break;
       case 'go-case': goCase(id); break;
@@ -1005,6 +1063,7 @@
     try {
       await bootstrap();
       if (hash === 'patronen' || hash === 'skill') setTab(hash);
+      else if (hash.slice(0, 5) === 'case/' && cases.has(hash.slice(5))) goCase(hash.slice(5));
       pollTimer = setInterval(poll, POLL_MS);
       document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') poll(); });
     } catch (e) {
