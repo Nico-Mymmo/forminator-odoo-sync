@@ -1,8 +1,8 @@
 {
   "plugin": "mymmo-cards",
-  "versie": "1.13.2",
-  "hash": "1fe6821242042c9c",
-  "datum": "2026-10-15T12:29:40.000Z",
-  "door": "Claude",
-  "samenvatting": "Kostencalculator 1.13.2: keuze grijs of wit voor het vak (wit = --mymmo-kleur-pagina, gesloten lijst, palet gaat voor) en de terugval voor de grootte van het totaal enkel zonder klasse van het thema. Bekeken op 375, 768 en 1280 px op een gekleurde sectie; teller blijft zichtbaar op wit door de lijn."
+  "versie": "1.13.3",
+  "hash": "8649cce1e6ab2f40",
+  "datum": "2026-10-20T12:59:06.000Z",
+  "door": "Nico-Mymmo",
+  "samenvatting": "1.13.3: nagekeken dat het editorscript enkel de afronding (Klein/Groot uit de huisstijl) als standaardveld toont op blokken die het thema al randondersteuning geeft, niets bewaart of op de pagina verandert, en de bewaking zelf niet versoepelt. Geen visueel component, geen CSS; lint groen."
 }

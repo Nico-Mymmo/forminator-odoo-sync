@@ -395,6 +395,17 @@ Uitzetten per site: `define('MYMMO_CARDS_GEEN_AUTO_UPDATE', true);` in
 
 ## Versies
 
+**1.13.3** — de afronding staat meteen in beeld op elk blok dat ze kan
+krijgen: een video, een ingesloten film (Vimeo, YouTube), een afbeelding, een
+kolom, een alinea. Het thema geeft die blokken een paneel "Rand" dat standaard
+enkel randdikte en randkleur toont, en net die twee zet de bewaking uit (geen
+keuzes van de huisstijl); de afronding zat achter het "+"-menu van dat paneel.
+Het paneel oogde dus leeg, en een marketeer kon een Vimeo-film geen afgeronde
+hoeken geven terwijl de keuze er wel was. Een klein editorscript
+(`assets/js/mymmo-bewaking-editor.js`) zet de afronding nu als standaardveld
+op elk blok met randondersteuning. Aan wat bewaard wordt of op de pagina komt,
+verandert niets.
+
 **1.13.2** — de kostencalculator kan een wit vak krijgen. Het palet van het
 thema heeft geen wit, dus onder **Uitzicht** staat nu eerst **Achtergrond van
 de calculator**: grijs (zoals voorheen, de standaard) of wit, de kleur van de

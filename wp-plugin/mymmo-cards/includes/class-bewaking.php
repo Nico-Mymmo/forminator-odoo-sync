@@ -16,6 +16,12 @@
  *      Groot, zie `afrondingen()`). De standaardkleuren en -schaduwen van
  *      WordPress zelf vallen weg: die horen niet bij het merk.
  *      (`wp_theme_json_data_theme`)
+ *      En die afronding staat METEEN in beeld, op elk blok dat ze kan
+ *      krijgen (`assets/js/mymmo-bewaking-editor.js`). Het thema geeft ook
+ *      een video, een ingesloten film en een afbeelding een paneel "Rand",
+ *      maar zet daar standaard enkel dikte en kleur in beeld -- precies wat
+ *      hier uitstaat. Zonder dat script was dat paneel leeg, en leek een
+ *      Vimeo-film geen afgeronde hoeken te kunnen krijgen (2026-10-20).
  *   2. GEEN NIEUWE LETTERTYPES. De Font Library staat uit, en het installeren
  *      van een lettertype via de REST-API wordt geweigerd.
  *   3. GEEN EXTRA CSS. Niemand krijgt nog `edit_css`. Wat er al in "Extra CSS"
@@ -84,6 +90,8 @@ final class Mymmo_Cards_Bewaking {
 
         add_filter('wp_theme_json_data_theme', [self::class, 'thema_instellingen']);
         add_filter('block_editor_settings_all', [self::class, 'editor_instellingen'], 20);
+        add_action('init', [self::class, 'register_editor_script']);
+        add_action('enqueue_block_editor_assets', [self::class, 'editor_script']);
         add_filter('map_meta_cap', [self::class, 'rechten'], 10, 2);
         add_filter('rest_pre_dispatch', [self::class, 'rest_poort'], 10, 3);
         add_action('rest_api_init', [self::class, 'haak_opslaan']);
@@ -257,6 +265,28 @@ final class Mymmo_Cards_Bewaking {
         $instellingen['fontLibraryEnabled'] = false;
 
         return $instellingen;
+    }
+
+    /**
+     * Het script dat de afronding op elk blok meteen in beeld zet (zie 1).
+     * Geldt ook voor wie vrijgesteld is: het toont enkel een keuze die er al
+     * is, het houdt niets tegen.
+     */
+    public static function register_editor_script(): void {
+        wp_register_script(
+            'mymmo-bewaking',
+            MYMMO_CARDS_URL . 'assets/js/mymmo-bewaking-editor.js',
+            ['wp-hooks', 'wp-blocks'],
+            MYMMO_CARDS_VERSION,
+            true
+        );
+    }
+
+    public static function editor_script(): void {
+        if (self::afrondingen() === []) {
+            return;
+        }
+        wp_enqueue_script('mymmo-bewaking');
     }
 
     /** De patronen van WordPress zelf; die van het thema blijven. */
