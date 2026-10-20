@@ -782,6 +782,36 @@
   });
   window.addEventListener('beforeunload', function (ev) { if (state.vuil) { ev.preventDefault(); ev.returnValue = ''; } });
 
+  /**
+   * Het rechtervak blijft in beeld, zonder eigen scrollbalk. Is het korter
+   * dan het scherm, dan kleeft het bovenaan. Is het langer, dan schuift het
+   * mee met de pagina tot zijn onderkant in beeld is (naar beneden scrollen)
+   * of tot zijn bovenkant in beeld is (naar boven scrollen), en blijft het
+   * daar staan: we verschuiven enkel de `top` van position: sticky.
+   */
+  function volgSticky() {
+    var vak = $('pfFormulier');
+    if (!vak) return;
+    var MARGE = 16;
+    var groot = window.matchMedia('(min-width: 1024px)');
+    var top = MARGE;
+    var vorigeY = window.scrollY;
+    function pas(delta) {
+      if (!groot.matches) { vak.style.top = ''; return; }
+      var min = Math.min(MARGE, window.innerHeight - vak.offsetHeight - MARGE);
+      top = Math.max(min, Math.min(MARGE, top - delta));
+      vak.style.top = Math.round(top) + 'px';
+    }
+    window.addEventListener('scroll', function () {
+      var y = window.scrollY;
+      pas(y - vorigeY);
+      vorigeY = y;
+    }, { passive: true });
+    window.addEventListener('resize', function () { pas(0); });
+    if (window.ResizeObserver) new ResizeObserver(function () { pas(0); }).observe(vak);
+    pas(0);
+  }
+
   // ── Opstarten ─────────────────────────────────────────────────────────────
 
   async function start() {
@@ -801,5 +831,6 @@
     }
   }
 
+  volgSticky();
   start();
 })();
