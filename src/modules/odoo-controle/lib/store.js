@@ -3,9 +3,12 @@
  * aanspreekt.
  *
  * Afspraken:
- * - Elke schrijfactie verhoogt `versie` en zet `rij_bijgewerkt`. Het scherm
- *   stuurt de versie mee die het kent (`expected`); klopt die niet meer, dan
- *   is iemand anders je voor geweest en komt er een 409 met de huidige rij.
+ * - Elke schrijfactie verhoogt `versie` en zet `rij_bijgewerkt`. Een wijziging
+ *   wordt NOOIT geweigerd omdat iemand anders je voor was (tot 2026-10-20 gaf
+ *   dat een 409 en verdween de getypte tekst): teksten worden per veld
+ *   samengevoegd (`voegTekstSamen`, met de `basis` waarop het scherm begon te
+ *   typen), de rest is per veld de laatste schrijver. Twee schrijvers op
+ *   hetzelfde moment: opnieuw lezen en opnieuw proberen.
  * - `bijgewerkt` is de laatste inhoudelijke wijziging door het team (wat het
  *   scherm toont als "Laatst bijgewerkt door ..."); `tekst_bijgewerkt` enkel
  *   als een van de vier teksten veranderde; `geverifieerd` wanneer Claude's
@@ -46,6 +49,31 @@ export function naamVan(user) {
 }
 
 const TEKST_VELDEN = CASE_TEKSTEN.map((f) => f[0]);
+
+/**
+ * Wat bewaard is, blijft bewaard (2026-10-20). Een tekst wordt NOOIT
+ * geweigerd omdat iemand anders intussen iets wijzigde; tot dan gaf dat een
+ * 409 en gooide het scherm de getypte tekst weg.
+ *
+ * `basis` = de waarde waarop de schrijver begon te typen. Is dat nog wat er
+ * staat, dan wint de nieuwe tekst. Typte iemand anders intussen in HETZELFDE
+ * veld, dan komen beide teksten erin (de bestaande eerst). Zonder `basis`
+ * (een oud tabblad) telt `versieKlopt`, of een leeg veld.
+ * Geeft { waarde, samengevoegd } terug.
+ */
+export function voegTekstSamen(server, mijn, basis, versieKlopt) {
+  const srv = String(server || '');
+  const nieuw = String(mijn ?? '');
+  if (nieuw === srv) return { waarde: srv, samengevoegd: false };
+  const basisKlopt = typeof basis === 'string' ? basis === srv : (versieKlopt || !srv.trim());
+  if (basisKlopt) return { waarde: nieuw, samengevoegd: false };
+  if (!nieuw.trim()) return { waarde: srv, samengevoegd: false };
+  if (nieuw.includes(srv.trim())) return { waarde: nieuw, samengevoegd: false };
+  if (srv.includes(nieuw.trim())) return { waarde: srv, samengevoegd: false };
+  return { waarde: `${srv.trimEnd()}\n\n${nieuw.trim()}`, samengevoegd: true };
+}
+
+const MAX_POGINGEN = 6;
 const PATROON_VELDEN = PATROON_TEKSTEN.map((f) => f[0]);
 const inLijst = (lijst, v) => lijst.some((x) => x[0] === v);
 const isDatum = (s) => /^\d{4}-\d{2}-\d{2}$/.test(String(s || ''));
@@ -162,12 +190,19 @@ const alsTekst = (v) => {
  * Een case bijwerken. `patch` mag bevatten: de vinkjes, de vier teksten,
  * `soort`, `patterns` (volledige lijst patroon-id's) en `geverifieerd: true`.
  */
-export async function wijzigCase(env, user, id, { patch = {}, expected = null, bron = 'gebruiker' } = {}) {
+export async function wijzigCase(env, user, id, { patch = {}, basis = null, expected = null, bron = 'gebruiker' } = {}) {
+  for (let poging = 0; poging < MAX_POGINGEN; poging++) {
+    const uit = await probeerWijzigCase(env, user, id, { patch, basis, expected, bron });
+    if (uit) return uit;
+  }
+  throw new ControleError('Bewaren lukte even niet (te veel gelijktijdige wijzigingen). Je tekst blijft staan; het scherm probeert opnieuw.', 503);
+}
+
+async function probeerWijzigCase(env, user, id, { patch, basis, expected, bron }) {
   const huidig = await caseOp(env, id);
   if (!huidig) throw new ControleError('Deze case bestaat niet (meer).', 404);
-  if (expected !== null && expected !== undefined && Number(expected) !== Number(huidig.versie)) {
-    throw new ControleError('Deze case werd intussen door iemand anders gewijzigd.', 409, { current: huidig });
-  }
+  const versieKlopt = expected !== null && expected !== undefined && Number(expected) === Number(huidig.versie);
+  const samengevoegd = [];
 
   const tijd = nu();
   const update = {};
@@ -183,7 +218,9 @@ export async function wijzigCase(env, user, id, { patch = {}, expected = null, b
   let tekstGewijzigd = false;
   for (const veld of TEKST_VELDEN) {
     if (veld in patch) {
-      const v = String(patch[veld] ?? '');
+      const b = basis && typeof basis[veld] === 'string' ? basis[veld] : null;
+      const { waarde: v, samengevoegd: sv } = voegTekstSamen(huidig[veld], patch[veld], b, versieKlopt);
+      if (sv) samengevoegd.push(veld);
       if (v !== (huidig[veld] || '')) { update[veld] = v; tekstGewijzigd = true; noteer(veld, huidig[veld], v); }
     }
   }
@@ -207,7 +244,7 @@ export async function wijzigCase(env, user, id, { patch = {}, expected = null, b
   }
 
   const verifieer = patch.geverifieerd === true;
-  if (!wijzigingen.length && !verifieer) return huidig;
+  if (!wijzigingen.length && !verifieer) return { ...huidig, samengevoegd };
 
   if (wijzigingen.length) {
     update.bijgewerkt = tijd;
@@ -221,10 +258,8 @@ export async function wijzigCase(env, user, id, { patch = {}, expected = null, b
 
   const { data, error } = await db(env).from(TABLES.cases).update(update).eq('id', id).eq('versie', huidig.versie).select('*');
   check(error, 'Case bijwerken');
-  if (!data || !data.length) {
-    const vers = await caseOp(env, id);
-    throw new ControleError('Deze case werd intussen door iemand anders gewijzigd.', 409, { current: vers });
-  }
+  // Iemand anders schreef tussen lezen en schrijven: opnieuw, op de nieuwe stand.
+  if (!data || !data.length) return null;
 
   if (nieuwePatronen) {
     const { error: e1 } = await db(env).from(TABLES.links).delete().eq('case_id', id);
@@ -236,7 +271,7 @@ export async function wijzigCase(env, user, id, { patch = {}, expected = null, b
   }
 
   await logHistoriek(env, wijzigingen.map((w) => ({ ...w, door_user_id: user?.id || null, door_naam: naamVan(user), bron, tijd })));
-  return { ...data[0], patterns: nieuwePatronen || huidig.patterns };
+  return { ...data[0], patterns: nieuwePatronen || huidig.patterns, samengevoegd };
 }
 
 /** Een case met de hand toevoegen (de controle-run uit de oude pagina bestaat in de OM nog niet). */
@@ -290,12 +325,19 @@ export function slugVoor(titel) {
     .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48) || 'patroon';
 }
 
-export async function wijzigPatroon(env, user, id, { patch = {}, expected = null, bron = 'gebruiker' } = {}) {
+export async function wijzigPatroon(env, user, id, { patch = {}, basis = null, expected = null, bron = 'gebruiker' } = {}) {
+  for (let poging = 0; poging < MAX_POGINGEN; poging++) {
+    const uit = await probeerWijzigPatroon(env, user, id, { patch, basis, expected, bron });
+    if (uit) return uit;
+  }
+  throw new ControleError('Bewaren lukte even niet (te veel gelijktijdige wijzigingen). Je tekst blijft staan; het scherm probeert opnieuw.', 503);
+}
+
+async function probeerWijzigPatroon(env, user, id, { patch, basis, expected, bron }) {
   const huidig = await patroonOp(env, id);
   if (!huidig) throw new ControleError('Dit patroon bestaat niet (meer).', 404);
-  if (expected !== null && expected !== undefined && Number(expected) !== Number(huidig.versie)) {
-    throw new ControleError('Dit patroon werd intussen door iemand anders gewijzigd.', 409, { current: huidig });
-  }
+  const versieKlopt = expected !== null && expected !== undefined && Number(expected) === Number(huidig.versie);
+  const samengevoegd = [];
   const tijd = nu();
   const update = {};
   const wijzigingen = [];
@@ -308,12 +350,14 @@ export async function wijzigPatroon(env, user, id, { patch = {}, expected = null
   }
   for (const veld of PATROON_VELDEN) {
     if (veld in patch) {
-      const v = String(patch[veld] ?? '');
+      const b = basis && typeof basis[veld] === 'string' ? basis[veld] : null;
+      const { waarde: v, samengevoegd: sv } = voegTekstSamen(huidig[veld], patch[veld], b, versieKlopt);
+      if (sv) samengevoegd.push(veld);
       if (v !== (huidig[veld] || '')) { update[veld] = v; noteer(veld, huidig[veld], v); }
     }
   }
   const verifieer = patch.geverifieerd === true;
-  if (!wijzigingen.length && !verifieer) return huidig;
+  if (!wijzigingen.length && !verifieer) return { ...huidig, samengevoegd };
 
   if (wijzigingen.length) {
     update.bijgewerkt = tijd;
@@ -326,11 +370,9 @@ export async function wijzigPatroon(env, user, id, { patch = {}, expected = null
 
   const { data, error } = await db(env).from(TABLES.patterns).update(update).eq('id', id).eq('versie', huidig.versie).select('*');
   check(error, 'Patroon bijwerken');
-  if (!data || !data.length) {
-    throw new ControleError('Dit patroon werd intussen door iemand anders gewijzigd.', 409, { current: await patroonOp(env, id) });
-  }
+  if (!data || !data.length) return null;   // iemand anders was net bezig: opnieuw
   await logHistoriek(env, wijzigingen.map((w) => ({ ...w, door_user_id: user?.id || null, door_naam: naamVan(user), bron, tijd })));
-  return data[0];
+  return { ...data[0], samengevoegd };
 }
 
 export async function maakPatroon(env, user, invoer = {}) {

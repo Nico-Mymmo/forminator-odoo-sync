@@ -90,7 +90,7 @@ export const routes = {
   'PATCH /api/cases/:id': async ({ env, user, params, request }) => {
     try {
       const body = (await leesBody(request)) || {};
-      const data = await wijzigCase(env, user, params.id, { patch: body.patch || {}, expected: body.expected ?? null, bron: bronVan(body) });
+      const data = await wijzigCase(env, user, params.id, { patch: body.patch || {}, basis: body.basis || null, expected: body.expected ?? null, bron: bronVan(body) });
       return json({ success: true, data });
     } catch (err) { return fout(err); }
   },
@@ -197,7 +197,7 @@ export const routes = {
   'PATCH /api/patterns/:id': async ({ env, user, params, request }) => {
     try {
       const body = (await leesBody(request)) || {};
-      const data = await wijzigPatroon(env, user, params.id, { patch: body.patch || {}, expected: body.expected ?? null, bron: bronVan(body) });
+      const data = await wijzigPatroon(env, user, params.id, { patch: body.patch || {}, basis: body.basis || null, expected: body.expected ?? null, bron: bronVan(body) });
       return json({ success: true, data });
     } catch (err) { return fout(err); }
   },

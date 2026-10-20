@@ -8,8 +8,15 @@
  * CRM-controle": cases per prioriteit met uitklapbare werkregels, filters,
  * patronen met regel en controle, drie Claude-functies (voorstel naast de
  * huidige tekst, de gebruiker kiest per veld), het skill-concept. Nieuw in de
- * OM: live nakijken in Odoo, historiek, en gelijktijdig werken via versies
- * (een 409 van de server = iemand was je voor; je ziet dan de nieuwste versie).
+ * OM: live nakijken in Odoo, historiek, en gelijktijdig werken.
+ *
+ * WAT JE TYPT, GAAT NOOIT VERLOREN (2026-10-20). Tot dan weigerde de server
+ * een bewaring als iemand anders intussen iets aan de case wijzigde (409), en
+ * gooide dit scherm de getypte tekst weg. Nu: elke tekst gaat mee met de
+ * waarde waarop je begon te typen (`basis`), de server voegt samen als twee
+ * mensen in hetzelfde veld schreven, een mislukte bewaring wordt opnieuw
+ * geprobeerd, en tot de server ze heeft staat elke tekst als reservekopie in
+ * localStorage (`oc-onbewaard`); bij het laden wordt die alsnog bewaard.
  *
  * De statusregel (statusVan) staat ook server-side in lib/constants.js:
  * wijzig je ze daar, wijzig ze hier mee.
@@ -28,6 +35,8 @@
   var dirty = new Map();        // case-id -> {veld: waarde} nog niet bewaard
   var timers = new Map(), chains = new Map();
   var patDirty = new Map(), patTimers = new Map(), patChains = new Map();
+  var basisVan = new Map();     // 'case|id|veld' of 'pat|id|veld' -> waarde waarop het typen begon
+  var BACKUP = 'oc-onbewaard';
   var reviews = new Map();      // 'case:id' | 'pat:id' -> {state, result, snapshot, accepted, error, conflict}
   var patSugg = new Map();      // case-id -> {state, hint, result, replace, error}
   var odooPanels = new Map();   // case-id -> {state, data, error, open}
@@ -48,6 +57,21 @@
   }
   function load(k, d) { try { var v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } }
   function keep(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* geen opslag */ } }
+  function zetBackup(soort, id, veld, waarde, basis) {
+    var b = load(BACKUP, {}) || {}; b[soort + '|' + id + '|' + veld] = { soort: soort, id: id, veld: veld, waarde: waarde, basis: basis, tijd: Date.now() }; keep(BACKUP, b);
+  }
+  function wisBackup(soort, id, veld, waarde) {
+    var b = load(BACKUP, {}) || {}, k = soort + '|' + id + '|' + veld;
+    if (b[k] && b[k].waarde === waarde) { delete b[k]; keep(BACKUP, b); }
+  }
+  function basisVoor(soort, id, patch, eigen) {
+    var uit = {};
+    Object.keys(patch).forEach(function (k) {
+      if (eigen && k in eigen) uit[k] = eigen[k];
+      else if (basisVan.has(soort + '|' + id + '|' + k)) uit[k] = basisVan.get(soort + '|' + id + '|' + k);
+    });
+    return uit;
+  }
   function lbl(lijst, v) { var x = lijst.find(function (y) { return y[0] === v; }); return x ? x[1] : (v || ''); }
   function prioVan(id) { return C.PRIO.find(function (p) { return p.id === id; }) || C.PRIO[C.PRIO.length - 1]; }
   function icons() { if (window.lucide) window.lucide.createIcons(); }
@@ -144,26 +168,38 @@
   /** Een wijziging aan een case bewaren. `patch` is al lokaal toegepast door de aanroeper. */
   function saveCase(id, patch, opts) {
     opts = opts || {};
+    var basis = basisVoor('case', id, patch, opts.basis);
     return chain(chains, id, function () {
       var c = cases.get(id); if (!c) return;
-      return api('/cases/' + encodeURIComponent(id), { method: 'PATCH', body: JSON.stringify({ patch: patch, expected: c.versie, bron: opts.bron || 'gebruiker' }) })
+      return api('/cases/' + encodeURIComponent(id), { method: 'PATCH', body: JSON.stringify({ patch: patch, basis: basis, expected: c.versie, bron: opts.bron || 'gebruiker' }) })
         .then(function (res) {
-          applyCase(res.data);
-          var d = dirty.get(id); if (d) Object.keys(patch).forEach(function (k) { if (k in d && d[k] === patch[k]) delete d[k]; });
+          var row = res.data, d = dirty.get(id);
+          applyCase(row);
+          Object.keys(patch).forEach(function (k) {
+            var bk = 'case|' + id + '|' + k;
+            if (d && k in d && d[k] === patch[k]) { delete d[k]; basisVan.delete(bk); }
+            else if (d && k in d) basisVan.set(bk, patch[k]);   // nog aan het typen: verder op wat net bewaard is
+            else basisVan.delete(bk);
+            if (typeof patch[k] === 'string') wisBackup('case', id, k, patch[k]);
+          });
           if (d && !Object.keys(d).length) dirty.delete(id);
           fill(id); refreshCounts();
-          if (opts.msg) toast(opts.msg, 'success');
+          if (row.samengevoegd && row.samengevoegd.length) toast('Iemand anders schreef tegelijk in hetzelfde veld. Beide teksten staan er nu in; kijk ze even na.', 'info');
+          else if (opts.msg) toast(opts.msg, 'success');
         }, function (err) {
-          if (err.status === 409 && err.data && err.data.current) {
-            dirty.delete(id); applyCase(err.data.current); fill(id); refreshCounts();
-            toast('Deze case werd intussen door ' + (err.data.current.door_naam || 'iemand anders') + ' gewijzigd. Je ziet nu de nieuwste versie; doe je wijziging opnieuw.', 'error');
-          } else toast('Niet bewaard: ' + err.message, 'error');
+          // Nooit iets weggooien: de tekst blijft staan (en in de reservekopie) en we proberen opnieuw.
+          var opnieuw = !err.status || err.status >= 500 || err.status === 409 || err.status === 429;
+          toast('Nog niet bewaard: ' + err.message + (opnieuw ? ' Je tekst blijft staan; ik probeer het zo opnieuw.' : ' Je tekst blijft staan.'), 'error');
+          if (opnieuw) setTimeout(function () { saveCase(id, patch, opts); }, 5000);
         });
     });
   }
 
   function queueText(id, veld, waarde) {
-    var d = dirty.get(id) || {}; d[veld] = waarde; dirty.set(id, d);
+    var d = dirty.get(id) || {}, bk = 'case|' + id + '|' + veld;
+    if (!(veld in d) && !basisVan.has(bk)) { var cb = cases.get(id); basisVan.set(bk, (cb && cb[veld]) || ''); }
+    d[veld] = waarde; dirty.set(id, d);
+    zetBackup('case', id, veld, waarde, basisVan.get(bk));
     paintSaved(id);
     var key = id + '|' + veld;
     clearTimeout(timers.get(key));
@@ -173,7 +209,7 @@
     var key = id + '|' + veld;
     if (!timers.has(key)) return;
     clearTimeout(timers.get(key)); timers.delete(key);
-    var c = cases.get(id); if (c && (c[veld] || '') === waarde) { var d = dirty.get(id); if (d) delete d[veld]; paintSaved(id); return; }
+    var c = cases.get(id); if (c && (c[veld] || '') === waarde) { var d = dirty.get(id); if (d) delete d[veld]; basisVan.delete('case|' + id + '|' + veld); wisBackup('case', id, veld, waarde); paintSaved(id); return; }
     var p = {}; p[veld] = waarde; saveCase(id, p);
   }
   function flushAllText(id) {
@@ -198,25 +234,36 @@
 
   function savePattern(id, patch, opts) {
     opts = opts || {};
+    var basis = basisVoor('pat', id, patch, opts.basis);
     return chain(patChains, id, function () {
       var p = patterns.get(id); if (!p) return;
-      return api('/patterns/' + encodeURIComponent(id), { method: 'PATCH', body: JSON.stringify({ patch: patch, expected: p.versie, bron: opts.bron || 'gebruiker' }) })
+      return api('/patterns/' + encodeURIComponent(id), { method: 'PATCH', body: JSON.stringify({ patch: patch, basis: basis, expected: p.versie, bron: opts.bron || 'gebruiker' }) })
         .then(function (res) {
-          applyPattern(res.data);
-          var d = patDirty.get(id); if (d) Object.keys(patch).forEach(function (k) { if (k in d && d[k] === patch[k]) delete d[k]; });
+          var row = res.data, d = patDirty.get(id);
+          applyPattern(row);
+          Object.keys(patch).forEach(function (k) {
+            var bk = 'pat|' + id + '|' + k;
+            if (d && k in d && d[k] === patch[k]) { delete d[k]; basisVan.delete(bk); }
+            else if (d && k in d) basisVan.set(bk, patch[k]);
+            else basisVan.delete(bk);
+            if (typeof patch[k] === 'string') wisBackup('pat', id, k, patch[k]);
+          });
           if (d && !Object.keys(d).length) patDirty.delete(id);
           repaintPattern(id); built.forEach(function (el, cid) { if (patsOf(cases.get(cid) || {}).indexOf(id) >= 0) fill(cid); });
-          if (opts.msg) toast(opts.msg, 'success');
+          if (row.samengevoegd && row.samengevoegd.length) toast('Iemand anders schreef tegelijk in hetzelfde veld. Beide teksten staan er nu in; kijk ze even na.', 'info');
+          else if (opts.msg) toast(opts.msg, 'success');
         }, function (err) {
-          if (err.status === 409 && err.data && err.data.current) {
-            patDirty.delete(id); applyPattern(err.data.current); repaintPattern(id, true);
-            toast('Dit patroon werd intussen door ' + (err.data.current.door_naam || 'iemand anders') + ' gewijzigd. Je ziet nu de nieuwste versie.', 'error');
-          } else toast('Niet bewaard: ' + err.message, 'error');
+          var opnieuw = !err.status || err.status >= 500 || err.status === 409 || err.status === 429;
+          toast('Nog niet bewaard: ' + err.message + (opnieuw ? ' Je tekst blijft staan; ik probeer het zo opnieuw.' : ' Je tekst blijft staan.'), 'error');
+          if (opnieuw) setTimeout(function () { savePattern(id, patch, opts); }, 5000);
         });
     });
   }
   function queuePatText(id, veld, waarde) {
-    var d = patDirty.get(id) || {}; d[veld] = waarde; patDirty.set(id, d);
+    var d = patDirty.get(id) || {}, bk = 'pat|' + id + '|' + veld;
+    if (!(veld in d) && !basisVan.has(bk)) { var pb = patterns.get(id); basisVan.set(bk, (pb && pb[veld]) || ''); }
+    d[veld] = waarde; patDirty.set(id, d);
+    zetBackup('pat', id, veld, waarde, basisVan.get(bk));
     var key = id + '|' + veld;
     clearTimeout(patTimers.get(key));
     patTimers.set(key, setTimeout(function () { patTimers.delete(key); var p = {}; p[veld] = waarde; savePattern(id, p); }, 1000));
@@ -333,7 +380,11 @@
       sel.value = '';
     }
     var so = part(el, 'soort'); if (so !== act) so.value = c.soort || 'onbekend';
-    C.CASE_TEKSTEN.forEach(function (f) { var ta = $('tx-' + f[0] + '-' + id); if (ta && ta !== act && !(f[0] in d)) ta.value = c[f[0]] || ''; });
+    C.CASE_TEKSTEN.forEach(function (f) {
+      var ta = $('tx-' + f[0] + '-' + id); if (!ta) return;
+      var w = f[0] in d ? d[f[0]] : (c[f[0]] || '');
+      if (ta.value !== w && (ta !== act || !(f[0] in d))) ta.value = w;
+    });
     paintSaved(id);
     paintTools(id);
     paintReview('case:' + id);
@@ -631,8 +682,8 @@
         id: id, fields: C.CASE_TEKSTEN, exists: function () { return cases.has(id); },
         values: function () { var c = cases.get(id) || {}, o = {}; C.CASE_TEKSTEN.forEach(function (f) { var ta = $('tx-' + f[0] + '-' + id); o[f[0]] = ta ? ta.value : (c[f[0]] || ''); }); return o; },
         flush: function () { flushAllText(id); },
-        setText: function (k, v) { var ta = $('tx-' + k + '-' + id); if (ta) ta.value = v; var t = id + '|' + k; clearTimeout(timers.get(t)); timers.delete(t); var d = dirty.get(id); if (d) delete d[k]; var c = cases.get(id); if (c) c[k] = v; },
-        save: function (patch, msg) { return saveCase(id, patch, { bron: 'claude', msg: msg }); },
+        setText: function (k, v) { var ta = $('tx-' + k + '-' + id); if (ta) ta.value = v; var t = id + '|' + k; clearTimeout(timers.get(t)); timers.delete(t); var d = dirty.get(id); if (d) delete d[k]; basisVan.delete('case|' + id + '|' + k); var c = cases.get(id); if (c) c[k] = v; },
+        save: function (patch, msg, basis) { return saveCase(id, patch, { bron: 'claude', msg: msg, basis: basis }); },
         verify: function (msg) { return saveCase(id, { geverifieerd: true }, { msg: msg }); },
         tools: function () { paintTools(id); icons(); },
         panel: function () { var el = built.get(id); return el ? part(el, 'rev') : null; },
@@ -644,8 +695,8 @@
       id: id, fields: C.PATROON_TEKSTEN, exists: function () { return patterns.has(id); },
       values: function () { var p = patterns.get(id) || {}, o = {}; C.PATROON_TEKSTEN.forEach(function (f) { var ta = $('p-' + f[0] + '-' + id); o[f[0]] = ta ? ta.value : (p[f[0]] || ''); }); return o; },
       flush: function () { flushPatText(id); },
-      setText: function (k, v) { var ta = $('p-' + k + '-' + id); if (ta) ta.value = v; var t = id + '|' + k; clearTimeout(patTimers.get(t)); patTimers.delete(t); var d = patDirty.get(id); if (d) delete d[k]; var p = patterns.get(id); if (p) p[k] = v; },
-      save: function (patch, msg) { return savePattern(id, patch, { bron: 'claude', msg: msg }); },
+      setText: function (k, v) { var ta = $('p-' + k + '-' + id); if (ta) ta.value = v; var t = id + '|' + k; clearTimeout(patTimers.get(t)); patTimers.delete(t); var d = patDirty.get(id); if (d) delete d[k]; basisVan.delete('pat|' + id + '|' + k); var p = patterns.get(id); if (p) p[k] = v; },
+      save: function (patch, msg, basis) { return savePattern(id, patch, { bron: 'claude', msg: msg, basis: basis }); },
       verify: function (msg) { return savePattern(id, { geverifieerd: true }, { msg: msg }); },
       tools: function () { var el = document.querySelector('[data-pat="' + CSS.escape(id) + '"]'); var t = el && part(el, 'ptools'); var p = patterns.get(id); if (t && p) { t.innerHTML = patToolsHtml(p); icons(); } },
       panel: function () { var el = document.querySelector('[data-pat="' + CSS.escape(id) + '"]'); return el ? part(el, 'rev') : null; },
@@ -679,11 +730,11 @@
     var conflict = keys.filter(function (k) { return (cur[k] || '') !== st.snapshot[k]; });
     if (conflict.length && !force) { st.conflict = { keys: keys, velden: conflict.map(function (k) { return lbl(st.fields, k); }) }; paintReview(key); return; }
     st.conflict = null;
-    var patch = {};
-    keys.forEach(function (k) { patch[k] = st.result[k]; st.accepted[k] = true; ad.setText(k, st.result[k]); });
+    var patch = {}, basis = {};
+    keys.forEach(function (k) { patch[k] = st.result[k]; basis[k] = force ? (cur[k] || '') : (st.snapshot[k] || ''); st.accepted[k] = true; ad.setText(k, st.result[k]); });
     var left = changedFields(st);
     if (!left.length) patch.geverifieerd = true;    // pas geverifieerd als alles beslist is
-    ad.save(patch, 'Overgenomen').then(function () {
+    ad.save(patch, 'Overgenomen', basis).then(function () {
       if (!left.length) reviews.delete(key);
       paintReview(key); ad.tools(); if (tab === 'skill') loadSkill();
     });
@@ -1033,7 +1084,32 @@
       layout();
       if (tab === 'patronen') renderPatterns();
       if (tab === 'skill') loadSkill();
+      herstelBackups();
     });
+  }
+
+  /** Teksten die getypt zijn maar (nog) niet bij de server aankwamen: terugzetten en bewaren. */
+  function herstelBackups() {
+    var b = load(BACKUP, {}) || {}, n = 0;
+    Object.keys(b).forEach(function (k) {
+      var x = b[k]; if (!x || typeof x.waarde !== 'string') { delete b[k]; return; }
+      var bron = x.soort === 'pat' ? patterns.get(x.id) : cases.get(x.id);
+      if (!bron) { delete b[k]; return; }
+      var server = bron[x.veld] || '';
+      if (server === x.waarde || (x.waarde.trim() && server.indexOf(x.waarde.trim()) >= 0) || !x.waarde.trim()) { delete b[k]; return; }
+      n++;
+      var patch = {}; patch[x.veld] = x.waarde;
+      var eigen = {}; if (typeof x.basis === 'string') eigen[x.veld] = x.basis;
+      if (x.soort === 'pat') {
+        var dp = patDirty.get(x.id) || {}; dp[x.veld] = x.waarde; patDirty.set(x.id, dp);
+        savePattern(x.id, patch, { basis: eigen });
+      } else {
+        var dc = dirty.get(x.id) || {}; dc[x.veld] = x.waarde; dirty.set(x.id, dc); fill(x.id);
+        saveCase(x.id, patch, { basis: eigen });
+      }
+    });
+    keep(BACKUP, b);
+    if (n) toast(n + (n === 1 ? ' tekst die nog niet bewaard was, wordt nu alsnog bewaard.' : ' teksten die nog niet bewaard waren, worden nu alsnog bewaard.'), 'info');
   }
 
   function poll() {
