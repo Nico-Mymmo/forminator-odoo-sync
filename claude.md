@@ -6052,7 +6052,11 @@ Afspraken die bewust zo zijn:
   rooster zoals in WordPress, met "Wissen"); dat bewaart `content.achtergrond`
   via `POST /api/contributions/:id/achtergrond` (verandert de stand van het stukje niet,
   en een schrijver die bewaart, wist het niet). "Achtergrond van de mail" =
-  `series.tint`, dus voor ALLE edities van die nieuwsbrief. Op een donkere kleur
+  `series.tint`, dus voor ALLE edities van die nieuwsbrief. De KLEUR VAN DE MAIL (het
+  vlak waarin de brief staat, standaard wit) is per mailing: paneel Editie ->
+  "Kleur van de mail", dezelfde kiezer, bewaard als `edition.header.body_kleur`
+  (enkel een merkkleur; `bodyKleur()` in render.js). Op een donker vlak wordt
+  gewone tekst licht, behalve in blokken met een eigen achtergrond of kader. Op een donkere kleur
   wordt gewone tekst licht (`lichteTekst`: enkel styles zonder eigen
   achtergrond, dus knoppen, labels en gezichtjes blijven); blokken met een eigen
   kader (citaat, vragen, agenda) houden hun tekstkleuren.
