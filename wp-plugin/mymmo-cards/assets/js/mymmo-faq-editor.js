@@ -138,7 +138,8 @@
 
   /** De tag van de vraag: zelfde keuze als render_vraag() in class-faq.php. */
   function kopTag(kop) {
-    return kop && kop !== 'tekst' && waarden(F.koppen).indexOf(kop) !== -1 ? kop : 'span';
+    var k = waarden(F.koppen).indexOf(kop) !== -1 ? kop : 'vet';
+    return k === 'tekst' ? 'span' : (k === 'vet' ? 'strong' : k);
   }
 
   /** Tekst uit wat RichText of de REST API teruggeeft. */
@@ -293,7 +294,7 @@
     attributes: {
       align: { type: 'string', default: 'wide' },
       eersteOpen: { type: 'boolean', default: true },
-      kop: { type: 'string', default: 'tekst' },
+      kop: { type: 'string', default: 'vet' },
       achtergrond: { type: 'string', default: '' },
       opvulling: { type: 'string', default: 'normaal' },
       gegevens: { type: 'boolean', default: true }
@@ -333,7 +334,7 @@
           }),
           el(SelectControl, {
             label: 'De vragen zijn',
-            help: 'Gewone tekst oogt zoals op de ontwerpen. Een kop volgt de kopstijl van het thema (groter) en maakt van elke vraag een tussentitel op de pagina. Staat er boven de vragen een Kop 2, kies dan Kop 3.',
+            help: 'Vetgedrukte tekst oogt zoals op de ontwerpen. Een kop volgt de kopstijl van het thema (groter) en maakt van elke vraag een tussentitel op de pagina. Staat er boven de vragen een Kop 2, kies dan Kop 3.',
             value: a.kop,
             options: F.koppen,
             onChange: function (w) { zet({ kop: w }); },
@@ -351,7 +352,7 @@
           PanelBody,
           { title: 'Uitzicht', initialOpen: false },
           kleurkiezer('Achtergrond', palet, a.achtergrond, function (w) { zet({ achtergrond: w }); },
-            'Leeg = het vlak van de huisstijl.'),
+            'Leeg = lichtblauw, zoals op de ontwerpen.'),
           el(SelectControl, {
             label: 'Opvulling',
             value: opvulling,
@@ -439,13 +440,14 @@
       'div',
       blockProps,
       zijbalk,
+      el('p', { className: 'mymmo-faq-bron', 'aria-hidden': 'true' },
+        'Uit de bibliotheek \u00b7 enkel in de editor, niet op de site'),
       el('div', { className: 'mymmo-faq-vraag-kop' },
         el(tag, { className: 'mymmo-faq-vraag-tekst' }, titelVan(vraag))
       ),
       el('div', { className: 'mymmo-faq-vraag-antwoord' },
         el(RawHTML, {}, vraag.content ? vraag.content.rendered : '')
-      ),
-      el('p', { className: 'mymmo-faq-bron' }, 'Uit de bibliotheek')
+      )
     );
   }
 

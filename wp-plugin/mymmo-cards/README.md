@@ -242,9 +242,14 @@ een eigen adres (`#faq-hoeveel-kost-syndicoach`) om naar te linken.
 Bewust GEEN `QAPage`: dat type is voor een pagina met een vraag waarop bezoekers
 antwoorden (een forum), niet voor vragen en antwoorden van de site zelf.
 
-**De vragen als kop.** Standaard is een vraag gewone tekst, zoals op de ontwerpen.
-Bij **Indeling → De vragen zijn** kan het een kop 2, 3 of 4 worden: dan volgt ze de
+**De vragen als kop.** Standaard is een vraag vetgedrukte tekst (een `<strong>`:
+hoe vet, bepaalt het thema), zoals op de ontwerpen. Bij **Indeling → De vragen
+zijn** kan het ook gewone tekst worden, of een kop 2, 3 of 4: dan volgt ze de
 kopstijl van het thema (groter) en krijgt de pagina een tussentitel per vraag.
+
+**De kleur.** Zonder keuze is het vlak lichtblauw: `primary-50` uit het palet van
+het thema. Kent een thema die kleur niet, dan valt het terug op het vlak van de
+huisstijl (lichtgrijs).
 
 ## De knop die een venster opent
 
@@ -464,6 +469,14 @@ Uitzetten per site: `define('MYMMO_CARDS_GEEN_AUTO_UPDATE', true);` in
 `wp-config.php`. De nieuwe versie staat dan nog wel onder Updates.
 
 ## Versies
+
+**1.14.1** — veelgestelde vragen: zoals op de ontwerpen zijn de vragen nu
+standaard vetgedrukt (nieuwe keuze "Vetgedrukte tekst", een `<strong>`, geen
+letterdikte in de CSS) en is het vlak standaard lichtblauw (`primary-50` van het
+palet, met het vlak van de huisstijl als terugval). Het label "Uit de
+bibliotheek" in de editor was gewone grijze tekst onderaan en leek op een regel
+van het antwoord; het is nu een pil met een stippellijn bovenaan, met de
+vermelding dat het niet op de site komt.
 
 **1.14.0** — nieuw blok: **Veelgestelde vragen**, met een bibliotheek
 (Veelgestelde vragen in het menu, met thema's). Vragen klappen open per vraag, de

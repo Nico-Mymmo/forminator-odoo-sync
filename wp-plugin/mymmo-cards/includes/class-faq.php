@@ -81,14 +81,17 @@ final class Mymmo_Cards_Faq {
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * Wat de vraag is in de HTML. Gewone tekst volgt de letter van een alinea,
-     * zoals op de ontwerpen; een kop volgt de kopstijl van het thema (groter)
-     * en geeft de pagina een vraag als tussentitel.
+     * Wat de vraag is in de HTML. Vetgedrukt (de standaard, zoals op de
+     * ontwerpen) is een <strong>: het thema bepaalt hoe vet dat is, er staat
+     * hier geen letterdikte. Gewone tekst volgt de letter van een alinea; een
+     * kop volgt de kopstijl van het thema (groter) en geeft de pagina een
+     * vraag als tussentitel.
      *
      * @return array<string,string>
      */
     public static function koppen(): array {
         return [
+            'vet'   => 'Vetgedrukte tekst',
             'tekst' => 'Gewone tekst',
             'h2'    => 'Kop 2',
             'h3'    => 'Kop 3',
@@ -225,8 +228,9 @@ final class Mymmo_Cards_Faq {
         return [
             'align'       => ['type' => 'string', 'default' => 'wide'],
             'eersteOpen'  => ['type' => 'boolean', 'default' => true],
-            'kop'         => ['type' => 'string', 'default' => 'tekst'],
-            // Een kleur uit het palet (slug). Leeg = het vlak van de huisstijl.
+            'kop'         => ['type' => 'string', 'default' => 'vet'],
+            // Een kleur uit het palet (slug). Leeg = lichtblauw (primary-50 van
+            // het palet, zie mymmo-faq.css).
             'achtergrond' => ['type' => 'string', 'default' => ''],
             'opvulling'   => ['type' => 'string', 'default' => 'normaal'],
             // Uit = deze vragen staan niet in de gestructureerde gegevens (een
@@ -351,11 +355,11 @@ final class Mymmo_Cards_Faq {
             return '';
         }
 
-        $kop = 'tekst';
+        $kop = 'vet';
         if (is_object($block) && isset($block->context['mymmo/faq-kop'])) {
-            $kop = mymmo_cards_keuze((string) $block->context['mymmo/faq-kop'], self::koppen(), 'tekst');
+            $kop = mymmo_cards_keuze((string) $block->context['mymmo/faq-kop'], self::koppen(), 'vet');
         }
-        $tag = $kop === 'tekst' ? 'span' : $kop;
+        $tag = $kop === 'tekst' ? 'span' : ($kop === 'vet' ? 'strong' : $kop);
 
         // Een adres per vraag (#faq-hoeveel-kost-syndicoach): om naar een
         // antwoord te linken; mymmo-faq.js klapt de vraag dan open.

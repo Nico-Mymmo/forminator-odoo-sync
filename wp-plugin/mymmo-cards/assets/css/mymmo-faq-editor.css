@@ -8,8 +8,15 @@
  */
 
 .mymmo-faq .mymmo-faq-bron {
-  margin: 0 0 var(--mymmo-ruimte-krap);
-  opacity: 0.6;
+  /* Een labeltje van de editor, geen tekst van de pagina: een pil met een
+     stippellijn, zodat niemand denkt dat het mee op de site komt. */
+  display: inline-block;
+  margin: var(--mymmo-ruimte-krap) 0 0;
+  padding: 2px 10px;
+  border: var(--mymmo-rand) dashed var(--mymmo-kleur-focus);
+  border-radius: var(--mymmo-afronding-rond);
+  background-color: var(--mymmo-kleur-vlak-licht);
+  color: var(--mymmo-kleur-focus);
 }
 
 /* In de editor klapt een vraag niet open of dicht: geen handje. */
