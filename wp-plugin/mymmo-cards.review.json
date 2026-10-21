@@ -1,8 +1,8 @@
 {
   "plugin": "mymmo-cards",
-  "versie": "1.13.5",
-  "hash": "0bc8fcf68686483e",
-  "datum": "2026-10-20T14:42:20.000Z",
-  "door": "Nico-Mymmo",
-  "samenvatting": "1.13.5: enkel de bewaking in de editor gewijzigd, geen component. Uitlijnen (typography.textAlign) telt niet meer als eigen typografie; de melding noemt de eigenschap (lettergrootte, regelhoogte, ...) en het begin van de tekst van het blok. Geen wijziging aan CSS of opmaak van componenten; de bestaande waarschuwingen H15 zijn ongewijzigd."
+  "versie": "1.14.0",
+  "hash": "e42228dc32fb8d73",
+  "datum": "2026-10-21T12:05:27.000Z",
+  "door": "Claude",
+  "samenvatting": "Nieuw component Veelgestelde vragen (mymmo/faq + mymmo/faq-vraag, bibliotheek mymmo_faq met thema's). Nagekeken: een vlak met afronding-l en de drie opvullingen van de huisstijl, geen schaduw, lijn enkel tussen vragen, pijltje als CSS-hoek met rand uit de huisstijl, focusring op de vraag, 44px aanraakdoel, eigen telefoonregel, stil bij reduced motion; zijbalk: inhoud eerst en open, dan Indeling en Uitzicht, kleur uit het palet. Bekeken op 1280 en 375px."
 }

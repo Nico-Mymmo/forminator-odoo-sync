@@ -1,0 +1,133 @@
+/**
+ * De veelgestelde vragen -- geometrie, nooit typografie.
+ *
+ * Een vlak met de afronding van een kaart; daarin de vragen onder elkaar,
+ * gescheiden door een dunne lijn (niet boven de eerste, niet onder de laatste).
+ * Elke vraag is een <details>: de vraag zelf (de <summary>) over de volle
+ * breedte, met rechts een pijltje dat omhoog wijst als de vraag open staat.
+ * Het antwoord is zachter dan de vraag, zodat je de vragen in een oogopslag
+ * overloopt.
+ *
+ * Het pijltje is een getekende hoek (twee randen van een vierkantje, gedraaid):
+ * geen icoon, geen SVG. Wie beweging afwijst, ziet het meteen omslaan.
+ *
+ * Geen schaduw: de vragen zweven niet, ze staan op de pagina.
+ */
+
+.mymmo-faq {
+  /* De opvulling van het vlak: een van de drie van de huisstijl. */
+  --mk-pad: var(--mymmo-ruimte-normaal);
+  /* De maat van het pijltje. */
+  --mk-pijl: 0.5em;
+  margin-inline: auto;
+  padding: var(--mk-pad);
+  border-radius: var(--mymmo-afronding-l);
+  background-color: var(--mk-faq-bg, var(--mymmo-kleur-vlak));
+}
+
+.mymmo-faq.mymmo-faq--pad-krap { --mk-pad: var(--mymmo-ruimte-krap); }
+.mymmo-faq.mymmo-faq--pad-ruim { --mk-pad: var(--mymmo-ruimte-ruim); }
+
+@media (max-width: 781px) {
+  .mymmo-faq.mymmo-faq--pad-krap { --mk-pad: var(--mymmo-ruimte-krap-telefoon); }
+  .mymmo-faq.mymmo-faq--pad-normaal { --mk-pad: var(--mymmo-ruimte-normaal-telefoon); }
+  .mymmo-faq.mymmo-faq--pad-ruim { --mk-pad: var(--mymmo-ruimte-ruim-telefoon); }
+}
+
+/* ── Een vraag ────────────────────────────────────────────────────────────── */
+
+.mymmo-faq .mymmo-faq-vraag {
+  margin: 0;
+  padding: 0;
+}
+
+.mymmo-faq .mymmo-faq-vraag + .mymmo-faq-vraag {
+  border-top: var(--mymmo-rand) solid var(--mymmo-kleur-lijn);
+}
+
+/* De vraag: de hele regel is klikbaar, minstens 44px hoog. */
+.mymmo-faq .mymmo-faq-vraag-kop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--mymmo-ruimte-krap);
+  min-height: 44px;
+  padding-block: var(--mymmo-ruimte-krap);
+  cursor: pointer;
+  list-style: none;
+}
+
+.mymmo-faq .mymmo-faq-vraag-kop::-webkit-details-marker {
+  display: none;
+}
+
+.mymmo-faq .mymmo-faq-vraag-kop:focus-visible {
+  outline: var(--mymmo-focus);
+  outline-offset: var(--mymmo-focus-afstand);
+  border-radius: var(--mymmo-afronding-m);
+}
+
+/* Een kop in de vraag brengt de marges van het thema mee; die horen hier niet. */
+.mymmo-faq .mymmo-faq-vraag-kop .mymmo-faq-vraag-tekst {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+}
+
+/* Het pijltje: naar beneden als de vraag dicht is, naar boven als ze open is. */
+.mymmo-faq .mymmo-faq-vraag-kop::after {
+  content: "";
+  flex: 0 0 auto;
+  width: var(--mk-pijl);
+  height: var(--mk-pijl);
+  margin-inline-end: calc(var(--mk-pijl) / 2);
+  border-right: var(--mymmo-rand) solid currentColor;
+  border-bottom: var(--mymmo-rand) solid currentColor;
+  transform: translateY(-25%) rotate(45deg);
+  transition: transform 0.2s ease;
+}
+
+.mymmo-faq .mymmo-faq-vraag[open] > .mymmo-faq-vraag-kop::after,
+.mymmo-faq .mymmo-faq-vraag.is-open > .mymmo-faq-vraag-kop::after {
+  transform: translateY(25%) rotate(-135deg);
+}
+
+/* ── Het antwoord ─────────────────────────────────────────────────────────── */
+
+.mymmo-faq .mymmo-faq-vraag-antwoord {
+  padding-bottom: var(--mymmo-ruimte-krap);
+  /* De tekstkleur, zacht: de vraag blijft het eerste wat je leest, en de
+     tekst haalt op een licht vlak nog 4,5:1. */
+  opacity: 0.8;
+}
+
+/* De ruimte tussen de blokken van het antwoord komt van hier, niet van de
+   marges van het thema: anders staat het antwoord bij het ene thema verder
+   van de vraag. */
+.mymmo-faq .mymmo-faq-vraag-antwoord > * {
+  margin-block: 0;
+}
+
+.mymmo-faq .mymmo-faq-vraag-antwoord > * + * {
+  margin-top: var(--mymmo-ruimte-krap);
+}
+
+/* ── Een telefoon ─────────────────────────────────────────────────────────── */
+
+/* Het pijltje blijft rechts naast de vraag, ook als die over drie regels
+   loopt: het staat dan bij de eerste regel, niet in het midden. */
+@media (max-width: 639.98px) {
+  .mymmo-faq .mymmo-faq-vraag-kop {
+    align-items: flex-start;
+  }
+
+  .mymmo-faq .mymmo-faq-vraag-kop::after {
+    margin-top: calc(var(--mk-pijl) * 0.8);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mymmo-faq .mymmo-faq-vraag-kop::after {
+    transition: none;
+  }
+}
