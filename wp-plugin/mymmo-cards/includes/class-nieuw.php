@@ -33,6 +33,7 @@ final class Mymmo_Cards_Nieuw {
      * Gewone taal: wat het is en waar je het vindt, geen techniek.
      */
     private const NIEUWS = [
+        '1.14.0' => 'Nieuw blok: Veelgestelde vragen. Vragen die openklappen, met de eerste al open. Blok toevoegen, categorie Mymmo, Veelgestelde vragen. Rechts kies je vragen uit de bibliotheek (per thema), of je typt een eigen vraag. De bibliotheek vind je links in het menu onder Veelgestelde vragen.',
         '1.13.3' => 'Afgeronde hoeken op een video, een ingesloten film (Vimeo, YouTube) of een afbeelding: klik het blok aan en kies rechts, onder Rand, meteen Klein of Groot. Die keuze zat verstopt achter het plusje van dat paneel.',
         '1.13.2' => 'Kostencalculator: het vak kan nu ook wit. Klik de calculator aan, open rechts Uitzicht en kies Wit bij Achtergrond van de calculator.',
         '1.13.0' => 'Nieuw blok: Kostencalculator. De bezoeker stelt het aantal kavels in en ziet wat het per jaar kost voor het gebouw. Blok toevoegen, categorie Mymmo, Kostencalculator. De prijzen pas je rechts aan, onder Prijzen.',

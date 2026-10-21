@@ -9,6 +9,7 @@ regel CSS. Wat erin zit:
 | **Markeerstift** | een opmaakknop in de werkbalk van elke kop en alinea: een woord selecteren en er een streep achter zetten, in een kleur van het thema. |
 | **Getuigenissen** | twee blokken. Klanten aan het woord: citaat, naam en foto, naast elkaar op een computer, onder elkaar op een telefoon. |
 | **Kostencalculator** | wat het pakket per jaar kost voor een gebouw: de bezoeker zet het aantal kavels met min en plus. |
+| **Veelgestelde vragen** | twee blokken en een bibliotheek. Vragen die openklappen, uit een bibliotheek met thema's of eigen aan de pagina, met de gegevens voor zoekmachines (FAQPage). |
 | **Knop die een venster opent** | de gewone WordPress-knop, met één keuze erbij: welk tabblad van welke pop-up hij opent. |
 
 Elk component volgt dezelfde regel: **geometrie en gedrag, nooit typografie**. In
@@ -175,6 +176,75 @@ Wat de tekening moet zijn:
 
 Bewust geen URL-veld in de editor: die waarde zou in de pagina van een bezoeker
 belanden, en een streep hoort bij de huisstijl — niet bij het bericht.
+
+## De veelgestelde vragen
+
+Een lijst vragen in een licht vlak, gescheiden door een dunne lijn. Elke vraag
+klapt open en dicht met een klik; de eerste staat standaard open. Het is een
+`<details>` met een `<summary>`: het werkt zonder script, met het toetsenbord en
+met een schermlezer, en in Chrome en Edge klapt de zoekfunctie van de browser
+(Ctrl+F) een vraag open als het woord in het antwoord staat. Een klein script
+klapt een vraag open waarnaar een link wijst (`#faq-hoeveel-kost-syndicoach`).
+
+```
+Veelgestelde vragen   (mymmo/faq)        de lijst: vlak, opvulling, eerste open
+  Vraag               (mymmo/faq-vraag)  uit de bibliotheek, of eigen
+```
+
+### De bibliotheek
+
+Links in het menu: **Veelgestelde vragen**. De titel is de vraag, de inhoud het
+antwoord, met een **thema** en een **volgorde** (Pagina-attributen → Volgorde).
+Een vraag die op meerdere pagina's terugkomt, staat hier een keer: pas je het
+antwoord aan, dan verandert het op elke pagina tegelijk. Bezoekers zien de
+bibliotheek zelf niet; een vraag heeft geen eigen adres (anders stond dezelfde
+tekst twee keer op de site).
+
+**Automatisch een thema.** Bewaar je een vraag zonder thema, dan kiest de site er
+een: het thema waarvan de naam en de **trefwoorden** (Veelgestelde vragen →
+Thema's → bij elk thema) het vaakst in de vraag en het antwoord staan. Een woord
+in de vraag telt dubbel. Past er niets, dan wordt het **Algemeen**. Een thema dat
+iemand zelf koos, blijft altijd staan. Het is tellen, geen begrijpen: "Wat kost
+het?" belandt enkel bij Prijs als "kost" bij de trefwoorden van Prijs staat.
+
+### Op een pagina
+
+1. Blok toevoegen, categorie **Mymmo**, **Veelgestelde vragen**.
+2. Rechts, **Vragen uit de bibliotheek**: kies een thema en vink vragen aan, of
+   voeg alle vragen van dat thema in een keer toe. Ze komen onderaan; versleep
+   ze in de lijst.
+3. Een vraag die enkel op deze pagina hoort: klik op het plusje en typ ze in het
+   blok. Komt ze toch terug, dan zet **Bewaar in de bibliotheek** (rechts, bij de
+   vraag) ze erin. Omgekeerd maakt **Maak er een eigen vraag van** van een vraag
+   uit de bibliotheek een kopie voor enkel deze pagina.
+
+De titel boven het vlak ("Nog vragen?") is een gewone kop erboven, geen deel van
+het blok.
+
+### Voor zoekmachines en AI-zoekmachines
+
+De vragen gaan als **schema.org/FAQPage** mee met de pagina, gemaakt uit precies
+wat er op de pagina staat (dezelfde code bepaalt beide): een vraag die niet
+getoond wordt, staat er ook niet in. Met **Yoast SEO** wordt de WebPage van Yoast
+ook een FAQPage, met de vragen als `mainEntity` (zoals het FAQ-blok van Yoast zelf
+doet); zonder Yoast komt er een eigen `<script type="application/ld+json">` in de
+`<head>`. Dezelfde vraag twee keer op een pagina staat er een keer in. Een tweede
+lijst met dezelfde vragen: zet **In de gegevens voor zoekmachines** uit.
+
+Wat dat oplevert, eerlijk: Google toont sinds mei 2026 geen FAQ-resultaten
+(de uitklapvragen onder een zoekresultaat) meer, voor geen enkele site; sinds
+augustus 2023 kregen enkel overheids- en gezondheidssites ze nog. De markup blijft
+geldig en Google zegt ze nog te lezen om een pagina te begrijpen. Voor
+AI-zoekmachines telt vooral de tekst die in de HTML staat: daarom staan de
+antwoorden in de pagina zelf (dicht geklapt, niet weggelaten), en geeft elke vraag
+een eigen adres (`#faq-hoeveel-kost-syndicoach`) om naar te linken.
+
+Bewust GEEN `QAPage`: dat type is voor een pagina met een vraag waarop bezoekers
+antwoorden (een forum), niet voor vragen en antwoorden van de site zelf.
+
+**De vragen als kop.** Standaard is een vraag gewone tekst, zoals op de ontwerpen.
+Bij **Indeling → De vragen zijn** kan het een kop 2, 3 of 4 worden: dan volgt ze de
+kopstijl van het thema (groter) en krijgt de pagina een tussentitel per vraag.
 
 ## De knop die een venster opent
 
@@ -394,6 +464,15 @@ Uitzetten per site: `define('MYMMO_CARDS_GEEN_AUTO_UPDATE', true);` in
 `wp-config.php`. De nieuwe versie staat dan nog wel onder Updates.
 
 ## Versies
+
+**1.14.0** — nieuw blok: **Veelgestelde vragen**, met een bibliotheek
+(Veelgestelde vragen in het menu, met thema's). Vragen klappen open per vraag, de
+eerste staat open. Een vraag komt uit de bibliotheek (dezelfde vraag op meerdere
+pagina's, een keer aan te passen) of is eigen aan de pagina. Een vraag zonder
+thema krijgt er een op basis van trefwoorden. De vragen gaan als
+schema.org/FAQPage mee, in de graaf van Yoast als die er is, anders als eigen
+JSON-LD; altijd uit dezelfde bron als wat op de pagina staat. Zie "De
+veelgestelde vragen" hierboven.
 
 **1.13.5** — tekst uitlijnen (links, midden, rechts) mag weer. WordPress
 bewaart het uitlijnen van een alinea of kop bij de instellingen voor het

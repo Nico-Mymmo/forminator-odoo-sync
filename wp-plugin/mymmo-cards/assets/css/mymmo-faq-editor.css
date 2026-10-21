@@ -1,0 +1,18 @@
+/**
+ * De veelgestelde vragen -- enkel wat in de editor anders is.
+ *
+ * In de editor staan alle antwoorden open (je moet ze kunnen lezen en typen);
+ * het pijltje staat daarom omhoog, via .is-open in mymmo-faq.css. Hier staat
+ * enkel het labeltje dat een vraag uit de bibliotheek komt: dat zie je op de
+ * pagina niet.
+ */
+
+.mymmo-faq .mymmo-faq-bron {
+  margin: 0 0 var(--mymmo-ruimte-krap);
+  opacity: 0.6;
+}
+
+/* In de editor klapt een vraag niet open of dicht: geen handje. */
+.mymmo-faq .mymmo-faq-vraag .mymmo-faq-vraag-kop {
+  cursor: default;
+}
