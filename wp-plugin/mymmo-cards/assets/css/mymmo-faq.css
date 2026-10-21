@@ -22,7 +22,10 @@
   margin-inline: auto;
   padding: var(--mk-pad);
   border-radius: var(--mymmo-afronding-l);
-  background-color: var(--mk-faq-bg, var(--mymmo-kleur-vlak));
+  /* Zonder keuze lichtblauw, zoals op de ontwerpen: de lichtste tint van de
+     merkkleur uit het palet. Kent een thema die tint niet, dan het vlak van
+     de huisstijl. */
+  background-color: var(--mk-faq-bg, var(--wp--preset--color--primary-50, var(--mymmo-kleur-vlak)));
 }
 
 .mymmo-faq.mymmo-faq--pad-krap { --mk-pad: var(--mymmo-ruimte-krap); }

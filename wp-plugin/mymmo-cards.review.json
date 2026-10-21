@@ -1,8 +1,8 @@
 {
   "plugin": "mymmo-cards",
-  "versie": "1.14.0",
-  "hash": "e42228dc32fb8d73",
-  "datum": "2026-10-21T12:05:27.000Z",
+  "versie": "1.14.1",
+  "hash": "bc7a84644aa3f371",
+  "datum": "2026-10-21T12:36:45.000Z",
   "door": "Claude",
-  "samenvatting": "Nieuw component Veelgestelde vragen (mymmo/faq + mymmo/faq-vraag, bibliotheek mymmo_faq met thema's). Nagekeken: een vlak met afronding-l en de drie opvullingen van de huisstijl, geen schaduw, lijn enkel tussen vragen, pijltje als CSS-hoek met rand uit de huisstijl, focusring op de vraag, 44px aanraakdoel, eigen telefoonregel, stil bij reduced motion; zijbalk: inhoud eerst en open, dan Indeling en Uitzicht, kleur uit het palet. Bekeken op 1280 en 375px."
+  "samenvatting": "Aanpassing Veelgestelde vragen 1.14.1: nieuwe standaard Vetgedrukte tekst als <strong> (geen letterdikte in CSS), standaard vlak lichtblauw via primary-50 van het palet met het huisstijlvlak als terugval, en het bibliotheeklabel in de editor als pil met stippellijn bovenaan, aria-hidden, enkel in de editor-CSS. Bekeken op 1280px."
 }
