@@ -274,22 +274,100 @@
   }
 
   // ── Logboek ────────────────────────────────────────────────────────────
+  function tijd(iso) {
+    return new Date(iso).toLocaleString('nl-BE', { dateStyle: 'short', timeStyle: 'short' });
+  }
+
   async function openLogboek() {
     var lijst = $('dlgLogboekLijst');
+    $('dlgLogboekTitel').textContent = 'Logboek';
+    $('dlgLogboekUitleg').textContent = 'Wie wat veranderde, nieuwste eerst. Klik een regel aan om te zien wat er precies veranderde, en om het ongedaan te maken.';
     lijst.innerHTML = '<div class="py-4 text-center text-base-content/50"><span class="loading loading-spinner loading-sm"></span></div>';
-    $('dlgLogboek').showModal();
+    if (!$('dlgLogboek').open) $('dlgLogboek').showModal();
     try {
       var rijen = await RG.api('/wijzigingen');
       lijst.innerHTML = rijen.length ? rijen.map(function (r) {
-        var t = new Date(r.created_at);
-        return '<div class="py-2 flex gap-3">' +
-          '<span class="text-xs text-base-content/50 w-32 shrink-0">' + e(t.toLocaleString('nl-BE', { dateStyle: 'short', timeStyle: 'short' })) + '</span>' +
-          '<span class="flex-1">' + e(r.tekst) + '</span>' +
-          '<span class="text-xs text-base-content/50 shrink-0">' + e(r.user_naam) + '</span></div>';
+        var klik = r.heeft_details ? ' cursor-pointer hover:bg-base-content/5" data-action="log-detail" data-id="' + e(r.id) + '"' : '"';
+        return '<div class="py-2 px-1 flex items-start gap-3 rounded' + klik + '>' +
+          '<span class="text-xs text-base-content/50 w-28 shrink-0 pt-0.5">' + e(tijd(r.created_at)) + '</span>' +
+          '<span class="flex-1 min-w-0' + (r.ongedaan_at ? ' line-through text-base-content/50' : '') + '">' + e(r.tekst) +
+            (r.ongedaan_at ? '<span class="block no-underline text-xs text-base-content/50" style="text-decoration:none">Ongedaan gemaakt door ' + e(r.ongedaan_door || '') + ', ' + e(tijd(r.ongedaan_at)) + '</span>' : '') +
+          '</span>' +
+          '<span class="text-xs text-base-content/50 shrink-0 pt-0.5">' + e(r.user_naam) + '</span>' +
+          (r.kan_ongedaan ? '<span class="btn btn-xs btn-ghost gap-1 shrink-0" title="Ongedaan maken"><i data-lucide="undo-2" class="w-3.5 h-3.5"></i></span>' : '<span class="w-8 shrink-0"></span>') +
+        '</div>';
       }).join('') : '<p class="py-4 text-base-content/50">Nog niets veranderd.</p>';
+      RG.iconen();
     } catch (err) {
       lijst.innerHTML = '<div class="alert alert-error text-sm">Het logboek kon niet geladen worden: ' + e(err.message) + '</div>';
     }
+  }
+
+  var logDetail = null;
+
+  async function openLogDetail(id) {
+    var lijst = $('dlgLogboekLijst');
+    lijst.innerHTML = '<div class="py-4 text-center text-base-content/50"><span class="loading loading-spinner loading-sm"></span></div>';
+    try { logDetail = await RG.api('/wijzigingen/' + encodeURIComponent(id)); } catch (err) {
+      lijst.innerHTML = '<div class="alert alert-error text-sm">' + e(err.message) + '</div>';
+      return;
+    }
+    var w = logDetail;
+    var naam = function (sid) { return sid ? (w.namen[sid] || 'verwijderde syndicoach') : 'vrij'; };
+    $('dlgLogboekTitel').textContent = w.tekst;
+    $('dlgLogboekUitleg').textContent = w.user_naam + ', ' + tijd(w.created_at) +
+      (w.ongedaan_at ? ' -- ongedaan gemaakt door ' + (w.ongedaan_door || '') + ', ' + tijd(w.ongedaan_at) : '');
+    var html = '<button class="btn btn-xs btn-ghost gap-1 mb-2" data-action="log-terug"><i data-lucide="arrow-left" class="w-3.5 h-3.5"></i> Terug naar het logboek</button>';
+    if (w.syndicoach_voor && !w.syndicoach_na) html += '<p class="py-2">Syndicoach <strong>' + e(w.syndicoach_voor.naam) + '</strong> werd verwijderd. Ongedaan maken zet hem terug, met zijn postcodes.</p>';
+    if (w.syndicoach_na && !w.syndicoach_voor) html += '<p class="py-2">Syndicoach <strong>' + e(w.syndicoach_na.naam) + '</strong> werd toegevoegd. Ongedaan maken haalt hem weg (niet als hij intussen postcodes kreeg).</p>';
+    if (w.syndicoach_voor && w.syndicoach_na) {
+      html += '<p class="py-2 flex items-center gap-2 flex-wrap">' +
+        '<span class="rg-bol" style="background:' + e(w.syndicoach_voor.kleur) + '"></span> ' + e(w.syndicoach_voor.naam) +
+        ' <i data-lucide="arrow-right" class="w-3.5 h-3.5"></i> ' +
+        '<span class="rg-bol" style="background:' + e(w.syndicoach_na.kleur) + '"></span> ' + e(w.syndicoach_na.naam) + '</p>';
+    }
+    if (w.nieuwe_syndicoaches.length) {
+      html += '<p class="py-2">Nieuw aangemaakt: ' + w.nieuwe_syndicoaches.map(function (s) { return '<strong>' + e(s.naam) + '</strong>'; }).join(', ') +
+        '. Ongedaan maken haalt ze weg, behalve als ze intussen postcodes kregen.</p>';
+    }
+    if (w.extra_postcode) html += '<p class="py-2">Postcode <strong>' + e(w.extra_postcode.postcode) + '</strong> werd met de hand toegevoegd aan ' + e(RG.gemeenteNaam(w.extra_postcode.nis) || w.extra_postcode.nis) + '.</p>';
+    if (w.postcodes.length) {
+      html += '<table class="table table-xs w-full mt-1"><thead><tr><th>Postcode</th><th>Ervoor</th><th></th><th>Erna</th><th>Nu</th></tr></thead><tbody>' +
+        w.postcodes.map(function (p) {
+          return '<tr' + (p.gewijzigd ? ' class="bg-warning/10"' : '') + '>' +
+            '<td class="whitespace-nowrap"><span class="font-mono">' + e(p.pc) + '</span> <span class="text-base-content/50">' + e(RG.plaatsVan(p.pc)) + '</span></td>' +
+            '<td>' + e(naam(p.van)) + '</td><td><i data-lucide="arrow-right" class="w-3 h-3"></i></td><td>' + e(naam(p.naar)) + '</td>' +
+            '<td>' + (p.gewijzigd ? '<span class="text-warning">' + e(naam(p.nu)) + '</span>' : '<span class="text-base-content/40">zelfde</span>') + '</td></tr>';
+        }).join('') + '</tbody></table>';
+    }
+    if (w.kan_ongedaan) {
+      html += '<div class="mt-4 flex flex-wrap items-center gap-2">';
+      if (w.gewijzigd_aantal) {
+        html += '<p class="text-sm text-warning w-full">' + w.gewijzigd_aantal + ' postcode(s) zijn sindsdien opnieuw veranderd (geel). Die laat je best staan, tenzij je zeker bent.</p>' +
+          '<button class="btn btn-sm btn-primary gap-1" data-action="log-ongedaan"><i data-lucide="undo-2" class="w-4 h-4"></i> Ongedaan maken, behalve wat opnieuw veranderde</button>' +
+          '<button class="btn btn-sm btn-outline btn-warning" data-action="log-ongedaan-alles">Alles terugzetten</button>';
+      } else {
+        html += '<button class="btn btn-sm btn-primary gap-1" data-action="log-ongedaan"><i data-lucide="undo-2" class="w-4 h-4"></i> Ongedaan maken</button>';
+      }
+      html += '</div>';
+    } else if (!w.ongedaan_at) {
+      html += '<p class="text-sm text-base-content/50 mt-3">Deze wijziging kan niet ongedaan gemaakt worden.</p>';
+    }
+    lijst.innerHTML = html;
+    RG.iconen();
+  }
+
+  async function doeOngedaan(alles) {
+    if (!logDetail) return;
+    var id = logDetail.id;
+    try {
+      var r = await RG.schrijf(function () {
+        return RG.api('/wijzigingen/' + encodeURIComponent(id) + '/ongedaan', { method: 'POST', body: { alles: !!alles } });
+      }, 'Ongedaan maken mislukt');
+      await RG.laad(true);
+      RG.toast('Ongedaan gemaakt: ' + r.teruggezet + ' postcode(s) teruggezet' + (r.overgeslagen ? ', ' + r.overgeslagen + ' overgeslagen' : '') + '.');
+      openLogboek();
+    } catch (x) { /* gemeld */ }
   }
 
   // ── Zoeken ─────────────────────────────────────────────────────────────
@@ -335,6 +413,10 @@
     else if (a === 'export-coach') exportCoach(id);
     else if (a === 'export-alles') exportAlles();
     else if (a === 'open-logboek') openLogboek();
+    else if (a === 'log-detail') openLogDetail(id);
+    else if (a === 'log-terug') openLogboek();
+    else if (a === 'log-ongedaan') doeOngedaan(false);
+    else if (a === 'log-ongedaan-alles') doeOngedaan(true);
     else if (a === 'open-import') RG.openImport();
     else if (a === 'import-voorbeeld') RG.importVoorbeeld();
     else if (a === 'import-doe') RG.importDoe();

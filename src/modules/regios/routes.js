@@ -9,8 +9,9 @@
 import {
   stand, insertSyndicoach, updateSyndicoach, deleteSyndicoach, orderSyndicoaches,
   toewijzen, voegExtraPostcodeToe, listWijzigingen, syndicoachVoorPostcode,
-  listSyndicoaches, zorgVoorSyndicoaches, schrijfRijen, verwijderPostcodes, log,
+  listSyndicoaches, pasImportToe,
 } from './lib/store.js';
+import { toonWijziging, maakOngedaan } from './lib/ongedaan.js';
 import { bouwPlan } from './lib/import.js';
 import { ensureOvername, neemOver } from './lib/overname.js';
 import { RegioError, LOG_PREFIX } from './lib/constants.js';
@@ -38,7 +39,10 @@ const isAdmin = (user) => user?.role === 'admin';
 async function plan(env, body) {
   const s = await stand(env);
   try {
-    return bouwPlan({ tekst: body.tekst, modus: body.modus, syndicoaches: s.syndicoaches, toewijzingen: s.toewijzingen });
+    return {
+      plan: bouwPlan({ tekst: body.tekst, modus: body.modus, syndicoaches: s.syndicoaches, toewijzingen: s.toewijzingen }),
+      voor: s.toewijzingen,
+    };
   } catch (err) {
     throw new RegioError(err.message);
   }
@@ -107,6 +111,21 @@ export const routes = {
     } catch (err) { return fout(err); }
   },
 
+  // Wat een logboekregel veranderde, en wat er sindsdien opnieuw veranderde.
+  'GET /api/wijzigingen/:id': async ({ env, params }) => {
+    try {
+      return json({ success: true, data: await toonWijziging(env, params.id) });
+    } catch (err) { return fout(err); }
+  },
+
+  // { alles: true } zet ook terug wat sindsdien opnieuw veranderde.
+  'POST /api/wijzigingen/:id/ongedaan': async ({ env, request, user, params }) => {
+    try {
+      const body = await leesBody(request);
+      return json({ success: true, data: await maakOngedaan(env, params.id, user, { alles: !!body.alles }) });
+    } catch (err) { return fout(err); }
+  },
+
 
   // Wie is de syndicoach van deze postcode.
   'GET /api/postcode/:postcode': async ({ env, params }) => {
@@ -117,25 +136,14 @@ export const routes = {
 
   'POST /api/import/voorbeeld': async ({ env, request }) => {
     try {
-      return json({ success: true, data: await plan(env, await leesBody(request)) });
+      return json({ success: true, data: (await plan(env, await leesBody(request))).plan });
     } catch (err) { return fout(err); }
   },
 
   'POST /api/import': async ({ env, request, user }) => {
     try {
-      const p = await plan(env, await leesBody(request));
-      const namen = [...new Set(p.toewijzen.map((t) => t.naam))];
-      const { map, nieuw } = await zorgVoorSyndicoaches(env, namen, user);
-      await schrijfRijen(env, 'regio_postcodes', p.toewijzen.map((t) => ({
-        postcode: t.postcode, syndicoach_id: map.get(t.naam.toLowerCase()), updated_by: user?.id || null,
-      })));
-      await verwijderPostcodes(env, p.vrijgeven);
-      const t = p.tellingen;
-      await log(env, user, 'import',
-        `Import (${p.modus}): ${t.nieuw} nieuw toegewezen, ${t.verplaatst} verplaatst, ${t.vrijgeven} vrijgegeven` +
-        (nieuw.length ? `, ${nieuw.length} nieuwe syndicoach(es)` : ''),
-        t.nieuw + t.verplaatst + t.vrijgeven);
-      return json({ success: true, data: { tellingen: t, nieuwe_syndicoaches: nieuw.length } });
+      const { plan: p, voor } = await plan(env, await leesBody(request));
+      return json({ success: true, data: await pasImportToe(env, p, voor, user) });
     } catch (err) { return fout(err); }
   },
 

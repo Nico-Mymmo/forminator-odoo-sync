@@ -4,6 +4,9 @@
  * Elke postcode is een eigen rij. Toewijzen schrijft enkel de postcodes die
  * je aanklikte; zo kunnen twee mensen tegelijk aan de kaart werken zonder
  * elkaars werk te overschrijven (de mini-app bewaarde alles als een blob).
+ *
+ * Elke wijziging komt in het logboek MET de toestand ervoor (`details`), zodat
+ * ze ongedaan gemaakt kan worden (lib/ongedaan.js).
  */
 
 import { getCoreDb } from '../../../lib/core-db.js';
@@ -60,10 +63,42 @@ export async function zetMeta(env, sleutel, waarde) {
   check(await db(env).from('regio_meta').upsert({ sleutel, waarde }), 'Meta bewaren');
 }
 
+/** Soorten die nooit ongedaan gemaakt worden. */
+const NIET_ONGEDAAN = new Set(['overname', 'ongedaan']);
+
+export function kanOngedaan(rij) {
+  return !!rij.details && !rij.ongedaan_at && !NIET_ONGEDAAN.has(rij.soort);
+}
+
 export async function listWijzigingen(env, limiet = 100) {
-  return check(await db(env).from('regio_wijzigingen')
-    .select('soort, tekst, aantal, user_naam, created_at')
+  const rijen = check(await db(env).from('regio_wijzigingen')
+    .select('id, soort, tekst, aantal, user_naam, created_at, ongedaan_at, ongedaan_door, details')
     .order('created_at', { ascending: false }).limit(limiet), 'Logboek lezen') || [];
+  // De details (bij een import honderden postcodes) gaan niet mee in de lijst.
+  return rijen.map(({ details, ...r }) => ({ ...r, heeft_details: !!details, kan_ongedaan: kanOngedaan({ ...r, details }) }));
+}
+
+export async function getWijziging(env, id) {
+  return check(await db(env).from('regio_wijzigingen').select('*').eq('id', id).maybeSingle(), 'Logboekregel lezen');
+}
+
+/** Postcode -> syndicoach-id (of null) zoals het NU staat. */
+export async function huidigeEigenaars(env, pcs) {
+  const uit = {};
+  pcs.forEach((pc) => { uit[pc] = null; });
+  if (!pcs.length) return uit;
+  const rijen = check(await db(env).from('regio_postcodes').select('postcode, syndicoach_id').in('postcode', pcs), 'Postcodes lezen') || [];
+  rijen.forEach((r) => { uit[r.postcode] = r.syndicoach_id; });
+  return uit;
+}
+
+/** Id -> naam, voor de syndicoaches die in een wijziging voorkomen. */
+async function namenVoor(env, ids, extra = {}) {
+  const nodig = new Set(ids.filter(Boolean));
+  const uit = { ...extra };
+  if (!nodig.size) return uit;
+  (await listSyndicoaches(env)).forEach((s) => { if (nodig.has(s.id)) uit[s.id] = s.naam; });
+  return uit;
 }
 
 /** De syndicoach van een postcode, of null. */
@@ -78,11 +113,12 @@ export async function syndicoachVoorPostcode(env, raw) {
 
 // ── Logboek ───────────────────────────────────────────────────────────────
 
-export async function log(env, user, soort, tekst, aantal = 0) {
+export async function log(env, user, soort, tekst, aantal = 0, details = null, extra = {}) {
   try {
     await db(env).from('regio_wijzigingen').insert({
       soort, tekst: String(tekst).slice(0, 500), aantal,
       user_id: user?.id || null, user_naam: user ? naamVanGebruiker(user) : 'systeem',
+      details, ...extra,
     });
   } catch (err) {
     // Het logboek mag een wijziging nooit tegenhouden.
@@ -125,7 +161,7 @@ export async function insertSyndicoach(env, waarden, user) {
     created_by: user?.id || null,
   };
   const [nieuw] = check(await db(env).from('regio_syndicoaches').insert(rij).select('*'), 'Syndicoach bewaren');
-  await log(env, user, 'syndicoach', `Syndicoach "${naam}" toegevoegd`);
+  await log(env, user, 'syndicoach', `Syndicoach "${naam}" toegevoegd`, 0, { syndicoach_na: nieuw });
   return nieuw;
 }
 
@@ -149,18 +185,24 @@ export async function updateSyndicoach(env, id, waarden, user) {
   }
   if (!wat.length) return huidig;
   check(await db(env).from('regio_syndicoaches').update(upd).eq('id', id), 'Syndicoach bewaren');
-  await log(env, user, 'syndicoach', `Syndicoach "${huidig.naam}": ${wat.join(', ')}`);
+  await log(env, user, 'syndicoach', `Syndicoach "${huidig.naam}": ${wat.join(', ')}`, 0,
+    { syndicoach_voor: huidig, syndicoach_na: { ...huidig, ...upd } });
   return { ...huidig, ...upd };
 }
 
 export async function deleteSyndicoach(env, id, user) {
   const huidig = await getSyndicoach(env, id);
   if (!huidig) throw new RegioError('Syndicoach niet gevonden.', 404);
-  const { count } = await db(env).from('regio_postcodes').select('postcode', { count: 'exact', head: true }).eq('syndicoach_id', id);
+  const pcs = (check(await db(env).from('regio_postcodes').select('postcode').eq('syndicoach_id', id), 'Postcodes lezen') || [])
+    .map((r) => r.postcode).sort();
   // Eerst de postcodes vrijgeven (ook zonder ON DELETE CASCADE correct).
   check(await db(env).from('regio_postcodes').delete().eq('syndicoach_id', id), 'Postcodes vrijgeven');
   check(await db(env).from('regio_syndicoaches').delete().eq('id', id), 'Syndicoach verwijderen');
-  await log(env, user, 'syndicoach', `Syndicoach "${huidig.naam}" verwijderd, ${count || 0} postcode(s) terug vrij`, count || 0);
+  await log(env, user, 'syndicoach', `Syndicoach "${huidig.naam}" verwijderd, ${pcs.length} postcode(s) terug vrij`, pcs.length, {
+    syndicoach_voor: huidig,
+    postcodes: pcs.map((pc) => ({ pc, van: id, naar: null })),
+    namen: { [id]: huidig.naam },
+  });
 }
 
 export async function orderSyndicoaches(env, ids) {
@@ -181,17 +223,24 @@ export async function toewijzen(env, postcodes, syndicoachId, user, label = '') 
   if (!pcs.length || pcs.includes(null)) throw new RegioError('Geef geldige postcodes op (vier cijfers).');
   if (pcs.length > 2000) throw new RegioError('Te veel postcodes in een keer.');
   const plek = String(label || '').slice(0, 120) || pcs.join(', ');
-  if (!syndicoachId) {
+  const voor = await huidigeEigenaars(env, pcs);
+  const naar = syndicoachId || null;
+  const veranderd = pcs.filter((pc) => voor[pc] !== naar).sort();
+  const details = async () => ({
+    postcodes: veranderd.map((pc) => ({ pc, van: voor[pc], naar })),
+    namen: await namenVoor(env, [naar, ...veranderd.map((pc) => voor[pc])]),
+  });
+  if (!naar) {
     check(await db(env).from('regio_postcodes').delete().in('postcode', pcs), 'Postcodes vrijgeven');
-    await log(env, user, 'vrijgegeven', `${plek} vrijgegeven`, pcs.length);
+    if (veranderd.length) await log(env, user, 'vrijgegeven', `${plek} vrijgegeven`, veranderd.length, await details());
     return;
   }
-  const s = await getSyndicoach(env, syndicoachId);
+  const s = await getSyndicoach(env, naar);
   if (!s) throw new RegioError('Syndicoach niet gevonden (misschien net verwijderd). Herlaad de pagina.', 404);
   check(await db(env).from('regio_postcodes').upsert(
     pcs.map((postcode) => ({ postcode, syndicoach_id: s.id, updated_by: user?.id || null })),
   ), 'Toewijzing bewaren');
-  await log(env, user, 'toegewezen', `${plek} naar ${s.naam}`, pcs.length);
+  if (veranderd.length) await log(env, user, 'toegewezen', `${plek} naar ${s.naam}`, veranderd.length, await details());
 }
 
 export async function voegExtraPostcodeToe(env, raw, nis, user) {
@@ -203,7 +252,8 @@ export async function voegExtraPostcodeToe(env, raw, nis, user) {
   if (bestaand && bestaand.nis !== n) throw new RegioError(`Postcode ${pc} is al aan een andere gemeente gekoppeld.`, 409);
   if (!bestaand) {
     check(await db(env).from('regio_extra_postcodes').insert({ postcode: pc, nis: n, created_by: user?.id || null }), 'Postcode bewaren');
-    await log(env, user, 'syndicoach', `Postcode ${pc} met de hand toegevoegd aan gemeente ${n}`, 1);
+    await log(env, user, 'syndicoach', `Postcode ${pc} met de hand toegevoegd aan gemeente ${n}`, 1,
+      { extra_postcode: { postcode: pc, nis: n } });
   }
   return pc;
 }
@@ -239,4 +289,34 @@ export async function schrijfRijen(env, tabel, rijen) {
 
 export async function verwijderPostcodes(env, pcs) {
   if (pcs.length) check(await db(env).from('regio_postcodes').delete().in('postcode', pcs), 'Postcodes vrijgeven');
+}
+
+/**
+ * Een plan van bouwPlan() (lib/import.js) uitvoeren, met de toestand ervoor
+ * in het logboek. `voor` = postcode -> syndicoach-id waartegen het plan
+ * berekend werd.
+ */
+export async function pasImportToe(env, plan, voor, user) {
+  const namen = [...new Set(plan.toewijzen.map((t) => t.naam))];
+  const { map, nieuw } = await zorgVoorSyndicoaches(env, namen, user);
+  const rijen = plan.toewijzen.map((t) => ({
+    postcode: t.postcode, syndicoach_id: map.get(t.naam.toLowerCase()), updated_by: user?.id || null,
+  }));
+  await schrijfRijen(env, 'regio_postcodes', rijen);
+  await verwijderPostcodes(env, plan.vrijgeven);
+  const wijzigingen = [
+    ...rijen.map((r) => ({ pc: r.postcode, van: voor[r.postcode] || null, naar: r.syndicoach_id })),
+    ...plan.vrijgeven.map((pc) => ({ pc, van: voor[pc] || null, naar: null })),
+  ].sort((a, b) => a.pc.localeCompare(b.pc));
+  const t = plan.tellingen;
+  await log(env, user, 'import',
+    `Import (${plan.modus}): ${t.nieuw} nieuw toegewezen, ${t.verplaatst} verplaatst, ${t.vrijgeven} vrijgegeven` +
+    (nieuw.length ? `, ${nieuw.length} nieuwe syndicoach(es)` : ''),
+    t.nieuw + t.verplaatst + t.vrijgeven,
+    {
+      postcodes: wijzigingen,
+      nieuwe_syndicoaches: nieuw.map((s) => s.id),
+      namen: await namenVoor(env, wijzigingen.flatMap((w) => [w.van, w.naar])),
+    });
+  return { tellingen: t, nieuwe_syndicoaches: nieuw.length };
 }
