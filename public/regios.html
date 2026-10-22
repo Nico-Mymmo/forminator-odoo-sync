@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Regio's - Operations Manager</title>
+  <script>
+    (function () {
+      var t = localStorage.getItem('selectedTheme') || 'light';
+      document.documentElement.setAttribute('data-theme', t);
+    })();
+  </script>
+  <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet" type="text/css" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/topojson-client@3.1.0/dist/topojson-client.min.js"></script>
+  <script src="/shared-navbar.js"></script>
+  <style>
+    #rgKaartVak { touch-action: none; height: calc(100vh - 13rem); min-height: 420px; }
+    .rg-gemeente {
+      stroke: oklch(var(--bc) / 0.45);
+      stroke-width: 1px;
+      vector-effect: non-scaling-stroke;
+      cursor: pointer;
+      transition: filter .12s ease, stroke-width .12s ease, stroke .12s ease;
+    }
+    .rg-gemeente:hover { filter: brightness(1.08); stroke-width: 2px; stroke: oklch(var(--bc)); }
+    .rg-gemeente.rg-gezocht { stroke: oklch(var(--er)); stroke-width: 3px; animation: rg-puls 1s ease-in-out 3; }
+    @keyframes rg-puls { 0%, 100% { stroke-opacity: 1; } 50% { stroke-opacity: .25; } }
+    .rg-provincie { fill: none; stroke: oklch(var(--bc) / 0.75); stroke-width: 2px; vector-effect: non-scaling-stroke; pointer-events: none; }
+    .rg-bol { width: 1.1rem; height: 1.1rem; border-radius: 9999px; border: 1px solid oklch(var(--bc) / 0.15); flex-shrink: 0; }
+    .rg-kaart-coach.rg-actief { outline: 2px solid currentColor; outline-offset: 2px; }
+    #rgTip { pointer-events: none; position: fixed; z-index: 60; max-width: 240px; }
+    #rgZoekResultaten button:hover { background: oklch(var(--bc) / 0.06); }
+    .rg-lijnen > * + * { border-top: 1px solid oklch(var(--bc) / 0.1); }
+  </style>
+</head>
+<body class="bg-base-200 min-h-screen">
+  <div id="navbar"></div>
+
+  <main class="max-w-[1800px] mx-auto px-4 py-6">
+    <div class="flex flex-col md:flex-row md:items-end md:justify-between gap-3 mb-5">
+      <div>
+        <h1 class="text-2xl font-bold flex items-center gap-2"><i data-lucide="map" class="w-6 h-6"></i> Regio's</h1>
+        <p class="text-sm text-base-content/60 mt-1">
+          Welke syndicoach werkt waar. Kies links een syndicoach en klik gemeentes aan, of klik meteen een vrije gemeente.
+          Elke postcode hoort bij precies een syndicoach.
+        </p>
+      </div>
+      <div class="flex flex-wrap items-center gap-2">
+        <span id="rgBewaarStand" class="text-xs text-base-content/50 flex items-center gap-1.5 mr-1"></span>
+        <label class="flex items-center gap-2 text-xs text-base-content/70 cursor-pointer mr-2" title="Uit: een klik wijst meteen alle postcodes van een gemeente toe. Aan: een klik opent altijd de lijst per postcode.">
+          <input type="checkbox" id="rgGedetailleerd" class="toggle toggle-sm" data-change="gedetailleerd" />
+          Per postcode kiezen
+        </label>
+        <button class="btn btn-sm btn-ghost gap-2" data-action="open-logboek"><i data-lucide="history" class="w-4 h-4"></i> Logboek</button>
+        <button class="btn btn-sm btn-outline gap-2" data-action="open-import"><i data-lucide="upload" class="w-4 h-4"></i> Importeren</button>
+        <button class="btn btn-sm btn-outline gap-2" data-action="export-alles"><i data-lucide="download" class="w-4 h-4"></i> Exporteren</button>
+      </div>
+    </div>
+
+    <div id="rgMelding"></div>
+
+    <div class="flex flex-col lg:flex-row gap-4">
+      <!-- Syndicoaches -->
+      <aside class="lg:w-80 shrink-0">
+        <div class="card bg-base-100 border border-base-content/10">
+          <div class="p-4 border-b border-base-content/10">
+            <h2 class="font-semibold text-sm uppercase tracking-wide text-base-content/60 mb-2">Syndicoaches</h2>
+            <div class="flex items-center gap-2">
+              <input type="color" id="rgNieuwKleur" value="#3b82f6" class="w-9 h-9 rounded-lg border border-base-content/10 cursor-pointer p-0.5" title="Kies een kleur" />
+              <input type="text" id="rgNieuwNaam" placeholder="Naam nieuwe syndicoach" class="input input-sm input-bordered flex-1 min-w-0" maxlength="60" />
+              <button class="btn btn-sm btn-primary" data-action="voeg-toe" title="Toevoegen"><i data-lucide="plus" class="w-4 h-4"></i></button>
+            </div>
+          </div>
+          <div id="rgCoaches" class="p-3 space-y-2 max-h-[calc(100vh-20rem)] overflow-y-auto"></div>
+        </div>
+      </aside>
+
+      <!-- Kaart -->
+      <section class="flex-1 min-w-0">
+        <div class="card bg-base-100 border border-base-content/10 overflow-hidden">
+          <div id="rgKaartVak" class="relative">
+            <div id="rgActief" class="hidden absolute top-0 left-0 right-0 z-10 items-center gap-2 px-4 py-2 text-sm bg-primary/10 backdrop-blur-sm border-b border-primary/30">
+              <i data-lucide="mouse-pointer-click" class="w-4 h-4"></i>
+              Actief: <strong id="rgActiefNaam">-</strong> -- klik gemeentes aan om ze toe te wijzen.
+              <button class="btn btn-xs btn-ghost ml-auto" data-action="stop-actief">Stoppen</button>
+            </div>
+            <svg id="rgKaart" class="w-full h-full"></svg>
+            <div id="rgLaden" class="absolute inset-0 flex items-center justify-center text-base-content/50 text-sm gap-2">
+              <span class="loading loading-spinner loading-sm"></span> Kaart laden...
+            </div>
+            <div class="absolute bottom-4 left-4 w-64 max-w-[75vw]">
+              <div class="relative">
+                <i data-lucide="search" class="w-4 h-4 absolute left-2.5 top-1/2 -translate-y-1/2 text-base-content/40 pointer-events-none"></i>
+                <input type="text" id="rgZoek" placeholder="Zoek gemeente of postcode..." class="input input-sm input-bordered w-full pl-8 shadow-lg" autocomplete="off" />
+              </div>
+              <div id="rgZoekResultaten" class="hidden mt-1 bg-base-100 border border-base-content/10 rounded-lg shadow-lg max-h-64 overflow-y-auto"></div>
+            </div>
+            <div class="absolute bottom-4 right-4 join join-vertical shadow-lg">
+              <button class="btn btn-sm join-item" data-action="zoom-in" title="Inzoomen"><i data-lucide="plus" class="w-4 h-4"></i></button>
+              <button class="btn btn-sm join-item" data-action="zoom-uit" title="Uitzoomen"><i data-lucide="minus" class="w-4 h-4"></i></button>
+              <button class="btn btn-sm join-item" data-action="zoom-reset" title="Hele kaart"><i data-lucide="maximize" class="w-4 h-4"></i></button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <div id="rgTip" class="hidden card card-compact bg-neutral text-neutral-content shadow-lg p-2 text-xs"></div>
+  <div id="rgToasts" class="toast toast-end z-50"></div>
+
+  <!-- Postcodes van een gemeente -->
+  <dialog id="dlgPostcodes" class="modal">
+    <div class="modal-box max-w-md">
+      <h3 class="font-bold text-base flex items-center gap-2"><i data-lucide="list-checks" class="w-4 h-4"></i> <span id="dlgPostcodesTitel">Gemeente</span></h3>
+      <p class="text-xs text-base-content/60 mt-1 mb-3" id="dlgPostcodesUitleg"></p>
+      <div id="dlgPostcodesLijst" class="space-y-1.5 max-h-72 overflow-y-auto"></div>
+      <div class="modal-action">
+        <button class="btn btn-sm btn-primary btn-outline" data-action="pc-alles" id="dlgPostcodesAlles">Alles toewijzen</button>
+        <form method="dialog"><button class="btn btn-sm">Sluiten</button></form>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>sluiten</button></form>
+  </dialog>
+
+  <!-- Syndicoach kiezen -->
+  <dialog id="dlgKies" class="modal">
+    <div class="modal-box max-w-xs">
+      <h3 class="font-bold text-base flex items-center gap-2"><i data-lucide="user-round-plus" class="w-4 h-4"></i> Wie krijgt <span id="dlgKiesTitel">deze gemeente</span>?</h3>
+      <div id="dlgKiesLijst" class="flex flex-col gap-1.5 mt-3"></div>
+      <div class="modal-action"><form method="dialog"><button class="btn btn-sm">Annuleren</button></form></div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>sluiten</button></form>
+  </dialog>
+
+  <!-- Postcode met de hand toevoegen -->
+  <dialog id="dlgExtra" class="modal">
+    <div class="modal-box max-w-sm">
+      <h3 class="font-bold text-base flex items-center gap-2"><i data-lucide="map-pin" class="w-4 h-4"></i> Postcode toevoegen</h3>
+      <p class="text-xs text-base-content/60 mt-1 mb-3">
+        Voor <strong id="dlgExtraGemeente">deze gemeente</strong> ontbreekt een postcode in de kaartdata. Vul ze hier aan; daarna kan je ze gewoon toewijzen.
+      </p>
+      <div class="flex items-center gap-2">
+        <input type="text" id="dlgExtraInvoer" inputmode="numeric" maxlength="4" placeholder="bv. 2000" class="input input-sm input-bordered flex-1 font-mono" />
+        <button class="btn btn-sm btn-primary" data-action="extra-bewaar">Toevoegen</button>
+      </div>
+      <p id="dlgExtraFout" class="text-xs text-error mt-2 hidden"></p>
+      <div class="modal-action"><form method="dialog"><button class="btn btn-sm">Annuleren</button></form></div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>sluiten</button></form>
+  </dialog>
+
+  <!-- Overnemen van een andere syndicoach -->
+  <dialog id="dlgOvernemen" class="modal">
+    <div class="modal-box max-w-md">
+      <h3 class="font-bold text-base flex items-center gap-2 text-warning"><i data-lucide="triangle-alert" class="w-5 h-5"></i> Postcodes overnemen van een andere syndicoach?</h3>
+      <p class="text-sm mt-2" id="dlgOvernemenTekst"></p>
+      <ul class="text-sm mt-2 space-y-0.5 list-disc list-inside max-h-40 overflow-y-auto" id="dlgOvernemenLijst"></ul>
+      <div class="modal-action">
+        <button class="btn btn-sm btn-warning gap-2" data-action="overnemen-ja"><i data-lucide="check" class="w-4 h-4"></i> Ja, overnemen</button>
+        <form method="dialog"><button class="btn btn-sm">Annuleren</button></form>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>sluiten</button></form>
+  </dialog>
+
+  <!-- Syndicoach instellen -->
+  <dialog id="dlgCoach" class="modal">
+    <div class="modal-box max-w-md">
+      <h3 class="font-bold text-base flex items-center gap-2"><i data-lucide="user-cog" class="w-4 h-4"></i> Syndicoach instellen</h3>
+      <div class="mt-4 space-y-3">
+        <label class="form-control">
+          <span class="label-text text-sm mb-1">Naam</span>
+          <input type="text" id="dlgCoachNaam" class="input input-sm input-bordered" maxlength="60" />
+        </label>
+        <label class="form-control">
+          <span class="label-text text-sm mb-1">Kleur op de kaart</span>
+          <input type="color" id="dlgCoachKleur" class="w-12 h-9 rounded-lg border border-base-content/10 cursor-pointer p-0.5" />
+        </label>
+      </div>
+      <div class="modal-action justify-between">
+        <button class="btn btn-sm btn-ghost text-error gap-1" data-action="coach-weg"><i data-lucide="trash-2" class="w-4 h-4"></i> Verwijderen</button>
+        <div class="flex gap-2">
+          <form method="dialog"><button class="btn btn-sm">Annuleren</button></form>
+          <button class="btn btn-sm btn-primary" data-action="coach-bewaar">Bewaren</button>
+        </div>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>sluiten</button></form>
+  </dialog>
+
+  <!-- Bevestigen (verwijderen, opnieuw overnemen) -->
+  <dialog id="dlgBevestig" class="modal">
+    <div class="modal-box max-w-sm">
+      <h3 class="font-bold text-base flex items-center gap-2 text-error"><i data-lucide="triangle-alert" class="w-5 h-5"></i> <span id="dlgBevestigTitel">Zeker?</span></h3>
+      <p class="text-sm mt-2" id="dlgBevestigTekst"></p>
+      <div class="modal-action">
+        <button class="btn btn-sm btn-error" data-action="bevestig-ja" id="dlgBevestigKnop">Ja</button>
+        <form method="dialog"><button class="btn btn-sm">Annuleren</button></form>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>sluiten</button></form>
+  </dialog>
+
+  <!-- Importeren -->
+  <dialog id="dlgImport" class="modal">
+    <div class="modal-box max-w-2xl">
+      <h3 class="font-bold text-base flex items-center gap-2"><i data-lucide="upload" class="w-4 h-4"></i> Importeren</h3>
+      <p class="text-xs text-base-content/60 mt-1">
+        Een CSV- of Excel-lijst met een kolom <strong>postcode</strong> en een kolom <strong>syndicoach</strong> (het overzicht dat je hier exporteert, gaat zo ook terug).
+        Zonder kopregel: eerste kolom de postcode, laatste kolom de syndicoach. Een naam die nog niet bestaat, wordt een nieuwe syndicoach.
+      </p>
+      <div class="mt-3 flex flex-wrap items-center gap-2">
+        <input type="file" id="dlgImportBestand" accept=".csv,.txt,.tsv,text/csv,text/plain" class="file-input file-input-sm file-input-bordered" data-change="import-bestand" />
+        <span class="text-xs text-base-content/50">of plak hieronder (ook rechtstreeks uit Excel)</span>
+      </div>
+      <textarea id="dlgImportTekst" rows="5" class="textarea textarea-bordered w-full mt-2 font-mono text-xs" placeholder="postcode;syndicoach&#10;2000;Thomas&#10;9000;Elisa"></textarea>
+      <div class="mt-3 flex flex-col gap-1.5 text-sm">
+        <label class="flex items-start gap-2 cursor-pointer"><input type="radio" name="rgModus" value="aanvullen" class="radio radio-sm mt-0.5" checked data-change="import-modus" />
+          <span><strong>Aanvullen</strong> <span class="text-base-content/60">-- enkel de postcodes in het bestand veranderen; de rest blijft zoals hij is.</span></span></label>
+        <label class="flex items-start gap-2 cursor-pointer"><input type="radio" name="rgModus" value="vervangen" class="radio radio-sm mt-0.5" data-change="import-modus" />
+          <span><strong>Vervangen</strong> <span class="text-base-content/60">-- het bestand is de volledige lijst; wat er niet in staat (of zonder syndicoach), wordt vrij.</span></span></label>
+      </div>
+      <div id="dlgImportVoorbeeld" class="mt-4"></div>
+      <div class="modal-action items-center">
+        <span id="dlgImportAdmin" class="mr-auto"></span>
+        <form method="dialog"><button class="btn btn-sm">Annuleren</button></form>
+        <button class="btn btn-sm btn-outline" data-action="import-voorbeeld">Bekijk wat er verandert</button>
+        <button class="btn btn-sm btn-primary" data-action="import-doe" id="dlgImportKnop" disabled>Importeren</button>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>sluiten</button></form>
+  </dialog>
+
+  <!-- Logboek -->
+  <dialog id="dlgLogboek" class="modal">
+    <div class="modal-box max-w-2xl">
+      <h3 class="font-bold text-base flex items-center gap-2"><i data-lucide="history" class="w-4 h-4"></i> Logboek</h3>
+      <p class="text-xs text-base-content/60 mt-1">Wie wat veranderde, nieuwste eerst.</p>
+      <div id="dlgLogboekLijst" class="mt-3 max-h-[60vh] overflow-y-auto rg-lijnen text-sm"></div>
+      <div class="modal-action"><form method="dialog"><button class="btn btn-sm">Sluiten</button></form></div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>sluiten</button></form>
+  </dialog>
+
+  <script src="/regios-core.js"></script>
+  <script src="/regios-kaart.js"></script>
+  <script src="/regios-import.js"></script>
+  <script src="/regios.js"></script>
+</body>
+</html>

@@ -423,6 +423,7 @@ document.addEventListener('click', e => {
 | product-features | `/productfeatures` | `product_features` | `public/productfeatures.html` + `.js` | ✅ Correct (zie "Productfeatures") |
 | odoo-controle | `/odoo-controle` | `odoo_controle` | `public/odoo-controle.html` + `.js` | ✅ Correct (zie "Odoo-controle") |
 | projecten | `/projecten` | `projecten` | `public/projecten.html` + `projecten-*.js` | ✅ Correct (zie "Projecten"; opslag in D1 om-core) |
+| regios | `/regios` | `regios` | `public/regios.html` + `regios-*.js` | ✅ Correct (zie "Regio's"; opslag in D1 om-core) |
 
 **Legacy modules NIET aanraken tenzij expliciet gevraagd.** Bij aanpassingen aan legacy `ui.js`: string-concatenatie (+), geen geneste template literals, geen variabelen in inline event handlers. `src/lib/components/navbar.js` is de legacy server-rendered navbar voor deze ui.js-bestanden.
 
@@ -6539,6 +6540,58 @@ Afspraken die bewust zo zijn:
 **Uitrolvolgorde:** `npx wrangler d1 migrations apply om-core --remote`
 (tabellen) en `npm run db:push` (moduleregistratie), dan `npm run deploy`
 vanaf `master`. Geen nieuwe secrets.
+
+## Regio's — welke syndicoach werkt waar (2026-10-22)
+
+**Regel: de kaart "welke syndicoach werkt waar" is de module Regio's
+(`/regios`), opslag in D1 om-core (`regio_*`). Elke postcode is een eigen rij
+met precies een syndicoach (PRIMARY KEY op postcode). Wie per postcode de
+syndicoach nodig heeft, gebruikt `syndicoachVoorPostcode()` uit
+`src/modules/regios/lib/store.js`, geen eigen query.** Opvolger van de
+mini-app "Regio's" (`0913f371-...`), die alles als EEN JSON-blob bewaarde
+(wie het laatst bewaarde, overschreef de anderen).
+
+| Wat | Waar |
+|---|---|
+| Schema | `d1/om-core/migrations/0012_regios.sql` |
+| Moduleregistratie, toegang (iedereen), departement Sales, favorieten omgezet | `supabase/migrations/20261022150000_regios_module.sql` |
+| Opslag, logboek, `syndicoachVoorPostcode()` | `src/modules/regios/lib/store.js` |
+| Import: CSV lezen en uitrekenen wat verandert (puur) | `lib/import.js` (`bouwPlan()`) |
+| Overname uit de mini-app (leest via `mini-apps/lib/storage.js`) | `lib/overname.js` |
+| Routes | `src/modules/regios/routes.js` |
+| Scherm | `public/regios.html` + `regios-core.js` / `-kaart.js` / `-import.js` / `regios.js` |
+| Kaartdata (gemeentes, provincies, NIS -> postcodes; uit de mini-app) | `public/regios-kaart.json` |
+| Mini-app verwijst door | `src/modules/mini-apps/lib/verhuisd.js` |
+
+- **De overname gebeurt vanzelf** de eerste keer dat de module geopend wordt
+  en nog leeg is (`ensureOvername()`, vlag `regio_meta.overname`). De
+  syndicoach-id's blijven behouden. De opslag van de mini-app wordt enkel
+  gelezen en blijft als back-up. Een beheerder kan in het importvenster
+  "Opnieuw uit de mini-app" kiezen; dat VERVANGT alles in de module.
+- **Import = eerst een voorbeeld, dan pas doen**, met dezelfde `bouwPlan()`
+  voor beide (de server rekent het plan bij de echte import opnieuw uit).
+  Kolommen `postcode` + `syndicoach` (het eigen export-overzicht gaat zo terug
+  naar binnen), of zonder kopregel eerste/laatste kolom. Aanvullen = enkel wat
+  in het bestand staat; Vervangen = het bestand is de volledige lijst. Een
+  onbekende naam wordt een nieuwe syndicoach.
+- **Toewijzen schrijft enkel de aangeklikte postcodes** (`POST /api/toewijzen`),
+  nooit de hele stand; het scherm haalt elke 30 s de stand opnieuw op zodat je
+  ziet wat collega's deden. Elke wijziging staat in het logboek.
+- **Een syndicoach is een partner die onze werkwijze toepast, geen
+  medewerker** ("Syndicoach" als bedrijf zijn wij). Wie per postcode werkt, is
+  LOUTER INFORMATIEF (Nico, 2026-10-22): wij doen de sales en vangen de leads
+  op. Er is bewust GEEN koppeling met Odoo (geen res.partner, geen
+  hr.employee); bouw die niet zonder dat het gevraagd wordt.
+- **Favoriete modules staan sinds deze wijziging ook bovenaan in de balk**
+  (`moduleFavoritesMenu` in `navbar.js`, eigen container
+  `#navbarModuleFavorites`, niet versleepbaar). Wie de mini-app als favoriet
+  had, kreeg de module als favoriet; de favoriet van de mini-app is weg.
+- **Nog niet gebouwd, bewust:** de mini-app verwijderen (pas als de module
+  een tijd loopt).
+
+**Uitrolvolgorde:** `npx wrangler d1 migrations apply om-core --remote`, dan
+`npm run db:push`, dan meteen `npm run deploy` vanaf `master` (zonder deploy
+verdwijnt de mini-app-knop uit de balk voor de module er staat).
 
 ## Bestandsstructuur
 

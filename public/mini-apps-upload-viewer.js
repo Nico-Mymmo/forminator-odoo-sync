@@ -159,6 +159,8 @@ async function openAppFullscreen(id, options) {
   var pushHistory = !options || options.pushHistory !== false;
   try {
     var contentResult = await apiJson(`/mini-apps/api/apps/${id}/content`);
+    // Deze mini-app is een module geworden (src/modules/mini-apps/lib/verhuisd.js).
+    if (contentResult.movedTo) { window.location.href = contentResult.movedTo; return; }
 
     var frame = document.getElementById('appFullscreenFrame');
     var banner = document.getElementById('appFullscreenErrorBanner');

@@ -234,6 +234,30 @@ export function navbar(user) {
     + '</div>'
     + '<div id="navbarFavoritesDivider" class="w-px h-4 bg-base-content/10 mx-1' + (favoriteApps.length > 0 ? '' : ' hidden') + '"></div>';
 
+  // Favoriete MODULES (de ster op de homepage, user.moduleLayout.favorites)
+  // staan ook bovenaan in de balk, voor de favoriete mini-apps. Een eigen
+  // container met een eigen scheidingslijn: mini-apps-core.js herschikt en
+  // verbergt enkel #navbarFavorites en #navbarFavoritesDivider, en mag aan
+  // deze knoppen niet komen (ze zijn ook niet versleepbaar: geen data-fav-id).
+  const moduleFavorites = (function () {
+    if (!layout || !Array.isArray(layout.favorites) || !layout.favorites.length) return [];
+    const byId = {};
+    gridModules.forEach(function (m) { if (m.id) byId[m.id] = m; });
+    return layout.favorites.map(function (id) { return byId[id]; }).filter(Boolean);
+  })();
+  const moduleFavoritesMenu = moduleFavorites.length
+    ? '<div id="navbarModuleFavorites" class="hidden md:flex items-center gap-1">'
+      + moduleFavorites.map(function (m) {
+          const icon = /^[a-z0-9-]{1,40}$/.test(String(m.icon || '')) ? m.icon : (MODULE_ICONS[m.code] || 'box');
+          return '<a href="' + m.route + '" class="btn btn-xs btn-ghost border border-base-content/10 gap-1.5 font-normal text-base-content/70 hover:text-base-content hover:border-primary/40 max-w-[9rem]" title="' + escapeHtml(m.name) + '">'
+            + '<i data-lucide="' + icon + '" class="w-3 h-3"></i>'
+            + '<span class="truncate">' + escapeHtml(m.name) + '</span>'
+            + '</a>';
+        }).join('')
+      + '<div class="w-px h-4 bg-base-content/10 mx-1"></div>'
+      + '</div>'
+    : '';
+
   // Thema-selector (alle 29 daisyUI-thema's) als sub-lijst in het avatar-menu
   const themeItems = THEMES.map(function (t) {
     return '<li><a data-action="setTheme" data-role="themeItem" data-theme="' + t + '" class="capitalize">' + t + '</a></li>';
@@ -561,6 +585,7 @@ export function navbar(user) {
     + '</div>'
     + '<div id="saveIndicator" class="flex items-center gap-1 text-xs text-base-content/50"></div>'
     + '<div class="flex items-center gap-1">'
+    + moduleFavoritesMenu
     + favoritesMenu
     + (utilityButtons ? '<div class="hidden md:flex items-center gap-1">' + utilityButtons + '<div class="w-px h-4 bg-base-content/10 mx-1"></div></div>' : '')
     + avatarMenu

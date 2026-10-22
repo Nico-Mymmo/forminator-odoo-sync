@@ -117,6 +117,7 @@ import { listDriveFiles, getDriveFile, createDriveFile, DRIVE_INTEGRATION_ENABLE
 import { resolveGoogleEmail } from './lib/user-settings.js';
 import { listSharedQueries, runSharedQuery } from '../sales-insight-explorer/lib/mini-app-bridge.js';
 import { createDiscoveryToken, DISCOVERY_TOKEN_TTL_DAYS } from '../sales-insight-explorer/lib/mini-app-discovery.js';
+import { verhuisdNaar } from './lib/verhuisd.js';
 
 const LOG_PREFIX = '[mini-apps]';
 
@@ -512,6 +513,9 @@ export const routes = {
 
   // ── UI ────────────────────────────────────────────────────────────────────
   'GET /': async (context) => {
+    // Een mini-app die een module geworden is: meteen naar de module.
+    const naar = verhuisdNaar(new URL(context.request.url).searchParams.get('app') || '');
+    if (naar) return Response.redirect(new URL(naar, context.request.url).toString(), 302);
     return context.env.ASSETS.fetch(new Request(new URL('/mini-apps.html', context.request.url)));
   },
 
@@ -1235,6 +1239,8 @@ export const routes = {
 
   // ── Eén app — HTML-inhoud ────────────────────────────────────────────────
   'GET /api/apps/:id/content': async ({ env, user, params }) => {
+    const naar = verhuisdNaar(params.id);
+    if (naar) return jsonOk({ movedTo: naar });
     const supabase = getSupabaseClient(env);
     const { data: app, error } = await supabase
       .from('mini_apps')

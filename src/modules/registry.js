@@ -32,6 +32,7 @@ import newslettersModule from './newsletters/module.js';
 import productFeaturesModule from './product-features/module.js';
 import odooControleModule from './odoo-controle/module.js';
 import projectenModule from './projecten/module.js';
+import regiosModule from './regios/module.js';
 
 /**
  * All registered modules
@@ -64,6 +65,7 @@ export const MODULES = [
   productFeaturesModule,
   odooControleModule,
   projectenModule,
+  regiosModule,
 ];
 
 /**
