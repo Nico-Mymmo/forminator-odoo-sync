@@ -28,6 +28,8 @@
     zoek: '',
     categorie: '',
     open: {},           // id -> true/false (ingeklapt of niet)
+    websites: {},       // id -> { verstuurd, achter, verschil, paginas, ... } (GET /api/websites)
+    websitesFout: '',
   };
 
   // ── Helpers ───────────────────────────────────────────────────────────────
@@ -96,6 +98,9 @@
     var d = await api('/features');
     state.items = d.items || [];
     state.tree = d.tree || [];
+    // Op de websites: los, zodat de bibliotheek ook laadt als dat niet lukt.
+    try { state.websites = await api('/websites') || {}; state.websitesFout = ''; }
+    catch (err) { state.websites = {}; state.websitesFout = err.message; }
     tekenKnoppen();
     tekenBoom();
     tekenFormulier();
@@ -145,6 +150,7 @@
       + '<span class="pf-stip" style="background:' + (cat ? cat.kleur : '#9ca3af') + '" title="' + e(cat ? cat.label : 'Geen categorie') + '"></span>'
       + '<span class="flex-1 min-w-0 truncate' + (knoop.diepte === 0 ? ' font-semibold' : '') + '">' + e(knoop.name) + '</span>'
       + pakketBadges(knoop)
+      + websiteBadge(knoop)
       + (!knoop.is_active ? '<span class="badge badge-ghost badge-xs">uit</span>' : '')
       + (kanBewerken() ? '<span class="pf-acties">'
         + '<button type="button" class="btn btn-ghost btn-xs btn-square" data-action="omhoog" data-id="' + e(knoop.id) + '" title="Omhoog"><i data-lucide="arrow-up" class="w-3.5 h-3.5"></i></button>'
@@ -154,6 +160,16 @@
       + '</div>'
       + (kinderen.length && !dicht ? '<div class="pf-kinderen">' + kinderen.map(knoopHtml).join('') + '</div>' : '')
       + '</div>';
+  }
+
+  /** Op hoeveel pagina's de feature staat; oranje als de sites achterlopen. */
+  function websiteBadge(f) {
+    var w = state.websites[f.id];
+    if (!w || !w.paginas.length) return '';
+    var n = w.paginas.length;
+    return '<span class="badge badge-xs gap-0.5 ' + (w.achter ? 'badge-warning' : 'badge-ghost') + '" title="'
+      + e('Staat op ' + n + (n === 1 ? ' pagina' : ' pagina\'s') + (w.achter ? '. De sites tonen nog een oudere versie.' : '')) + '">'
+      + '<i data-lucide="globe" class="w-3 h-3"></i>' + n + '</span>';
   }
 
   function tekenBoom() {
@@ -278,12 +294,64 @@
       + (kanBewerken() ? '<div class="flex flex-wrap items-center gap-2 pt-2 border-t border-base-content/10">'
         + '<button class="btn btn-sm btn-ghost" data-action="nieuw-onder" data-id="' + e(f.id) + '"><i data-lucide="plus" class="w-4 h-4"></i> Onderliggende feature</button>'
         + '</div>' : '')
+      + '<div class="pt-2 border-t border-base-content/10"><div class="text-xs font-semibold uppercase tracking-wide opacity-60 mb-2">Op de websites</div>'
+      + websitesHtml(f) + '</div>'
       + '<div class="pt-2 border-t border-base-content/10"><div class="text-xs font-semibold uppercase tracking-wide opacity-60 mb-2">Wijzigingen</div>'
       + '<div id="pfLog" class="text-sm opacity-60">Laden…</div></div>'
       + '</div></div>';
     ikons();
     laadLogboek(f.id);
     tekenKaartVormen(f);
+  }
+
+  // ── Op de websites: welke versie er staat, en waar ───────────────────────
+
+  function websitesHtml(f) {
+    if (state.websitesFout) return '<div class="text-sm text-error">Kon niet nakijken wat er op de websites staat: ' + e(state.websitesFout) + '</div>';
+    var w = state.websites[f.id] || { verstuurd: false, achter: false, verschil: [], paginas: [] };
+    var knop = kanBewerken() && (!w.verstuurd || w.achter)
+      ? '<button class="btn btn-sm btn-primary" data-action="publiceer" data-id="' + e(f.id) + '"><i data-lucide="send" class="w-4 h-4"></i> Naar de sites sturen</button>'
+      : '';
+    var stand;
+    if (!w.verstuurd) {
+      stand = '<div class="text-sm opacity-80">Nog niet naar de sites gestuurd. Pas daarna kan je ze in WordPress kiezen, met het blok <strong>Mymmo productfeature</strong>.</div>';
+    } else if (w.achter) {
+      stand = '<div class="alert alert-warning py-2 text-sm"><i data-lucide="triangle-alert" class="w-4 h-4"></i><div>'
+        + 'De sites tonen nog de versie van ' + e(wanneer(w.published_at)) + (w.published_by_name ? ' (verstuurd door ' + e(w.published_by_name) + ')' : '') + '.'
+        + (w.verschil.length ? '<div class="mt-0.5">Anders sindsdien: ' + e(w.verschil.join(', ')) + '.</div>' : '')
+        + '</div></div>';
+    } else {
+      stand = '<div class="text-sm opacity-80 flex items-center gap-1.5"><i data-lucide="circle-check" class="w-4 h-4 text-success"></i>'
+        + 'De sites tonen de huidige versie (verstuurd op ' + e(wanneer(w.published_at)) + ').</div>';
+    }
+    var paginas = w.paginas.length
+      ? '<ul class="mt-2 space-y-1 text-sm">' + w.paginas.map(function (p) {
+        var naam = p.titel || ('Pagina ' + p.post_id);
+        return '<li class="flex items-center gap-2 min-w-0"><i data-lucide="file-text" class="w-3.5 h-3.5 opacity-50 shrink-0"></i>'
+          + (p.url ? '<a class="link link-hover truncate" href="' + e(p.url) + '" target="_blank" rel="noopener">' + e(naam) + '</a>' : '<span class="truncate">' + e(naam) + '</span>')
+          + '<span class="opacity-50 text-xs shrink-0">' + e(p.site) + '</span>'
+          + (p.status && p.status !== 'publish' ? '<span class="badge badge-ghost badge-xs shrink-0">' + e(p.status === 'draft' ? 'concept' : p.status === 'private' ? 'privé' : p.status) + '</span>' : '')
+          + '</li>';
+      }).join('') + '</ul>'
+      : (w.verstuurd ? '<div class="text-sm opacity-60 mt-2">Staat nog op geen enkele pagina.</div>' : '');
+    return stand
+      + (w.paginas.length ? '<div class="text-sm mt-2 font-medium">Staat op ' + w.paginas.length + (w.paginas.length === 1 ? ' pagina' : ' pagina\'s') + '</div>' : '')
+      + paginas
+      + (knop ? '<div class="mt-3">' + knop + '</div>' : '');
+  }
+
+  async function publiceer(id) {
+    var f = perId(id);
+    if (!f) return;
+    var w = state.websites[id];
+    var n = w ? w.paginas.length : 0;
+    if (n && !confirm('De nieuwe versie komt meteen op ' + n + (n === 1 ? ' pagina' : ' pagina\'s') + '. Doorgaan?')) return;
+    try {
+      state.websites[id] = await api('/features/' + id + '/publiceer', { method: 'POST' });
+      toast(n ? 'Verstuurd. De pagina\'s tonen de nieuwe versie binnen enkele minuten.' : 'Verstuurd. Je kan ze nu in WordPress kiezen.');
+      tekenBoom();
+      if (state.gekozen === id && !state.bewerken) tekenKaart(f);
+    } catch (err) { toast(err.message, 'error'); }
   }
 
   // ── Het logboek: wie paste wat aan ───────────────────────────────────────
@@ -595,6 +663,7 @@
       if (f && f.id) { state.concept = JSON.parse(JSON.stringify(perId(f.id) || f)); tekenFormulier(); return; }
       state.concept = null; state.nieuw = null; state.gekozen = null; tekenBoom(); tekenFormulier();
     },
+    'publiceer': function (el) { return publiceer(el.dataset.id); },
     'bewerk': function () {
       state.bewerken = true;
       tekenFormulier();

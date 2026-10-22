@@ -19,6 +19,7 @@ import {
 import { bouwerGegevens } from '../../lib/achtergrond.js';
 import { inhoudVanSoort } from '../newsletters/lib/store.js';
 import { verschillen, logWijziging, listWijzigingen } from './lib/changelog.js';
+import { websitesStand, publiceer, seinSites, listPublicaties } from './lib/websites.js';
 
 const MAX_BEELD = 3 * 1024 * 1024;
 const BEELD_TYPES = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp' };
@@ -75,6 +76,9 @@ async function ruimBeeldenOp(env, weg = new Set()) {
   const inGebruik = new Set();
   for (const f of await listFeatures(env)) for (const k of sleutelsVan(f)) inGebruik.add(k);
   for (const c of await inhoudVanSoort(env, 'feature')) for (const k of sleutelsIn(c)) inGebruik.add(k);
+  // De versie op de websites wijst naar haar eigen beeld, ook als de feature
+  // intussen een ander kreeg.
+  for (const p of await listPublicaties(env)) for (const k of sleutelsIn(p.data)) inGebruik.add(k);
   const grens = Date.now() - GRATIE_MS;
   const kandidaten = [];
   let cursor;
@@ -150,6 +154,35 @@ export const routes = {
       const f = await getFeature(env, params.id);
       if (!f) throw new FeatureError('Feature niet gevonden.', 404);
       return json({ success: true, data: f });
+    } catch (err) { return fout(err); }
+  },
+
+  /**
+   * Op de websites: per feature of ze verstuurd is, of de sites achterlopen
+   * (en wat er verschilt), en op welke pagina's ze staat. Zie lib/websites.js.
+   */
+  'GET /api/websites': async ({ env }) => {
+    try {
+      return json({ success: true, data: await websitesStand(env, await listFeatures(env)) });
+    } catch (err) { return fout(err); }
+  },
+
+  /**
+   * "Naar de sites sturen": de huidige versie wordt de versie op ELKE pagina
+   * waar de feature staat. De sites krijgen daarna een seintje (zonder
+   * inhoud) en halen ze zelf op.
+   */
+  'POST /api/features/:id/publiceer': async ({ env, ctx, user, params }) => {
+    try {
+      eisBewerken(user);
+      const f = await getFeature(env, params.id);
+      if (!f) throw new FeatureError('Feature niet gevonden.', 404);
+      if (!f.name) throw new FeatureError('Geef de feature eerst een titel.');
+      await publiceer(env, f, user);
+      const sein = seinSites(env, f.id).catch((err) => console.error(LOG_PREFIX, 'seintje:', err?.message));
+      if (ctx?.waitUntil) ctx.waitUntil(sein);
+      const stand = await websitesStand(env, [f]);
+      return json({ success: true, data: stand[f.id] });
     } catch (err) { return fout(err); }
   },
 

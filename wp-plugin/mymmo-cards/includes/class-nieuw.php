@@ -33,6 +33,7 @@ final class Mymmo_Cards_Nieuw {
      * Gewone taal: wat het is en waar je het vindt, geen techniek.
      */
     private const NIEUWS = [
+        '1.15.0' => 'Nieuw blok: Productfeature. Een feature uit de Operations Manager, met het beeld links of rechts. Blok toevoegen, categorie Mymmo, Productfeature. Rechts kies je de feature en wat je toont (label, titel, uitleg, USP\'s, knop). De tekst pas je aan in de Operations Manager; met Naar de sites sturen komt ze op elke pagina tegelijk.',
         '1.14.1' => 'Veelgestelde vragen: de vragen zijn nu standaard vetgedrukt en het vlak standaard lichtblauw, zoals op de ontwerpen. Een vraag uit de bibliotheek draagt in de editor een duidelijk label; dat label komt niet op de site.',
         '1.14.0' => 'Nieuw blok: Veelgestelde vragen. Vragen die openklappen, met de eerste al open. Blok toevoegen, categorie Mymmo, Veelgestelde vragen. Rechts kies je vragen uit de bibliotheek (per thema), of je typt een eigen vraag. De bibliotheek vind je links in het menu onder Veelgestelde vragen.',
         '1.13.3' => 'Afgeronde hoeken op een video, een ingesloten film (Vimeo, YouTube) of een afbeelding: klik het blok aan en kies rechts, onder Rand, meteen Klein of Groot. Die keuze zat verstopt achter het plusje van dat paneel.',

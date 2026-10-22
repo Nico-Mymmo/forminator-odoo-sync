@@ -10,6 +10,7 @@ regel CSS. Wat erin zit:
 | **Getuigenissen** | twee blokken. Klanten aan het woord: citaat, naam en foto, naast elkaar op een computer, onder elkaar op een telefoon. |
 | **Kostencalculator** | wat het pakket per jaar kost voor een gebouw: de bezoeker zet het aantal kavels met min en plus. |
 | **Veelgestelde vragen** | twee blokken en een bibliotheek. Vragen die openklappen, uit een bibliotheek met thema's of eigen aan de pagina, met de gegevens voor zoekmachines (FAQPage). |
+| **Productfeature** | een feature uit de bibliotheek van de Operations Manager (Productfeatures): beeld links of rechts, met label, titel, uitleg, USP's en een knop naar keuze. |
 | **Knop die een venster opent** | de gewone WordPress-knop, met één keuze erbij: welk tabblad van welke pop-up hij opent. |
 
 Elk component volgt dezelfde regel: **geometrie en gedrag, nooit typografie**. In
@@ -469,6 +470,21 @@ Uitzetten per site: `define('MYMMO_CARDS_GEEN_AUTO_UPDATE', true);` in
 `wp-config.php`. De nieuwe versie staat dan nog wel onder Updates.
 
 ## Versies
+
+**1.15.0** — nieuw blok **Productfeature**. Wat OpenVME kan, staat een keer in
+de Operations Manager (Productfeatures); dit blok zet een feature op een pagina:
+beeld links of rechts (knop in de werkbalk), en rechts in de zijbalk wat er
+getoond wordt (label, titel, korte uitleg, waarom, USP's, knop) en of de titel
+een kop 2 of 3 is. De tekst staat server-side in de HTML (zoekmachines lezen
+ze), en komt van de versie die in de OM met "Naar de sites sturen" verstuurd
+werd -- niet van de werkversie: zo staat een halve aanpassing nooit online, en
+er is een versie voor alle pagina's samen. De site bewaart die versie een
+kwartier en daaronder de laatste goede (de OM mag even wegvallen); na het
+versturen geeft de OM een seintje (`POST /wp-json/mymmo-cards/v1/productfeature/ververs`,
+zonder inhoud) en haalt de site ze meteen op. De verbinding is die van Mymmo
+Forms (adres en sitesleutel): niets in te stellen. Elke bewaring van een pagina
+meldt de OM welke features erop staan, en eens per dag alles, zodat de OM per
+feature toont op welke pagina's ze staat.
 
 **1.14.1** — veelgestelde vragen: zoals op de ontwerpen zijn de vragen nu
 standaard vetgedrukt (nieuwe keuze "Vetgedrukte tekst", een `<strong>`, geen

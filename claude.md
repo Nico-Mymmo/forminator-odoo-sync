@@ -4063,6 +4063,46 @@ bibliotheek later aanpassen, verandert een mail niet.**
   Migraties: Supabase `20261019140000_product_features_achtergrond.sql` en
   om-core `0004_product_features_achtergrond.sql` -- allebei VOOR de deploy.
 
+## Productfeatures op de websites (2026-10-22)
+
+**Regel: een feature staat op een WordPress-pagina met het blok "Mymmo
+productfeature" (plugin Mymmo Componenten 1.15.0). De tekst komt uit de OM,
+maar enkel de versie die iemand met "Naar de sites sturen" verstuurde: EEN
+versie per feature, voor alle pagina's samen (beslissing Nico). Bewaren in de
+OM verandert de sites niet; de OM toont dan dat de sites achterlopen en wat er
+verschilt.**
+
+| Wat | Waar |
+|---|---|
+| Verstuurde versie + gebruik per pagina (D1 om-core) | `d1/om-core/migrations/0010_product_features_websites.sql` |
+| Publieke vorm, hash, verschil, gebruik, seintje naar de sites | `src/modules/product-features/lib/websites.js` |
+| Publieke API (sitesleutel = `FORMS_PUBLIC_SITE_KEYS`) | `src/modules/product-features/public-api.js` + blok in `src/router/public-routes.js` |
+| Beheerroutes `GET /api/websites`, `POST /api/features/:id/publiceer` | `src/modules/product-features/routes.js` |
+| Vak "Op de websites" + knop | `websitesHtml()` in `public/productfeatures.js` |
+| Het blok (render, cache, REST, melden) | `wp-plugin/mymmo-cards/includes/class-productfeature.php` + `mymmo-productfeature(-editor).{css,js}` |
+
+- **Google leest de tekst**: het blok rendert server-side. Live kon ook; de
+  knop is gekozen voor CONTROLE, niet voor zoekmachines.
+- **`toPubliekeFeature()` is de enige vorm die een site ziet**: geen pakket,
+  doelgroep of wie bewerkte. Achterlopen = hash van die vorm verschilt van de
+  verstuurde.
+- **De verbinding is die van Mymmo Forms** (opties `mymmo_forms_api_base` en
+  `mymmo_forms_site_key`): niets in te stellen per site. De keuzelijst in de
+  editor toont enkel verstuurde features.
+- **De site bewaart de versie een kwartier + de laatste goede** (valt de OM
+  weg, dan blijft de tekst). Na versturen roept de OM
+  `POST <site>/wp-json/mymmo-cards/v1/productfeature/ververs` aan (geen inhoud,
+  hoogstens eens per 30 s per feature): de site haalt opnieuw op en wist de
+  paginacache van die pagina's (LiteSpeed, WP Rocket, Super Cache, W3TC).
+- **Gebruik meldt de site zelf**: bij elke bewaring van een pagina (post-meta
+  `_mymmo_pf_ids`, ook via een herbruikbaar blok) en dagelijks volledig
+  (`volledig: true` haalt wat niet meer gemeld wordt weg). Het seintje gaat
+  enkel naar sites waar de feature staat.
+- **Het opruimen van beelden telt de verstuurde versie mee**: een pagina kan
+  een beeld tonen dat de feature in de OM al niet meer heeft.
+- Een weggehaalde feature blijft op de sites staan (publicatie blijft) tot
+  iemand het blok weghaalt.
+
 ## Achtergrondbouwer -- gedeeld (2026-10-19, lagen sinds 2026-10-20)
 
 **Regel: een beeld in de huisstijl opmaken doe je met EEN bouwer, waar ook in

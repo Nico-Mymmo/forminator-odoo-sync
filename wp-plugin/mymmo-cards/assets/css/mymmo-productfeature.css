@@ -1,0 +1,82 @@
+/**
+ * Mymmo Componenten — DE PRODUCTFEATURE.
+ *
+ * Beeld en tekst naast elkaar, het beeld links of rechts. Geometrie enkel: de
+ * kop, de alinea's, de lijst en de knop zijn gewone elementen van WordPress en
+ * volgen het thema (zie class-productfeature.php).
+ *
+ * Smaller dan 782px staan beeld en tekst onder elkaar, het beeld altijd
+ * BOVENAAN: wie scrolt, ziet eerst waarover het gaat, ook als het beeld op
+ * een computer rechts staat.
+ */
+
+.mymmo-pf {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--mymmo-ruimte-ruim);
+  align-items: center;
+}
+
+.mymmo-pf.mymmo-pf--een {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* Beeld rechts: de tekst eerst, zonder de volgorde in de HTML om te draaien
+   (een schermlezer leest altijd beeld, dan tekst). */
+.mymmo-pf.mymmo-pf--beeld-rechts .mymmo-pf-beeld {
+  order: 2;
+}
+
+.mymmo-pf .mymmo-pf-beeld {
+  min-width: 0;
+}
+
+.mymmo-pf .mymmo-pf-beeld .mymmo-pf-img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: var(--mymmo-afronding-l);
+}
+
+.mymmo-pf .mymmo-pf-tekst {
+  min-width: 0;
+}
+
+/* De eerste en de laatste regel staan tegen de rand van de kolom, zodat de
+   tekst echt in het midden staat naast het beeld. */
+.mymmo-pf .mymmo-pf-tekst > :first-child {
+  margin-top: 0;
+}
+
+.mymmo-pf .mymmo-pf-tekst > :last-child {
+  margin-bottom: 0;
+}
+
+/* Wat de editor toont als er (nog) niets te tonen is. Nooit op de pagina. */
+.mymmo-pf-melding {
+  padding: var(--mymmo-ruimte-krap);
+  border: var(--mymmo-rand) dashed var(--mymmo-kleur-lijn);
+  border-radius: var(--mymmo-afronding-m);
+  background: var(--mymmo-kleur-vlak);
+}
+
+@media (max-width: 781px) {
+  .mymmo-pf {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--mymmo-ruimte-normaal-telefoon);
+  }
+
+  .mymmo-pf.mymmo-pf--beeld-rechts .mymmo-pf-beeld {
+    order: 0;
+  }
+}
+
+@media (max-width: 639.98px) {
+  .mymmo-pf {
+    gap: var(--mymmo-ruimte-krap-telefoon);
+  }
+
+  .mymmo-pf .mymmo-pf-beeld .mymmo-pf-img {
+    border-radius: var(--mymmo-afronding-m);
+  }
+}

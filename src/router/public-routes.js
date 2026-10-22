@@ -44,6 +44,10 @@ import {
   handleContentFeedPublicApi,
   isContentFeedPublicApiPath
 } from '../modules/content-feed/public-api.js';
+import {
+  handleProductFeaturesPublicApi,
+  isProductFeaturesPublicApiPath
+} from '../modules/product-features/public-api.js';
 import { validateKey } from '../modules/asset-manager/lib/path-utils.js';
 import { getMimeType } from '../modules/asset-manager/lib/mime-types.js';
 import { extractSessionToken } from './auth-gate.js';
@@ -599,6 +603,14 @@ export async function handlePublicRoutes(request, env, ctx) {
   // geeft 401 zonder geldige sleutel. Alleen lezen -- er is geen schrijfpad.
   if (isContentFeedPublicApiPath(pathname)) {
     return await handleContentFeedPublicApi(request, env, ctx, pathname);
+  }
+
+  // Publieke productfeature-API voor het blok "Mymmo productfeature" in
+  // Mymmo Componenten. Geen sessie: de handler kijkt de sitesleutel na tegen
+  // FORMS_PUBLIC_SITE_KEYS (de verbinding van Mymmo Forms op de site). Enkel
+  // wat met "Naar de sites sturen" verstuurd werd, komt eruit.
+  if (isProductFeaturesPublicApiPath(pathname)) {
+    return await handleProductFeaturesPublicApi(request, env, ctx, pathname);
   }
 
   // Calendly-boeking. Geen token in de URL: de handler kijkt zelf de

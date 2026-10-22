@@ -1,8 +1,8 @@
 {
   "plugin": "mymmo-cards",
-  "versie": "1.14.1",
-  "hash": "bc7a84644aa3f371",
-  "datum": "2026-10-21T12:36:45.000Z",
-  "door": "Claude",
-  "samenvatting": "Aanpassing Veelgestelde vragen 1.14.1: nieuwe standaard Vetgedrukte tekst als <strong> (geen letterdikte in CSS), standaard vlak lichtblauw via primary-50 van het palet met het huisstijlvlak als terugval, en het bibliotheeklabel in de editor als pil met stippellijn bovenaan, aria-hidden, enkel in de editor-CSS. Bekeken op 1280px."
+  "versie": "1.15.0",
+  "hash": "b87d4d113575c086",
+  "datum": "2026-10-22T09:20:36.000Z",
+  "door": "Nico-Mymmo",
+  "samenvatting": "Nieuw blok Productfeature (1.15.0): beeld links/rechts naast tekst uit de OM, geen typografie (kop, lijst en knop volgen het thema, label via has-small-font-size), ruimte en afronding uit de huisstijl, onder 782px beeld bovenaan. Gutenberg: categorie mymmo, gesloten lijsten, voorbeeld via de server-render; alt leeg als de titel ernaast staat."
 }
