@@ -6576,7 +6576,15 @@ mini-app "Regio's" (`0913f371-...`), die alles als EEN JSON-blob bewaarde
   onbekende naam wordt een nieuwe syndicoach.
 - **Toewijzen schrijft enkel de aangeklikte postcodes** (`POST /api/toewijzen`),
   nooit de hele stand; het scherm haalt elke 30 s de stand opnieuw op zodat je
-  ziet wat collega's deden. Elke wijziging staat in het logboek.
+  ziet wat collega's deden.
+- **Elke wijziging in het logboek kan ongedaan gemaakt worden** (migratie
+  `0013_regios_ongedaan.sql`, `lib/ongedaan.js`). De regel bewaart in
+  `details` per postcode van wie ze was en naar wie ze ging, en bij een
+  syndicoach de rij ervoor/erna. Wat sindsdien OPNIEUW veranderde, wordt
+  standaard niet teruggezet (het scherm toont het in het geel; "Alles
+  terugzetten" doet het toch). Ongedaan maken is zelf een logregel (soort
+  `ongedaan`) en kan niet opnieuw ongedaan gemaakt worden; de overname uit de
+  mini-app evenmin. Regels van voor 2026-10-22 15u hebben geen details.
 - **Een syndicoach is een partner die onze werkwijze toepast, geen
   medewerker** ("Syndicoach" als bedrijf zijn wij). Wie per postcode werkt, is
   LOUTER INFORMATIEF (Nico, 2026-10-22): wij doen de sales en vangen de leads
