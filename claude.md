@@ -3539,6 +3539,15 @@ Afspraken die bewust zo zijn:
   `markDirty()` (met hertekenen) alleen bij structurele wijzigingen: blok erbij, weg,
   verplaatst, of een instelling gewijzigd. Het voorbeeld ÍS de editor — dat opnieuw opbouwen
   tijdens het typen gooit de cursor weg, sluit de "/"-kiezer en laat het scherm flikkeren.
+- **Bewaren van mailblokken werkt ook de KLAARSTAANDE mails bij** (`lib/mail-refresh.js`,
+  aangeroepen in beide PUT-routes van `mail-blocks`). Een mail krijgt zijn inhoud bij het
+  inschrijven en kan weken in de wachtrij staan; zonder deze stap vertrok de oude tekst.
+  Gebeurd op 2026-10-22: de reminders van event 81 (Live Event) bevatten nog de inlogtips
+  van een webinar, terwijl die al uit de mail van het type gehaald waren. Het bijwerken
+  loopt via `queueMails()` met refresh (geen tweede renderer); wat de nieuwe instelling
+  niet meer stuurt (reminder uit, binnen `minLeadHours`, geen blokken), wordt GEANNULEERD
+  in plaats van met de oude tekst te vertrekken. De studio meldt hoeveel er bijgewerkt
+  of geannuleerd werden. Mislukt het, dan is de bewaring wel gelukt (staat in de log).
 - **De ondergrens van de reminder (`minLeadHours`) gaat over het INSCHRIJFMOMENT, niet over
   "nu".** Zat als bug in `computeScheduledDate()`: die mat de grens tegen het moment waarop
   de functie draaide. Gevolg bij event 76: `minLeadHours` stond op 48, het event begon over

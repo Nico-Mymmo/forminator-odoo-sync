@@ -156,6 +156,8 @@
     if (!response.ok || payload.success === false) {
       throw new Error(payload.error || ('Serverfout ' + response.status));
     }
+    // Na het bewaren van mailblokken: hoeveel klaarstaande mails meegingen.
+    state.lastQueued = payload.queued || null;
     return payload.data;
   }
 
@@ -1356,7 +1358,14 @@
       if (state.scopeEvent) state.eventDoc = saved; else state.typeDoc = saved;
       state.dirty = false;
       el('mailStudioDirty').textContent = '';
-      toast('Bewaard', 'success');
+      // Mails die al klaarstonden, krijgen de nieuwe inhoud mee (de server
+      // doet dat bij het bewaren). Zeg hoeveel, zodat je het niet hoeft te raden.
+      var q = state.lastQueued;
+      var extra = '';
+      if (q && q.updated) extra += ', ' + q.updated + ' klaarstaande mail(s) bijgewerkt';
+      if (q && q.cancelled) extra += ', ' + q.cancelled + ' geannuleerd (de mail gaat niet meer naar hen)';
+      if (q && q.failed) extra += ', ' + q.failed + ' niet bijgewerkt';
+      toast('Bewaard' + extra, q && q.failed ? 'warning' : 'success');
       render();
     } catch (error) {
       toast(error.message, 'error');

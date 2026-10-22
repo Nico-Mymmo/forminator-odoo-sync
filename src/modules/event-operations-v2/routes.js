@@ -43,6 +43,7 @@ import { toPublicEventDto, EVENT_FIELDS } from './odoo-contract.js';
 import { sanitizePublicHtml, summarize, buildMetaDescription } from './lib/blocks.js';
 import { storeHeroImage, removeHeroImage, isAllowedImageType, MAX_IMAGE_BYTES } from './lib/assets.js';
 import { getLegacyWpPagesByEventId } from './lib/legacy-wp-pages.js';
+import { refreshQueuedMails } from './lib/mail-refresh.js';
 import {
   loadMailBlocks,
   saveMailBlocks,
@@ -774,7 +775,16 @@ export const routes = {
     // Zichtbaar op de website: binnen de bestaande TTL, of meteen na
     // POST /api/events/publish -- niet automatisch bij elke opslagactie.
 
-    return json({ success: true, data: saved });
+    // Mails die al in de wachtrij staan, krijgen meteen de nieuwe inhoud
+    // (zie lib/mail-refresh.js). Faalt dat, dan is de bewaring wel gelukt.
+    let queued = null;
+    try {
+      queued = await refreshQueuedMails(context.env, { eventTypeId: id }, context.user);
+    } catch (error) {
+      console.error(`${LOG_PREFIX} klaarstaande mails niet bijgewerkt na bewaren: ${error?.message}`);
+    }
+
+    return json({ success: true, data: saved, queued });
   }),
 
   /**
@@ -828,7 +838,16 @@ export const routes = {
     // Zichtbaar op de website: binnen de bestaande TTL, of meteen na
     // POST /api/events/publish -- niet automatisch bij elke opslagactie.
 
-    return json({ success: true, data: saved });
+    // Mails die al in de wachtrij staan, krijgen meteen de nieuwe inhoud
+    // (zie lib/mail-refresh.js). Faalt dat, dan is de bewaring wel gelukt.
+    let queued = null;
+    try {
+      queued = await refreshQueuedMails(context.env, { eventId: id }, context.user);
+    } catch (error) {
+      console.error(`${LOG_PREFIX} klaarstaande mails niet bijgewerkt na bewaren: ${error?.message}`);
+    }
+
+    return json({ success: true, data: saved, queued });
   }),
 
   /**
