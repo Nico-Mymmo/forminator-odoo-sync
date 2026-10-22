@@ -319,6 +319,8 @@ geen stempel.
 
 - **Hiërarchie** (moet): één duidelijk hoofdelement; koppen zijn core-kopblokken in
   de juiste volgorde, geen `h1` in een component.
+  **Eén uitzondering:** de Productfeature-header mag (standaard) een `h1` zijn:
+  een header IS de kop van de pagina (Nico, 2026-10-22). Geen ander component.
 - **Zwaarte** (moet): hoogstens één schaduwniveau; geen dubbele omlijsting (rand én
   schaduw én eigen achtergrond op hetzelfde vlak); randen enkel waar ze iets
   scheiden.

@@ -4102,6 +4102,12 @@ verschilt.**
   staat: anders zag een net geplaatst blok een kwartier de oude versie.
 - **Het voorbeeld in de editor ververst niet vanzelf** (ServerSideRender
   vraagt pas opnieuw bij een wijziging aan het blok); de pagina zelf wel.
+- **Productfeature-header** (`mymmo/productfeature-header`, Componenten
+  1.16.0): dezelfde feature als header, drie indelingen (gecentreerd / naast /
+  vlak met swirl). Knoppen = core-blokken in het blok. Kop standaard `h1`: de
+  enige uitzondering op "geen h1 in een component" (regelboek). Swirls komen
+  van `GET /productfeatures/public/v1/swirls` (elk bestand in `brand/swirls/`
+  apart: een site kan geen SVG van link.openvme.be omkleuren, geen CORS).
 - **Het opruimen van beelden telt de verstuurde versie mee**: een pagina kan
   een beeld tonen dat de feature in de OM al niet meer heeft.
 - Een weggehaalde feature blijft op de sites staan (publicatie blijft) tot

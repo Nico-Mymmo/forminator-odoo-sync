@@ -33,6 +33,7 @@ final class Mymmo_Cards_Nieuw {
      * Gewone taal: wat het is en waar je het vindt, geen techniek.
      */
     private const NIEUWS = [
+        '1.16.0' => 'Nieuw blok: Productfeature-header. De header bovenaan een pagina, uit een feature van de Operations Manager. Blok toevoegen, categorie Mymmo, Productfeature-header. Rechts kies je de indeling: gecentreerd met het beeld eronder, tekst en beeld naast elkaar, of een gekleurd vlak met swirl. De knoppen zet je zelf in het blok.',
         '1.15.1' => 'Productfeature: de titel op de pagina is voortaan de Header uit de Operations Manager (een uitgeschreven titel). Staat die leeg, dan blijft het de gewone titel. Is de keuzelijst leeg, dan zegt het blok nu wat je in de Operations Manager moet doen.',
         '1.15.0' => 'Nieuw blok: Productfeature. Een feature uit de Operations Manager, met het beeld links of rechts. Blok toevoegen, categorie Mymmo, Productfeature. Rechts kies je de feature en wat je toont (label, titel, uitleg, USP\'s, knop). De tekst pas je aan in de Operations Manager; met Naar de sites sturen komt ze op elke pagina tegelijk.',
         '1.14.1' => 'Veelgestelde vragen: de vragen zijn nu standaard vetgedrukt en het vlak standaard lichtblauw, zoals op de ontwerpen. Een vraag uit de bibliotheek draagt in de editor een duidelijk label; dat label komt niet op de site.',

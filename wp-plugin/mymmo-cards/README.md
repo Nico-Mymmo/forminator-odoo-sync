@@ -10,6 +10,7 @@ regel CSS. Wat erin zit:
 | **Getuigenissen** | twee blokken. Klanten aan het woord: citaat, naam en foto, naast elkaar op een computer, onder elkaar op een telefoon. |
 | **Kostencalculator** | wat het pakket per jaar kost voor een gebouw: de bezoeker zet het aantal kavels met min en plus. |
 | **Veelgestelde vragen** | twee blokken en een bibliotheek. Vragen die openklappen, uit een bibliotheek met thema's of eigen aan de pagina, met de gegevens voor zoekmachines (FAQPage). |
+| **Productfeature-header** | dezelfde feature als header bovenaan een pagina: gecentreerd met het beeld paginabreed eronder, tekst en beeld naast elkaar, of een gekleurd vlak met swirl. Knoppen zet je zelf in het blok. |
 | **Productfeature** | een feature uit de bibliotheek van de Operations Manager (Productfeatures): beeld links of rechts, met label, titel, uitleg, USP's en een knop naar keuze. |
 | **Knop die een venster opent** | de gewone WordPress-knop, met één keuze erbij: welk tabblad van welke pop-up hij opent. |
 
@@ -470,6 +471,15 @@ Uitzetten per site: `define('MYMMO_CARDS_GEEN_AUTO_UPDATE', true);` in
 `wp-config.php`. De nieuwe versie staat dan nog wel onder Updates.
 
 ## Versies
+
+**1.16.0** — nieuw blok **Productfeature-header** (`mymmo/productfeature-header`):
+label, header en korte uitleg uit de OM (dezelfde verstuurde versie en cache als
+het blok Productfeature), in drie indelingen: gecentreerd met het beeld eronder,
+naast elkaar, of een vlak in een paletkleur met een swirl uit de Asset Manager
+(`brand/swirls/`, lijst via de OM). De knoppen zijn gewone core-blokken IN het
+blok. De kop is standaard een **h1**: de enige uitzondering op "geen h1 in een
+component", goedgekeurd door Nico. Smaller dan 782px staat de tekst boven het
+beeld.
 
 **1.15.1** — productfeature: de kop op de pagina is de HEADER uit de OM (het
 nieuwe veld voor de titel die extern gebruikt wordt), met de titel (`name`,

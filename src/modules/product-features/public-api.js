@@ -8,6 +8,7 @@
  *   GET  /productfeatures/public/v1/features        -> wat op de sites mag (keuzelijst)
  *   GET  /productfeatures/public/v1/features/{id}   -> de versie op de sites
  *   POST /productfeatures/public/v1/gebruik         -> op welke pagina's ze staan
+ *   GET  /productfeatures/public/v1/swirls          -> de swirls voor het headerblok
  *
  * Enkel wat met "Naar de sites sturen" verstuurd werd, komt eruit: nooit de
  * werkversie in de OM. Een feature die nooit verstuurd werd, geeft 404.
@@ -17,6 +18,30 @@
 
 import { listPublicaties, getPublicatie, meldGebruik, hostVan } from './lib/websites.js';
 import { LOG_PREFIX } from './lib/constants.js';
+import { SWIRL_MAP } from '../../lib/achtergrond.js';
+
+const KLEUREN = { white: 'wit', wit: 'wit', grey: 'grijs', gray: 'grijs', grijs: 'grijs', black: 'zwart', zwart: 'zwart', blue: 'blauw', blauw: 'blauw', mint: 'mint', orange: 'oranje', oranje: 'oranje', pink: 'roze', roze: 'roze' };
+
+/**
+ * De swirls in de Asset Manager (brand/swirls/), ELK BESTAND apart: een site
+ * kan een SVG van link.openvme.be niet omkleuren (geen CORS voor een masker),
+ * dus de kleur is het bestand. Een swirl erbij = een SVG in die map.
+ */
+async function swirls(env) {
+  const basis = String(env?.BASE_ASSET_URL || 'https://link.openvme.be').replace(/\/$/, '');
+  const lijst = await env.R2_ASSETS.list({ prefix: SWIRL_MAP, limit: 1000 });
+  return (lijst.objects || [])
+    .filter((o) => /\.svg$/i.test(o.key) && !o.key.slice(SWIRL_MAP.length).includes('/'))
+    .map((o) => {
+      const naam = o.key.slice(SWIRL_MAP.length).replace(/\.svg$/i, '');
+      const m = naam.match(/_([a-z]+)(\d*)$/i);
+      const kleur = m && KLEUREN[m[1].toLowerCase()] ? KLEUREN[m[1].toLowerCase()] + (m[2] ? ' ' + m[2] : '') : '';
+      const vorm = (m && kleur ? naam.slice(0, m.index) : naam).replace(/^scribbles-scribbles-/i, '').replace(/^swirl-/i, '');
+      const label = (/^\d/.test(vorm) ? `Swirl ${vorm}` : vorm.replace(/[-_]+/g, ' ').replace(/^./, (c) => c.toUpperCase())) + (kleur ? ` (${kleur})` : '');
+      return { label, url: `${basis}/assets/${o.key}` };
+    })
+    .sort((a, b) => a.label.localeCompare(b.label, 'nl', { numeric: true }));
+}
 
 const PREFIX = '/productfeatures/public/v1';
 
@@ -91,6 +116,11 @@ export async function handleProductFeaturesPublicApi(request, env, ctx, pathname
       const etag = `"${p.hash}"`;
       if (request.headers.get('If-None-Match') === etag) return new Response(null, { status: 304, headers: { ETag: etag } });
       return json({ success: true, data: p.data, meta: { published_at: p.published_at } }, 200, { ETag: etag });
+    }
+
+    // ── De swirls voor het headerblok ──────────────────────────────────────
+    if (request.method === 'GET' && delen.length === 1 && delen[0] === 'swirls') {
+      return json({ success: true, data: await swirls(env) });
     }
 
     // ── Op welke pagina's ze staan ─────────────────────────────────────────

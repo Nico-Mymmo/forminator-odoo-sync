@@ -43,7 +43,7 @@ final class Mymmo_Cards_Productfeature {
     public const BLOK = 'mymmo/productfeature';
 
     private const NS        = 'mymmo-cards/v1';
-    private const PAD       = '/productfeatures/public/v1';
+    public const PAD        = '/productfeatures/public/v1';
     private const TTL       = 900;
     private const LIJST_TTL = 300;
     private const TIMEOUT   = 3;
@@ -166,20 +166,20 @@ final class Mymmo_Cards_Productfeature {
     // De verbinding met de OM (die van Mymmo Forms)
     // ─────────────────────────────────────────────────────────────────────────
 
-    private static function api_basis(): string {
+    public static function api_basis(): string {
         return rtrim((string) get_option('mymmo_forms_api_base', ''), '/');
     }
 
-    private static function sleutel(): string {
+    public static function sleutel(): string {
         return (string) get_option('mymmo_forms_site_key', '');
     }
 
-    private static function verbonden(): bool {
+    public static function verbonden(): bool {
         return self::api_basis() !== '' && self::sleutel() !== '';
     }
 
     /** Waar je de feature in de OM aanpast (voor de link in de editor). */
-    private static function om_adres(): string {
+    public static function om_adres(): string {
         $basis = self::api_basis();
         return $basis !== '' ? esc_url_raw($basis . '/productfeatures') : '';
     }
@@ -387,7 +387,8 @@ final class Mymmo_Cards_Productfeature {
     private static function zoek(array $blokken, array &$uit, int $diepte = 0): void {
         foreach ($blokken as $blok) {
             $naam = (string) ($blok['blockName'] ?? '');
-            if ($naam === self::BLOK) {
+            // Het headerblok (class-productfeature-header.php) toont dezelfde features.
+            if ($naam === self::BLOK || $naam === Mymmo_Cards_Productfeature_Header::BLOK) {
                 $id = preg_replace('/[^a-zA-Z0-9-]/', '', (string) ($blok['attrs']['featureId'] ?? ''));
                 if ($id !== '') {
                     $uit[$id] = true;

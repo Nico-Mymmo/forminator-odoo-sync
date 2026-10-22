@@ -1,0 +1,132 @@
+/**
+ * Mymmo Componenten — DE PRODUCTFEATURE-HEADER.
+ *
+ * Drie indelingen (zie class-productfeature-header.php). Geometrie enkel: de
+ * kop, de alinea's en de knoppen volgen het thema.
+ *
+ * Smaller dan 782px staat alles onder elkaar, de TEKST eerst: in een header is
+ * de kop wat de bezoeker als eerste moet lezen, het beeld ondersteunt.
+ */
+
+.mymmo-pfh {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--mymmo-ruimte-ruim);
+  align-items: center;
+}
+
+/* Naast elkaar: tekst en beeld elk de helft. Ook in het vlak, als er een beeld is. */
+.mymmo-pfh.mymmo-pfh--naast.mymmo-pfh--met-beeld,
+.mymmo-pfh.mymmo-pfh--vlak.mymmo-pfh--met-beeld {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+/* Beeld links: enkel de volgorde op het scherm; in de HTML staat de tekst eerst. */
+.mymmo-pfh.mymmo-pfh--beeld-links .mymmo-pfh-beeld {
+  order: -1;
+}
+
+/* Gecentreerd (en een vlak zonder beeld): alles op de middenas. */
+.mymmo-pfh.mymmo-pfh--gecentreerd,
+.mymmo-pfh.mymmo-pfh--vlak.mymmo-pfh--zonder-beeld {
+  justify-items: center;
+  text-align: center;
+}
+
+.mymmo-pfh.mymmo-pfh--gecentreerd .mymmo-pfh-tekst,
+.mymmo-pfh.mymmo-pfh--vlak.mymmo-pfh--zonder-beeld .mymmo-pfh-tekst {
+  max-width: 48rem;
+}
+
+.mymmo-pfh.mymmo-pfh--gecentreerd .mymmo-pfh-extra .wp-block-buttons,
+.mymmo-pfh.mymmo-pfh--vlak.mymmo-pfh--zonder-beeld .mymmo-pfh-extra .wp-block-buttons {
+  justify-content: center;
+}
+
+/* Het vlak: een kleur uit het palet, afgerond als een kaart, met de swirl erachter. */
+.mymmo-pfh.mymmo-pfh--vlak {
+  background-color: var(--mk-pfh-bg, var(--mymmo-kleur-vlak));
+  border-radius: var(--mymmo-afronding-l);
+  padding: var(--mymmo-ruimte-ruim);
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.mymmo-pfh .mymmo-pfh-swirl {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background-image: var(--mk-pfh-swirl);
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: cover;
+  pointer-events: none;
+}
+
+.mymmo-pfh .mymmo-pfh-tekst {
+  min-width: 0;
+}
+
+.mymmo-pfh .mymmo-pfh-tekst > * {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+.mymmo-pfh .mymmo-pfh-tekst > * + * {
+  margin-top: var(--mymmo-ruimte-krap);
+}
+
+/* Het label als pilletje. */
+.mymmo-pfh .mymmo-pfh-label {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: var(--mymmo-afronding-rond);
+  background-color: var(--mymmo-kleur-vlak);
+}
+
+.mymmo-pfh.mymmo-pfh--vlak .mymmo-pfh-label {
+  background-color: var(--mymmo-kleur-vlak-licht);
+}
+
+.mymmo-pfh .mymmo-pfh-beeld {
+  min-width: 0;
+}
+
+.mymmo-pfh .mymmo-pfh-beeld .mymmo-pfh-img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.mymmo-pfh.mymmo-pfh--naast .mymmo-pfh-beeld .mymmo-pfh-img,
+.mymmo-pfh.mymmo-pfh--vlak .mymmo-pfh-beeld .mymmo-pfh-img {
+  border-radius: var(--mymmo-afronding-m);
+}
+
+@media (max-width: 781px) {
+  .mymmo-pfh.mymmo-pfh--naast.mymmo-pfh--met-beeld,
+  .mymmo-pfh.mymmo-pfh--vlak.mymmo-pfh--met-beeld {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--mymmo-ruimte-normaal-telefoon);
+  }
+
+  .mymmo-pfh.mymmo-pfh--beeld-links .mymmo-pfh-beeld {
+    order: 0;
+  }
+
+  .mymmo-pfh.mymmo-pfh--vlak {
+    padding: var(--mymmo-ruimte-ruim-telefoon);
+  }
+}
+
+@media (max-width: 639.98px) {
+  .mymmo-pfh {
+    gap: var(--mymmo-ruimte-krap-telefoon);
+  }
+
+  .mymmo-pfh.mymmo-pfh--vlak {
+    padding: var(--mymmo-ruimte-normaal-telefoon);
+    border-radius: var(--mymmo-afronding-m);
+  }
+}
