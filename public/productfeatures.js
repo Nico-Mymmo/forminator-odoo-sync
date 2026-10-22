@@ -244,7 +244,7 @@
       + (f.image_url ? '<img src="' + e(f.image_url) + '" alt="" data-pf-kaartbeeld style="display:block;width:100%;height:auto">' : '')
       + '<div style="padding:22px 24px 24px">'
       + (labelTekst ? '<span style="display:inline-block;background:' + h.pil + ';color:' + h.primary + ';font-size:12px;font-weight:600;padding:3px 10px;border-radius:999px">' + e(labelTekst) + '</span>' : '')
-      + '<div style="font-size:24px;line-height:1.2;font-weight:700;color:' + h.titel + ';margin:12px 0 10px">' + e(f.name || 'Nog geen titel') + '</div>'
+      + '<div style="font-size:24px;line-height:1.2;font-weight:700;color:' + h.titel + ';margin:12px 0 10px">' + e(f.header || f.name || 'Nog geen titel') + '</div>'
       + (String(f.summary || '').trim() ? tekstHtml(f.summary) : '<p style="margin:0 0 10px;color:' + h.zacht + ';font-style:italic">Nog geen korte uitleg.</p>')
       + (usps.length ? '<ul style="list-style:none;padding:0;margin:12px 0 0">' + usps.map(function (u) {
         return '<li style="display:flex;gap:8px;margin:0 0 6px"><span style="color:' + h.primary + ';font-weight:700">&#10003;</span><span>' + e(u) + '</span></li>';
@@ -483,9 +483,10 @@
       + '</div>'
       + '<div class="rounded-xl bg-base-200/70 p-3 text-xs flex items-start gap-2"><i data-lucide="info" class="w-4 h-4 mt-0.5 shrink-0"></i><span><strong>Toon:</strong> feitelijk en concreet. Schrijf wat het doet, voor wie, wat het kost of vraagt. Geen "revolutionair", "naadloos" of "zorgeloos".</span></div>'
       + '<div class="grid sm:grid-cols-2 gap-3">'
-      + veld('Titel', 'name', f.name, { max: 120, hint: 'Bv. Bankkoppeling' })
+      + veld('Titel', 'name', f.name, { max: 120, hint: 'Bv. Bankkoppeling', uitleg: 'Intern: zo heet ze in de lijst links.' })
       + veld('Label boven de titel', 'eyebrow', f.eyebrow, { max: 60, hint: 'Bv. Financieel beheer', uitleg: 'Het pilletje boven de titel in een mail.' })
       + '</div>'
+      + veld('Header', 'header', f.header, { max: 160, hint: 'Bv. Wat de VME-rekening je oplevert', uitleg: 'Wat bovenaan staat op de website en in een mail. Leeg = de titel.' })
       + ouderKeuze(f)
       + '<div class="grid sm:grid-cols-3 gap-3">'
       + keuze('Categorie', 'category', b.categorieen, f.category, { leeg: 'Geen categorie' })
@@ -749,7 +750,7 @@
     if (!f) return;
     if (!String(f.name || '').trim()) { toast('Geef de feature een titel.', 'warning'); return; }
     var body = {
-      name: f.name, eyebrow: f.eyebrow, summary: f.summary, why: f.why, usps: f.usps, benefits: f.benefits, audiences: f.audiences,
+      name: f.name, header: f.header || '', eyebrow: f.eyebrow, summary: f.summary, why: f.why, usps: f.usps, benefits: f.benefits, audiences: f.audiences,
       category: f.category || '', plan: f.plan || '', pro: voorPro(f), brand: f.brand || 'openvme', url: f.url, image_url: f.image_url, is_active: f.is_active !== false,
       achtergrond: f.achtergrond || null,
       parent_id: f.parent_id || null,

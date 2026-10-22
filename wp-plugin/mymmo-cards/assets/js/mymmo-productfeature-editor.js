@@ -92,6 +92,9 @@
     var stukken = [];
     if (lijst.fout) {
       stukken.push(el(Notice, { status: 'warning', isDismissible: false }, lijst.fout));
+    } else if (!(lijst.features || []).length) {
+      stukken.push(el(Notice, { status: 'info', isDismissible: false },
+        'Er is nog geen enkele feature naar de sites gestuurd. Open een feature in de Operations Manager (Productfeatures), klik op Naar de sites sturen en daarna hier op Lijst vernieuwen.'));
     }
     stukken.push(el(SelectControl, {
       label: 'Productfeature',
@@ -117,7 +120,7 @@
   var TOON = [
     ['toonBeeld', 'Beeld'],
     ['toonLabel', 'Label (boven de titel)'],
-    ['toonTitel', 'Titel'],
+    ['toonTitel', 'Header (de titel op de website)'],
     ['toonKort', 'Korte uitleg'],
     ['toonWaarom', 'Waarom we dit gemaakt hebben'],
     ['toonUsps', 'USP\'s (als opsomming)'],

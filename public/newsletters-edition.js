@@ -1428,7 +1428,7 @@
     await plaats({
       kind: 'feature', title: f.eyebrow || 'Functionaliteit',
       content: {
-        feature_id: f.id, vorm: vorm, eyebrow: f.eyebrow || '', title: f.name, summary: f.summary || '', why: f.why || '',
+        feature_id: f.id, vorm: vorm, eyebrow: f.eyebrow || '', title: f.header || f.name, summary: f.summary || '', why: f.why || '',
         usps: f.usps || [], url: f.url || '', link_label: 'Meer over deze functie', image_url: f.image_url || '', beeld_varianten: f.varianten || {},
         toon_usps: true, toon_why: Boolean(f.why),
       },

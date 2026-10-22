@@ -1,8 +1,8 @@
 {
   "plugin": "mymmo-cards",
-  "versie": "1.15.0",
-  "hash": "b87d4d113575c086",
-  "datum": "2026-10-22T09:20:36.000Z",
+  "versie": "1.15.1",
+  "hash": "900cf52cfba4af78",
+  "datum": "2026-10-22T09:30:57.000Z",
   "door": "Nico-Mymmo",
-  "samenvatting": "Nieuw blok Productfeature (1.15.0): beeld links/rechts naast tekst uit de OM, geen typografie (kop, lijst en knop volgen het thema, label via has-small-font-size), ruimte en afronding uit de huisstijl, onder 782px beeld bovenaan. Gutenberg: categorie mymmo, gesloten lijsten, voorbeeld via de server-render; alt leeg als de titel ernaast staat."
+  "samenvatting": "Productfeature 1.15.1: de kop komt uit de Header van de OM (terugval de titel), alt blijft leeg als die kop ernaast staat; uitleg in de editor bij een lege keuzelijst. Geen wijziging aan CSS of indeling."
 }

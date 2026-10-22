@@ -471,6 +471,11 @@ Uitzetten per site: `define('MYMMO_CARDS_GEEN_AUTO_UPDATE', true);` in
 
 ## Versies
 
+**1.15.1** — productfeature: de kop op de pagina is de HEADER uit de OM (het
+nieuwe veld voor de titel die extern gebruikt wordt), met de titel (`name`,
+voortaan intern, voor de lijst in de OM) als terugval. Een lege keuzelijst zegt
+in de editor waarom: er is nog niets naar de sites gestuurd.
+
 **1.15.0** — nieuw blok **Productfeature**. Wat OpenVME kan, staat een keer in
 de Operations Manager (Productfeatures); dit blok zet een feature op een pagina:
 beeld links of rechts (knop in de werkbalk), en rechts in de zijbalk wat er

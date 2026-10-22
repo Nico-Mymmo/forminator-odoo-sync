@@ -29,6 +29,7 @@ const GEBRUIK = 'product_feature_gebruik';
 const VELDEN = [
   ['eyebrow', 'Label'],
   ['name', 'Titel'],
+  ['header', 'Header'],
   ['summary', 'Korte uitleg'],
   ['why', 'Waarom we dit gemaakt hebben'],
   ['usps', 'USP\'s'],
@@ -47,7 +48,7 @@ export function toPubliekeFeature(f) {
   const varianten = f.achtergrond && f.achtergrond.varianten && typeof f.achtergrond.varianten === 'object'
     ? Object.fromEntries(Object.entries(f.achtergrond.varianten).filter(([, v]) => v))
     : {};
-  return {
+  const uit = {
     id: f.id,
     code: f.code || '',
     name: f.name || '',
@@ -62,6 +63,10 @@ export function toPubliekeFeature(f) {
     category_label: cat ? cat.label : '',
     brand: f.brand || 'openvme',
   };
+  // De header (wat extern komt) enkel als hij ingevuld is: zo blijft de hash
+  // van een eerder verstuurde versie zonder header dezelfde.
+  if (String(f.header || '').trim()) uit.header = String(f.header).trim();
+  return uit;
 }
 
 /** JSON met gesorteerde sleutels: anders telt een andere volgorde als wijziging. */

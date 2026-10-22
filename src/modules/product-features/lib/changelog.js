@@ -17,6 +17,7 @@ const TABEL = 'product_feature_changes';
 /** De velden die in het logboek komen, in de volgorde van het formulier. */
 const VELDEN = [
   ['name', 'Titel'],
+  ['header', 'Header op de website'],
   ['eyebrow', 'Label'],
   ['summary', 'Korte uitleg'],
   ['why', 'Waarom we dit gemaakt hebben'],

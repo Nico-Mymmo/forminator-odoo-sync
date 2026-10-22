@@ -52,6 +52,8 @@ export function normaliseer(body = {}, { nieuw = false } = {}) {
   const uit = {};
   const tekst = (k, max) => { if (body[k] !== undefined) uit[k] = kort(body[k], max); };
   tekst('name', 120);
+  // De titel die extern komt (website, mail); leeg = name.
+  tekst('header', 160);
   tekst('eyebrow', 60);
   tekst('summary', 600);
   tekst('why', 800);

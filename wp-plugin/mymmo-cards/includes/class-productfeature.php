@@ -543,6 +543,10 @@ final class Mymmo_Cards_Productfeature {
             return (bool) ($attrs[$k] ?? $standaard);
         };
 
+        // De HEADER is wat extern komt; de titel (name) is intern, voor de lijst
+        // in de OM. Zonder header: de titel.
+        $titel = trim((string) ($f['header'] ?? '')) !== '' ? trim((string) $f['header']) : (string) ($f['name'] ?? '');
+
         $kant = mymmo_cards_keuze((string) ($attrs['kant'] ?? ''), self::kanten(), 'links');
         $kop  = mymmo_cards_keuze((string) ($attrs['kop'] ?? ''), self::koppen(), 'h2');
         $vorm = (string) ($attrs['vorm'] ?? '');
@@ -555,7 +559,7 @@ final class Mymmo_Cards_Productfeature {
             $src       = esc_url($src);
             // Staat de titel ernaast, dan zegt het beeld niets nieuws: een
             // schermlezer leest anders twee keer dezelfde naam.
-            $alt = $toon('toonTitel') && !empty($f['name']) ? '' : (string) ($f['name'] ?? '');
+            $alt = $toon('toonTitel') && $titel !== '' ? '' : $titel;
             if ($src !== '') {
                 $beeld = '<div class="mymmo-pf-beeld">'
                     . '<img class="mymmo-pf-img skip-lazy no-lazyload" data-no-lazy="1" data-skip-lazy="1" loading="eager" decoding="async"'
@@ -568,8 +572,8 @@ final class Mymmo_Cards_Productfeature {
         if ($toon('toonLabel') && !empty($f['eyebrow'])) {
             $tekst .= '<p class="mymmo-pf-label has-small-font-size">' . esc_html((string) $f['eyebrow']) . '</p>';
         }
-        if ($toon('toonTitel') && !empty($f['name'])) {
-            $tekst .= '<' . $kop . ' class="wp-block-heading mymmo-pf-titel">' . esc_html((string) $f['name']) . '</' . $kop . '>';
+        if ($toon('toonTitel') && $titel !== '') {
+            $tekst .= '<' . $kop . ' class="wp-block-heading mymmo-pf-titel">' . esc_html($titel) . '</' . $kop . '>';
         }
         if ($toon('toonKort') && !empty($f['summary'])) {
             $tekst .= self::alineas((string) $f['summary'], 'mymmo-pf-kort');

@@ -4102,6 +4102,11 @@ verschilt.**
   een beeld tonen dat de feature in de OM al niet meer heeft.
 - Een weggehaalde feature blijft op de sites staan (publicatie blijft) tot
   iemand het blok weghaalt.
+- **Titel is intern, Header is extern** (Nico, 2026-10-22): `name` is de
+  korte naam in de lijst links; `header` is wat op de website en in een mail
+  bovenaan staat (leeg = `name`). De keuzelijst in WordPress toont `name`.
+  `header` gaat enkel mee in de publieke vorm als hij ingevuld is, zodat oude
+  verstuurde versies niet als achterlopend tellen.
 
 ## Achtergrondbouwer -- gedeeld (2026-10-19, lagen sinds 2026-10-20)
 
