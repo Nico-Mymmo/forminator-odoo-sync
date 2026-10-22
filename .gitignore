@@ -48,3 +48,4 @@ workflow-debug-snapshot.*
 *INSTRUCTION*.txt
 
 dist/
+scripts/odoo-acties/.uit/
