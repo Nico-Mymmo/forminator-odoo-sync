@@ -407,14 +407,8 @@
     RG.iconen();
     $('rgNieuwKleur').value = RG.PALET[0];
     try {
-      var stand = await RG.laad(true);
+      await RG.laad(true);
       $('rgNieuwKleur').value = RG.volgendeKleur();
-      if (stand.net_overgenomen) {
-        $('rgMelding').innerHTML = '<div class="alert alert-info text-sm mb-4"><i data-lucide="info" class="w-4 h-4"></i>' +
-          '<span>De gegevens van de mini-app Regio\'s zijn overgenomen: ' + stand.syndicoaches.length + ' syndicoaches en ' +
-          Object.keys(stand.toewijzingen).length + ' postcodes. Vanaf nu werk je hier.</span></div>';
-        RG.iconen();
-      }
     } catch (err) {
       $('rgMelding').innerHTML = '<div class="alert alert-error text-sm mb-4">De regio\'s konden niet geladen worden: ' + e(err.message) + '. Herlaad de pagina.</div>';
     }

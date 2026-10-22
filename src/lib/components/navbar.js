@@ -224,11 +224,11 @@ export function navbar(user) {
   // kind in navbarFavorites zetten zonder de rest van de navbar (utility-
   // knoppen, avatar) van positie te laten verspringen.
   const favoriteApps = (user && Array.isArray(user.favoriteMiniApps)) ? user.favoriteMiniApps : [];
-  const favoritesMenu = '<div id="navbarFavorites" class="hidden md:flex items-center gap-1">'
+  const favoritesMenu = '<div id="navbarFavorites" class="hidden md:flex items-center gap-1 min-w-0">'
     + favoriteApps.map(function (a) {
-        return '<a href="/mini-apps?app=' + encodeURIComponent(a.id) + '" class="btn btn-xs btn-ghost border border-base-content/10 gap-1.5 font-normal text-base-content/70 hover:text-base-content hover:border-primary/40 max-w-[9rem]" title="' + escapeHtml(a.title) + '">'
-          + '<i data-lucide="' + safeIconName(a.icon) + '" class="w-3 h-3"></i>'
-          + '<span class="truncate">' + escapeHtml(a.title) + '</span>'
+        return '<a href="/mini-apps?app=' + encodeURIComponent(a.id) + '" class="btn btn-xs btn-ghost border border-base-content/10 gap-1.5 font-normal text-base-content/70 hover:text-base-content hover:border-primary/40 max-w-[9rem] shrink min-w-0 flex-nowrap" title="' + escapeHtml(a.title) + '">'
+          + '<i data-lucide="' + safeIconName(a.icon) + '" class="w-3 h-3 shrink-0"></i>'
+          + '<span class="truncate min-w-0">' + escapeHtml(a.title) + '</span>'
           + '</a>';
       }).join('')
     + '</div>'
@@ -246,12 +246,12 @@ export function navbar(user) {
     return layout.favorites.map(function (id) { return byId[id]; }).filter(Boolean);
   })();
   const moduleFavoritesMenu = moduleFavorites.length
-    ? '<div id="navbarModuleFavorites" class="hidden md:flex items-center gap-1">'
+    ? '<div id="navbarModuleFavorites" class="hidden md:flex items-center gap-1 min-w-0">'
       + moduleFavorites.map(function (m) {
           const icon = /^[a-z0-9-]{1,40}$/.test(String(m.icon || '')) ? m.icon : (MODULE_ICONS[m.code] || 'box');
-          return '<a href="' + m.route + '" class="btn btn-xs btn-ghost border border-base-content/10 gap-1.5 font-normal text-base-content/70 hover:text-base-content hover:border-primary/40 max-w-[9rem]" title="' + escapeHtml(m.name) + '">'
-            + '<i data-lucide="' + icon + '" class="w-3 h-3"></i>'
-            + '<span class="truncate">' + escapeHtml(m.name) + '</span>'
+          return '<a href="' + m.route + '" class="btn btn-xs btn-ghost border border-base-content/10 gap-1.5 font-normal text-base-content/70 hover:text-base-content hover:border-primary/40 max-w-[9rem] shrink min-w-0 flex-nowrap" title="' + escapeHtml(m.name) + '">'
+            + '<i data-lucide="' + icon + '" class="w-3 h-3 shrink-0"></i>'
+            + '<span class="truncate min-w-0">' + escapeHtml(m.name) + '</span>'
             + '</a>';
         }).join('')
       + '<div class="w-px h-4 bg-base-content/10 mx-1"></div>'
@@ -573,8 +573,8 @@ export function navbar(user) {
   ].join('\n');
 
   // ---------- Samenstellen ----------
-  return '<header class="flex items-center justify-between bg-base-100 border-b border-base-content/10 px-4" style="position: fixed; top: 0; left: 0; right: 0; height: 48px; z-index: 50;">'
-    + '<div class="flex items-center gap-3">'
+  return '<header class="flex items-center justify-between gap-2 bg-base-100 border-b border-base-content/10 px-4" style="position: fixed; top: 0; left: 0; right: 0; height: 48px; z-index: 50;">'
+    + '<div class="flex items-center gap-3 shrink-0">'
     + mobileToggle
     + '<a href="/" class="flex items-center gap-2 hover:opacity-75 transition-opacity">'
     + ICONS.home
@@ -584,10 +584,10 @@ export function navbar(user) {
     + modulesMenu
     + '</div>'
     + '<div id="saveIndicator" class="flex items-center gap-1 text-xs text-base-content/50"></div>'
-    + '<div class="flex items-center gap-1">'
+    + '<div class="flex items-center justify-end gap-1 min-w-0">'
     + moduleFavoritesMenu
     + favoritesMenu
-    + (utilityButtons ? '<div class="hidden md:flex items-center gap-1">' + utilityButtons + '<div class="w-px h-4 bg-base-content/10 mx-1"></div></div>' : '')
+    + (utilityButtons ? '<div class="hidden md:flex items-center gap-1 shrink-0">' + utilityButtons + '<div class="w-px h-4 bg-base-content/10 mx-1"></div></div>' : '')
     + avatarMenu
     + '</div>'
     + '</header>'
