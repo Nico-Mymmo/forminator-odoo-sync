@@ -71,7 +71,10 @@ ML_CEL = "padding:3px 4px;border-bottom:1px solid #eee;"
 ML_VELD = "width:100%;padding:3px 6px;border:1px solid #ccc;border-radius:4px;font-size:12px;"
 
 def is_mailpunt(it):
-    return (it.x_studio_type or 'checkbox') == 'tekst' and 'mail' in (it.x_name or '').lower()
+    # Herkend op de NAAM, want in de Navigator kan je enkel Vinkje, Tekst of
+    # Keuzelijst kiezen. "Mail verstuurd" telt niet, "E-mailadressen eigenaars" wel.
+    n = (it.x_name or '').lower()
+    return (it.x_studio_type or 'checkbox') == 'tekst' and ('mailadres' in n or 'e-mail' in n or 'email' in n)
 
 def ml_rij(e, v, n):
     tds = ''
@@ -150,9 +153,24 @@ const PY_1201_LUS_NIEUW = `        attr = " data-punt='" + h(nid) + "'"
             rijen += ("<tr><td colspan='2' style='" + CEL + "'><div style='margin-bottom:4px;'>" + h(it.x_name) + "</div>"
                       + ml_doos(nid, waarde) + "</td></tr>")
             continue
+        if waarde.startswith('LIJST:'):
+            # Een punt dat niet (meer) als lijst herkend wordt (hernoemd in de
+            # Navigator): toon de bewaarde lijst leesbaar in het gewone tekstveld.
+            ml_delen = []
+            for r in waarde[6:].split(';'):
+                c = (r.split('|') + ['', '', ''])[:3]
+                nm = (c[1] + ' ' + c[2]).strip()
+                if c[0]:
+                    ml_delen.append((nm + ' (' + c[0] + ')') if nm else c[0])
+            waarde = ', '.join(ml_delen)
         if soort == 'tekst':`;
 
-const acties = await kw('ir.actions.server', 'read', [[1201, 1179]], { fields: ['id', 'code'] });
+// --vanaf-oud: opnieuw toepassen op de code van VOOR de eerste aanpassing
+// (bewaard in .uit/), om een verbeterde versie in te zetten.
+const vanafOud = process.argv.includes('--vanaf-oud');
+const acties = vanafOud
+  ? [1201, 1179].map((id) => ({ id, code: readFileSync(join(hier, '.uit', id + '-oud.py'), 'utf8') }))
+  : await kw('ir.actions.server', 'read', [[1201, 1179]], { fields: ['id', 'code'] });
 const code = Object.fromEntries(acties.map((a) => [a.id, String(a.code || '').replace(/\r\n/g, '\n')]));
 
 let c1201 = code[1201];
@@ -167,9 +185,9 @@ c1179 = vervang(c1179, PY_1179_CHATTER_OUD, PY_1179_CHATTER_NIEUW, '1179 chatter
 
 const uit = join(hier, '.uit');
 mkdirSync(uit, { recursive: true });
-writeFileSync(join(uit, '1201-oud.py'), code[1201]);
+if (!vanafOud) writeFileSync(join(uit, '1201-oud.py'), code[1201]);
 writeFileSync(join(uit, '1201-nieuw.py'), c1201);
-writeFileSync(join(uit, '1179-oud.py'), code[1179]);
+if (!vanafOud) writeFileSync(join(uit, '1179-oud.py'), code[1179]);
 writeFileSync(join(uit, '1179-nieuw.py'), c1179);
 console.log('Klaargezet in', uit);
 
