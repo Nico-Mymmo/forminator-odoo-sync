@@ -9,7 +9,7 @@
  *         zie overdracht-mailadressen.lib.js.
  *   1179  Custom Sub | Generate Syndicoach Navigator Webhook Payload -> de lijst
  *         gaat als leesbare regels ("email | voornaam | naam") in `waarde` en
- *         als `lijst` [{email, voornaam, naam}] mee.
+ *         als `mailadressen` [{email, voornaam, naam}] mee.
  *
  * Opslag in x_studio_overdracht_antwoorden: "LIJST:" + rijen gescheiden door
  * ";" met kolommen gescheiden door "|". Een oude vrije tekst blijft werken: die
@@ -141,7 +141,7 @@ const PY_1179_PUNT_NIEUW = `        waarde = antw.get(it.x_studio_navigator_id o
             "waarde": waarde,
         }
         if ml_lijst:
-            punt["lijst"] = ml_lijst
+            punt["mailadressen"] = ml_lijst
         punten.append(punt)`;
 const PY_1179_CHATTER_OUD = `lijst += '<li>' + h(it.x_name) + ': <b>' + (h(waarde) or '—') + '</b></li>'`;
 const PY_1179_CHATTER_NIEUW = `lijst += '<li>' + h(it.x_name) + ': <b>' + (h(waarde).replace('\\n', '<br/>') or '—') + '</b></li>'`;
