@@ -208,14 +208,23 @@ export async function meldGebruik(env, site, posten, volledig = false) {
 }
 
 /**
- * De sites waar een feature staat een seintje geven dat er een nieuwe versie
- * is. Het seintje draagt geen inhoud: de site haalt zelf op wat hier bewaard
- * staat. Mislukt het, dan neemt de site de nieuwe versie hoogstens een
- * kwartier later (de bewaartijd op de site).
+ * ELKE site een seintje geven dat er een nieuwe versie is, niet enkel de sites
+ * waar de feature al op een bewaarde pagina staat: wie het blok net op een
+ * pagina zette en nog niet bewaarde, zou anders een kwartier de oude versie
+ * zien (2026-10-22). Welke sites: die ooit een blok meldden, plus de sites
+ * van de formulieren (FORMS_PUBLIC_ORIGINS) en de afspraaklinks
+ * (BOOKING_LINK_SITES). Het seintje draagt geen inhoud: de site haalt zelf op
+ * wat hier bewaard staat. Een site zonder deze feature doet er niets mee.
+ * Mislukt het, dan neemt de site de nieuwe versie hoogstens een kwartier
+ * later (de bewaartijd op de site).
  */
 export async function seinSites(env, featureId) {
-  const { data } = await getCoreDb(env).from(GEBRUIK).select('site').eq('feature_id', featureId);
-  const hosts = [...new Set((data || []).map((r) => r.site))].filter((h) => hostVan(h));
+  const { data } = await getCoreDb(env).from(GEBRUIK).select('site');
+  const uitConfig = [env?.FORMS_PUBLIC_ORIGINS, env?.BOOKING_LINK_SITES]
+    .flatMap((v) => String(v || '').split(','))
+    .map((r) => r.trim().replace(/^[a-z0-9-]+:(?=https?:\/\/)/i, ''));
+  const hosts = [...new Set([...(data || []).map((r) => r.site), ...uitConfig]
+    .map((h) => hostVan(h).replace(/^www\./, '')).filter(Boolean))];
   await Promise.all(hosts.map(async (host) => {
     try {
       const res = await fetch(`https://${host}/wp-json/mymmo-cards/v1/productfeature/ververs`, {

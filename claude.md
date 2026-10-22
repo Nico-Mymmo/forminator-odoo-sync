@@ -4097,7 +4097,11 @@ verschilt.**
 - **Gebruik meldt de site zelf**: bij elke bewaring van een pagina (post-meta
   `_mymmo_pf_ids`, ook via een herbruikbaar blok) en dagelijks volledig
   (`volledig: true` haalt wat niet meer gemeld wordt weg). Het seintje gaat
-  enkel naar sites waar de feature staat.
+  naar ELKE site (die ooit een blok meldde, plus `FORMS_PUBLIC_ORIGINS` en
+  `BOOKING_LINK_SITES`), niet enkel waar de feature al op een bewaarde pagina
+  staat: anders zag een net geplaatst blok een kwartier de oude versie.
+- **Het voorbeeld in de editor ververst niet vanzelf** (ServerSideRender
+  vraagt pas opnieuw bij een wijziging aan het blok); de pagina zelf wel.
 - **Het opruimen van beelden telt de verstuurde versie mee**: een pagina kan
   een beeld tonen dat de feature in de OM al niet meer heeft.
 - Een weggehaalde feature blijft op de sites staan (publicatie blijft) tot
