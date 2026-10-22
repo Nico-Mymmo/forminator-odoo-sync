@@ -33,10 +33,16 @@
     if (f.size > 5 * 1024 * 1024) { RG.toast('Het bestand is groter dan 5 MB.', 'error'); return; }
     var lezer = new FileReader();
     lezer.onload = function () {
-      $('dlgImportTekst').value = String(lezer.result || '');
+      // Excel bewaart een gewone CSV in Windows-1252, niet in UTF-8: zonder
+      // terugval wordt "é" in een naam onleesbaar en dus een nieuwe syndicoach.
+      var bytes = new Uint8Array(lezer.result);
+      var tekst;
+      try { tekst = new TextDecoder('utf-8', { fatal: true }).decode(bytes); }
+      catch (x) { tekst = new TextDecoder('windows-1252').decode(bytes); }
+      $('dlgImportTekst').value = tekst;
       RG.importVoorbeeld();
     };
-    lezer.readAsText(f, 'utf-8');
+    lezer.readAsArrayBuffer(f);
   };
 
   function lijstje(titel, items, klasse) {
