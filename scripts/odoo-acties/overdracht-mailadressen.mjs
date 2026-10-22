@@ -9,7 +9,9 @@
  *         zie overdracht-mailadressen.lib.js.
  *   1179  Custom Sub | Generate Syndicoach Navigator Webhook Payload -> de lijst
  *         gaat als leesbare regels ("email | voornaam | naam") in `waarde` en
- *         als `mailadressen` [{email, voornaam, naam}] mee.
+ *         als `mailadressen` [{email, voornaam, naam}] mee, en schrijft ze als JSON
+ *         [{firstname, lastname, email}] naar crm.lead.x_vme_members van de
+ *         gekoppelde leads (veld aangemaakt op 22/10/2026, type Text).
  *
  * Opslag in x_studio_overdracht_antwoorden: "LIJST:" + rijen gescheiden door
  * ";" met kolommen gescheiden door "|". Een oude vrije tekst blijft werken: die
@@ -134,6 +136,7 @@ const PY_1179_PUNT_NIEUW = `        waarde = antw.get(it.x_studio_navigator_id o
                 if c[0] or c[1] or c[2]:
                     ml_lijst.append({"email": c[0].strip(), "voornaam": c[1].strip(), "naam": c[2].strip()})
             waarde = '\\n'.join([x["email"] + ' | ' + x["voornaam"] + ' | ' + x["naam"] for x in ml_lijst])
+            vme_members += [{"firstname": x["voornaam"], "lastname": x["naam"], "email": x["email"]} for x in ml_lijst]
         punt = {
             "item_id": it.x_studio_navigator_id or "",
             "naam": it.x_name or "",
@@ -143,6 +146,18 @@ const PY_1179_PUNT_NIEUW = `        waarde = antw.get(it.x_studio_navigator_id o
         if ml_lijst:
             punt["mailadressen"] = ml_lijst
         punten.append(punt)`;
+// Voor de lus: de verzamelbak. Na de lus: naar crm.lead.x_vme_members van elke
+// gekoppelde lead (daar haalt de knop "omgeving aanmaken" ze met een webhook op).
+const PY_1179_START_OUD = `    punten = []
+`;
+const PY_1179_START_NIEUW = `    punten = []
+    vme_members = []
+`;
+const PY_1179_NA_OUD = `    notitie = sheet.x_studio_overdracht_notitie or ""`;
+const PY_1179_NA_NIEUW = `    if vme_members:
+        # Elke persoon: firstname, lastname, email (JSON), voor de omgeving in de app.
+        sheet.x_studio_as_opportunity_ids.write({'x_vme_members': to_json(vme_members)})
+    notitie = sheet.x_studio_overdracht_notitie or ""`;
 const PY_1179_CHATTER_OUD = `lijst += '<li>' + h(it.x_name) + ': <b>' + (h(waarde) or '—') + '</b></li>'`;
 const PY_1179_CHATTER_NIEUW = `lijst += '<li>' + h(it.x_name) + ': <b>' + (h(waarde).replace('\\n', '<br/>') or '—') + '</b></li>'`;
 
@@ -181,6 +196,8 @@ c1201 = vervang(c1201, PY_1201_LUS_OUD, PY_1201_LUS_NIEUW, '1201 lus');
 let c1179 = code[1179];
 if (c1179.includes('ml_lijst')) throw new Error('1179 is al aangepast');
 c1179 = vervang(c1179, PY_1179_PUNT_OUD, PY_1179_PUNT_NIEUW, '1179 punten');
+c1179 = vervang(c1179, PY_1179_START_OUD, PY_1179_START_NIEUW, '1179 start');
+c1179 = vervang(c1179, PY_1179_NA_OUD, PY_1179_NA_NIEUW, '1179 naar leads');
 c1179 = vervang(c1179, PY_1179_CHATTER_OUD, PY_1179_CHATTER_NIEUW, '1179 chatter');
 
 const uit = join(hier, '.uit');
