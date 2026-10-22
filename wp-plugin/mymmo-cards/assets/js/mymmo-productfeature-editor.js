@@ -41,10 +41,55 @@
   var ToolbarGroup = components.ToolbarGroup;
   var ToolbarButton = components.ToolbarButton;
   var ExternalLink = components.ExternalLink;
+  var ColorPalette = components.ColorPalette;
+  var BaseControl = components.BaseControl;
 
   var ServerSideRender = serverSideRender && (serverSideRender.default || serverSideRender);
 
   var BLOK = 'mymmo/productfeature';
+
+  function themaPaletLabel() {
+    if (blockEditor.useSettings) {
+      var w = blockEditor.useSettings('color.palette');
+      if (w && w[0]) { return w[0]; }
+    }
+    if (blockEditor.useSetting) { return blockEditor.useSetting('color.palette') || []; }
+    return [];
+  }
+
+  /** Zelfde klassen als label_klassen() in class-productfeature.php. */
+  function labelKlassen(a) {
+    var uit = [];
+    if (/^[a-z0-9-]+$/.test(a.labelKleur || '')) { uit.push('has-background has-' + a.labelKleur + '-background-color'); }
+    if (/^[a-z0-9-]+$/.test(a.labelTekst || '')) { uit.push('has-text-color has-' + a.labelTekst + '-color'); }
+    return uit.join(' ');
+  }
+
+  function labelPaneel(a, zet, palet) {
+    var kiezer = function (label, sleutel, help) {
+      return el(BaseControl, { label: label, help: help, __nextHasNoMarginBottom: true },
+        el(ColorPalette, {
+          colors: palet,
+          value: labelHex(palet, a[sleutel]),
+          disableCustomColors: true,
+          onChange: function (hex) { var o = {}; o[sleutel] = hex ? labelSlug(palet, hex) : ''; zet(o); }
+        }));
+    };
+    return el(PanelBody, { title: 'Label', initialOpen: false },
+      kiezer('Achtergrond van het label', 'labelKleur', 'Uit het palet van de site.'),
+      kiezer('Tekst van het label', 'labelTekst', 'Kies een kleur die goed leesbaar is op de achtergrond.'));
+  }
+
+  function labelSlug(palet, hex) {
+    var g = (palet || []).filter(function (k) { return String(k.color).toLowerCase() === String(hex).toLowerCase(); })[0];
+    return g ? g.slug : '';
+  }
+
+  function labelHex(palet, slug) {
+    var g = (palet || []).filter(function (k) { return k.slug === slug; })[0];
+    return g ? g.color : '';
+  }
+
 
   // ───────────────────────────────────────────────────────────────────────────
   // De keuzelijst: een keer per editor ophalen, gedeeld door alle blokken
@@ -152,7 +197,9 @@
       toonWaarom: { type: 'boolean', default: false },
       toonUsps: { type: 'boolean', default: true },
       toonKnop: { type: 'boolean', default: false },
-      knopTekst: { type: 'string', default: '' }
+      knopTekst: { type: 'string', default: '' },
+      labelKleur: { type: 'string', default: '' },
+      labelTekst: { type: 'string', default: '' }
     },
 
     edit: function (props) {
@@ -162,6 +209,7 @@
       var lijst = l[0];
       var ververs = l[1];
       var blockProps = useBlockProps();
+      var palet = themaPaletLabel();
 
       var kiezen = function (w) { zet({ featureId: w }); };
 
@@ -230,6 +278,7 @@
             __nextHasNoMarginBottom: true
           }) : null
         ),
+        a.toonLabel ? labelPaneel(a, zet, palet) : null,
         el(
           PanelBody,
           { title: 'Vorm van het beeld', initialOpen: false },

@@ -1,8 +1,8 @@
 {
   "plugin": "mymmo-cards",
-  "versie": "1.16.0",
-  "hash": "3c7764828f80608d",
-  "datum": "2026-10-22T10:02:11.000Z",
+  "versie": "1.16.1",
+  "hash": "2725e4e9fe5543d8",
+  "datum": "2026-10-22T11:47:21.000Z",
   "door": "Nico-Mymmo",
-  "samenvatting": "Nieuw blok Productfeature-header (1.16.0): drie indelingen (gecentreerd, naast, vlak met swirl), tekst uit de OM, knoppen als core-blokken. Kop standaard h1 (uitzondering goedgekeurd door Nico, in het regelboek). Vlak: paletkleur, afronding-l, ruimte-ruim, geen rand of schaduw; swirl als versiering (aria-hidden), beeld alt leeg naast de kop; onder 782px tekst boven het beeld. Waarschuwing H15 op de 4px/12px van het labelpilletje: de huisstijl heeft geen kleinere maat."
+  "samenvatting": "Productfeature 1.16.1: labelkleuren (achtergrond en tekst) uit het palet van het thema, met de themaklassen has-<slug>-background-color / has-<slug>-color zoals een core-blok; geen kleurwaarde in de plugin. ColorPalette zonder eigen kleuren, paneel enkel als het label aanstaat. In Productfeature wordt een gekleurd label een pilletje (afronding-rond)."
 }

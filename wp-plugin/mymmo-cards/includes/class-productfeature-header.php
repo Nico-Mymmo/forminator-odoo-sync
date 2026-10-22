@@ -131,6 +131,10 @@ final class Mymmo_Cards_Productfeature_Header {
             'achtergrond' => ['type' => 'string', 'default' => ''],
             // Het adres van een SVG in brand/swirls/ van de Asset Manager. Leeg = geen.
             'swirl'       => ['type' => 'string', 'default' => ''],
+            // Kleuren van het label: een SLUG uit het palet (zie
+            // Mymmo_Cards_Productfeature::label_klassen()). Leeg = het vlak van de huisstijl.
+            'labelKleur'  => ['type' => 'string', 'default' => ''],
+            'labelTekst'  => ['type' => 'string', 'default' => ''],
         ];
     }
 
@@ -251,7 +255,9 @@ final class Mymmo_Cards_Productfeature_Header {
 
         $tekst = '';
         if ($toon('toonLabel') && !empty($f['eyebrow'])) {
-            $tekst .= '<p class="mymmo-pfh-label has-small-font-size">' . esc_html((string) $f['eyebrow']) . '</p>';
+            $kleur  = Mymmo_Cards_Productfeature::label_klassen($attrs);
+            $tekst .= '<p class="mymmo-pfh-label has-small-font-size' . ($kleur !== '' ? ' ' . $kleur : '') . '">'
+                . esc_html((string) $f['eyebrow']) . '</p>';
         }
         if ($titel !== '') {
             $tekst .= '<' . $kop . ' class="wp-block-heading mymmo-pfh-titel">' . esc_html($titel) . '</' . $kop . '>';

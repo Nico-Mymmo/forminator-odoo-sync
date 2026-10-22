@@ -159,6 +159,10 @@ final class Mymmo_Cards_Productfeature {
             'toonKnop'    => ['type' => 'boolean', 'default' => false],
             // Leeg = "Meer lezen". De link zelf komt uit de OM.
             'knopTekst'   => ['type' => 'string', 'default' => ''],
+            // Kleuren van het label: een SLUG uit het palet van het thema. Leeg =
+            // gewone tekst (en in de header het vlak van de huisstijl).
+            'labelKleur'  => ['type' => 'string', 'default' => ''],
+            'labelTekst'  => ['type' => 'string', 'default' => ''],
         ];
     }
 
@@ -571,7 +575,10 @@ final class Mymmo_Cards_Productfeature {
 
         $tekst = '';
         if ($toon('toonLabel') && !empty($f['eyebrow'])) {
-            $tekst .= '<p class="mymmo-pf-label has-small-font-size">' . esc_html((string) $f['eyebrow']) . '</p>';
+            $kleur  = self::label_klassen($attrs);
+            $tekst .= '<p class="mymmo-pf-label has-small-font-size' . ($kleur !== '' ? ' ' . $kleur : '')
+                . (self::slug((string) ($attrs['labelKleur'] ?? '')) !== '' ? ' mymmo-pf-label--pil' : '') . '">'
+                . esc_html((string) $f['eyebrow']) . '</p>';
         }
         if ($toon('toonTitel') && $titel !== '') {
             $tekst .= '<' . $kop . ' class="wp-block-heading mymmo-pf-titel">' . esc_html($titel) . '</' . $kop . '>';
@@ -614,6 +621,31 @@ final class Mymmo_Cards_Productfeature {
             . $beeld
             . ($tekst !== '' ? '<div class="mymmo-pf-tekst">' . $tekst . '</div>' : '')
             . '</div>';
+    }
+
+    /** Een slug uit het palet van het thema, of '' (een oude hex-waarde telt niet). */
+    public static function slug(string $ruw): string {
+        return preg_match('/^[a-z0-9-]{1,60}$/', $ruw) ? $ruw : '';
+    }
+
+    /**
+     * De kleurklassen van het label: dezelfde klassen als een core-blok met een
+     * kleur uit het palet (has-<slug>-background-color, has-<slug>-color). Het
+     * THEMA zet de kleur; er staat hier geen enkele kleurwaarde.
+     *
+     * @param array<string,mixed> $attrs
+     */
+    public static function label_klassen(array $attrs): string {
+        $uit = [];
+        $bg  = self::slug((string) ($attrs['labelKleur'] ?? ''));
+        $fg  = self::slug((string) ($attrs['labelTekst'] ?? ''));
+        if ($bg !== '') {
+            $uit[] = 'has-background has-' . $bg . '-background-color';
+        }
+        if ($fg !== '') {
+            $uit[] = 'has-text-color has-' . $fg . '-color';
+        }
+        return implode(' ', $uit);
     }
 
     // ─────────────────────────────────────────────────────────────────────────

@@ -46,6 +46,40 @@
 
   var BLOK = 'mymmo/productfeature-header';
 
+  /** Zelfde klassen als label_klassen() in class-productfeature.php. */
+  function labelKlassen(a) {
+    var uit = [];
+    if (/^[a-z0-9-]+$/.test(a.labelKleur || '')) { uit.push('has-background has-' + a.labelKleur + '-background-color'); }
+    if (/^[a-z0-9-]+$/.test(a.labelTekst || '')) { uit.push('has-text-color has-' + a.labelTekst + '-color'); }
+    return uit.join(' ');
+  }
+
+  function labelPaneel(a, zet, palet) {
+    var kiezer = function (label, sleutel, help) {
+      return el(BaseControl, { label: label, help: help, __nextHasNoMarginBottom: true },
+        el(ColorPalette, {
+          colors: palet,
+          value: labelHex(palet, a[sleutel]),
+          disableCustomColors: true,
+          onChange: function (hex) { var o = {}; o[sleutel] = hex ? labelSlug(palet, hex) : ''; zet(o); }
+        }));
+    };
+    return el(PanelBody, { title: 'Label', initialOpen: false },
+      kiezer('Achtergrond van het label', 'labelKleur', 'Uit het palet van de site.'),
+      kiezer('Tekst van het label', 'labelTekst', 'Kies een kleur die goed leesbaar is op de achtergrond.'));
+  }
+
+  function labelSlug(palet, hex) {
+    var g = (palet || []).filter(function (k) { return String(k.color).toLowerCase() === String(hex).toLowerCase(); })[0];
+    return g ? g.slug : '';
+  }
+
+  function labelHex(palet, slug) {
+    var g = (palet || []).filter(function (k) { return k.slug === slug; })[0];
+    return g ? g.color : '';
+  }
+
+
   var KNOPPEN_SJABLOON = [
     ['core/buttons', {}, [['core/button', { placeholder: 'Bv. Vraag een demo' }]]]
   ];
@@ -199,7 +233,9 @@
       toonKort: { type: 'boolean', default: true },
       toonBeeld: { type: 'boolean', default: true },
       achtergrond: { type: 'string', default: '' },
-      swirl: { type: 'string', default: '' }
+      swirl: { type: 'string', default: '' },
+      labelKleur: { type: 'string', default: '' },
+      labelTekst: { type: 'string', default: '' }
     },
 
     edit: function (props) {
@@ -293,6 +329,7 @@
             __nextHasNoMarginBottom: true
           })
         ),
+        a.toonLabel ? labelPaneel(a, zet, palet) : null,
         a.indeling === 'vlak' ? el(
           PanelBody,
           { title: 'Vlak', initialOpen: false },
@@ -336,7 +373,7 @@
 
       var tekst = [];
       if (a.toonLabel && f.eyebrow) {
-        tekst.push(el('p', { key: 'l', className: 'mymmo-pfh-label has-small-font-size' }, f.eyebrow));
+        tekst.push(el('p', { key: 'l', className: ('mymmo-pfh-label has-small-font-size ' + labelKlassen(a)).trim() }, f.eyebrow));
       }
       if (titel) {
         tekst.push(el(a.kop === 'h2' ? 'h2' : 'h1', { key: 't', className: 'wp-block-heading mymmo-pfh-titel' }, titel));

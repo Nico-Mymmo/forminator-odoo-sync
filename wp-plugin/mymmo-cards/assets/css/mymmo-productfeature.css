@@ -52,6 +52,14 @@
   margin-bottom: 0;
 }
 
+/* Een label met een achtergrondkleur wordt een pilletje, zoals in de header.
+   De kleur zelf komt uit de klassen van het thema (has-<slug>-background-color). */
+.mymmo-pf .mymmo-pf-label.mymmo-pf-label--pil {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: var(--mymmo-afronding-rond);
+}
+
 /* Wat de editor toont als er (nog) niets te tonen is. Nooit op de pagina. */
 .mymmo-pf-melding {
   padding: var(--mymmo-ruimte-krap);

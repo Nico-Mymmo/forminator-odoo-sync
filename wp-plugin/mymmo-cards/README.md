@@ -472,6 +472,12 @@ Uitzetten per site: `define('MYMMO_CARDS_GEEN_AUTO_UPDATE', true);` in
 
 ## Versies
 
+**1.16.1** — het label van Productfeature en Productfeature-header krijgt een
+achtergrond- en tekstkleur uit het palet van het thema (paneel Label). Bewust met
+de klassen van het thema (`has-<slug>-background-color`, `has-<slug>-color`),
+zoals een core-blok: er staat geen kleurwaarde in de plugin. In het blok
+Productfeature wordt een label met een achtergrond een pilletje.
+
 **1.16.0** — nieuw blok **Productfeature-header** (`mymmo/productfeature-header`):
 label, header en korte uitleg uit de OM (dezelfde verstuurde versie en cache als
 het blok Productfeature), in drie indelingen: gecentreerd met het beeld eronder,
