@@ -14,7 +14,9 @@
 const URL  = "https://mymmo.odoo.com/jsonrpc";
 const DB   = "mymmo-main-11883993";
 const UID  = 2;
-const KEY  = "c6c225cd1740456eb974abe3a5b18d016d12b2c4";
+// De sleutel staat NOOIT in de code (deze repo is openbaar): zet ODOO_KEY in je omgeving.
+const KEY  = process.env.ODOO_KEY;
+if (!KEY) { console.error("ODOO_KEY ontbreekt in de omgeving."); process.exit(1); }
 
 async function rpc(model, method, args = [], kwargs = {}) {
   const res = await fetch(URL, {
