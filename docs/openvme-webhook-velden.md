@@ -1,7 +1,7 @@
 # VME aanmaken vanuit Odoo: velden in de webhook
 
-Een gewonnen lead gaat naar het syndicusteam. Dat kijkt de gegevens na en
-drukt op de knop **Naar OpenVME** bovenaan de lead. Odoo kijkt eerst na of
+Een lead gaat naar het syndicusteam. Dat kijkt de gegevens na en
+drukt op de knop **Maak in OpenVME** bovenaan de lead. Odoo kijkt eerst na of
 alle **verplichte** velden ingevuld zijn. Pas dan stuurt het de webhook naar
 OpenVME en zet het een notitie op de lead ("Doorgestuurd naar OpenVME door
 ...").
@@ -10,7 +10,7 @@ OpenVME en zet het een notitie op de lead ("Doorgestuurd naar OpenVME door
 
 | Wat | Waar in Odoo |
 |---|---|
-| De knop "Naar OpenVME" (enkel op een gewonnen lead) | bovenaan het leadformulier |
+| De knop "Maak in OpenVME" (op elke lead) | bovenaan het leadformulier |
 | De controle + het versturen | serveractie "OpenVME: VME aanmaken" |
 | De webhook zelf | serveractie "OpenVME: VME aanmaken (webhook)" (Instellingen > Technisch > Serveracties) |
 

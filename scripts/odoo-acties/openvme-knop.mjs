@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Knop "Naar OpenVME" op de lead.
+ * Knop "Maak in OpenVME" op de lead.
  *
  * - Webhook-actie "OpenVME: VME aanmaken (webhook)" op crm.lead met de velden
  *   die OpenVME nodig heeft. Het ADRES (webhook_url) vullen de ontwikkelaars
@@ -81,11 +81,11 @@ if (!knop) {
 
 // 3. Knop in de kop van het formulier, na "Foute Lead"
 const [view] = await kw('ir.ui.view', 'read', [[VIEW]], { fields: ['arch_db'] });
-if (!view.arch_db.includes(`name="${knop.id}" type="action" string="Naar OpenVME"`)) {
+if (!view.arch_db.includes(`name="${knop.id}" type="action" string="Maak in OpenVME"`)) {
   const anker = 'Bij problemen, check Nico!"/>';
   if (view.arch_db.split(anker).length !== 2) throw new Error('anker Foute Lead niet 1x');
   writeFileSync(join(uit, 'view1694-voor-knop.xml'), view.arch_db);
-  const knopXml = `${anker}\n    <button name="${knop.id}" type="action" string="Naar OpenVME" class="btn-primary" confirm="De VME aanmaken in OpenVME met de gegevens van het tabblad Syndicoach?"/>`;
+  const knopXml = `${anker}\n    <button name="${knop.id}" type="action" string="Maak in OpenVME" class="btn-primary" confirm="De VME aanmaken in OpenVME met de gegevens van het tabblad Syndicoach?"/>`;
   await kw('ir.ui.view', 'write', [[VIEW], { arch: view.arch_db.replace(anker, knopXml) }]);
   console.log('knop op het formulier gezet');
 }

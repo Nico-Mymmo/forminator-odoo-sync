@@ -1,4 +1,4 @@
-# Knop "Naar OpenVME" op crm.lead (scripts/odoo-acties/openvme-knop.mjs).
+# Knop "Maak in OpenVME" op crm.lead (scripts/odoo-acties/openvme-knop.mjs).
 # Kijkt na of alles wat OpenVME nodig heeft ingevuld is, en stuurt dan de
 # webhook "OpenVME: VME aanmaken (webhook)". Ontbreekt er iets, dan zegt de
 # knop welk veld, en wordt er niets verstuurd.
