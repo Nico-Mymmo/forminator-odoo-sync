@@ -189,7 +189,12 @@ async function authorizeGet(request, env) {
     const next = veiligNextPad(url.pathname + url.search);
     return new Response(null, { status: 302, headers: { Location: next ? `/?next=${encodeURIComponent(next)}` : '/' } });
   }
-  const pagina = await env.ASSETS.fetch(new Request(new URL('/claude-sales-toestemming.html', request.url)));
+  // Het pad ZONDER .html: de assets sturen /x.html door naar /x (307), en
+  // dan zou hier een lege pagina met status 200 uitkomen.
+  let pagina = await env.ASSETS.fetch(new Request(new URL('/claude-sales-toestemming', request.url)));
+  if (pagina.status >= 300 && pagina.status < 400 && pagina.headers.get('Location')) {
+    pagina = await env.ASSETS.fetch(new Request(new URL(pagina.headers.get('Location'), request.url)));
+  }
   const headers = new Headers(pagina.headers);
   headers.set('Cache-Control', 'no-store');
   headers.set('X-Frame-Options', 'DENY');
