@@ -35,7 +35,12 @@ def ml_rij(e, v, n, h=h, ML_CEL=ML_CEL, ML_VELD=ML_VELD):
 
 
 for record in self:
-    if not isinstance(record.id, int):
+    # In het formulier rekent Odoo dit veld na een wijziging opnieuw op een
+    # tijdelijke kopie van de lead (NewId); .origin is dan het echte nummer.
+    rid = record.id
+    if not isinstance(rid, int):
+        rid = rid.origin
+    if not rid:
         record['x_vme_members_editor'] = "<div style='font-size:12px;color:#666;'>Bewaar de lead eerst, dan kan je hier de leden invullen.</div>"
         continue
     leden = [l for l in ml_parse(record.x_vme_members) if isinstance(l, dict)]
@@ -54,7 +59,7 @@ for record in self:
     for t in ('E-mail', 'Voornaam', 'Naam', ''):
         kop += "<th style='text-align:left;font-weight:600;color:#666;font-size:12px;padding:2px 4px;'>" + t + "</th>"
     record['x_vme_members_editor'] = (
-        "<div data-mllead='1' data-id='" + str(record.id) + "'>"
+        "<div data-mllead='1' data-id='" + str(rid) + "'>"
         + "<div style='font-weight:600;margin-bottom:4px;'>VME-leden (" + str(len(rijen)) + ")</div>"
         + "<div data-mlbox='1'"
         + " onchange='" + ML_INIT + "window.__mlL3.sync(event.target)'"
