@@ -6625,6 +6625,7 @@ geen AI, en er wordt niets geschreven zonder `bevestigd: true`.**
 | Dossier (twee rondes naar Odoo) | `lib/dossier.js` |
 | Websitebezoeken (dezelfde lezing als het tabblad Marketing) | `lib/web.js` |
 | Na te kijken (dubbels, open offertes, taken over tijd, Odoo-controle, ...) | `lib/nakijken.js` |
+| "In het kort": het eerste wat de medewerker ziet | `lib/overzicht.js` |
 | Wegschrijven (eerst alles nakijken, dan schrijven) | `lib/bijwerken.js` |
 | Welke velden de connector mag invullen, omzetten van waarden | `lib/velden.js` (`BEWERKBAAR`) |
 | Wie, met welke rechten, en de Odoo-gebruiker (auteur in de chatter) | `lib/toegang.js` |
@@ -6648,6 +6649,16 @@ Afspraken die bewust zo zijn:
 - **Websitebezoeken komen uit de tracker (D1), met dezelfde functies als
   Marketing** (`linksForLeads`, `readVisitorSessions`, `buildJourney`): geen
   tweede definitie van een bezoek of kanaal. Ze lopen mee in de tweede ronde.
+- **Een gebouw opvragen begint ALTIJD met "In het kort"** (Nico, 2026-10-23:
+  "nu is het een flap tekst"): EEN tabel (lead, contact, huidig beheer, klant,
+  laatste contact, volgende stap, website), hoogstens drie punten om na te
+  kijken, en wat er nog ontbreekt (op belang, `BELANGRIJK` in overzicht.js).
+  Het blok staat KLAAR bovenaan het dossier met een opdracht voor Claude; de
+  rest staat eronder onder "Details (niet tonen tenzij gevraagd)". Ook in de
+  INSTRUCTIES van mcp.js.
+- **Naar de gebruiker: namen, geen nummers en geen veldnamen.** De punten van
+  "Na te kijken" noemen een lead of contact bij de naam; de id's in het dossier
+  zijn enkel voor Claude, om te kunnen bijwerken.
 - **"Na te kijken" zijn signalen, geen beslissingen** (`nakijkPunten()`, puur):
   dubbele gebouwen (zelfde naam, adres of ondernemingsnummer), contacten en
   leads met hetzelfde mailadres elders, meerdere open leads, open offertes,
