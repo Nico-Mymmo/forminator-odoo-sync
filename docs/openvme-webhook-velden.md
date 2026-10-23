@@ -2,9 +2,9 @@
 
 Een lead gaat naar het syndicusteam. Dat kijkt de gegevens na en
 drukt op de knop **Maak in OpenVME** bovenaan de lead. Odoo kijkt eerst na of
-alle **verplichte** velden ingevuld zijn. Pas dan stuurt het de webhook naar
-OpenVME en zet het een notitie op de lead ("Doorgestuurd naar OpenVME door
-...").
+alle **verplichte** velden ingevuld zijn. Daarna toont een venster wat er doorgaat en wat nog leeg is; pas na "Toch
+doorsturen" gaat de webhook naar OpenVME en komt er een notitie op de lead
+("Doorgestuurd naar OpenVME door ...").
 
 ## Wat er in Odoo klaarstaat
 
@@ -91,8 +91,8 @@ Wordt de eerste gebruiker van de omgeving.
 | `partner_id` | `res.partner` (persoon, `is_company = false`) | ja, en nog zonder `x_studio_soid` | het nummer van de partner |
 | `contact_name` | tekst | | volledige naam |
 | `email_from` | tekst | ja (geldig adres) | e-mailadres |
-| `mobile` | tekst | ja, `mobile` **of** `phone` | gsm-nummer |
-| `phone` | tekst | zie `mobile` | telefoonnummer |
+| `mobile` | tekst | nee | gsm-nummer |
+| `phone` | tekst | nee | telefoonnummer |
 
 `contact_name`, `email_from`, `phone` en `mobile` zijn velden van de lead die
 Odoo gelijk houdt met de partner. De naam is één veld: voornaam en achternaam

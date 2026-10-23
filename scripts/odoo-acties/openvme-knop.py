@@ -8,6 +8,7 @@
 KBO_VERPLICHT = True
 LEDEN_VERPLICHT = False
 WEBHOOK_ID = __WEBHOOK_ID__
+VENSTER = 'OpenVME: bevestigen'
 
 # __ML_PARSE__
 
@@ -39,8 +40,6 @@ for lead in records:
             fout.append('Deze contactpersoon staat al in OpenVME (soid ' + str(p.x_studio_soid) + ').')
         if not ml_mail_ok(p.email or lead.email_from):
             fout.append('De contactpersoon heeft geen geldig e-mailadres.')
-        if not (p.mobile or p.phone or lead.mobile or lead.phone):
-            fout.append('De contactpersoon heeft geen gsm- of telefoonnummer.')
     leden = []
     for l in ml_parse(lead.x_vme_members):
         if isinstance(l, dict):
@@ -56,9 +55,29 @@ for lead in records:
         fout.append('Deze adressen in de ledenlijst kloppen niet: ' + ', '.join(fouteAdressen) + '.')
     if fout:
         raise UserError('Nog niet klaar voor OpenVME:' + NL + NL + NL.join(['- ' + f for f in fout]))
+    if not env.context.get('openvme_bevestigd'):
+        # Eerst het venster: wat er doorgaat en wat nog leeg is; doorsturen
+        # gebeurt pas met de knop daar (die deze actie opnieuw start).
+        view = env['ir.ui.view'].sudo().search([('model', '=', 'crm.lead'), ('name', '=', VENSTER)], limit=1)
+        action = {
+            'type': 'ir.actions.act_window',
+            'name': 'Maak in OpenVME',
+            'res_model': 'crm.lead',
+            'res_id': lead.id,
+            'view_mode': 'form',
+            'views': [(view.id, 'form')],
+            'target': 'new',
+        }
+        break
     webhook = env['ir.actions.server'].browse(WEBHOOK_ID)
     if not webhook.exists() or not webhook.webhook_url:
         raise UserError('Alles is ingevuld, maar het adres van OpenVME staat nog niet in de actie "OpenVME: VME aanmaken (webhook)". Vraag het aan de ontwikkelaars van OpenVME.')
     webhook.with_context(active_model='crm.lead', active_id=lead.id, active_ids=[lead.id]).run()
     lead.message_post(body='Doorgestuurd naar OpenVME door ' + (env.user.name or '') + '.',
                       message_type='comment', subtype_xmlid='mail.mt_note')
+    action = {
+        'type': 'ir.actions.client',
+        'tag': 'display_notification',
+        'params': {'title': 'OpenVME', 'message': 'Doorgestuurd naar OpenVME.', 'type': 'success',
+                   'next': {'type': 'ir.actions.act_window_close'}},
+    }

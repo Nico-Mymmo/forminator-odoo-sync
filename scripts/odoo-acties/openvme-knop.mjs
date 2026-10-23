@@ -79,13 +79,42 @@ if (!knop) {
   console.log('knopactie bijgewerkt', knop.id);
 }
 
+// 2b. Rekenveld voor het overzicht in het venster
+const controle = readFileSync(join(hier, 'openvme-controle.py'), 'utf8').split(CR).join('');
+const DEPENDS = 'x_vme_naam,x_vme_kbo,x_vme_straat,x_vme_huisnummer,x_vme_postcode,x_vme_plaats,x_vme_land,x_vme_members,partner_id,email_from,phone,mobile,contact_name';
+const cv = { compute: controle, depends: DEPENDS, store: false, readonly: true, sanitize: false };
+const [cveld] = await kw('ir.model.fields', 'search', [[['model', '=', 'crm.lead'], ['name', '=', 'x_vme_controle_html']]]).then((x) => x);
+if (cveld) { await kw('ir.model.fields', 'write', [[cveld], cv]); console.log('overzichtsveld bijgewerkt'); }
+else console.log('overzichtsveld aangemaakt', await kw('ir.model.fields', 'create', [{ model_id: mod.id, name: 'x_vme_controle_html', ttype: 'html', field_description: 'OpenVME: controle', state: 'manual', copied: false, ...cv }]));
+
+// 2c. Het venster "Maak in OpenVME" (eigen weergave, nooit de standaard)
+const VENSTER = 'OpenVME: bevestigen';
+const vensterArch = `<form string="Maak in OpenVME">
+  <sheet>
+    <field name="x_vme_controle_html" nolabel="1" readonly="1" widget="html"/>
+  </sheet>
+  <footer>
+    <button name="${knop.id}" type="action" string="Toch doorsturen" class="btn-primary" context="{'openvme_bevestigd': True}"/>
+    <button string="Annuleren" special="cancel" class="btn-secondary"/>
+  </footer>
+</form>`;
+const [vv] = await kw('ir.ui.view', 'search', [[['model', '=', 'crm.lead'], ['name', '=', VENSTER]]]);
+if (vv) { await kw('ir.ui.view', 'write', [[vv], { arch: vensterArch }]); console.log('venster bijgewerkt', vv); }
+else console.log('venster aangemaakt', await kw('ir.ui.view', 'create', [{ name: VENSTER, model: 'crm.lead', type: 'form', mode: 'primary', priority: 99, arch: vensterArch }]));
+
 // 3. Knop in de kop van het formulier, na "Foute Lead"
 const [view] = await kw('ir.ui.view', 'read', [[VIEW]], { fields: ['arch_db'] });
+const oudeVraag = ' confirm="De VME aanmaken in OpenVME met de gegevens van het tabblad Syndicoach?"';
+if (view.arch_db.includes(oudeVraag)) {
+  await kw('ir.ui.view', 'write', [[VIEW], { arch: view.arch_db.replace(oudeVraag, '') }]);
+  view.arch_db = view.arch_db.replace(oudeVraag, '');
+  console.log('bevestigingsvraag van de knop gehaald');
+}
 if (!view.arch_db.includes(`name="${knop.id}" type="action" string="Maak in OpenVME"`)) {
   const anker = 'Bij problemen, check Nico!"/>';
   if (view.arch_db.split(anker).length !== 2) throw new Error('anker Foute Lead niet 1x');
   writeFileSync(join(uit, 'view1694-voor-knop.xml'), view.arch_db);
-  const knopXml = `${anker}\n    <button name="${knop.id}" type="action" string="Maak in OpenVME" class="btn-primary" confirm="De VME aanmaken in OpenVME met de gegevens van het tabblad Syndicoach?"/>`;
+  const knopXml = `${anker}\n    <button name="${knop.id}" type="action" string="Maak in OpenVME" class="btn-primary"/>`;
   await kw('ir.ui.view', 'write', [[VIEW], { arch: view.arch_db.replace(anker, knopXml) }]);
   console.log('knop op het formulier gezet');
 }
