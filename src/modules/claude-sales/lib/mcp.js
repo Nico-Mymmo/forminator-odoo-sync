@@ -25,7 +25,7 @@ const INSTRUCTIES = `Je helpt een salesmedewerker van mymmo (OpenVME en Syndicoa
 
 Werkwijze:
 1. Zoek het gebouw met zoek_gebouw (naam, adres, contactpersoon, e-mail, telefoon, lead). Bij meerdere treffers: vraag welk.
-2. Haal het dossier met gebouw_dossier en geef een helder overzicht: wat er NAGEKEKEN moet worden (sectie "Na te kijken": dubbels, open offertes, taken over tijd, ... altijd bovenaan tonen), wat we weten (gebouw, contactpersonen, lead en fase, actieblad), hoe ze ons vonden en wat ze op de website deden (sectie "Website"), wat er recent gebeurde (chatter, mails, gesprekken, afspraken), wat er NOG NIET bekend is, en een voorstel voor de volgende stap. Een overzichtelijke pagina (artifact) mag, als de gebruiker dat wil.
+2. Haal het dossier met gebouw_dossier. Toon EERST enkel het blok "In het kort" uit het dossier: een tabel met de kern, hoogstens drie punten om na te kijken, wat er nog ontbreekt. Geen lap tekst, geen opsomming van alles wat je las. Eindig met een korte vraag wat de gebruiker nu wil doen. Details (de chatter, mails, website, de velden) geef je pas als hij erom vraagt.
 3. Geeft de gebruiker nieuwe info (een gespreksverslag, notities, een document): stel een wijziging voor en toon die eerst, met:
    - per record de velden die je invult of aanpast, met de oude en de nieuwe waarde;
    - de korte samenvatting die in de chatter komt, en op welke records (lead, gebouw, contact, actieblad: enkel waar het iets toevoegt);
@@ -34,6 +34,8 @@ Werkwijze:
 4. Pas NA een uitdrukkelijk "ja" van de gebruiker roep je dossier_bijwerken aan met bevestigd: true. Geef daarna kort wat bewaard is en de links.
 
 Regels:
+- Gewone taal, kort. Geen nummers (geen id's, geen "lead 11618", geen "#77") en geen technische veldnamen naar de gebruiker: noem een gebouw, lead, contact of offerte bij haar naam. Een link naar Odoo mag, met de naam als tekst. De id's in het dossier zijn enkel voor jou, om dossier_bijwerken aan te roepen.
+- Ook in een voorstel: "Aantal kavels: leeg -> 6", niet "x_studio_number_of_plots".
 - Vul enkel in wat echt gezegd of geschreven werd. Geen gokken; twijfel = vragen of weglaten.
 - Spreekt nieuwe info iets in Odoo tegen, zeg dat en vraag wat juist is.
 - Verzin nooit een id: gebruik enkel id's uit het dossier.
@@ -57,7 +59,7 @@ const TOOLS = [
   {
     name: 'gebouw_dossier',
     title: 'Dossier van een gebouw',
-    description: 'Alles wat we over een gebouw weten: gebouw, contactpersonen, leads met hun interne notitie, actieblad, chatter en mails, gesprekken, afspraken, offertes en abonnementen, events, bijlagen, websitebezoeken (hoe ze ons vonden, wat ze bekeken), wat er nagekeken moet worden, en welke velden nog niet ingevuld zijn (met hun technische naam en keuzes). Geef gebouw_id, of lead_id voor een lead zonder gebouw.',
+    description: 'Alles wat we over een gebouw weten: gebouw, contactpersonen, leads met hun interne notitie, actieblad, chatter en mails, gesprekken, afspraken, offertes en abonnementen, events, bijlagen, websitebezoeken (hoe ze ons vonden, wat ze bekeken), wat er nagekeken moet worden, en welke velden nog niet ingevuld zijn (met hun technische naam en keuzes). Geef gebouw_id, of lead_id voor een lead zonder gebouw. Toon de gebruiker eerst enkel het blok "In het kort".',
     inputSchema: {
       type: 'object',
       properties: {

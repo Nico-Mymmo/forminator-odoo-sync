@@ -31,6 +31,7 @@ const ACTIES = {
 };
 
 const dag = (s) => (s ? String(s).slice(0, 10) : '');
+const kortDag = (s) => { const [j, m, d] = String(s || '').slice(0, 10).split('-'); return d ? `${d}/${m}${j !== String(new Date().getUTCFullYear()) ? '/' + j : ''}` : ''; };
 
 function acties(s) {
   return Object.entries(ACTIES).filter(([k]) => (s.conversions?.[k] || 0) > 0).map(([, v]) => v);
@@ -44,7 +45,7 @@ export async function webGedrag(env, leads) {
   const links = (await linksForLeads(env, leads.map((l) => l.id)))
     .filter((l) => l.status !== 'afgewezen' && !l.is_bot);
   const uuids = [...new Set(links.map((l) => l.visitor_uuid))].slice(0, MAX_BROWSERS);
-  if (!uuids.length) return { regels: ['- Geen bezoeken op de website gekoppeld aan deze lead(s).'], signalen: [] };
+  if (!uuids.length) return { regels: ['- Geen bezoeken op de website gekoppeld aan deze lead(s).'], signalen: [], samenvatting: 'geen bezoeken gekend' };
 
   const intern = new Set(links.filter((l) => l.is_internal).map((l) => l.visitor_uuid));
   const sessies = (await readVisitorSessions(env, uuids, { includeInternal: true }))
@@ -98,5 +99,14 @@ export async function webGedrag(env, leads) {
       .forEach((s) => s.pages.forEach((p) => INTENTIE.forEach(([re, label]) => { if (re.test(p)) bekeken.add(label); })));
     if (bekeken.size) signalen.push(`Bekeek de laatste 30 dagen: ${[...bekeken].join(', ')}.`);
   }
-  return { regels, signalen };
+  // Een regel voor "In het kort": hoeveel, wanneer laatst, en hoe ze ons vonden.
+  const extern = sessies.filter((s) => !intern.has(s.uuid));
+  const laatsteBezoek = [...extern].sort((a, b) => (a.start < b.start ? 1 : -1))[0];
+  const samenvatting = extern.length
+    ? [`${extern.length} bezoek${extern.length === 1 ? '' : 'en'}`,
+      laatsteBezoek ? `laatst ${kortDag(laatsteBezoek.start)}` : null,
+      j ? `vond ons via ${j.eerste.channel}` : null,
+      j && j.na > 0 ? `${j.na} keer terug na de aanvraag` : null].filter(Boolean).join(' · ')
+    : "enkel bezoeken van collega's (test)";
+  return { regels, signalen, samenvatting };
 }

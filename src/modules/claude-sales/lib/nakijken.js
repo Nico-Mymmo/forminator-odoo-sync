@@ -19,6 +19,16 @@ import { statusVan } from '../../odoo-controle/lib/constants.js';
 const m2oId = (v) => (Array.isArray(v) ? v[0] : (Number.isInteger(v) ? v : null));
 const m2oNaam = (v) => (Array.isArray(v) ? v[1] : null);
 const dag = (s) => (s ? String(s).slice(0, 10) : '');
+/** 2026-10-21 -> 21/10, met het jaar erbij als het niet dit jaar is. */
+const kort = (s) => {
+  const [j, m, d] = String(s || '').slice(0, 10).split('-');
+  return d ? `${d}/${m}${j !== String(new Date().getUTCFullYear()) ? '/' + j : ''}` : '';
+};
+/** Een UTC-tijdstip uit Odoo -> uur in Brussel. */
+const uur = (s) => {
+  const t = Date.parse(String(s || '').replace(' ', 'T') + (String(s).includes('Z') ? '' : 'Z'));
+  return Number.isFinite(t) ? new Date(t).toLocaleTimeString('nl-BE', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Brussels' }) : '';
+};
 const dagenSinds = (s) => (s ? Math.round((Date.now() - Date.parse(String(s).replace(' ', 'T') + (String(s).includes('Z') ? '' : 'Z'))) / 86400000) : null);
 
 function sr(env, model, domain, fields, extra = {}) {
@@ -87,66 +97,69 @@ export function nakijkPunten(kern, gesch, extra, web) {
 
   // Dubbels en verspreide gegevens
   for (const d of extra.dubbels || []) {
-    p.push(`Mogelijk dubbel gebouw in Odoo: "${d.name}" [id ${d.id}]${d.street ? ', ' + d.street + ' ' + (d.zip || '') : ''}${d.active === false ? ' (gearchiveerd)' : ''}. Nakijken of dat hetzelfde gebouw is.`);
+    p.push(`Mogelijk staat dit gebouw twee keer in Odoo: "${d.name}"${d.street ? ' (' + d.street + (d.city ? ', ' + d.city : '') + ')' : ''}${d.active === false ? ', gearchiveerd' : ''}. Nakijken of het hetzelfde gebouw is.`);
   }
   for (const c of extra.contactElders || []) {
-    p.push(`${c.email} staat ook bij ${m2oNaam(c.commercial_partner_id) || c.name} [id ${m2oId(c.commercial_partner_id) || c.id}]. Dubbel contact, of dezelfde persoon bij een ander gebouw?`);
+    const bij = m2oNaam(c.commercial_partner_id);
+    p.push(!bij || bij === c.name || bij === c.email
+      ? `Er staat nog een los contact met hetzelfde adres (${c.email}) in Odoo, niet gekoppeld aan dit gebouw. Samenvoegen?`
+      : `${c.email} staat ook bij ${bij}. Dubbel contact, of dezelfde persoon bij een ander gebouw?`);
   }
   for (const l of extra.leadsElders || []) {
     const fase = l.active === false ? (l.probability === 0 ? 'verloren' : 'gearchiveerd') : m2oNaam(l.stage_id);
-    p.push(`Er is nog een lead met ${l.email_from} die niet aan dit gebouw hangt: "${l.name}" [lead ${l.id}, ${fase}]${l.partner_id ? ' bij ' + m2oNaam(l.partner_id) : ', zonder klant'}.`);
+    p.push(`Er is nog een lead met ${l.email_from} die niet aan dit gebouw hangt: "${l.name}" (${fase || 'open'})${l.partner_id ? ', bij ' + m2oNaam(l.partner_id) : ', zonder klant'}.`);
   }
-  if (open.length > 1) p.push(`${open.length} open leads op dit gebouw (${open.map((l) => l.id).join(', ')}). Nakijken of ze samen moeten.`);
+  if (open.length > 1) p.push(`Er staan ${open.length} open leads op dit gebouw (${open.map((l) => '"' + l.name + '"').join(', ')}). Nakijken of ze samen moeten.`);
 
   // Offertes en abonnementen tegenover de lead
   for (const o of offertes) {
     const d = dagenSinds(o.date_order);
-    p.push(`Open offerte ${o.name} (${o.state === 'sent' ? 'verstuurd' : 'concept'}, ${dag(o.date_order)}${d !== null ? `, ${d} dagen` : ''}). Opvolgen of annuleren.`);
+    p.push(`Offerte ${o.name} staat nog open (${o.state === 'sent' ? 'verstuurd' : 'concept'} op ${kort(o.date_order)}${d !== null ? `, ${d} dagen geleden` : ''}). Opvolgen of annuleren.`);
   }
   if (lopend.length && open.some((l) => l.probability > 0 && l.probability < 100)) {
-    p.push(`Er loopt al een abonnement (${lopend.map((o) => o.name).join(', ')}), maar er staat nog een open lead. Is het een upsell, of moet de lead op gewonnen?`);
+    p.push(`Er loopt al een abonnement (${lopend.map((o) => o.name).join(', ')}), maar er staat nog een open lead. Is het een uitbreiding, of moet de lead op gewonnen?`);
   }
   if (leads.some((l) => l.probability === 100) && !lopend.length && !(gesch.orders || []).some((o) => o.state === 'sale')) {
-    p.push('Er is een gewonnen lead, maar geen bevestigde order of lopend abonnement.');
+    p.push('Er is een gewonnen lead, maar nog geen bevestigde bestelling of lopend abonnement.');
   }
 
   // Actieblad
-  if (!actiebladen.length && open.some((l) => l.type === 'opportunity')) p.push('Open verkoopkans zonder actieblad.');
+  if (!actiebladen.length && open.some((l) => l.type === 'opportunity')) p.push('Er is een open verkoopkans, maar nog geen actieblad.');
   for (const b of actiebladen) {
     const gelinkt = b.x_studio_as_opportunity_ids || [];
-    if (!gelinkt.length && leads.length) p.push(`Actieblad ${b.id} is aan geen enkele lead gekoppeld.`);
-    if (g && m2oId(b.x_studio_for_company_id) !== g.id) p.push(`Actieblad ${b.id} hangt niet aan dit gebouw (${m2oNaam(b.x_studio_for_company_id) || 'geen gebouw'}).`);
+    if (!gelinkt.length && leads.length) p.push('Het actieblad hangt aan geen enkele lead.');
+    if (g && m2oId(b.x_studio_for_company_id) !== g.id) p.push(`Het actieblad hangt niet aan dit gebouw maar aan ${m2oNaam(b.x_studio_for_company_id) || 'geen gebouw'}.`);
     const cid = m2oId(b.x_studio_contact_id);
-    if (cid && !contacten.some((c) => c.id === cid)) p.push(`De contactpersoon op actieblad ${b.id} (${m2oNaam(b.x_studio_contact_id)}) is geen contact van dit gebouw.`);
+    if (cid && !contacten.some((c) => c.id === cid)) p.push(`De contactpersoon op het actieblad (${m2oNaam(b.x_studio_contact_id)}) is geen contact van dit gebouw.`);
     if (g && b.x_studio_number_of_plots && g.x_studio_number_of_plots && b.x_studio_number_of_plots !== g.x_studio_number_of_plots) {
-      p.push(`Aantal kavels verschilt: actieblad ${b.x_studio_number_of_plots}, gebouw ${g.x_studio_number_of_plots}.`);
+      p.push(`Het aantal kavels verschilt: ${b.x_studio_number_of_plots} op het actieblad, ${g.x_studio_number_of_plots} op het gebouw.`);
     }
   }
 
   // Lead tegenover gebouw
   for (const l of leads) {
-    if (!l.partner_id) p.push(`Lead ${l.id} hangt aan geen klant in Odoo.`);
+    if (!l.partner_id) p.push(`De lead "${l.name}" hangt nog aan geen klant in Odoo.`);
     if (g && l.x_vme_postcode && g.zip && String(l.x_vme_postcode).trim() !== String(g.zip).trim()) {
-      p.push(`Postcode op lead ${l.id} (${l.x_vme_postcode}) is niet die van het gebouw (${g.zip}).`);
+      p.push(`De postcode op de lead (${l.x_vme_postcode}) is niet die van het gebouw (${g.zip}).`);
     }
-    if (l.active !== false && !String(l.description || '').replace(/<[^>]+>/g, '').trim()) p.push(`De interne notitie van lead ${l.id} is leeg.`);
+    if (l.active !== false && !String(l.description || '').replace(/<[^>]+>/g, '').trim()) p.push(`De interne notitie van de lead "${l.name}" is nog leeg.`);
   }
-  if (g && !g.street) p.push(leads.some((l) => l.x_vme_straat) ? 'Het gebouw heeft geen adres, maar de lead wel (VME-velden). Overnemen?' : 'Het gebouw heeft geen adres in Odoo.');
-  if (g && !g.x_studio_number_of_plots && actiebladen.some((b) => b.x_studio_number_of_plots)) p.push('Aantal kavels staat op het actieblad maar niet op het gebouw.');
+  if (g && !g.street) p.push(leads.some((l) => l.x_vme_straat) ? 'Het gebouw heeft geen adres, maar de lead wel. Overnemen?' : 'Het gebouw heeft nog geen adres in Odoo.');
+  if (g && !g.x_studio_number_of_plots && actiebladen.some((b) => b.x_studio_number_of_plots)) p.push('Het aantal kavels staat op het actieblad, maar niet op het gebouw.');
 
   // Contactpersonen
-  if (g && !contacten.length) p.push('Geen enkele contactpersoon bij dit gebouw.');
+  if (g && !contacten.length) p.push('Er is nog geen enkele contactpersoon bij dit gebouw.');
   for (const c of contacten) {
-    if (!c.email && !c.phone && !c.mobile) p.push(`Contact ${c.name} heeft geen e-mail en geen telefoon.`);
+    if (!c.email && !c.phone && !c.mobile) p.push(`${c.name} heeft geen e-mail en geen telefoon in Odoo.`);
   }
 
   // Opvolging
   const nu = Date.now();
   const teLaat = (gesch.activiteiten || []).filter((a) => a.date_deadline && Date.parse(a.date_deadline) < nu - 86400000);
-  teLaat.forEach((a) => p.push(`Activiteit over tijd: "${a.summary || m2oNaam(a.activity_type_id) || 'activiteit'}" (${dag(a.date_deadline)}, ${m2oNaam(a.user_id) || '-'}).`));
-  if (open.length && !(gesch.activiteiten || []).length) p.push('Open lead zonder geplande volgende stap (geen activiteit).');
+  teLaat.forEach((a) => p.push(`Taak over tijd: "${a.summary || m2oNaam(a.activity_type_id) || 'taak'}" (was voor ${kort(a.date_deadline)}, ${m2oNaam(a.user_id) || 'niemand'}).`));
+  if (open.length && !(gesch.activiteiten || []).length) p.push('Open lead zonder geplande volgende stap.');
   const komend = (gesch.calendly || []).filter((m) => !m.x_studio_cm_iscancelled && Date.parse(m.x_studio_cm_start_time) > nu);
-  komend.forEach((m) => p.push(`Afspraak gepland op ${String(m.x_studio_cm_start_time).slice(0, 16)} met ${m2oNaam(m.x_studio_cm_host_name) || '-'}: voorbereiden.`));
+  komend.forEach((m) => p.push(`Afspraak op ${kort(m.x_studio_cm_start_time)} om ${uur(m.x_studio_cm_start_time)} met ${m2oNaam(m.x_studio_cm_host_name) || '-'}: voorbereiden.`));
 
   // Website
   (web?.signalen || []).forEach((s) => p.push(s));
@@ -156,7 +169,7 @@ export function nakijkPunten(kern, gesch, extra, web) {
   const orderIds = new Set((gesch.orders || []).map((o) => o.id));
   for (const c of extra.cases || []) {
     const raakt = (c.refs || []).some((r) => (ids[r.model]?.has(Number(r.id))) || (r.model === 'sale.order' && orderIds.has(Number(r.id))));
-    if (raakt) p.push(`Open case in Odoo-controle #${c.nr} (${c.prio || '-'}): ${c.titel || c.bevinding || ''}${c.voorstel ? ' Voorstel: ' + c.voorstel : ''}`);
+    if (raakt) p.push(`In de Odoo-controle staat hier nog een open punt (${c.prio || 'gewoon'}): ${c.titel || c.bevinding || ''}${c.voorstel ? ' Voorstel: ' + c.voorstel : ''}`);
   }
   return p;
 }

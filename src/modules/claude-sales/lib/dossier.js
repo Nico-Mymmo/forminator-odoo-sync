@@ -22,6 +22,7 @@ import { htmlNaarTekst } from './tekst.js';
 import { SalesError } from './constants.js';
 import { webGedrag } from './web.js';
 import { extraVragen, nakijkPunten } from './nakijken.js';
+import { kortOverzicht } from './overzicht.js';
 
 const m2oId = (v) => (Array.isArray(v) ? v[0] : (Number.isInteger(v) ? v : null));
 const m2oNaam = (v) => (Array.isArray(v) ? v[1] : null);
@@ -303,6 +304,17 @@ export async function bouwDossier(env, args) {
   const punten = nakijkPunten(kern, geschiedenis, extra, web && !web.fout ? web : null);
   const plek = r.findIndex((x) => x.startsWith('## '));
   r.splice(plek < 0 ? r.length : plek, 0, '## Na te kijken', ...(punten.length ? punten.map((x) => '- ' + x) : ['- Niets opvallends.']), '');
+
+  // "In het kort" helemaal bovenaan, klaar om zo te tonen (zie overzicht.js).
+  const kort = kortOverzicht({
+    kern, gesch: geschiedenis, web: web && !web.fout ? web : null, punten,
+    catalogi: { gebouw: cGebouw, contact: cContact, lead: cLead, actieblad: cBlad },
+  });
+  r.unshift(
+    '[Voor Claude] Toon de gebruiker EERST enkel het blok "In het kort" hieronder, in die vorm (inkorten mag, uitbreiden niet).',
+    'Geen nummers of technische veldnamen naar de gebruiker: enkel namen, in gewone taal. De details eronder zijn voor jou, of voor als de gebruiker erom vraagt.',
+    'Eindig met een korte vraag wat hij nu wil doen (bv. een gesprek verwerken, de chatter bekijken, wat nog ontbreekt invullen).',
+    '', '## In het kort', ...kort, '---', '# Details (niet tonen tenzij gevraagd)', '');
 
   r.push('', `_Opgehaald in ${Date.now() - t0} ms._`);
   return { tekst: r.join('\n'), kern };
