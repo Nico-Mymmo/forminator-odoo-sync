@@ -44,7 +44,7 @@ console.log('Klaargezet in', uit);
 if (!schrijf) process.exit(0);
 
 const [mod] = await kw('ir.model', 'search_read', [[['model', '=', 'crm.lead']]], { fields: ['id'] });
-const velden = await kw('ir.model.fields', 'search_read', [[['model', '=', 'crm.lead'], ['name', 'in', ['partner_id', 'x_vme_members', 'stage_id', 'email_from']]]], { fields: ['id'] });
+const velden = await kw('ir.model.fields', 'search_read', [[['model', '=', 'crm.lead'], ['name', 'in', ['partner_id', 'x_vme_members', 'stage_id', 'email_from', 'x_vme_naam']]]], { fields: ['id'] });
 
 let [aut] = await kw('base.automation', 'search_read', [[['name', '=', NAAM]]], { fields: ['id', 'action_server_ids'], context: { active_test: false } });
 if (!aut) {
@@ -55,6 +55,7 @@ if (!aut) {
   aut = { id, action_server_ids: [] };
   console.log('regel aangemaakt', id);
 }
+await kw('base.automation', 'write', [[aut.id], { trigger_field_ids: [[6, 0, velden.map((v) => v.id)]] }]);
 const actie = { name: NAAM, model_id: mod.id, state: 'code', code, usage: 'base_automation', base_automation_id: aut.id };
 if (aut.action_server_ids.length) {
   await kw('ir.actions.server', 'write', [aut.action_server_ids, { code }]);

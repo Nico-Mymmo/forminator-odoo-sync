@@ -5,7 +5,7 @@
 # - de contactpersoon (partner_id) staat in x_vme_members, als eerste rij,
 #   tenzij zijn e-mailadres er al in staat;
 # - elk e-mailadres staat er maar een keer in (de eerste blijft);
-# - enkel voor leads die al een ledenlijst hebben of gewonnen zijn.
+# - enkel voor leads met een ledenlijst, een naam van de VME, of die gewonnen zijn.
 # Er wordt enkel geschreven als er echt iets verandert.
 # Geen backslashes in deze code: Q en BS worden met chr() gemaakt.
 
@@ -31,7 +31,7 @@ def ml_js(s):
 for lead in records:
     heeft_lijst = bool(lead.x_vme_members)
     gewonnen = lead.won_status == 'won'
-    if not heeft_lijst and not gewonnen:
+    if not heeft_lijst and not gewonnen and not lead.x_vme_naam:
         continue
     lijst = []
     for l in ml_parse(lead.x_vme_members):
