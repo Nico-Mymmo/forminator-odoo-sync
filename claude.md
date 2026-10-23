@@ -3646,6 +3646,14 @@ Afspraken die bewust zo zijn:
   (`mail-studio-ui-test.mjs`, assertie "de \"/\"-kiezer staat BUITEN de studiodialoog").
   Let op bij het opsplitsen van de markup: zet nooit een los `<div id="mailTokenMenu">` in
   een testpagina, dan wordt de assertie hol.
+- **Opmaak in een tekstblok** (2026-10-23): boven een tekstblok staan in de zwarte
+  balk knoppen voor vet, cursief, onderlijnd, doorstreept, link (ook Ctrl+K) en
+  opsommingen; plakken gebeurt als gewone tekst. Een link mag een placeholder zijn
+  (`/event.link` in het linkvak wordt `{{event.link}}`). Wat er ook in `block.html`
+  staat, bij het RENDEREN gaat het door `schoonTekstHtml()` in
+  `src/lib/mail/render-blocks.js`: enkel die opmaak (plus alinea's, koppen, een
+  afbeelding met https) blijft, de rest wordt tekst, en een href is enkel http(s),
+  mailto, tel of een placeholder. Geldt ook voor de mailstap in Koppelingen.
 - **De knoptekst zit in een `<span>` BINNEN de `<a>`.** `contenteditable` op een `<a>` geeft
   in Chrome geen caret, dus was de copy van de knop onbewerkbaar. `data-om-edit` hoort op
   de span, niet op de link.

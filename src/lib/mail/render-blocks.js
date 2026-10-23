@@ -141,6 +141,109 @@ export function tokenizeToChips(html, labels = {}) {
   });
 }
 
+/**
+ * Opmaak van een tekstblok tot op het veilige deel terugbrengen.
+ *
+ * In de editor kan je tekst vet, cursief, onderlijnd of doorstreept zetten,
+ * er een link of een opsomming van maken. Meer niet: alles wat erin geplakt
+ * wordt of wat een browser er zelf bij verzint (een `<font>`, een `<span>` met
+ * een lettertype, een `onclick`, een `javascript:`-link) valt hier weg, en
+ * van die tags blijft enkel de tekst over. Gebeurt bij het RENDEREN, dus ook
+ * voor wat al in Odoo staat.
+ *
+ * `style` blijft staan op alinea's en lijsten: de standaardteksten zetten er
+ * hun marges mee, en die horen niet te verschuiven. Een link zonder eigen
+ * stijl krijgt de linkkleur en een onderlijning, want niet elke mailclient
+ * toont anders dat het een link is.
+ *
+ * Een href mag http(s), mailto, tel of exact één placeholder zijn
+ * (`{{event.link}}`); die laatste wordt daarna gewoon ingevuld.
+ *
+ * @param {string} html @returns {string}
+ */
+const TEKST_TAGS = {
+  p: 'p', div: 'div', br: 'br', span: 'span',
+  strong: 'strong', b: 'b', em: 'em', i: 'i', u: 'u', s: 's', strike: 's', del: 's',
+  a: 'a', ul: 'ul', ol: 'ol', li: 'li',
+  h1: 'h1', h2: 'h2', h3: 'h3', h4: 'h4', blockquote: 'blockquote', hr: 'hr', img: 'img'
+};
+const MET_STIJL = new Set(['p', 'div', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'blockquote', 'hr', 'img']);
+const LEEG = new Set(['br', 'hr', 'img']);
+const INHOUD_WEG = new Set(['script', 'style', 'iframe', 'object', 'embed', 'template', 'head', 'title']);
+
+// Een losse `<` die geen volledige tag was, mag in de browser geen tag meer
+// worden (`<img src=x onerror=...` zonder `>` op het einde).
+function losseTekst(tekst) {
+  return tekst.replace(/</g, '&lt;');
+}
+
+function veiligeHref(waarde) {
+  const raw = String(waarde || '').trim();
+  if (/^\{\{\s*[\w.]+\s*\}\}$/.test(raw)) return raw;
+  if (/^(https?:\/\/|mailto:|tel:)/i.test(raw)) return raw;
+  return '';
+}
+
+function attribuutWaarde(attrs, naam) {
+  const match = new RegExp('\\s' + naam + '\\s*=\\s*("([^"]*)"|\'([^\']*)\'|([^\\s>]+))', 'i').exec(' ' + attrs);
+  if (!match) return null;
+  const ruw = match[2] ?? match[3] ?? match[4] ?? '';
+  return ruw.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&');
+}
+
+export function schoonTekstHtml(html) {
+  const bron = String(html || '');
+  let out = '';
+  let weg = 0;
+  const re = /<!--[\s\S]*?-->|<(\/?)([a-zA-Z][a-zA-Z0-9]*)([^>]*)>/g;
+  let vorige = 0;
+  let m;
+  while ((m = re.exec(bron)) !== null) {
+    if (weg === 0) out += losseTekst(bron.slice(vorige, m.index));
+    vorige = re.lastIndex;
+    if (!m[2]) continue; // commentaar
+    const sluit = m[1] === '/';
+    const naam = m[2].toLowerCase();
+
+    if (INHOUD_WEG.has(naam)) {
+      if (sluit) weg = Math.max(0, weg - 1);
+      else if (!/\/\s*$/.test(m[3])) weg += 1;
+      continue;
+    }
+    if (weg > 0) continue;
+
+    const doel = TEKST_TAGS[naam];
+    if (!doel) continue;
+    if (sluit) { if (!LEEG.has(doel)) out += `</${doel}>`; continue; }
+    if (doel === 'br') { out += '<br>'; continue; }
+    if (doel === 'img') {
+      const src = attribuutWaarde(m[3], 'src') || '';
+      if (!/^https?:\/\//i.test(src.trim()) && !/^\{\{\s*[\w.]+\s*\}\}$/.test(src.trim())) continue;
+    }
+
+    let attrs = '';
+    const stijl = attribuutWaarde(m[3], 'style');
+    if (doel === 'a') {
+      attrs += ` href="${esc(veiligeHref(attribuutWaarde(m[3], 'href')))}" target="_blank"`;
+      attrs += ` style="${esc(stijl || `color:${STYLE.link};text-decoration:underline;`)}"`;
+    } else {
+      if (doel === 'img') {
+        attrs += ` src="${esc(attribuutWaarde(m[3], 'src').trim())}"`;
+        const alt = attribuutWaarde(m[3], 'alt');
+        const breedte = attribuutWaarde(m[3], 'width');
+        attrs += ` alt="${esc(alt || '')}"`;
+        if (breedte && /^\d{1,4}$/.test(breedte.trim())) attrs += ` width="${breedte.trim()}"`;
+      }
+      if (MET_STIJL.has(doel) && stijl) {
+        attrs += ` style="${esc(stijl.replace(/expression\s*\(|url\s*\(|javascript:/gi, ''))}"`;
+      }
+    }
+    out += `<${doel}${attrs}>`;
+  }
+  if (weg === 0) out += losseTekst(bron.slice(vorige));
+  return out;
+}
+
 // ─── Blokken binnen een kaart ─────────────────────────────────────────────────
 
 /**
@@ -172,7 +275,12 @@ function renderCardBlock(block, context, editable = false, tokenLabels = {}) {
   // staan (als chip), bij het versturen worden ze ingevuld. Attributen
   // (src, href) gaan ALTIJD door fill() -- een chip in een URL is onzin.
   const txt = (value) => (editable ? tokenizeToChips(esc(String(value || '')), tokenLabels) : esc(fill(value)));
-  const rich = (value) => (editable ? tokenizeToChips(String(value || ''), tokenLabels) : fill(value));
+  // Tekst met opmaak: eerst door de filter (enkel vet, cursief, links,
+  // lijstjes, ...), dan pas de placeholders.
+  const rich = (value) => {
+    const schoon = schoonTekstHtml(value);
+    return editable ? tokenizeToChips(schoon, tokenLabels) : fill(schoon);
+  };
 
   /**
    * Een blok dat nog niet getoond kan worden.

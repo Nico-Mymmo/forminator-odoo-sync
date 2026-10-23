@@ -661,7 +661,11 @@
       '#om-bar button{border:0;background:transparent;color:#fff;font-size:12px;padding:5px 8px;' +
         'border-radius:5px;cursor:pointer;line-height:1;}' +
       '#om-bar button:hover{background:#374151;}' +
-      '#om-bar .om-note{color:#9ca3af;font-size:11px;padding:0 6px;}';
+      '#om-bar .om-note{color:#9ca3af;font-size:11px;padding:0 6px;}' +
+      '#om-bar .om-sep{width:1px;height:16px;background:#4b5563;margin:0 4px;}' +
+      '#om-bar button.om-aan{background:#2563eb;}' +
+      '#om-bar .om-link{display:flex;gap:4px;align-items:center;}' +
+      '#om-bar .om-link input{font-size:12px;padding:4px 6px;border-radius:5px;border:0;width:240px;color:#111827;}';
     doc.head.appendChild(style);
 
     // Links in de mail niet volgen tijdens het bewerken -- anders navigeert
@@ -728,13 +732,29 @@
     if (!node.hasAttribute('data-om-bound')) {
       node.setAttribute('data-om-bound', '1');
       bindTokenInput(doc, node, commit);
+
+      // Plakken = gewone tekst. Wat uit Word, een website of een andere mail
+      // komt, brengt eigen lettertypes, kleuren en kaders mee; die horen niet
+      // in onze mail. Opmaak zet je daarna met de knoppen in de balk.
+      node.addEventListener('paste', function (event) {
+        var data = event.clipboardData || window.clipboardData;
+        if (!data) return;
+        event.preventDefault();
+        doc.execCommand('insertText', false, data.getData('text/plain'));
+      });
     }
 
-    node.addEventListener('blur', function () {
+    var stop = function (event) {
+      // Naar het linkvak in de balk: je bent nog aan het bewerken.
+      var naar = event && event.relatedTarget;
+      if (naar && naar.closest && naar.closest('#om-bar')) return;
+      node.removeEventListener('blur', stop);
       closeTokenMenu();
       node.removeAttribute('contenteditable');
       commit();
-    }, { once: true });
+    };
+    node._omStop = stop;
+    node.addEventListener('blur', stop);
 
     node.addEventListener('keydown', function (event) {
       // Escape en Enter alleen afhandelen als de "/"-kiezer niet openstaat;
@@ -743,7 +763,173 @@
       if (event.key === 'Escape') { node.blur(); return; }
       // Enter in een titel of een knoplabel maakt geen nieuwe regel.
       if (event.key === 'Enter' && prop !== 'html') { event.preventDefault(); node.blur(); }
+      if (prop === 'html' && (event.ctrlKey || event.metaKey) && String(event.key).toLowerCase() === 'k') {
+        event.preventDefault();
+        openLinkVak(doc);
+      }
     });
+
+    if (prop === 'html') {
+      var toon = function () { toonOpmaakStand(doc); };
+      node.addEventListener('keyup', toon);
+      node.addEventListener('mouseup', toon);
+    }
+  }
+
+  // ─── Opmaak in een tekstblok ───────────────────────────────────────────────
+  //
+  // Enkel in een TEKSTblok (`data-om-edit="html"`): vet, cursief, onderlijnd,
+  // doorstreept, een link en een opsomming. Meer kan de mail ook niet aan:
+  // `schoonTekstHtml()` in src/lib/mail/render-blocks.js laat bij het
+  // versturen exact deze opmaak door en gooit de rest weg.
+  //
+  // De knoppen werken op `mousedown` met preventDefault: een gewone klik haalt
+  // eerst de focus uit de tekst, en dan is de selectie weg.
+
+  var OPMAAK_KNOPPEN = [
+    { cmd: 'bold', label: '<b>B</b>', title: 'Vet (Ctrl+B)' },
+    { cmd: 'italic', label: '<i>I</i>', title: 'Cursief (Ctrl+I)' },
+    { cmd: 'underline', label: '<u>U</u>', title: 'Onderlijnd (Ctrl+U)' },
+    { cmd: 'strikeThrough', label: '<s>S</s>', title: 'Doorstreept' },
+    { cmd: 'link', label: '&#128279;', title: 'Link (Ctrl+K)' },
+    { cmd: 'insertUnorderedList', label: '&bull; lijst', title: 'Opsomming' },
+    { cmd: 'insertOrderedList', label: '1. lijst', title: 'Genummerde lijst' },
+    { cmd: 'removeFormat', label: '&#10005; opmaak', title: 'Opmaak weghalen' }
+  ];
+
+  function opmaakKnoppenHtml() {
+    return '<span class="om-sep"></span>' + OPMAAK_KNOPPEN.map(function (k) {
+      return '<button data-om-fmt="' + k.cmd + '" title="' + esc(k.title) + '">' + k.label + '</button>';
+    }).join('') +
+    '<span class="om-link" hidden>' +
+      '<input type="text" data-om-link-url placeholder="https://... of /event.link">' +
+      '<button data-om-fmt="link-ok">OK</button>' +
+      '<button data-om-fmt="unlink" title="Link weghalen">Weg</button>' +
+    '</span>';
+  }
+
+  /** Het tekstveld waarin nu getypt wordt, of dat van het gekozen blok. */
+  function tekstVeld(doc, blockId) {
+    var actief = doc.querySelector('[data-om-edit="html"][contenteditable="true"]');
+    if (actief) return actief;
+    var holder = doc.querySelector('[data-om-block="' + String(blockId).replace(/["\\]/g, '\\$&') + '"]');
+    var veld = holder && holder.querySelector('[data-om-edit="html"]');
+    if (veld) startEditing(veld, blockId);
+    return null;
+  }
+
+  function opmaak(doc, cmd, blockId) {
+    var veld = tekstVeld(doc, blockId);
+    if (!veld) { toast('Selecteer eerst de tekst die je wil opmaken.', 'info'); return; }
+    if (cmd === 'link') { openLinkVak(doc); return; }
+    if (cmd === 'link-ok') { zetLink(doc); return; }
+    if (cmd === 'unlink') { haalLinkWeg(doc); return; }
+    // Tags (<b>, <i>) i.p.v. <span style>: die laat de filter door.
+    doc.execCommand('styleWithCSS', false, false);
+    doc.execCommand(cmd, false, null);
+    if (cmd === 'removeFormat') doc.execCommand('unlink', false, null);
+    toonOpmaakStand(doc);
+  }
+
+  function toonOpmaakStand(doc) {
+    var bar = doc.getElementById('om-bar');
+    if (!bar) return;
+    ['bold', 'italic', 'underline', 'strikeThrough', 'insertUnorderedList', 'insertOrderedList'].forEach(function (cmd) {
+      var knop = bar.querySelector('[data-om-fmt="' + cmd + '"]');
+      var aan = false;
+      try { aan = doc.queryCommandState(cmd); } catch (e) { aan = false; }
+      if (knop) knop.classList.toggle('om-aan', !!aan);
+    });
+  }
+
+  /** De link waarin de cursor staat, als die er is. */
+  function linkBijSelectie(doc) {
+    var sel = doc.getSelection();
+    if (!sel || sel.rangeCount === 0) return null;
+    var n = sel.anchorNode;
+    if (n && n.nodeType === 3) n = n.parentNode;
+    var a = n && n.closest ? n.closest('a') : null;
+    return a && a.closest('[data-om-edit="html"]') ? a : null;
+  }
+
+  function openLinkVak(doc) {
+    var bar = doc.getElementById('om-bar');
+    var vak = bar && bar.querySelector('.om-link');
+    var sel = doc.getSelection();
+    if (!vak || !sel || sel.rangeCount === 0) return;
+    var bestaand = linkBijSelectie(doc);
+    if (sel.isCollapsed && !bestaand) {
+      toast('Selecteer eerst de woorden die een link moeten worden.', 'info');
+      return;
+    }
+    state.linkBereik = sel.getRangeAt(0).cloneRange();
+    var input = vak.querySelector('[data-om-link-url]');
+    var href = bestaand ? bestaand.getAttribute('href') || '' : '';
+    var token = /^\{\{\s*([\w.]+)\s*\}\}$/.exec(href);
+    input.value = token ? '/' + token[1] : href;
+    vak.hidden = false;
+    input.focus();
+    input.select();
+  }
+
+  function herstelBereik(doc) {
+    var veld = doc.querySelector('[data-om-edit="html"][contenteditable="true"]');
+    if (veld) veld.focus();
+    if (!state.linkBereik) return veld;
+    var sel = doc.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(state.linkBereik);
+    return veld;
+  }
+
+  function sluitLinkVak(doc) {
+    var vak = doc.querySelector('#om-bar .om-link');
+    if (vak) vak.hidden = true;
+    state.linkBereik = null;
+  }
+
+  /**
+   * Wat je in het linkvak typt, wordt een veilige href. Een placeholder
+   * schrijf je als "/event.link" (zoals de "/"-kiezer); een adres zonder
+   * https:// krijgt dat ervoor, een e-mailadres wordt mailto:.
+   */
+  function linkUitInvoer(waarde) {
+    var w = String(waarde || '').trim();
+    if (w === '') return '';
+    var token = /^(?:\/|\{\{\s*)((?:event|host|site|registration|now)\.[\w.]+)\s*(?:\}\})?$/i.exec(w);
+    if (token) return '{{' + token[1] + '}}';
+    if (/^(https?:\/\/|mailto:|tel:)/i.test(w)) return w;
+    if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(w)) return 'mailto:' + w;
+    if (/^[^\s]+\.[a-z]{2,}(\/|$)/i.test(w)) return 'https://' + w;
+    return null;
+  }
+
+  function zetLink(doc) {
+    var input = doc.querySelector('#om-bar [data-om-link-url]');
+    var href = linkUitInvoer(input ? input.value : '');
+    if (href === null) { toast('Dat is geen geldige link. Begin met https://', 'error'); return; }
+    var veld = herstelBereik(doc);
+    sluitLinkVak(doc);
+    if (!veld) return;
+    if (href === '') { doc.execCommand('unlink', false, null); return; }
+    var bestaand = linkBijSelectie(doc);
+    if (bestaand && doc.getSelection().isCollapsed) bestaand.setAttribute('href', href);
+    else doc.execCommand('createLink', false, href);
+    toonOpmaakStand(doc);
+  }
+
+  function haalLinkWeg(doc) {
+    herstelBereik(doc);
+    sluitLinkVak(doc);
+    var bestaand = linkBijSelectie(doc);
+    if (bestaand && doc.getSelection().isCollapsed) {
+      var r = doc.createRange();
+      r.selectNodeContents(bestaand);
+      var sel = doc.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(r);
+    }
+    doc.execCommand('unlink', false, null);
   }
 
   /**
@@ -803,9 +989,38 @@
       '<button data-om-cmd="settings">Instellingen</button>' +
       '<button data-om-cmd="add">+ hieronder</button>' +
       '<button data-om-cmd="remove" title="Verwijderen">&#128465;</button>' +
+      (block.type === 'text' ? opmaakKnoppenHtml() : '') +
       (note ? '<span class="om-note">' + esc(note) + '</span>' : '');
 
+    // Opmaakknoppen op mousedown, zodat de selectie in de tekst blijft staan.
+    bar.addEventListener('mousedown', function (event) {
+      var fmt = event.target.closest('[data-om-fmt]');
+      if (!fmt) return;
+      event.preventDefault();
+      event.stopPropagation();
+      opmaak(doc, fmt.getAttribute('data-om-fmt'), blockId);
+    });
+
+    bar.addEventListener('keydown', function (event) {
+      if (!event.target.matches('[data-om-link-url]')) return;
+      if (event.key === 'Enter') { event.preventDefault(); zetLink(doc); }
+      if (event.key === 'Escape') { event.preventDefault(); herstelBereik(doc); sluitLinkVak(doc); }
+    });
+
+    // Het linkvak verlaten zonder OK, ergens anders heen: dan is het bewerken
+    // gedaan, en moet de tekst bewaard worden zoals bij een gewone blur.
+    bar.addEventListener('focusout', function (event) {
+      if (!event.target.matches('[data-om-link-url]')) return;
+      var naar = event.relatedTarget;
+      if (naar && (naar.closest('#om-bar') || naar.closest('[data-om-edit]'))) return;
+      setTimeout(function () {
+        var veld = doc.querySelector('[data-om-edit="html"][contenteditable="true"]');
+        if (veld && doc.activeElement !== veld && veld._omStop) { sluitLinkVak(doc); veld._omStop(); }
+      }, 0);
+    });
+
     bar.addEventListener('click', function (event) {
+      if (event.target.closest('[data-om-fmt]') || event.target.closest('.om-link')) return;
       var button = event.target.closest('[data-om-cmd]');
       if (!button) return;
       event.preventDefault();
