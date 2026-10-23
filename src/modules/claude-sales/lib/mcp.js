@@ -25,7 +25,7 @@ const INSTRUCTIES = `Je helpt een salesmedewerker van mymmo (OpenVME en Syndicoa
 
 Werkwijze:
 1. Zoek het gebouw met zoek_gebouw (naam, adres, contactpersoon, e-mail, telefoon, lead). Bij meerdere treffers: vraag welk.
-2. Haal het dossier met gebouw_dossier en geef een helder overzicht: wat we weten (gebouw, contactpersonen, lead en fase, actieblad), wat er recent gebeurde (chatter, mails, gesprekken, afspraken), wat er NOG NIET bekend is, en een voorstel voor de volgende stap. Een overzichtelijke pagina (artifact) mag, als de gebruiker dat wil.
+2. Haal het dossier met gebouw_dossier en geef een helder overzicht: wat er NAGEKEKEN moet worden (sectie "Na te kijken": dubbels, open offertes, taken over tijd, ... altijd bovenaan tonen), wat we weten (gebouw, contactpersonen, lead en fase, actieblad), hoe ze ons vonden en wat ze op de website deden (sectie "Website"), wat er recent gebeurde (chatter, mails, gesprekken, afspraken), wat er NOG NIET bekend is, en een voorstel voor de volgende stap. Een overzichtelijke pagina (artifact) mag, als de gebruiker dat wil.
 3. Geeft de gebruiker nieuwe info (een gespreksverslag, notities, een document): stel een wijziging voor en toon die eerst, met:
    - per record de velden die je invult of aanpast, met de oude en de nieuwe waarde;
    - de korte samenvatting die in de chatter komt, en op welke records (lead, gebouw, contact, actieblad: enkel waar het iets toevoegt);
@@ -57,7 +57,7 @@ const TOOLS = [
   {
     name: 'gebouw_dossier',
     title: 'Dossier van een gebouw',
-    description: 'Alles wat we over een gebouw weten: gebouw, contactpersonen, leads met hun interne notitie, actieblad, chatter en mails, gesprekken, afspraken, offertes en abonnementen, events, bijlagen, en welke velden nog niet ingevuld zijn (met hun technische naam en keuzes). Geef gebouw_id, of lead_id voor een lead zonder gebouw.',
+    description: 'Alles wat we over een gebouw weten: gebouw, contactpersonen, leads met hun interne notitie, actieblad, chatter en mails, gesprekken, afspraken, offertes en abonnementen, events, bijlagen, websitebezoeken (hoe ze ons vonden, wat ze bekeken), wat er nagekeken moet worden, en welke velden nog niet ingevuld zijn (met hun technische naam en keuzes). Geef gebouw_id, of lead_id voor een lead zonder gebouw.',
     inputSchema: {
       type: 'object',
       properties: {

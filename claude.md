@@ -6623,6 +6623,8 @@ geen AI, en er wordt niets geschreven zonder `bevestigd: true`.**
 | De connector (MCP, Streamable HTTP zonder sessie) + de afspraken voor Claude | `lib/mcp.js` (`INSTRUCTIES`, `TOOLS`) |
 | Gebouw zoeken (een ronde, vier zoekopdrachten tegelijk) | `lib/zoeken.js` |
 | Dossier (twee rondes naar Odoo) | `lib/dossier.js` |
+| Websitebezoeken (dezelfde lezing als het tabblad Marketing) | `lib/web.js` |
+| Na te kijken (dubbels, open offertes, taken over tijd, Odoo-controle, ...) | `lib/nakijken.js` |
 | Wegschrijven (eerst alles nakijken, dan schrijven) | `lib/bijwerken.js` |
 | Welke velden de connector mag invullen, omzetten van waarden | `lib/velden.js` (`BEWERKBAAR`) |
 | Wie, met welke rechten, en de Odoo-gebruiker (auteur in de chatter) | `lib/toegang.js` |
@@ -6643,6 +6645,18 @@ Afspraken die bewust zo zijn:
   dossier 0,1-0,3 s, zoeken 0,2-0,7 s. Zet nooit een vraag na een andere die
   er niet van afhangt. `fields_get` en de keuzelijsten blijven 10 minuten
   bewaard per isolate; de gebruiker een minuut.
+- **Websitebezoeken komen uit de tracker (D1), met dezelfde functies als
+  Marketing** (`linksForLeads`, `readVisitorSessions`, `buildJourney`): geen
+  tweede definitie van een bezoek of kanaal. Ze lopen mee in de tweede ronde.
+- **"Na te kijken" zijn signalen, geen beslissingen** (`nakijkPunten()`, puur):
+  dubbele gebouwen (zelfde naam, adres of ondernemingsnummer), contacten en
+  leads met hetzelfde mailadres elders, meerdere open leads, open offertes,
+  een abonnement naast een open lead, actieblad los of verkeerd gekoppeld,
+  verschillen tussen lead/actieblad/gebouw, taken over tijd, komende
+  afspraken, recent terug op de website, en open cases uit de Odoo-controle
+  die naar dit gebouw, zijn leads of orders verwijzen. Een signaal erbij = een
+  regel in die functie; de vragen die het nodig heeft in `extraVragen()`, in
+  dezelfde ronde.
 - **De OM beslist wat er geschreven mag worden.** Enkel velden uit `BEWERKBAAR`,
   getoetst aan `fields_get` (een berekend of verdwenen veld valt vanzelf weg),
   en enkel records van DIT dossier (het gebouw, zijn contacten, leads,

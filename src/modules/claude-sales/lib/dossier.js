@@ -20,6 +20,8 @@ import { odooOrigin } from '../../../lib/medewerkers.js';
 import { BEWERKBAAR, MODELLEN, bestaande, catalogus, toonWaarde, isLeeg } from './velden.js';
 import { htmlNaarTekst } from './tekst.js';
 import { SalesError } from './constants.js';
+import { webGedrag } from './web.js';
+import { extraVragen, nakijkPunten } from './nakijken.js';
 
 const m2oId = (v) => (Array.isArray(v) ? v[0] : (Number.isInteger(v) ? v : null));
 const m2oNaam = (v) => (Array.isArray(v) ? v[1] : null);
@@ -175,8 +177,10 @@ function recordNaam(kern, model, id) {
 export async function bouwDossier(env, args) {
   const t0 = Date.now();
   const kern = await laadKern(env, args);
-  const [geschiedenis, cGebouw, cContact, cLead, cBlad] = await Promise.all([
+  const [geschiedenis, web, extra, cGebouw, cContact, cLead, cBlad] = await Promise.all([
     laadGeschiedenis(env, kern),
+    webGedrag(env, kern.leads).catch((err) => { console.error('[claude-sales] web', err?.message); return { fout: true }; }),
+    extraVragen(env, kern),
     catalogus(env, 'gebouw'), catalogus(env, 'contact'), catalogus(env, 'lead'), catalogus(env, 'actieblad'),
   ]);
   const { gebouw, contacten, leads, actiebladen } = kern;
@@ -274,6 +278,11 @@ export async function bouwDossier(env, args) {
   sectie('Bijlagen', g.bijlagen, (b) =>
     `- ${datum(b.create_date)} ${b.name} (${recordNaam(kern, b.res_model, b.res_id)})`);
 
+  r.push('', '## Website (bezoeken van de mensen achter de leads)');
+  if (!web) r.push('- (geen gegevens)');
+  else if (web.fout) r.push('- (kon niet geladen worden)');
+  else r.push(...web.regels);
+
   r.push('', '## Chatter en eerdere communicatie (nieuwste eerst)');
   if (g.berichten === null) r.push('- (kon niet geladen worden)');
   else if (!g.berichten.length) r.push('- (geen berichten)');
@@ -289,6 +298,11 @@ export async function bouwDossier(env, args) {
   r.push('', '## Nog niet bekend (velden die je kan invullen)');
   if (!ontbreekt.length) r.push('- Alles is ingevuld.');
   else ontbreekt.forEach((x) => r.push('- ' + x));
+
+  // Na te kijken komt bovenaan, onder de kop van het gebouw: dat moet eerst gezien worden.
+  const punten = nakijkPunten(kern, geschiedenis, extra, web && !web.fout ? web : null);
+  const plek = r.findIndex((x) => x.startsWith('## '));
+  r.splice(plek < 0 ? r.length : plek, 0, '## Na te kijken', ...(punten.length ? punten.map((x) => '- ' + x) : ['- Niets opvallends.']), '');
 
   r.push('', `_Opgehaald in ${Date.now() - t0} ms._`);
   return { tekst: r.join('\n'), kern };
