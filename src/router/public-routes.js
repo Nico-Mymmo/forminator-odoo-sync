@@ -72,6 +72,9 @@ import {
   isCalendlyWebhookPath
 } from '../modules/forminator-sync-v2/calendly/webhook.js';
 import { handleNewsletterPublic } from '../modules/newsletters/public-api.js';
+import { handleOauth, isOauthPad } from '../modules/claude-sales/lib/oauth.js';
+import { handleMcp } from '../modules/claude-sales/lib/mcp.js';
+import { MCP_PATH } from '../modules/claude-sales/lib/constants.js';
 
 function json(body, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -245,6 +248,17 @@ async function dispatchMiniAppDiscovery(request, env, ctx, pathname) {
 export async function handlePublicRoutes(request, env, ctx) {
   const url = new URL(request.url);
   const pathname = url.pathname;
+
+  // Claude voor sales (src/modules/claude-sales): de connector en het
+  // aanmelden vanuit claude.ai. Buiten de module-router, want Claude stuurt
+  // een token en geen sessiecookie; beide routes doen hun eigen controle.
+  if (pathname === MCP_PATH) {
+    return await handleMcp(request, env, ctx);
+  }
+  if (isOauthPad(pathname)) {
+    const oauth = await handleOauth(request, env);
+    if (oauth) return oauth;
+  }
 
   // Webgedrag is sinds 2026-10-09 het tabblad Marketing in Dashboards. In Odoo
   // staan nog links naar /webgedrag?lead=<id> (de notitie in de chatter en het

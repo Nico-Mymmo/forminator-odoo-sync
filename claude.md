@@ -424,6 +424,7 @@ document.addEventListener('click', e => {
 | odoo-controle | `/odoo-controle` | `odoo_controle` | `public/odoo-controle.html` + `.js` | ✅ Correct (zie "Odoo-controle") |
 | projecten | `/projecten` | `projecten` | `public/projecten.html` + `projecten-*.js` | ✅ Correct (zie "Projecten"; opslag in D1 om-core) |
 | regios | `/regios` | `regios` | `public/regios.html` + `regios-*.js` | ✅ Correct (zie "Regio's"; opslag in D1 om-core) |
+| claude-sales | `/claude-sales` (+ `/mcp/sales`, `/oauth/*`) | `claude_sales` | `public/claude-sales.html` + `.js` | ✅ Correct (zie "Claude voor sales"; opslag in D1 om-core) |
 
 **Legacy modules NIET aanraken tenzij expliciet gevraagd.** Bij aanpassingen aan legacy `ui.js`: string-concatenatie (+), geen geneste template literals, geen variabelen in inline event handlers. `src/lib/components/navbar.js` is de legacy server-rendered navbar voor deze ui.js-bestanden.
 
@@ -6608,6 +6609,75 @@ mini-app "Regio's" (`0913f371-...`), die alles als EEN JSON-blob bewaarde
 **Uitrolvolgorde:** `npx wrangler d1 migrations apply om-core --remote`, dan
 `npm run db:push`, dan meteen `npm run deploy` vanaf `master` (zonder deploy
 verdwijnt de mini-app-knop uit de balk voor de module er staat).
+
+## Claude voor sales -- een connector in claude.ai (2026-10-23)
+
+**Regel: sales vraagt een gebouw op en vult het aan VANUIT CLAUDE, op het
+eigen Claude-account. De OM is enkel de connector (`/mcp/sales`): ze geeft de
+gegevens uit Odoo en schrijft weg wat de medewerker bevestigde. Er draait hier
+geen AI, en er wordt niets geschreven zonder `bevestigd: true`.**
+
+| Wat | Waar |
+|---|---|
+| Aanmelden vanuit Claude (OAuth 2.1 + PKCE, registratie, toestemming, tokens) | `src/modules/claude-sales/lib/oauth.js` |
+| De connector (MCP, Streamable HTTP zonder sessie) + de afspraken voor Claude | `lib/mcp.js` (`INSTRUCTIES`, `TOOLS`) |
+| Gebouw zoeken (een ronde, vier zoekopdrachten tegelijk) | `lib/zoeken.js` |
+| Dossier (twee rondes naar Odoo) | `lib/dossier.js` |
+| Wegschrijven (eerst alles nakijken, dan schrijven) | `lib/bijwerken.js` |
+| Welke velden de connector mag invullen, omzetten van waarden | `lib/velden.js` (`BEWERKBAAR`) |
+| Wie, met welke rechten, en de Odoo-gebruiker (auteur in de chatter) | `lib/toegang.js` |
+| Tabellen (clients, codes, tokens, logboek) | `d1/om-core/migrations/0014_claude_sales.sql` |
+| Moduleregistratie (enkel beheerders) | `supabase/migrations/20261023120000_claude_sales_module.sql` |
+| Pagina: adres, uitleg, verbindingen, logboek | `public/claude-sales.html` + `.js` (`/claude-sales`) |
+| Toestemmingsscherm | `public/claude-sales-toestemming.html` + `.js` |
+| Aansluiting | blok bovenaan `handlePublicRoutes()` in `src/router/public-routes.js` |
+
+Afspraken die bewust zo zijn:
+
+- **Drie functies, niet meer**: `zoek_gebouw`, `gebouw_dossier`,
+  `dossier_bijwerken`. Grof gesneden met opzet: Claude hoeft geen Odoo-domeinen
+  te kennen, en elke functie is EEN wachttijd.
+- **Snelheid: rondes, geen ketting.** Zoeken = een ronde van vier
+  zoekopdrachten tegelijk plus een ronde om samen te vatten; dossier = twee
+  rondes (kern, dan geschiedenis). Gemeten 2026-10-23: een ronde ~0,1 s,
+  dossier 0,1-0,3 s, zoeken 0,2-0,7 s. Zet nooit een vraag na een andere die
+  er niet van afhangt. `fields_get` en de keuzelijsten blijven 10 minuten
+  bewaard per isolate; de gebruiker een minuut.
+- **De OM beslist wat er geschreven mag worden.** Enkel velden uit `BEWERKBAAR`,
+  getoetst aan `fields_get` (een berekend of verdwenen veld valt vanzelf weg),
+  en enkel records van DIT dossier (het gebouw, zijn contacten, leads,
+  actiebladen). Eerst wordt ALLES nagekeken; een fout = niets geschreven, met de
+  reden en de toegelaten keuzes terug naar Claude. Een veld erbij = een regel
+  in `BEWERKBAAR`.
+- **De interne notitie van de lead (`description`) is altijd een volledige
+  samenvatting** en staat daarom NIET in `BEWERKBAAR`: ze gaat enkel via
+  `interne_notitie`. De vorige versie komt eerst als notitie in de chatter;
+  lukt dat niet, dan wordt ze niet overschreven.
+- **Auteur in de chatter = de medewerker** (`author_id` = partner van zijn
+  Odoo-gebruiker: `users.odoo_uid`, anders `res.users.login`), met de kopregel
+  "Via Claude · naam · bron". Het schrijven zelf gebeurt met de gewone
+  Worker-gebruiker, dus de veldhistoriek in Odoo toont het systeemaccount.
+- **Geen HTML van Claude naar Odoo**: tekst gaat door `tekstNaarHtml()` (eerst
+  escapen, dan een beetje Markdown).
+- **Aanmelden**: tokens en codes enkel als SHA-256 in D1. Toegang 8 uur,
+  vernieuwen 30 dagen en bij elk gebruik vervangen. Terugkeeradressen enkel
+  claude.ai / claude.com of de eigen computer (`CLAUDE_SALES_REDIRECTS` voor
+  extra). Er is ALTIJD een toestemmingsscherm, ook als je al aangemeld bent:
+  anders volstaat een link om iemands account aan een vreemde connector te
+  hangen. Het adres van de OM komt uit `CLAUDE_SALES_ORIGIN` (standaard
+  `https://operations.openvme.be`), nooit uit `request.url` (dat is via de
+  CNAME het workers.dev-adres, en Claude vergelijkt de uitgever).
+- **Toegang = de module `claude_sales`** (of beheerder), nagekeken bij het
+  verbinden EN bij elke aanroep. Module afnemen of gebruiker deactiveren werkt
+  binnen een minuut. Intrekken kan op `/claude-sales`.
+- **Nog niet gebouwd, bewust:** een gebouw aanmaken voor een lead zonder klant,
+  bijlagen uploaden naar Odoo (Claude leest het document zelf en zet de
+  samenvatting in de chatter), de fase van een lead wijzigen, en schrijven
+  namens de eigen Odoo-gebruiker (vraagt een Odoo-sleutel per persoon).
+
+**Uitrolvolgorde:** `npx wrangler d1 migrations apply om-core --remote`, dan
+`npm run db:push`, dan `npm run deploy` vanaf `master`. Geen nieuwe secrets.
+Daarna in Beheer de module geven aan wie het mag gebruiken.
 
 ## Bestandsstructuur
 

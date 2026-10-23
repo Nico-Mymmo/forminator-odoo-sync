@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Claude verbinden - Operations Manager</title>
+  <script>
+    (function () {
+      var t = localStorage.getItem('selectedTheme') || 'light';
+      document.documentElement.setAttribute('data-theme', t);
+    })();
+  </script>
+  <!-- Vastgepind: op deze pagina geef je toegang tot je account (zoals de loginpagina). -->
+  <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet" type="text/css" />
+  <script src="https://cdn.tailwindcss.com/3.4.16"></script>
+</head>
+<body class="bg-base-200 min-h-screen flex items-center justify-center p-4">
+  <main class="card bg-base-100 shadow-xl w-full max-w-md border border-base-content/10">
+    <div class="card-body gap-4">
+      <div>
+        <h1 class="text-xl font-bold">Claude verbinden met de Operations Manager</h1>
+        <p id="csKop" class="text-sm text-base-content/60 mt-1">Even geduld...</p>
+      </div>
+
+      <div id="csInhoud" class="hidden flex flex-col gap-4">
+        <div class="rounded-box bg-base-200 p-4 text-sm">
+          <p><strong id="csClient">Claude</strong> vraagt toegang namens <strong id="csGebruiker"></strong>.</p>
+          <p class="mt-3 font-medium">Claude kan dan:</p>
+          <ul class="list-disc pl-5 mt-1 space-y-1 text-base-content/80">
+            <li>gebouwen, leads, contactpersonen en actiebladen in Odoo opzoeken en lezen, ook de chatter;</li>
+            <li>velden invullen, notities in de chatter zetten en de interne notitie van een lead bijwerken, telkens nadat jij het voorstel bevestigde.</li>
+          </ul>
+          <p class="mt-3 text-base-content/60">Je kan de verbinding altijd intrekken in de Operations Manager, bij "Claude voor sales".</p>
+        </div>
+        <div class="flex gap-2 justify-end">
+          <button type="button" class="btn btn-ghost" data-keuze="nee">Weigeren</button>
+          <button type="button" class="btn btn-primary" data-keuze="ja">Verbinden</button>
+        </div>
+      </div>
+
+      <div id="csFout" class="hidden alert alert-error text-sm"></div>
+    </div>
+  </main>
+  <script src="/claude-sales-toestemming.js"></script>
+</body>
+</html>
