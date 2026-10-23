@@ -655,17 +655,20 @@
       // een, en twee geneste blauwe randen zien er kapot uit. Een zachte
       // achtergrond volstaat om te tonen waar je typt.
       '[data-om-edit]:focus{outline:none;background:#eff6ff;border-radius:3px;}' +
-      '#om-bar{position:absolute;z-index:9999;display:flex;gap:2px;align-items:center;background:#111827;' +
+      '#om-bar{position:absolute;z-index:9999;display:flex;flex-wrap:wrap;gap:2px;align-items:center;background:#111827;' +
         'border-radius:8px;padding:4px;box-shadow:0 6px 20px rgba(0,0,0,.25);' +
         "font-family:system-ui,-apple-system,'Segoe UI',sans-serif;white-space:nowrap;}" +
       '#om-bar button{border:0;background:transparent;color:#fff;font-size:12px;padding:5px 8px;' +
         'border-radius:5px;cursor:pointer;line-height:1;}' +
       '#om-bar button:hover{background:#374151;}' +
       '#om-bar .om-note{color:#9ca3af;font-size:11px;padding:0 6px;}' +
-      '#om-bar .om-sep{width:1px;height:16px;background:#4b5563;margin:0 4px;}' +
+      // De opmaakknoppen staan op een tweede regel: op een rij liep de balk
+      // over de rand van de mail.
+      '#om-bar .om-breek{flex-basis:100%;height:0;}' +
       '#om-bar button.om-aan{background:#2563eb;}' +
-      '#om-bar .om-link{display:flex;gap:4px;align-items:center;}' +
-      '#om-bar .om-link input{font-size:12px;padding:4px 6px;border-radius:5px;border:0;width:240px;color:#111827;}';
+      '#om-bar .om-link{display:flex;gap:4px;align-items:center;flex-basis:100%;margin-top:2px;}' +
+      '#om-bar .om-link[hidden]{display:none;}' +
+      '#om-bar .om-link input{font-size:12px;padding:4px 6px;border-radius:5px;border:0;flex:1;min-width:0;color:#111827;}';
     doc.head.appendChild(style);
 
     // Links in de mail niet volgen tijdens het bewerken -- anders navigeert
@@ -798,7 +801,7 @@
   ];
 
   function opmaakKnoppenHtml() {
-    return '<span class="om-sep"></span>' + OPMAAK_KNOPPEN.map(function (k) {
+    return '<span class="om-breek"></span>' + OPMAAK_KNOPPEN.map(function (k) {
       return '<button data-om-fmt="' + k.cmd + '" title="' + esc(k.title) + '">' + k.label + '</button>';
     }).join('') +
     '<span class="om-link" hidden>' +
