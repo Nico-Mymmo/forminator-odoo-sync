@@ -57,13 +57,13 @@ contactpersoon (`res.partner`), als getal.
 | `x_vme_postcode` | tekst | ja | `"2100"` (NL: `"1011 AB"`) |
 | `x_vme_plaats` | tekst | ja | `"Berchem"` |
 | `x_vme_land` | keuze | ja | `"BE"` of `"NL"` |
-| `x_vme_kbo` | tekst | **te beslissen** (nu: nee) | zoals getypt, bv. `"0637.852.501"` (punten, spaties of `BE` ervoor zijn mogelijk: normaliseren aan de kant van OpenVME), of `false` |
+| `x_vme_kbo` | tekst | ja | zoals getypt, bv. `"0637.852.501"` (punten, spaties of `BE` ervoor zijn mogelijk: normaliseren aan de kant van OpenVME), of `false` |
 
 ## Leden van de VME
 
 | Veld | Type | Verplicht | In de webhook |
 |---|---|---|---|
-| `x_vme_members` | tekst met JSON | **te beslissen** (nu: minstens één lid) | een **string**, dus eerst `JSON.parse`; `false` als er geen leden zijn |
+| `x_vme_members` | tekst met JSON | nee (mag leeg zijn) | een **string**, dus eerst `JSON.parse`; `false` als er geen leden zijn |
 
 Na `JSON.parse`:
 

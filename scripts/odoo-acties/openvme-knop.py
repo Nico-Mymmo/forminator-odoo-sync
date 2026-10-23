@@ -5,8 +5,8 @@
 # Geen backslashes in deze code: nieuwe regels via chr(10).
 
 # Wat verplicht is (afspraak met de ontwikkelaars van OpenVME). Zet op True of False.
-KBO_VERPLICHT = False
-LEDEN_VERPLICHT = True
+KBO_VERPLICHT = True
+LEDEN_VERPLICHT = False
 WEBHOOK_ID = __WEBHOOK_ID__
 
 # __ML_PARSE__
