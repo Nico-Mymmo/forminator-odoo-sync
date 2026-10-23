@@ -5,8 +5,7 @@ drukt op de knop op de lead, die een webhook naar OpenVME stuurt. Odoo laat
 pas toe dat iemand op de knop drukt als alle **verplichte** velden ingevuld
 zijn.
 
-Wat verplicht is, staat hieronder als **voorstel**. Twee punten liggen nog
-open en worden samen beslist (zie "Nog te beslissen").
+Wat verplicht is, staat hieronder als **voorstel**.
 
 ## Vorm van de webhook
 
@@ -62,16 +61,6 @@ Wordt de eerste gebruiker van de omgeving.
 Odoo gelijk houdt met de partner. Ze kunnen rechtstreeks mee in de webhook.
 De naam is één veld: voornaam en achternaam moet OpenVME zelf afleiden (of de
 partner ophalen via de API).
-
-## Nog te beslissen
-
-1. **KBO-nummer verplicht?** Een nieuwe VME heeft vaak nog geen KBO-nummer.
-   Verplicht betekent: geen omgeving tot het er is. Optioneel betekent:
-   OpenVME moet een omgeving zonder KBO-nummer aankunnen, en het later
-   aanvullen.
-2. **Ledenlijst verplicht?** Bijvoorbeeld: minstens één lid, en elk e-mailadres
-   in de lijst moet geldig zijn. Of: een lege lijst mag, de leden komen later
-   in OpenVME.
 
 ## Om mee te geven
 
