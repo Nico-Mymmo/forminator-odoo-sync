@@ -102,7 +102,7 @@ const PY_1201 = `
 # ";" ertussen, kolommen e-mail|voornaam|naam. De verborgen input met data-punt
 # draagt die waarde; SCHRIJF hierboven neemt ze mee zoals elk ander punt.
 ML_LIB = r"""${libVoor}""" + SCHRIJF + r"""${LEADS_JS}${libNa}"""
-ML_INIT = "window.__ml2=window.__ml2||" + ML_LIB + "();"
+ML_INIT = "window.__ml3=window.__ml3||" + ML_LIB + "();"
 ML_CEL = "padding:3px 4px;border-bottom:1px solid #eee;"
 ML_VELD = "width:100%;padding:3px 6px;border:1px solid #ccc;border-radius:4px;font-size:12px;"
 
@@ -135,20 +135,19 @@ def ml_doos(nid, waarde, leads):
         kop += "<th style='text-align:left;font-weight:600;color:#666;font-size:12px;padding:2px 4px;'>" + t + "</th>"
     auto = ''
     if raw and '@' in raw:
-        auto = "<img src='data:image/gif;base64,x' style='display:none' onerror='" + ML_INIT + "window.__ml2.haal(event.target)'>"
+        auto = "<img src='data:image/gif;base64,x' style='display:none' onerror='" + ML_INIT + "window.__ml3.haal(event.target)'>"
     return ("<div data-mlbox='1' data-mlleads='" + h(leads) + "'"
-            + " oninput='" + ML_INIT + "window.__ml2.typ(event.target)'"
-            + " onchange='" + ML_INIT + "window.__ml2.sync(event.target)'"
-            + " onclick='" + ML_INIT + "window.__ml2.klik(event.target)'"
-            + " onpaste='" + ML_INIT + "window.__ml2.geplakt(event.target)'>"
+            + " oninput='" + ML_INIT + "window.__ml3.typ(event.target)'"
+            + " onchange='" + ML_INIT + "window.__ml3.sync(event.target)'"
+            + " onclick='" + ML_INIT + "window.__ml3.klik(event.target)'"
+            + " onpaste='" + ML_INIT + "window.__ml3.geplakt(event.target)'>"
             + "<input type='hidden' data-punt='" + h(nid) + "' value='" + h(waarde) + "'>"
             + "<table data-mlt='1' style='width:100%;border-collapse:collapse;margin-bottom:4px;'><thead><tr>" + kop + "</tr></thead><tbody>"
             + ''.join([ml_rij(c[0], c[1], c[2]) for c in rijen]) + "</tbody></table>"
             + "<button type='button' data-mlplus='1' style='border:0;background:none;color:#017e84;cursor:pointer;padding:0;font-size:12px;'>+ Rij toevoegen</button>"
-            + "<div style='margin-top:10px;font-size:12px;color:#666;'>Plak hier een tekst met mailadressen (een mail, een lijst, een tabel...). De adressen en namen komen er vanzelf uit; kijk ze daarna even na.</div>"
+            + "<div style='margin-top:10px;font-size:12px;color:#666;'>Plak hier een tekst met mailadressen (een mail, een lijst, een tabel...). De adressen en namen komen er bij het plakken vanzelf uit; kijk ze daarna even na.</div>"
             + "<textarea data-mlraw='1' rows='3' style='" + ML_VELD + "'>" + h(raw) + "</textarea>"
             + "<div style='display:flex;gap:8px;align-items:center;margin-top:4px;'>"
-            + "<button type='button' data-mlhaal='1' class='btn btn-secondary btn-sm'>Haal adressen eruit</button>"
             + "<span data-mlstatus='1' style='font-size:12px;color:#666;'></span></div>"
             + auto + "</div>")
 

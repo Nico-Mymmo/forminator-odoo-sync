@@ -37,35 +37,36 @@ async function kw(model, method, args, kwargs = {}) {
   return j.result;
 }
 
-// Bij elke wijziging: niet schrijven, enkel tonen dat er iets te bewaren is.
-const SCHRIJF_LEAD = 'var b=el.closest("[data-mllead]");if(!b)return;'
-  + 'var k=b.querySelector("[data-mlbewaar]");if(k)k.disabled=false;'
-  + 'var s=b.querySelector("[data-mlbewaarstatus]");if(s){s.textContent="Niet bewaard: klik op Lijst bewaren.";s.style.color="#b45309";}';
-// Knop "Lijst bewaren": verborgen waarde "LIJST:e|v|n;..." -> JSON op de lead.
-const BEWAAR = '(function(t){var b=t.closest("[data-mllead]");if(!b)return;'
-  + 'var hid=b.querySelector("[data-punt]");var w=hid?hid.value:"";var r=[];'
+// Bij elke wijziging: de lijst als JSON in x_vme_members van het OPEN FORMULIER
+// zetten (record.update), zodat Odoo ze bewaart met de lead (Opslaan of de lead
+// verlaten) en Verwerpen ze terugdraait. Het record wordt gezocht via de
+// componentenboom van de webclient (odoo.__WOWL_DEBUG__.root): het veld
+// x_vme_members_editor van deze lead. x_vme_members moet daarvoor in de weergave
+// staan (mag onzichtbaar). Vindt hij het niet, dan schrijft hij meteen weg.
+const SCHRIJF_LEAD = 'var b=el.closest("[data-mllead]");if(!b)return;var id=parseInt(b.dataset.id);'
+  + 'var w=el.value||"";var r=[];'
   + 'if(w.indexOf("LIJST:")===0){w.slice(6).split(";").forEach(function(x){var c=x.split("|");'
   + 'if(c[0]||c[1]||c[2])r.push({firstname:c[1]||"",lastname:c[2]||"",email:c[0]||""});});}'
-  + 'var s=b.querySelector("[data-mlbewaarstatus]");t.disabled=true;'
-  + 'fetch("/web/dataset/call_kw",{method:"POST",headers:{"Content-Type":"application/json"},'
+  + 'var v=r.length?JSON.stringify(r):false;var rec=null;'
+  + 'try{var zoek=function(n,d){if(!n)return null;if(d>80)return null;var c=n.component;'
+  + 'if(c){if(c.props){if(c.props.name==="x_vme_members_editor"){if(c.props.record){if(c.props.record.resId===id)return c.props.record;}}}}'
+  + 'var ch=n.children||{};for(var k in ch){var y=zoek(ch[k],d+1);if(y)return y;}return null;};'
+  + 'rec=zoek(odoo.__WOWL_DEBUG__.root.__owl__,0);}catch(e){rec=null;}'
+  + 'var s=b.querySelector("[data-mlbewaarstatus]");'
+  + 'if(rec){rec.update({x_vme_members:v});if(s){s.textContent="Gewijzigd: wordt bewaard samen met de lead (Opslaan of de lead verlaten).";s.style.color="#b45309";}}'
+  + 'else{fetch("/web/dataset/call_kw",{method:"POST",headers:{"Content-Type":"application/json"},'
   + 'body:JSON.stringify({jsonrpc:"2.0",method:"call",id:1,params:{model:"crm.lead",method:"write",'
-  + 'args:[[parseInt(b.dataset.id)],{x_vme_members:r.length?JSON.stringify(r):false}],kwargs:{}}})})'
-  + '.then(function(x){return x.json();}).then(function(j){if(j.error){t.disabled=false;'
-  + 'if(s){s.textContent="Bewaren mislukt. Probeer opnieuw.";s.style.color="#e11d48";}}'
-  + 'else if(s){s.textContent="Bewaard ("+r.length+" leden).";s.style.color="#15803d";}})'
-  + '.catch(function(){t.disabled=false;if(s){s.textContent="Bewaren mislukt. Probeer opnieuw.";s.style.color="#e11d48";}});'
-  + '})(event.target)';
+  + 'args:[[id],{x_vme_members:v}],kwargs:{}}})});if(s){s.textContent="Meteen bewaard.";s.style.color="#15803d";}}';
 
 const lib = readFileSync(join(hier, 'overdracht-mailadressen.lib.js'), 'utf8')
   .replace(/\r/g, '').split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n').trim();
-const init = 'window.__mlL2=window.__mlL2||' + lib.replace('/*SCHRIJF*/', SCHRIJF_LEAD) + '();';
+const init = 'window.__mlL3=window.__mlL3||' + lib.replace('/*SCHRIJF*/', SCHRIJF_LEAD) + '();';
 for (const teken of ["'", '<', '&', '"""']) {
-  if (init.includes(teken) || BEWAAR.includes(teken)) throw new Error(`De browsercode bevat ${teken}`);
+  if (init.includes(teken)) throw new Error(`De browsercode bevat ${teken}`);
 }
 const code = readFileSync(join(hier, 'vme-leden-editor.py'), 'utf8').replace(/\r/g, '').replace('r"""__ML_INIT__"""', () => 'r"""' + init + '"""')
-  .replace('r"""__ML_BEWAAR__"""', () => 'r"""' + BEWAAR + '"""')
   .replace('# __ML_PARSE__ (scripts/odoo-acties/ml-parse.py)', () => readFileSync(join(hier, 'ml-parse.py'), 'utf8').split(String.fromCharCode(13)).join(''));
-if (code.includes('r"""__ML_INIT__') || code.includes('__ML_BEWAAR__"') || code.includes('# __ML_PARSE__')) throw new Error('invoegplek niet vervangen');
+if (code.includes('r"""__ML_INIT__') || code.includes('# __ML_PARSE__')) throw new Error('invoegplek niet vervangen');
 
 const uit = join(hier, '.uit');
 mkdirSync(uit, { recursive: true });

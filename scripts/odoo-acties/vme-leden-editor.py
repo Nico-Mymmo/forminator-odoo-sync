@@ -7,8 +7,6 @@
 # naam (window.__mlL) en eigen schrijfstap, zodat ze nooit die van het venster
 # gebruikt.
 ML_INIT = r"""__ML_INIT__"""
-# Klik op "Lijst bewaren": schrijft de verborgen waarde als JSON naar x_vme_members.
-ML_BEWAAR = r"""__ML_BEWAAR__"""
 ML_CEL = "padding:3px 4px;border-bottom:1px solid #eee;"
 ML_VELD = "width:100%;padding:3px 6px;border:1px solid #ccc;border-radius:4px;font-size:12px;"
 
@@ -59,10 +57,9 @@ for record in self:
         "<div data-mllead='1' data-id='" + str(record.id) + "'>"
         + "<div style='font-weight:600;margin-bottom:4px;'>VME-leden (" + str(len(rijen)) + ")</div>"
         + "<div data-mlbox='1'"
-        + " oninput='" + ML_INIT + "window.__mlL2.typ(event.target)'"
-        + " onchange='" + ML_INIT + "window.__mlL2.sync(event.target)'"
-        + " onclick='" + ML_INIT + "window.__mlL2.klik(event.target)'"
-        + " onpaste='" + ML_INIT + "window.__mlL2.geplakt(event.target)'>"
+        + " onchange='" + ML_INIT + "window.__mlL3.sync(event.target)'"
+        + " onclick='" + ML_INIT + "window.__mlL3.klik(event.target)'"
+        + " onpaste='" + ML_INIT + "window.__mlL3.geplakt(event.target)'>"
         + "<input type='hidden' data-punt='leden' value='" + h(waarde) + "'>"
         + "<table data-mlt='1' style='width:100%;border-collapse:collapse;margin-bottom:4px;'><thead><tr>" + kop + "</tr></thead><tbody>"
         + rijen_html + "</tbody></table>"
@@ -70,9 +67,7 @@ for record in self:
         + "<div style='margin-top:10px;font-size:12px;color:#666;'>Plak hier een tekst met mailadressen (een mail, een lijst, een tabel...). De adressen en namen komen er vanzelf bij; kijk ze daarna even na.</div>"
         + "<textarea data-mlraw='1' rows='3' style='" + ML_VELD + "'></textarea>"
         + "<div style='display:flex;gap:8px;align-items:center;margin-top:4px;'>"
-        + "<button type='button' data-mlhaal='1' class='btn btn-secondary btn-sm'>Haal adressen eruit</button>"
         + "<span data-mlstatus='1' style='font-size:12px;color:#666;'></span></div>"
         + "<div style='display:flex;gap:8px;align-items:center;margin-top:12px;padding-top:8px;border-top:1px solid #eee;'>"
-        + "<button type='button' data-mlbewaar='1' disabled='disabled' class='btn btn-primary btn-sm' onclick='" + ML_BEWAAR + "'>Lijst bewaren</button>"
-        + "<span data-mlbewaarstatus='1' style='font-size:12px;color:#666;'>Wijzigingen in deze lijst worden pas bewaard als je op Lijst bewaren klikt. Dezelfde lijst staat in het venster Naar Syndicoach op het actieblad.</span></div>"
+        + "<span data-mlbewaarstatus='1' style='font-size:12px;color:#666;'>Wijzigingen worden bewaard samen met de lead: als je op Opslaan klikt of de lead verlaat. Verwerpen zet ze terug. Dezelfde lijst staat in het venster Naar Syndicoach op het actieblad.</span></div>"
         + "</div></div>")

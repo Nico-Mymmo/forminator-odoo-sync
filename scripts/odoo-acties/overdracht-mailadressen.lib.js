@@ -166,6 +166,7 @@ function bewaar(el) {
 function sync(el) {
   var box = doos(el);
   if (!box) return;
+  if (el.closest) { if (el.closest("[data-mlraw]")) { haal(el); return; } }
   var hid = box.querySelector("[data-punt]"), raw = box.querySelector("[data-mlraw]"), rijen = [];
   box.querySelectorAll("[data-mlr]").forEach(function (tr) {
     var g = function (k) { var x = tr.querySelector("[data-mlk=" + k + "]"); return x ? schoon(x.value) : ""; };
