@@ -41,6 +41,8 @@ Na `JSON.parse`:
 ```
 
 - `email` staat in kleine letters en komt per lijst één keer voor.
+- De contactpersoon van de lead staat er zelf ook in (als eerste rij, tenzij
+  zijn adres er al stond), zodra er een lijst is of de lead gewonnen is.
 - `firstname` / `lastname` kunnen `""` zijn (naam niet gevonden).
 - De lijst wordt ingevuld op het tabblad Syndicoach van de lead of in het
   venster "Naar Syndicoach" op het actieblad. Het is altijd hetzelfde veld.
