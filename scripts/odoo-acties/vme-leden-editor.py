@@ -84,7 +84,9 @@ def ml_parse(s):
     return res
 
 
-def ml_rij(e, v, n):
+# Wat een functie gebruikt, krijgt ze als standaardwaarde mee: in een rekenveld
+# ziet een functie de andere namen van deze code niet (Odoo houdt ze apart).
+def ml_rij(e, v, n, h=h, ML_CEL=ML_CEL, ML_VELD=ML_VELD):
     tds = ''
     for k, w, ph in (('e', e, 'naam@voorbeeld.be'), ('v', v, 'Voornaam'), ('n', n, 'Naam')):
         tds += ("<td style='" + ML_CEL + "'><input type='text' data-mlk='" + k + "' value='" + h(w)
@@ -106,6 +108,9 @@ for record in self:
         if e or v or nm:
             rijen.append((e, v, nm))
     waarde = ('LIJST:' + ';'.join([r[0] + '|' + r[1] + '|' + r[2] for r in rijen])) if rijen else ''
+    rijen_html = ''
+    for r in rijen:
+        rijen_html += ml_rij(r[0], r[1], r[2])
     kop = ''
     for t in ('E-mail', 'Voornaam', 'Naam', ''):
         kop += "<th style='text-align:left;font-weight:600;color:#666;font-size:12px;padding:2px 4px;'>" + t + "</th>"
@@ -119,7 +124,7 @@ for record in self:
         + " onpaste='" + ML_INIT + "window.__mlL.geplakt(event.target)'>"
         + "<input type='hidden' data-punt='leden' value='" + h(waarde) + "'>"
         + "<table data-mlt='1' style='width:100%;border-collapse:collapse;margin-bottom:4px;'><thead><tr>" + kop + "</tr></thead><tbody>"
-        + ''.join([ml_rij(r[0], r[1], r[2]) for r in rijen]) + "</tbody></table>"
+        + rijen_html + "</tbody></table>"
         + "<button type='button' data-mlplus='1' style='border:0;background:none;color:#017e84;cursor:pointer;padding:0;font-size:12px;'>+ Rij toevoegen</button>"
         + "<div style='margin-top:10px;font-size:12px;color:#666;'>Plak hier een tekst met mailadressen (een mail, een lijst, een tabel...). De adressen en namen komen er vanzelf bij; kijk ze daarna even na. Wijzigingen worden meteen bewaard.</div>"
         + "<textarea data-mlraw='1' rows='3' style='" + ML_VELD + "'></textarea>"
