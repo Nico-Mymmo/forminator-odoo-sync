@@ -2255,29 +2255,17 @@
       return;
     }
 
-    var VALID_ID_TYPES  = ['single_email', 'partner_context', 'registration_composite', 'mapped_fields', 'odoo_id'];
-    var VALID_POLICIES  = ['always_overwrite', 'only_if_incoming_non_empty', 'upsert'];
-    function payload(t, execOrder) {
-      var idType  = VALID_ID_TYPES.includes(t.identifier_type)  ? t.identifier_type  : 'mapped_fields';
-      var policy  = VALID_POLICIES.includes(t.update_policy)    ? t.update_policy    : 'always_overwrite';
-      return JSON.stringify({
-        odoo_model:      t.odoo_model,
-        operation_type:  t.operation_type || null,
-        identifier_type: idType,
-        update_policy:   policy,
-        order_index:     Number(t.order_index || 0),
-        is_enabled:      t.is_enabled !== false,
-        execution_order: execOrder,
-      });
+    // Eén serveractie: wisselt de volgorde en herschrijft de stapverwijzingen
+    // (step.N.*) in alle stappen mee. Drie losse PUT's lieten een stap op een
+    // tussenplaats staan zodra er een geweigerd werd (zie target-move.js).
+    try {
+      await window.FSV2.api('/integrations/' + integrationId + '/targets/' + tA.id + '/move',
+        { method: 'POST', body: JSON.stringify({ direction: direction }) });
+    } catch (err) {
+      window.FSV2.showAlert((err && err.message) || 'Verplaatsen mislukt.', 'error');
+      await window.FSV2.openDetail(S().activeId);
+      return;
     }
-
-    // 3-step swap avoids unique-index collision on (integration_id, execution_order)
-    await window.FSV2.api('/integrations/' + integrationId + '/targets/' + tA.id,
-      { method: 'PUT', body: payload(tA, temp) });
-    await window.FSV2.api('/integrations/' + integrationId + '/targets/' + tB.id,
-      { method: 'PUT', body: payload(tB, oA) });
-    await window.FSV2.api('/integrations/' + integrationId + '/targets/' + tA.id,
-      { method: 'PUT', body: payload(tA, oB) });
 
     // _pipelineOpenById is module-level → open cards stay open through reload
     await window.FSV2.openDetail(S().activeId);

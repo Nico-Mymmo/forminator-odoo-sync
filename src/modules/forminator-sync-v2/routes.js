@@ -3,6 +3,7 @@ import { fetchFsv2ActivityTypes, fetchFsv2OdooUsers, fetchFsv2OdooEmployees } fr
 import { renderPlainMailHtml, renderPlainSubject, nietPlatteOpmaak } from '../../lib/mail/render-plain.js';
 import { describeMailAttachments, MAX_MAIL_ATTACHMENTS, MAX_MAIL_ATTACHMENT_BYTES } from './mail-attachments.js';
 import { buildDisplayForm } from './display-values.js';
+import { moveTarget } from './target-move.js';
 import {
   buildPdfGegevens, renderPdf, pdfBytesToBase64,
   listPdfTemplates, getPdfTemplate, createPdfTemplate, updatePdfTemplate, deletePdfTemplate,
@@ -1364,6 +1365,18 @@ export const routes = {
       });
 
       return jsonResponse({ success: true, data: created }, 201);
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
+    }
+  },
+
+  // Een stap een plaats omhoog/omlaag. Enkel de volgorde, plus de
+  // stapverwijzingen die daardoor van nummer veranderen -- zie target-move.js.
+  'POST /api/integrations/:id/targets/:targetId/move': async (context) => {
+    try {
+      const payload = await readJsonBody(context.request);
+      const result = await moveTarget(context.env, context.params?.id, context.params?.targetId, payload?.direction);
+      return jsonResponse({ success: true, data: result });
     } catch (error) {
       return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
     }
