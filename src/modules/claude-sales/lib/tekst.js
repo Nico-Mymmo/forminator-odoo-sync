@@ -48,7 +48,16 @@ function inline(s) {
  * naar Odoo.
  */
 export function tekstNaarHtml(tekst) {
-  const blokken = String(tekst || '').replace(/\r\n?/g, '\n').trim().split(/\n{2,}/);
+  let bron = String(tekst || '');
+  // Stuurt Claude toch HTML mee ("<p>...</p>"), dan eerst terug naar tekst. Anders
+  // komen de tags ge-escaped en dus zichtbaar in Odoo te staan (2026-10-23, actieblad 1052).
+  if (/<\/?(p|br|ul|ol|li|strong|b|em|i|h[1-6]|div)\b[^>]*>/i.test(bron)) {
+    bron = htmlNaarTekst(bron
+      .replace(/<(strong|b)\b[^>]*>(.*?)<\/\1>/gis, '**$2**')
+      .replace(/<\/li>/gi, '')
+      .replace(/<\/(p|h[1-6]|ul|ol|div|blockquote)>/gi, '\n\n'));
+  }
+  const blokken = bron.replace(/\r\n?/g, '\n').trim().split(/\n{2,}/);
   return blokken.map((blok) => {
     const regels = blok.split('\n');
     if (regels.every((r) => /^\s*[-*•]\s+/.test(r))) {

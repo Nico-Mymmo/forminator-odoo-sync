@@ -64,15 +64,45 @@ export async function werkDossierBij(env, gebruiker, args) {
     actieblad: new Set(kern.actiebladen.map((b) => b.id)),
   };
   const fouten = [];
+  // Een NIEUW gebouw (de lead hangt aan een persoon zonder gebouw). Velden voor dat gebouw
+  // komen met record "gebouw" en id 0.
+  const ng = args.nieuw_gebouw && !kern.gebouw ? args.nieuw_gebouw : null;
+  if (args.nieuw_gebouw && kern.gebouw) fouten.push('nieuw_gebouw: er hangt al een gebouw aan dit dossier');
   const recordOk = (soort, id, waar) => {
     if (!SOORTEN.includes(soort)) { fouten.push(`${waar}: onbekend record "${soort}" (gebruik ${SOORTEN.join(', ')})`); return false; }
-    if (!toegelaten[soort].has(Number(id))) { fouten.push(`${waar}: ${soort} ${id} hoort niet bij dit dossier`); return false; }
+    if (soort === 'gebouw' && ng && !Number(id)) return true;
+    if (!toegelaten[soort].has(Number(id))) {
+      fouten.push(soort === 'gebouw' && !kern.gebouw
+        ? `${waar}: er is nog geen gebouw. Maak het aan met nieuw_gebouw (en gebruik dan id 0)`
+        : `${waar}: ${soort} ${id} hoort niet bij dit dossier`);
+      return false;
+    }
     return true;
   };
 
   // 1. Velden
   const catalogi = {};
   for (const s of SOORTEN) catalogi[s] = await catalogus(env, s);
+  let ngVals = null;
+  let ngContact = null;
+  if (ng) {
+    const naam = String(ng.naam || '').trim();
+    if (!naam) fouten.push('nieuw_gebouw: naam ontbreekt (bv. "VME Residentie Zonneveld")');
+    ngVals = { name: naam, is_company: true };
+    if (ng.straat) ngVals.street = String(ng.straat).trim();
+    if (ng.postcode) ngVals.zip = String(ng.postcode).trim();
+    if (ng.plaats) ngVals.city = String(ng.plaats).trim();
+    if (ng.ondernemingsnummer) ngVals.x_studio_registration_number = String(ng.ondernemingsnummer).trim();
+    const typeItem = catalogi.gebouw.find((x) => x.naam === 'x_studio_company_type');
+    if (ng.type && typeItem) {
+      try { ngVals.x_studio_company_type = await naarOdoo(typeItem, ng.type, {}); }
+      catch (err) { fouten.push(`nieuw_gebouw.type: ${err.message}`); }
+    }
+    // De persoon van de lead komt onder het nieuwe gebouw.
+    const cid = Number(ng.contact_id) || kern.zonderGebouw?.id || null;
+    ngContact = cid && kern.contacten.some((c) => c.id === cid) ? cid : null;
+    if (ng.contact_id && !ngContact) fouten.push('nieuw_gebouw.contact_id: dat contact hoort niet bij dit dossier');
+  }
   const schrijf = new Map(); // "soort:id" -> { model, id, vals }
   const wijzigingen = []; // leesbaar, voor het antwoord
   for (const [i, v] of (args.velden || []).entries()) {
@@ -80,13 +110,26 @@ export async function werkDossierBij(env, gebruiker, args) {
     if (!v || !recordOk(v.record, v.id, waar)) continue;
     const item = catalogi[v.record].find((x) => x.naam === v.veld);
     if (!item) { fouten.push(`${waar}: dit veld mag de connector niet invullen op een ${v.record}`); continue; }
+    // Een vraag op het actieblad die Odoo op het gebouw of het contact bewaart.
+    if (v.record === 'actieblad' && item.via) {
+      const blad = kern.actiebladen.find((b) => b.id === Number(v.id));
+      const heeft = item.via === 'gebouw'
+        ? (blad && blad.x_studio_for_company_id) || ng
+        : blad && blad.x_studio_contact_id;
+      if (!heeft) {
+        fouten.push(item.via === 'gebouw'
+          ? `${waar} (${item.label}): wordt op het GEBOUW bewaard, en er hangt nog geen gebouw aan het actieblad. Maak eerst het gebouw aan (nieuw_gebouw).`
+          : `${waar} (${item.label}): wordt op het CONTACT bewaard, en er staat geen contactpersoon op het actieblad. Vul eerst de contactpersoon in.`);
+        continue;
+      }
+    }
     try {
       const waarde = await naarOdoo(item, v.waarde, {
         zoekPartner: (naam) => zoekBedrijf(env, naam),
         dossierContacten: kern.contacten,
       });
-      const sleutel = `${v.record}:${Number(v.id)}`;
-      if (!schrijf.has(sleutel)) schrijf.set(sleutel, { model: MODELLEN[v.record], id: Number(v.id), vals: {} });
+      const sleutel = `${v.record}:${Number(v.id) || 'nieuw'}`;
+      if (!schrijf.has(sleutel)) schrijf.set(sleutel, { model: MODELLEN[v.record], id: Number(v.id) || 'nieuw', vals: {} });
       schrijf.get(sleutel).vals[item.naam] = waarde;
       wijzigingen.push(`${v.record} ${v.id}: ${item.label} = ${v.waarde === null || v.waarde === '' ? '(leeg)' : JSON.stringify(v.waarde)}`);
     } catch (err) {
@@ -117,14 +160,14 @@ export async function werkDossierBij(env, gebruiker, args) {
   }
   const nieuwe = (args.nieuwe_contacten || []).filter((c, i) => {
     if (!c || !String(c.naam || '').trim()) { fouten.push(`nieuwe_contacten[${i}]: naam ontbreekt`); return false; }
-    if (!kern.gebouw) { fouten.push(`nieuwe_contacten[${i}]: er is geen gebouw om de contactpersoon aan te hangen`); return false; }
+    if (!kern.gebouw && !ng) { fouten.push(`nieuwe_contacten[${i}]: er is geen gebouw om de contactpersoon aan te hangen (maak het aan met nieuw_gebouw)`); return false; }
     return true;
   });
 
   if (fouten.length) {
     throw new SalesError('Er is NIETS geschreven. Pas het voorstel aan:\n- ' + fouten.join('\n- '));
   }
-  if (!schrijf.size && !notities.length && !intern && !gesprek && !nieuwe.length) {
+  if (!schrijf.size && !notities.length && !intern && !gesprek && !nieuwe.length && !ng) {
     throw new SalesError('Er is niets om te bewaren.');
   }
 
@@ -141,12 +184,27 @@ export async function werkDossierBij(env, gebruiker, args) {
     try { const r = await fn(); gelukt.push(wat); return r; } catch (err) { mislukt.push(`${wat}: ${err.message}`); return null; }
   };
 
+  // Eerst het nieuwe gebouw, dan de persoon eronder en het actieblad eraan: pas daarna
+  // komen de doorgeefvelden van het actieblad op het gebouw terecht.
+  let gebouwId = kern.gebouw?.id || null;
+  if (ng) {
+    gebouwId = await doe(`gebouw "${ngVals.name}" aangemaakt`, () => kw(env, 'res.partner', 'create', [ngVals]));
+    if (!gebouwId) {
+      throw new SalesError('Het gebouw kon niet aangemaakt worden, dus er is niets anders geschreven: ' + mislukt.join('; '));
+    }
+    if (ngContact) await doe('contactpersoon onder het gebouw gezet', () => kw(env, 'res.partner', 'write', [[ngContact], { parent_id: gebouwId }]));
+    const losseBladen = kern.actiebladen.filter((b) => !b.x_studio_for_company_id).map((b) => b.id);
+    if (losseBladen.length) await doe('actieblad aan het gebouw gehangen', () => kw(env, 'x_sales_action_sheet', 'write', [losseBladen, { x_studio_for_company_id: gebouwId }]));
+    for (const w of schrijf.values()) if (w.id === 'nieuw') w.id = gebouwId;
+    notities.forEach((n) => { if (n.record === 'gebouw' && !Number(n.id)) n.id = gebouwId; });
+  }
+
   await Promise.all([...schrijf.values()].map((w) =>
     doe(`${Object.keys(w.vals).length} veld(en) op ${w.model} ${w.id}`, () => kw(env, w.model, 'write', [[w.id], w.vals]))));
 
   const nieuweIds = await Promise.all(nieuwe.map((c) => doe(`contact ${c.naam} aangemaakt`, () => kw(env, 'res.partner', 'create', [{
     name: String(c.naam).trim(),
-    parent_id: kern.gebouw.id,
+    parent_id: gebouwId,
     type: 'contact',
     is_company: false,
     ...(c.email ? { email: String(c.email).trim() } : {}),
@@ -188,7 +246,7 @@ export async function werkDossierBij(env, gebruiker, args) {
 
   // 4. Antwoord
   const links = [];
-  if (kern.gebouw) links.push(`Gebouw: ${link(env, 'res.partner', kern.gebouw.id)}`);
+  if (gebouwId) links.push(`Gebouw${ng ? ' (nieuw)' : ''}: ${link(env, 'res.partner', gebouwId)}`);
   kern.leads.slice(0, 3).forEach((l) => links.push(`Lead ${l.name}: ${link(env, 'crm.lead', l.id)}`));
   kern.actiebladen.slice(0, 2).forEach((b) => links.push(`Actieblad: ${link(env, 'x_sales_action_sheet', b.id)}`));
   nieuweIds.filter(Boolean).forEach((id) => links.push(`Nieuwe contactpersoon: ${link(env, 'res.partner', id)}`));

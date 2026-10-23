@@ -87,7 +87,7 @@ export async function veldenVan(env, model) {
   if (hit && Date.now() - hit.t < BEWAAR_MS) return hit.velden;
   const velden = await executeKw(env, {
     model, method: 'fields_get', args: [],
-    kwargs: { attributes: ['string', 'type', 'selection', 'relation', 'readonly'], context: { lang: 'nl_BE' } },
+    kwargs: { attributes: ['string', 'type', 'selection', 'relation', 'readonly', 'related'], context: { lang: 'nl_BE' } },
   });
   fieldsCache.set(model, { t: Date.now(), velden });
   return velden;
@@ -125,6 +125,13 @@ export async function catalogus(env, soort) {
     const f = velden[naam];
     if (!f || f.readonly) continue;
     const item = { naam, label: f.string, type: f.type };
+    // Veel vragen op het actieblad zijn in Odoo een DOORGEEFVELD naar het gebouw of het
+    // contact (related, bv. x_studio_for_company_id.x_studio_number_of_plots). Odoo bewaart ze
+    // daar; zonder gebouw of contact gaat de waarde stil verloren. bijwerken.js weigert dan.
+    if (typeof f.related === 'string') {
+      if (f.related.startsWith('x_studio_for_company_id.')) item.via = 'gebouw';
+      else if (f.related.startsWith('x_studio_contact_id.')) item.via = 'contact';
+    }
     if (f.type === 'selection' && Array.isArray(f.selection)) item.keuzes = f.selection.map(([k, l]) => ({ waarde: k, label: l }));
     if ((f.type === 'many2one' || f.type === 'many2many') && f.relation) {
       item.relatie = f.relation;

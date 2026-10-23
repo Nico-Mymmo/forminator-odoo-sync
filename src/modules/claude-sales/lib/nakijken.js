@@ -95,6 +95,8 @@ export function nakijkPunten(kern, gesch, extra, web) {
   const lopend = (gesch.orders || []).filter((o) => ['3_progress', '4_paused'].includes(o.subscription_state));
   const offertes = (gesch.orders || []).filter((o) => ['draft', 'sent'].includes(o.state));
 
+  if (!g) p.push('Er hangt nog geen gebouw aan deze lead. Maak het aan: anders gaan gegevens van het gebouw (kavels, huidige syndicus, ...) verloren.');
+
   // Dubbels en verspreide gegevens
   for (const d of extra.dubbels || []) {
     p.push(`Mogelijk staat dit gebouw twee keer in Odoo: "${d.name}"${d.street ? ' (' + d.street + (d.city ? ', ' + d.city : '') + ')' : ''}${d.active === false ? ', gearchiveerd' : ''}. Nakijken of het hetzelfde gebouw is.`);

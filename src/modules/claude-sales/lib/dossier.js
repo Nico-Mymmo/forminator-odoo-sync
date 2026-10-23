@@ -82,7 +82,8 @@ export async function laadKern(env, { gebouw_id, lead_id } = {}) {
   const ctx = { context: { active_test: false } };
   const [gebouwen, contacten, leads, bladen] = await Promise.all([
     gebouwId ? sr(env, 'res.partner', [['id', '=', gebouwId]], vGebouw, ctx) : [],
-    gebouwId ? sr(env, 'res.partner', [['parent_id', '=', gebouwId], ['active', '=', true]], vContact, { limit: 40 }) : [],
+    // De contacten van het gebouw, en de persoon zelf als de lead aan een persoon zonder gebouw hangt.
+    gebouwId ? sr(env, 'res.partner', [['active', '=', true], ['is_company', '=', false], '|', ['parent_id', '=', gebouwId], ['id', '=', gebouwId]], vContact, { limit: 40 }) : [],
     sr(env, 'crm.lead', gebouwId
       ? (leadId ? ['|', ['id', '=', leadId], ['partner_id', 'child_of', gebouwId]] : [['partner_id', 'child_of', gebouwId]])
       : [['id', '=', leadId]], vLead, { ...ctx, order: 'create_date desc', limit: 15 }),
@@ -90,9 +91,13 @@ export async function laadKern(env, { gebouw_id, lead_id } = {}) {
       ? sr(env, 'x_sales_action_sheet', ['|', ['x_studio_for_company_id', '=', gebouwId], ['x_studio_contact_id', 'child_of', gebouwId]], vBlad, { limit: 10 })
       : (leadId ? sr(env, 'x_sales_action_sheet', [['x_studio_as_opportunity_ids', 'in', [leadId]]], vBlad, { limit: 10 }) : []),
   ]);
-  const gebouw = gebouwen[0] || null;
+  let gebouw = gebouwen[0] || null;
   if (gebouwId && !gebouw) throw new SalesError(`Gebouw ${gebouwId} bestaat niet.`, 404);
-  return { gebouw, contacten, leads, actiebladen: bladen };
+  // Hangt de lead aan een PERSOON zonder bedrijf (nieuwe aanvraag), dan is er nog geen gebouw:
+  // die persoon is een contact. Anders belanden kavels en syndicus op de fiche van een mens.
+  const zonderGebouw = gebouw && gebouw.is_company === false ? gebouw : null;
+  if (zonderGebouw) gebouw = null;
+  return { gebouw, contacten, leads, actiebladen: bladen, basisId: gebouwId, zonderGebouw };
 }
 
 /** Ronde 2: geschiedenis rond alle records uit de kern. */
@@ -122,7 +127,7 @@ async function laadGeschiedenis(env, kern) {
     bladIds.length ? zacht(env, 'x_as_meetings', [['x_studio_for_action_sheet', 'in', bladIds]],
       ['x_name', 'x_studio_date', 'x_studio_meeting_type', 'x_studio_duration', 'x_studio_notes', 'x_studio_user_id', 'x_studio_stage_id'],
       { order: 'x_studio_date desc', limit: 20 }) : leeg,
-    kern.gebouw ? zacht(env, 'sale.order', [['partner_id', 'child_of', kern.gebouw.id]],
+    (kern.gebouw || kern.basisId) ? zacht(env, 'sale.order', [['partner_id', 'child_of', kern.gebouw?.id || kern.basisId]],
       ['name', 'state', 'subscription_state', 'date_order', 'start_date', 'next_invoice_date', 'recurring_monthly', 'amount_untaxed', 'plan_id', 'user_id'],
       { order: 'date_order desc', limit: 15 }) : leeg,
     partnerIds.length ? zacht(env, 'x_webinarregistrations', [['x_studio_registered_by', 'in', partnerIds]],
@@ -207,7 +212,10 @@ export async function bouwDossier(env, args) {
     if (gebouw.comment) r.push('', 'Notitie op het gebouw:', htmlNaarTekst(gebouw.comment, 1500));
     if (v.onbekend.length) ontbreekt.push(`gebouw ${gebouw.id}: ` + v.onbekend.map(onbekendRegel).join('; '));
   } else {
-    r.push('# Lead zonder gebouw in Odoo', '(De lead hangt nog niet aan een klant. Vraag of er een gebouw aangemaakt moet worden; dat kan de connector nog niet.)');
+    const wie = kern.zonderGebouw?.name || leads[0]?.name || 'deze lead';
+    r.push(`# ${wie}: nog geen gebouw in Odoo  (gebouw_id ${kern.basisId || '-'})`,
+      'Er hangt nog geen gebouw aan. Gegevens van het gebouw (kavels, huidige syndicus, type beheer, ...) kunnen pas bewaard worden als het gebouw bestaat.',
+      'Stel voor om het aan te maken met wat bekend is (nieuw_gebouw in dossier_bijwerken): naam van de VME, adres, type. De contactpersoon komt er dan vanzelf onder.');
   }
 
   // Contactpersonen

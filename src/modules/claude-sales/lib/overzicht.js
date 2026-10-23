@@ -25,7 +25,8 @@ export function kortDatum(s) {
 }
 
 function eersteZin(tekst, max = 110, onderwerp = '') {
-  let t = String(tekst || '').replace(/https?:\/\/\S+/g, '').replace(/\s+/g, ' ').trim();
+  // De kopregel die de connector zelf boven een notitie zet, zegt niets over de inhoud.
+  let t = String(tekst || '').replace(/^Via Claude[^\n]*\n/, '').replace(/https?:\/\/\S+/g, '').replace(/\s+/g, ' ').trim();
   // Een mail begint met haar onderwerp (zo zet de Gmail-koppeling ze in de chatter), en met "Beste ...".
   const ow = String(onderwerp || '').trim();
   if (ow && t.startsWith(ow)) t = t.slice(ow.length).trim();
@@ -65,7 +66,8 @@ export function kortOverzicht({ kern, gesch, web, punten, catalogi }) {
 
   const r = [];
   const kop = [
-    g?.name || lead?.name || 'Onbekend',
+    g?.name || kern.zonderGebouw?.name || lead?.name || 'Onbekend',
+    g ? null : 'nog geen gebouw in Odoo',
     m2oNaam(g?.x_studio_company_type),
     g?.x_studio_number_of_plots || blad?.x_studio_number_of_plots ? `${g?.x_studio_number_of_plots || blad?.x_studio_number_of_plots} kavels` : null,
     g?.city,

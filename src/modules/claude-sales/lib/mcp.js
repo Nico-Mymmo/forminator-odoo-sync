@@ -31,11 +31,13 @@ Werkwijze:
    - de korte samenvatting die in de chatter komt, en op welke records (lead, gebouw, contact, actieblad: enkel waar het iets toevoegt);
    - de NIEUWE VOLLEDIGE interne notitie van de lead: een samenvatting van ALLES wat we over dit gebouw weten (de huidige notitie + het dossier + de nieuwe info), niet enkel het nieuwe. Houd ze gestructureerd (Situatie, Wie is wie, Noden en pijnpunten, Bezwaren, Afspraken en volgende stap).
    - eventueel een gesprek op het actieblad (type, datum, duur).
+   - Hangt er nog geen gebouw aan (een nieuwe aanvraag van een persoon): stel voor om het aan te maken met nieuw_gebouw (naam van de VME, adres, type). Gegevens van het gebouw (kavels, mede-eigenaars, huidige syndicus, type beheer) gaan dan naar dat gebouw (record "gebouw", id 0), nooit naar de persoon.
 4. Pas NA een uitdrukkelijk "ja" van de gebruiker roep je dossier_bijwerken aan met bevestigd: true. Geef daarna kort wat bewaard is en de links.
 
 Regels:
 - Gewone taal, kort. Geen nummers (geen id's, geen "lead 11618", geen "#77") en geen technische veldnamen naar de gebruiker: noem een gebouw, lead, contact of offerte bij haar naam. Een link naar Odoo mag, met de naam als tekst. De id's in het dossier zijn enkel voor jou, om dossier_bijwerken aan te roepen.
 - Ook in een voorstel: "Aantal kavels: leeg -> 6", niet "x_studio_number_of_plots".
+- Stuur tekst als gewone tekst, nooit als HTML. Gebruik "### Kop" voor koppen in de interne notitie, "- " voor een lijstje.
 - Vul enkel in wat echt gezegd of geschreven werd. Geen gokken; twijfel = vragen of weglaten.
 - Spreekt nieuwe info iets in Odoo tegen, zeg dat en vraag wat juist is.
 - Verzin nooit een id: gebruik enkel id's uit het dossier.
@@ -121,6 +123,18 @@ const TOOLS = [
             notities: { type: 'string' },
           },
           required: ['actieblad_id'],
+        },
+        nieuw_gebouw: {
+          type: 'object',
+          description: 'Enkel als er nog geen gebouw aan het dossier hangt: maak het aan. De persoon van de lead komt eronder en het actieblad eraan. Velden voor dit gebouw geef je in "velden" met record "gebouw" en id 0.',
+          properties: {
+            naam: { type: 'string', description: 'Naam van de VME, bv. "VME Residentie Zonneveld"' },
+            straat: { type: 'string' }, postcode: { type: 'string' }, plaats: { type: 'string' },
+            type: { type: 'string', description: 'VME, VME in beheer of Professioneel Syndicus' },
+            ondernemingsnummer: { type: 'string' },
+            contact_id: { type: 'integer', description: 'Het contact dat eronder komt; standaard de persoon van de lead.' },
+          },
+          required: ['naam'],
         },
         nieuwe_contacten: {
           type: 'array',

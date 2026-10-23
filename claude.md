@@ -6656,6 +6656,21 @@ Afspraken die bewust zo zijn:
   Het blok staat KLAAR bovenaan het dossier met een opdracht voor Claude; de
   rest staat eronder onder "Details (niet tonen tenzij gevraagd)". Ook in de
   INSTRUCTIES van mcp.js.
+- **Een lead aan een PERSOON zonder bedrijf heeft nog GEEN gebouw** (`laadKern`:
+  `gebouw = null`, `zonderGebouw` = die persoon, die als contact meetelt). Vroeger
+  werd die persoon het "gebouw", en kwamen kavels op de fiche van een mens.
+  `nieuw_gebouw` in `dossier_bijwerken` maakt het gebouw aan, zet de persoon eronder
+  en hangt het actieblad eraan; velden voor dat gebouw komen met record "gebouw" en
+  id 0.
+- **Veel vragen op het actieblad zijn DOORGEEFVELDEN** (related) naar het gebouw
+  (`x_studio_for_company_id.*`: kavels, mede-eigenaars, huidige syndicus, type beheer,
+  ...) of het contact (`x_studio_contact_id.*`: vaardigheden, leeftijd, beroep).
+  Odoo bewaart ze daar; zonder gebouw of contact gaat de waarde STIL verloren.
+  `catalogus()` zet daarom `via` (uit `fields_get` -> `related`) en `bijwerken.js`
+  weigert zo'n veld als het doel ontbreekt.
+- **Tekst gaat als tekst, nooit als HTML.** Stuurt Claude toch HTML, dan maakt
+  `tekstNaarHtml()` er eerst weer tekst van; anders staan de tags zichtbaar in Odoo
+  (gebeurd op actieblad 1052, 2026-10-23).
 - **Naar de gebruiker: namen, geen nummers en geen veldnamen.** De punten van
   "Na te kijken" noemen een lead of contact bij de naam; de id's in het dossier
   zijn enkel voor Claude, om te kunnen bijwerken.
