@@ -7,8 +7,8 @@
  *   van OpenVME in; dit script raakt een ingevuld adres nooit aan.
  * - Code-actie "OpenVME: VME aanmaken" (openvme-knop.py): controle van de
  *   verplichte velden, dan de webhook, dan een notitie op de lead.
- * - De knop in de kop van het leadformulier (Studio-weergave 1694), enkel
- *   zichtbaar op een gewonnen lead.
+ * - De knop in de kop van het leadformulier (Studio-weergave 1694), op elke
+ *   lead.
  *
  * Gebruik:  node scripts/odoo-acties/openvme-knop.mjs            (enkel klaarzetten)
  *           node scripts/odoo-acties/openvme-knop.mjs --schrijf  (naar Odoo)
@@ -85,7 +85,7 @@ if (!view.arch_db.includes(`name="${knop.id}" type="action" string="Naar OpenVME
   const anker = 'Bij problemen, check Nico!"/>';
   if (view.arch_db.split(anker).length !== 2) throw new Error('anker Foute Lead niet 1x');
   writeFileSync(join(uit, 'view1694-voor-knop.xml'), view.arch_db);
-  const knopXml = `${anker}\n    <field name="won_status" invisible="1"/>\n    <button name="${knop.id}" type="action" string="Naar OpenVME" class="btn-primary" invisible="won_status != 'won'" confirm="De VME aanmaken in OpenVME met de gegevens van het tabblad Syndicoach?"/>`;
+  const knopXml = `${anker}\n    <button name="${knop.id}" type="action" string="Naar OpenVME" class="btn-primary" confirm="De VME aanmaken in OpenVME met de gegevens van het tabblad Syndicoach?"/>`;
   await kw('ir.ui.view', 'write', [[VIEW], { arch: view.arch_db.replace(anker, knopXml) }]);
   console.log('knop op het formulier gezet');
 }

@@ -23,8 +23,6 @@ def ml_mail_ok(e):
 NL = chr(10)
 for lead in records:
     fout = []
-    if lead.won_status != 'won':
-        fout.append('De lead is nog niet gewonnen.')
     for veld, label in (('x_vme_naam', 'naam'), ('x_vme_straat', 'straat'),
                         ('x_vme_huisnummer', 'nummer'), ('x_vme_postcode', 'postcode'),
                         ('x_vme_plaats', 'plaats'), ('x_vme_land', 'land')):
