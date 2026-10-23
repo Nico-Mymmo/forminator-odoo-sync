@@ -60,6 +60,40 @@ for (const teken of ["'", '<', '&', '"""']) {
   if (lib.includes(teken)) throw new Error(`De browsercode bevat ${teken} -- mag niet in een HTML-attribuut`);
 }
 const [libVoor, libNa] = lib.split('/*SCHRIJF*/');
+// Na het bewaren op het actieblad: dezelfde lijst ook naar x_vme_members van de
+// gekoppelde leads (data-mlleads op het vak). De lead is de waarheid.
+const LEADS_JS = 'var dl=el.closest("[data-mlleads]");if(dl){var ids=[];'
+  + '(dl.getAttribute("data-mlleads")||"").split(",").forEach(function(x){if(x)ids.push(parseInt(x));});'
+  + 'if(ids.length){var w2=el.value||"";var r2=[];if(w2.indexOf("LIJST:")===0){w2.slice(6).split(";").forEach(function(x){'
+  + 'var c=x.split("|");if(c[0]||c[1]||c[2])r2.push({firstname:c[1]||"",lastname:c[2]||"",email:c[0]||""});});}'
+  + 'fetch("/web/dataset/call_kw",{method:"POST",headers:{"Content-Type":"application/json"},'
+  + 'body:JSON.stringify({jsonrpc:"2.0",method:"call",id:2,params:{model:"crm.lead",method:"write",'
+  + 'args:[ids,{x_vme_members:r2.length?JSON.stringify(r2):false}],kwargs:{}}})});}}';
+for (const teken of ["'", '<', '&']) if (LEADS_JS.includes(teken)) throw new Error('LEADS_JS bevat ' + teken);
+const ML_PARSE = readFileSync(join(hier, 'ml-parse.py'), 'utf8').split(String.fromCharCode(13)).join('');
+const PY_LEAD = `
+${ML_PARSE}
+
+def ml_schoon(s):
+    return ' '.join(str(s or '').replace('|', ' ').replace(';', ' ').split())
+
+def ml_lead_lijst(sheet):
+    # De lijst op de (eerste) gekoppelde lead is de waarheid; geen lijst = ''.
+    for ld in sheet.x_studio_as_opportunity_ids:
+        if ld.x_vme_members:
+            delen = []
+            for l in ml_parse(ld.x_vme_members):
+                if isinstance(l, dict):
+                    e = ml_schoon(l.get('email')).lower()
+                    v = ml_schoon(l.get('firstname'))
+                    n = ml_schoon(l.get('lastname'))
+                    if e or v or n:
+                        delen.append(e + '|' + v + '|' + n)
+            if delen:
+                return 'LIJST:' + ';'.join(delen)
+    return ''
+
+`;
 if (libNa === undefined) throw new Error('Marker /*SCHRIJF*/ ontbreekt');
 
 const PY_1201 = `
@@ -67,8 +101,8 @@ const PY_1201 = `
 # De lijst wordt in de browser ontleed, zonder AI. Opslag: "LIJST:" + rijen met
 # ";" ertussen, kolommen e-mail|voornaam|naam. De verborgen input met data-punt
 # draagt die waarde; SCHRIJF hierboven neemt ze mee zoals elk ander punt.
-ML_LIB = r"""${libVoor}""" + SCHRIJF + r"""${libNa}"""
-ML_INIT = "window.__ml=window.__ml||" + ML_LIB + "();"
+ML_LIB = r"""${libVoor}""" + SCHRIJF + r"""${LEADS_JS}${libNa}"""
+ML_INIT = "window.__ml2=window.__ml2||" + ML_LIB + "();"
 ML_CEL = "padding:3px 4px;border-bottom:1px solid #eee;"
 ML_VELD = "width:100%;padding:3px 6px;border:1px solid #ccc;border-radius:4px;font-size:12px;"
 
@@ -86,7 +120,7 @@ def ml_rij(e, v, n):
     return ("<tr data-mlr='1'>" + tds + "<td style='" + ML_CEL + "width:28px;text-align:center;'>"
             + "<button type='button' data-mlweg='1' title='Weghalen' style='border:0;background:none;cursor:pointer;color:#999;font-size:16px;'>×</button></td></tr>")
 
-def ml_doos(nid, waarde):
+def ml_doos(nid, waarde, leads):
     rijen = []
     raw = ''
     if waarde.startswith('LIJST:'):
@@ -101,12 +135,12 @@ def ml_doos(nid, waarde):
         kop += "<th style='text-align:left;font-weight:600;color:#666;font-size:12px;padding:2px 4px;'>" + t + "</th>"
     auto = ''
     if raw and '@' in raw:
-        auto = "<img src='data:image/gif;base64,x' style='display:none' onerror='" + ML_INIT + "window.__ml.haal(event.target)'>"
-    return ("<div data-mlbox='1'"
-            + " oninput='" + ML_INIT + "window.__ml.typ(event.target)'"
-            + " onchange='" + ML_INIT + "window.__ml.sync(event.target)'"
-            + " onclick='" + ML_INIT + "window.__ml.klik(event.target)'"
-            + " onpaste='" + ML_INIT + "window.__ml.geplakt(event.target)'>"
+        auto = "<img src='data:image/gif;base64,x' style='display:none' onerror='" + ML_INIT + "window.__ml2.haal(event.target)'>"
+    return ("<div data-mlbox='1' data-mlleads='" + h(leads) + "'"
+            + " oninput='" + ML_INIT + "window.__ml2.typ(event.target)'"
+            + " onchange='" + ML_INIT + "window.__ml2.sync(event.target)'"
+            + " onclick='" + ML_INIT + "window.__ml2.klik(event.target)'"
+            + " onpaste='" + ML_INIT + "window.__ml2.geplakt(event.target)'>"
             + "<input type='hidden' data-punt='" + h(nid) + "' value='" + h(waarde) + "'>"
             + "<table data-mlt='1' style='width:100%;border-collapse:collapse;margin-bottom:4px;'><thead><tr>" + kop + "</tr></thead><tbody>"
             + ''.join([ml_rij(c[0], c[1], c[2]) for c in rijen]) + "</tbody></table>"
@@ -128,7 +162,11 @@ const PY_1179_PUNT_OUD = `        waarde = antw.get(it.x_studio_navigator_id or 
             "waarde": waarde,
         })`;
 const PY_1179_PUNT_NIEUW = `        waarde = antw.get(it.x_studio_navigator_id or '', '')
-        # Mailadressen als lijst (scripts/odoo-acties/overdracht-mailadressen.mjs)
+        # Mailadressen als lijst (scripts/odoo-acties/overdracht-mailadressen.mjs).
+        # De lijst op de lead is de waarheid: die gaat mee, niet een oudere op het actieblad.
+        ml_n = (it.x_name or '').lower()
+        if ml_lead and soort == 'tekst' and ('mailadres' in ml_n or 'e-mail' in ml_n or 'email' in ml_n):
+            waarde = ml_lead
         ml_lijst = []
         if waarde.startswith('LIJST:'):
             for r in waarde[6:].split(';'):
@@ -152,6 +190,7 @@ const PY_1179_START_OUD = `    punten = []
 `;
 const PY_1179_START_NIEUW = `    punten = []
     vme_members = []
+    ml_lead = ml_lead_lijst(sheet)
 `;
 const PY_1179_NA_OUD = `    notitie = sheet.x_studio_overdracht_notitie or ""`;
 const PY_1179_NA_NIEUW = `    if vme_members:
@@ -166,7 +205,7 @@ const PY_1201_LUS_OUD = `        attr = " data-punt='" + h(nid) + "'"
 const PY_1201_LUS_NIEUW = `        attr = " data-punt='" + h(nid) + "'"
         if is_mailpunt(it):
             rijen += ("<tr><td colspan='2' style='" + CEL + "'><div style='margin-bottom:4px;'>" + h(it.x_name) + "</div>"
-                      + ml_doos(nid, waarde) + "</td></tr>")
+                      + ml_doos(nid, ml_lead or waarde, ml_lead_ids) + "</td></tr>")
             continue
         if waarde.startswith('LIJST:'):
             # Een punt dat niet (meer) als lijst herkend wordt (hernoemd in de
@@ -190,11 +229,13 @@ const code = Object.fromEntries(acties.map((a) => [a.id, String(a.code || '').re
 
 let c1201 = code[1201];
 if (c1201.includes('ML_LIB')) throw new Error('1201 is al aangepast');
-c1201 = vervang(c1201, '\ndef h(s):', PY_1201 + 'def h(s):', '1201 invoegpunt');
+c1201 = vervang(c1201, '\ndef h(s):', PY_1201 + PY_LEAD + 'def h(s):', '1201 invoegpunt');
+c1201 = vervang(c1201, "    rijen = ''\n    for it in env['x_sc_checklist']", "    ml_lead_ids = ','.join([str(l.id) for l in sheet.x_studio_as_opportunity_ids])\n    ml_lead = ml_lead_lijst(sheet)\n    rijen = ''\n    for it in env['x_sc_checklist']", '1201 lead');
 c1201 = vervang(c1201, PY_1201_LUS_OUD, PY_1201_LUS_NIEUW, '1201 lus');
 
 let c1179 = code[1179];
 if (c1179.includes('ml_lijst')) throw new Error('1179 is al aangepast');
+c1179 = vervang(c1179, '\ndef h(s):', PY_LEAD + '\ndef h(s):', '1179 lead');
 c1179 = vervang(c1179, PY_1179_PUNT_OUD, PY_1179_PUNT_NIEUW, '1179 punten');
 c1179 = vervang(c1179, PY_1179_START_OUD, PY_1179_START_NIEUW, '1179 start');
 c1179 = vervang(c1179, PY_1179_NA_OUD, PY_1179_NA_NIEUW, '1179 naar leads');
