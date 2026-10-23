@@ -30,6 +30,7 @@ const NAAM_KNOP = 'OpenVME: VME aanmaken';
 const VELDEN = [
   'x_vme_naam', 'x_vme_kbo', 'x_vme_straat', 'x_vme_huisnummer', 'x_vme_postcode', 'x_vme_plaats', 'x_vme_land',
   'x_vme_members', 'partner_id', 'contact_name', 'email_from', 'phone', 'mobile',
+  'x_odoo_database', // berekend, NIET bewaard: zegt uit welke database (productie of sandbox) de webhook komt
 ];
 
 async function kw(model, method, args, kwargs = {}) {

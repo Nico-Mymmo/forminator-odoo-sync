@@ -41,12 +41,17 @@ als `""` of `null`. Een echte levering (testlead, 23/10/2026):
   "contact_name": "TEST NICo",
   "email_from": "nico+testcreeer@mymmo.com",
   "phone": "+32 492 44 99 92",
-  "mobile": false
+  "mobile": false,
+  "x_odoo_database": "mymmo-main-11883993"
 }
 ```
 
 `id` (en `_id`) is het nummer van de lead. `partner_id` is het nummer van de
 contactpersoon (`res.partner`), als getal.
+
+`x_odoo_database` is de naam van de Odoo-database waaruit de webhook komt
+(berekend, niet bewaard). In productie: `mymmo-main-11883993`; in een sandbox
+iets anders. Zo kan OpenVME een levering uit een sandbox weigeren.
 
 ## VME (het gebouw)
 
