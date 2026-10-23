@@ -21,26 +21,27 @@ wordt er niets verstuurd.
 ## Vorm van de webhook
 
 Eén POST met een JSON-object. Een leeg veld komt altijd als `false`, nooit
-als `""` of `null`. Voorbeeld (zoals Odoo het zelf toont):
+als `""` of `null`. Een echte levering (testlead, 23/10/2026):
 
 ```json
 {
+  "_action": "OpenVME: VME aanmaken (webhook)(#1214)",
+  "_id": 11905,
   "_model": "crm.lead",
-  "_id": 11904,
-  "id": 11904,
-  "x_vme_naam": "VME Residentie Park",
-  "x_vme_kbo": "0637.852.501",
-  "x_vme_straat": "Registratiestraat",
-  "x_vme_huisnummer": "25",
-  "x_vme_postcode": "2100",
-  "x_vme_plaats": "Berchem",
+  "id": 11905,
+  "x_vme_naam": "Test Nico",
+  "x_vme_kbo": "0145258741",
+  "x_vme_straat": "Teststraat",
+  "x_vme_huisnummer": "36",
+  "x_vme_postcode": "2150",
+  "x_vme_plaats": "Lier",
   "x_vme_land": "BE",
-  "x_vme_members": "[{\"firstname\":\"Nicole\",\"lastname\":\"Van Doninck\",\"email\":\"nicole.vandoninck@gmail.com\"}]",
-  "partner_id": 938920,
-  "contact_name": "Nicole Van Doninck",
-  "email_from": "nicole.vandoninck@gmail.com",
-  "mobile": "+32476506203",
-  "phone": "+32476506203"
+  "x_vme_members": "[{\"firstname\":\"TEST\",\"lastname\":\"NICo\",\"email\":\"nico+testcreeer@mymmo.com\"}]",
+  "partner_id": 938921,
+  "contact_name": "TEST NICo",
+  "email_from": "nico+testcreeer@mymmo.com",
+  "phone": "+32 492 44 99 92",
+  "mobile": false
 }
 ```
 
