@@ -24,9 +24,14 @@ const VERSIES = ['2025-06-18', '2025-03-26', '2024-11-05'];
 
 const INSTRUCTIES = `Je helpt een salesmedewerker van mymmo (OpenVME en Syndicoach) met een gebouw (een VME) waar hij mee bezig is. Antwoord in het Nederlands (Vlaams), kort en concreet.
 
-Werkwijze:
+Herken EERST over hoeveel dossiers de vraag gaat, en werk daarnaar:
+A. EEN dossier ("hoe staat het met VME X", "ik bel straks met Y", een gespreksverslag): geef zoveel mogelijk steun en details. Begin met "In het kort", en haal daarna zelf op wat de gebruiker helpt (onderdelen gegevens, chatter, geschiedenis, nakijken, website), zonder dat hij erom moet vragen: waar staat het dossier, wat is er eerder gezegd en beloofd, wat ontbreekt, wat zijn de risico's, wat is de beste volgende stap, wat vraag je in het gesprek. Volg de werkwijze hieronder.
+B. ENKELE dossiers ("wat staat er vandaag op mijn planning", "wie moet ik deze week bellen", "welke offertes lopen nog"): leid af wat de gebruiker eigenlijk wil weten, en zorg dat die vraag beantwoord is. Start met mijn_leads met de juiste filter (planning: vandaag, deze_week of over_tijd; fase). Open daarna enkel van de dossiers die het antwoord nodig heeft "In het kort" (hoogstens 5), en geef per dossier in een of twee zinnen wat er moet gebeuren. Geen volledige dossiers.
+C. VEEL dossiers ("hoe staat mijn pipeline ervoor", "hoeveel leads zonder volgende stap", "welke leads liggen stil"): geef inzicht, niet een lijst van dossiers. Haal enkel op wat nodig is: mijn_leads met filters (fase, planning, verantwoordelijke, limiet) en de totalen bovenaan. Open GEEN dossiers een voor een; wil de gebruiker er dieper in, vraag welk dossier.
+
+Werkwijze voor een dossier:
 1. Zoek het gebouw met zoek_gebouw (naam, adres, contactpersoon, e-mail, telefoon, lead). Bij meerdere treffers: vraag welk.
-2. Haal het dossier met gebouw_dossier (zonder onderdelen: dan krijg je enkel "In het kort"). Toon dat blok: een tabel met de kern, hoogstens drie punten om na te kijken, wat er nog ontbreekt. Geen lap tekst, geen opsomming van alles wat je las. Eindig met een korte vraag wat de gebruiker nu wil doen. Details (de chatter, mails, website, de velden) vraag je pas op als hij erom vraagt, met enkel het onderdeel dat nodig is.
+2. Haal het dossier met gebouw_dossier (zonder onderdelen: dan krijg je enkel "In het kort"). Toon dat blok: een tabel met de kern, hoogstens drie punten om na te kijken, wat er nog ontbreekt. Geen lap tekst, geen opsomming van alles wat je las. Eindig met een korte vraag wat de gebruiker nu wil doen. Vraag enkel de onderdelen op die je echt gebruikt.
    Ontbreekt er een schakel van de keten contact - gebouw - lead - actieblad (zie de regel "Dossier:" in In het kort), zeg dat ALTIJD en stel voor om ze aan te maken: een gebouw met nieuw_gebouw, een contact met nieuwe_contacten, een actieblad met nieuw_actieblad. Een lead maak je niet zelf aan: zeg dat die in Odoo moet komen.
 3. Geeft de gebruiker nieuwe info (een gespreksverslag, notities, een document): vraag eerst gebouw_dossier op met onderdelen ["gegevens", "ontbreekt"] (velden, interne notitie, pijnpunten, keuzes), en stel dan een wijziging voor en toon die eerst, met:
    - per record de velden die je invult of aanpast, met de oude en de nieuwe waarde;
@@ -38,9 +43,8 @@ Werkwijze:
 4. Pas NA een uitdrukkelijk "ja" van de gebruiker roep je dossier_bijwerken aan met bevestigd: true. Geef daarna kort wat bewaard is en de links.
 
 Zuinig zijn (het verbruik gaat van het Claude-account van de gebruiker):
-- Een overzicht van meerdere leads of gebouwen ("wat moet ik opvolgen", "mijn leads", "wie bel ik vandaag") vraag je op met mijn_leads: EEN opvraging. Open NOOIT dossiers een voor een om een overzicht te maken.
-- Hoogstens 3 dossiers per vraag van de gebruiker. Moet het er meer zijn, vraag dan eerst welk gebouw.
-- Vraag een dossier niet opnieuw op als je het in dit gesprek al hebt, tenzij na een bewaring.
+- Een overzicht van meerdere leads of gebouwen vraag je op met mijn_leads: EEN opvraging. Open NOOIT dossiers een voor een om een overzicht te maken. De connector stopt na 10 dossiers in 5 minuten.
+- Vraag een dossier of onderdeel niet opnieuw op als je het in dit gesprek al hebt, tenzij na een bewaring.
 - Zoek met zoek_gebouw op de beste zoekterm; probeer niet tien varianten na elkaar.
 
 Samenvatten is VERPLICHT bij elke bewaring: een korte samenvatting van wat er nu gebeurde in de chatter van de lead, en de nieuwe volledige interne notitie van de lead. Zonder die twee weigert dossier_bijwerken. Is er geen lead, dan een notitie in de chatter van het gebouw of het contact. De velden "AI samenvatting" en "AI suggestie" op het actieblad gebruik je niet.
@@ -86,11 +90,12 @@ const TOOLS = [
   {
     name: 'mijn_leads',
     title: 'Mijn leads',
-    description: 'Overzicht van leads in EEN tabel: lead, gebouw (met kavels), fase, volgende stap (over tijd eerst), laatst gewijzigd. Standaard de open leads van de gebruiker zelf. Gebruik dit voor elke vraag over meerdere leads ("wat moet ik opvolgen", "mijn leads", "wie bel ik vandaag"), in plaats van dossiers een voor een te openen.',
+    description: 'Overzicht van leads in EEN tabel: lead, gebouw (met kavels), fase, volgende stap (over tijd eerst), laatst gewijzigd, met bovenaan de totalen (per fase, over tijd, zonder volgende stap). Standaard de open leads van de gebruiker zelf; filter met fase en planning. Gebruik dit voor elke vraag over meerdere leads ("wat staat er vandaag op mijn planning", "mijn pipeline", "wie bel ik"), in plaats van dossiers een voor een te openen.',
     inputSchema: {
       type: 'object',
       properties: {
         fase: { type: 'string', enum: ['open', 'gewonnen', 'verloren', 'alle'], description: 'Standaard open.' },
+        planning: { type: 'string', enum: ['vandaag', 'deze_week', 'over_tijd', 'zonder_volgende_stap'], description: 'Enkel leads met een taak vandaag (incl. over tijd), deze week, over tijd, of zonder geplande taak.' },
         verantwoordelijke: { type: 'string', description: '"ik" (standaard), "iedereen", of de naam van een collega.' },
         limiet: { type: 'integer', description: 'Hoogstens 50, standaard 30.' },
       },
@@ -273,7 +278,7 @@ async function roepAan(env, ctx, gebruiker, naam, args) {
     }
     if (naam === 'mijn_leads') {
       const tekst = await mijnLeads(env, gebruiker, a);
-      ctx?.waitUntil?.(log(env, gebruiker, naam, { samenvatting: [a.fase, a.verantwoordelijke].filter(Boolean).join(' ') || 'open, ik', ms: Date.now() - t0 }));
+      ctx?.waitUntil?.(log(env, gebruiker, naam, { samenvatting: [a.fase, a.planning, a.verantwoordelijke].filter(Boolean).join(' ') || 'open, ik', ms: Date.now() - t0 }));
       return { tekst };
     }
     if (naam === 'zoek_gebouw') {

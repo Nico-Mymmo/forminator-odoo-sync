@@ -6646,7 +6646,12 @@ Afspraken die bewust zo zijn:
   Een overzicht van meerdere leads = `mijn_leads` (`lib/leads.js`, een tabel in een
   opvraging). De rem in `mcp.js` (`REM`) weigert meer dan 10 dossiers, 20
   zoekopdrachten of 10 overzichten per gebruiker in 5 minuten, op basis van het logboek;
-  faalt het logboek, dan remt hij niet. Grof gesneden met opzet: Claude hoeft geen Odoo-domeinen
+  faalt het logboek, dan remt hij niet.
+- **Claude herkent eerst over hoeveel dossiers een vraag gaat** (INSTRUCTIES in mcp.js):
+  EEN dossier = zoveel mogelijk steun en details (zelf de nodige onderdelen ophalen);
+  ENKELE ("wat staat er vandaag op mijn planning") = `mijn_leads` met `planning`, dan
+  hoogstens 5 keer "In het kort", en de vraag beantwoorden; VEEL ("mijn pipeline") =
+  inzicht uit `mijn_leads` en zijn totalen, geen dossiers openen. Grof gesneden met opzet: Claude hoeft geen Odoo-domeinen
   te kennen, en elke functie is EEN wachttijd.
 - **Snelheid: rondes, geen ketting.** Zoeken = een ronde van vier
   zoekopdrachten tegelijk plus een ronde om samen te vatten; dossier = twee

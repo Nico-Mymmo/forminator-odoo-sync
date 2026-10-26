@@ -28,7 +28,7 @@ function sr(env, model, domain, fields, extra = {}) {
 /**
  * @param {object} p { fase: open|gewonnen|verloren|alle, verantwoordelijke: 'ik'|'iedereen'|naam, limiet }
  */
-export async function mijnLeads(env, gebruiker, { fase = 'open', verantwoordelijke = 'ik', limiet = 30 } = {}) {
+export async function mijnLeads(env, gebruiker, { fase = 'open', verantwoordelijke = 'ik', limiet = 30, planning = null } = {}) {
   const max = Math.min(Math.max(Number(limiet) || 30, 1), 50);
   const domein = [];
   if (fase === 'open') domein.push(['active', '=', true], ['probability', '<', 100]);
@@ -47,13 +47,37 @@ export async function mijnLeads(env, gebruiker, { fase = 'open', verantwoordelij
     wie = v;
   }
 
+  // Planning: op de datum van de eerstvolgende taak op de lead (Europe/Brussels).
+  const dag = (plus = 0) => new Date(Date.now() + plus * 86400000).toLocaleDateString('sv-SE', { timeZone: 'Europe/Brussels' });
+  const vandaag = dag();
+  const PLANNING = {
+    vandaag: [['activity_date_deadline', '<=', vandaag]],
+    deze_week: [['activity_date_deadline', '<=', dag(6)]],
+    over_tijd: [['activity_date_deadline', '<', vandaag]],
+    zonder_volgende_stap: [['activity_ids', '=', false]],
+  };
+  const lijstDomein = [...domein, ...(PLANNING[planning] || [])];
+  const ctx = { context: { active_test: false } };
+  const tel = (d) => executeKw(env, { model: 'crm.lead', method: 'search_count', args: [d], kwargs: ctx });
+
   const velden = ['name', 'partner_id', 'stage_id', 'user_id', 'expected_revenue', 'probability', 'active',
     'activity_date_deadline', 'activity_summary', 'activity_type_id', 'write_date', 'create_date'];
-  const [leads, totaal] = await Promise.all([
-    sr(env, 'crm.lead', domein, velden, { order: 'write_date desc', limit: max, context: { active_test: false } }),
-    executeKw(env, { model: 'crm.lead', method: 'search_count', args: [domein], kwargs: { context: { active_test: false } } }),
+  // Een ronde: de lijst, en de totalen van de hele selectie (voor inzicht zonder dossiers te openen).
+  const [leads, totaal, perFase, overTijd, zonderStap, vandaagN] = await Promise.all([
+    // De datum van de volgende taak is niet sorteerbaar in Odoo: bij een planning ruimer ophalen en hier sorteren.
+    sr(env, 'crm.lead', lijstDomein, velden, { order: 'write_date desc', limit: planning ? 200 : max, ...ctx }),
+    tel(lijstDomein),
+    executeKw(env, { model: 'crm.lead', method: 'read_group', args: [domein, ['expected_revenue:sum'], ['stage_id']], kwargs: { lazy: true, ...ctx } }).catch(() => []),
+    tel([...domein, ...PLANNING.over_tijd]),
+    tel([...domein, ...PLANNING.zonder_volgende_stap]),
+    tel([...domein, ['activity_date_deadline', '=', vandaag]]),
   ]);
-  if (!leads.length) return `Geen ${fase === 'alle' ? '' : fase + ' '}leads gevonden voor ${wie}.`;
+  const samen = [
+    `Totaal (${fase}, ${wie}): ${perFase.reduce((s, g) => s + (g.stage_id_count || 0), 0)} leads`,
+    perFase.length ? perFase.filter((g) => g.stage_id_count).map((g) => `${m2oNaam(g.stage_id) || 'zonder fase'} ${g.stage_id_count}${g.expected_revenue ? ` (€ ${Math.round(g.expected_revenue)})` : ''}`).join(', ') : null,
+    `vandaag gepland ${vandaagN}`, `over tijd ${overTijd}`, `zonder volgende stap ${zonderStap}`,
+  ].filter(Boolean).join(' · ');
+  if (!leads.length) return `${samen}\n\nGeen leads gevonden voor deze selectie${planning ? ` (planning: ${planning})` : ''}.`;
 
   // Ronde 2: het gebouw achter elke lead (de klant, of het bedrijf van de contactpersoon).
   const pids = [...new Set(leads.map((l) => m2oId(l.partner_id)).filter(Boolean))];
@@ -69,13 +93,14 @@ export async function mijnLeads(env, gebruiker, { fase = 'open', verantwoordelij
     return gebouwen.find((g) => g.id === (p.is_company ? p.id : m2oId(p.parent_id))) || null;
   };
 
-  // Eerst wat opvolging vraagt: over tijd, dan de eerstvolgende, dan zonder volgende stap.
-  const vandaag = new Date().toISOString().slice(0, 10);
-  const rang = (l) => (l.activity_date_deadline ? (l.activity_date_deadline < vandaag ? 0 : 1) : 2);
+  // Eerst wat vandaag gepland staat, dan wat over tijd is, dan de eerstvolgende, dan zonder volgende stap.
+  const rang = (l) => (!l.activity_date_deadline ? 3 : l.activity_date_deadline === vandaag ? 0 : l.activity_date_deadline < vandaag ? 1 : 2);
   leads.sort((a, b) => rang(a) - rang(b) || String(a.activity_date_deadline || '').localeCompare(String(b.activity_date_deadline || '')));
+  leads.splice(max);
 
   const r = [
-    `**Leads van ${wie}** · ${fase} · ${leads.length}${totaal > leads.length ? ` van ${totaal} (de laatst gewijzigde)` : ''}`, '',
+    samen, '',
+    `**Leads van ${wie}** · ${fase}${planning ? ' · ' + planning.replace(/_/g, ' ') : ''} · ${leads.length}${totaal > leads.length ? ` van ${totaal} (${planning ? 'eerst vandaag, dan over tijd' : 'eerst vandaag en over tijd, dan de laatst gewijzigde'})` : ''}`, '',
     '| Lead | Gebouw | Fase | Volgende stap | Gewijzigd |', '|---|---|---|---|---|',
   ];
   for (const l of leads) {
