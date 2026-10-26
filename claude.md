@@ -6637,8 +6637,16 @@ geen AI, en er wordt niets geschreven zonder `bevestigd: true`.**
 
 Afspraken die bewust zo zijn:
 
-- **Drie functies, niet meer**: `zoek_gebouw`, `gebouw_dossier`,
-  `dossier_bijwerken`. Grof gesneden met opzet: Claude hoeft geen Odoo-domeinen
+- **Vier functies, niet meer**: `zoek_gebouw`, `mijn_leads`, `gebouw_dossier`,
+  `dossier_bijwerken`.
+- **Zuinig met het Claude-tegoed van de medewerker** (2026-10-26: Thomas liet in een
+  uur 83 dossiers en 286 zoekopdrachten opvragen). Een dossier geeft standaard enkel
+  "In het kort" + de id's (~500 tokens in plaats van ~5.000); de rest per onderdeel
+  (`onderdelen`: gegevens, ontbreekt, chatter, geschiedenis, website, nakijken).
+  Een overzicht van meerdere leads = `mijn_leads` (`lib/leads.js`, een tabel in een
+  opvraging). De rem in `mcp.js` (`REM`) weigert meer dan 10 dossiers, 20
+  zoekopdrachten of 10 overzichten per gebruiker in 5 minuten, op basis van het logboek;
+  faalt het logboek, dan remt hij niet. Grof gesneden met opzet: Claude hoeft geen Odoo-domeinen
   te kennen, en elke functie is EEN wachttijd.
 - **Snelheid: rondes, geen ketting.** Zoeken = een ronde van vier
   zoekopdrachten tegelijk plus een ronde om samen te vatten; dossier = twee

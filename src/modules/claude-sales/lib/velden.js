@@ -28,7 +28,7 @@ export const BEWERKBAAR = {
     'name', 'street', 'street2', 'zip', 'city', 'phone', 'email', 'website',
     'x_studio_company_type', 'x_studio_registration_number',
     'x_studio_number_of_plots', 'x_studio_number_of_apartments', 'x_studio_number_of_co_owners',
-    'x_studio_andere_kavels', 'x_studio_has_commercial_plots', 'x_studio_hoa_established',
+    'x_studio_has_commercial_plots', 'x_studio_hoa_established',
     'x_studio_current_syndic', 'x_studio_current_syndic_type',
     'x_studio_average_tenant_age', 'x_studio_age_group',
   ],
@@ -44,7 +44,9 @@ export const BEWERKBAAR = {
     // Naam, straat, postcode, plaats en KBO van de VME op de lead zijn doorgeefvelden naar het
     // gebouw (partner_id.parent_id): die vul je op het gebouw in, niet hier. Huisnummer en land
     // waren tijdelijke velden voor de OpenVME-knop en zijn sinds 2026-10-26 [CHECK].
-    'x_studio_search_syndic_amount_plots', 'x_studio_search_syndic_current_admin', 'x_studio_oprichting_vme',
+    // Kavels en huidig beheer staan op het GEBOUW; de leadkopieen (x_studio_search_syndic_amount_plots,
+    // x_studio_search_syndic_current_admin) zijn [CHECK] en vult de connector niet.
+    'x_studio_oprichting_vme',
     'x_studio_search_syndic_need_communication', 'x_studio_search_syndic_need_finance',
     'x_studio_search_syndic_need_legal', 'x_studio_search_syndic_need_management',
     'x_studio_search_syndic_need_premiums', 'x_syndicoach_pack',

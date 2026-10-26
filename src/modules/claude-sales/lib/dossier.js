@@ -282,8 +282,8 @@ export async function bouwDossier(env, args) {
     r.push(...v.bekend);
     const pp = pijnpuntenVan(geschiedenis, b.id);
     if (pp.length) {
-      r.push('', `**Pijnpunten (actieblad ${b.id})**, score 1 = speelt nauwelijks, 5 = speelt sterk. Invullen met "pijnpunten" in dossier_bijwerken, enkel wat uit het gesprek blijkt:`);
-      pp.forEach((p) => r.push(`- [pijnpunt ${p.id}] ${p.naam}: ${p.score ? 'score ' + p.score : 'nog niet gescoord'}${p.uitleg ? ' (' + p.uitleg.slice(0, 160) + ')' : ''}`));
+      // Compact: id=naam:score (- = nog niet gescoord). Score 1 speelt nauwelijks, 5 speelt sterk.
+      r.push(`- Pijnpunten (id naam: score 1-5, - = niet gescoord; invullen met "pijnpunten"): ${pp.map((p) => `${p.id} ${p.naam}: ${p.score || '-'}`).join('; ')}`);
     }
     if (v.onbekend.length) ontbreekt.push(`actieblad ${b.id}: ` + v.onbekend.map(onbekendRegel).join('; '));
   }
@@ -321,11 +321,11 @@ export async function bouwDossier(env, args) {
   r.push('', '## Chatter en eerdere communicatie (nieuwste eerst)');
   if (g.berichten === null) r.push('- (kon niet geladen worden)');
   else if (!g.berichten.length) r.push('- (geen berichten)');
-  else for (const m of g.berichten) {
+  else for (const m of g.berichten.slice(0, 30)) {
     const soort = m.message_type === 'comment' ? (m2oNaam(m.subtype_id) === 'Note' || m2oNaam(m.subtype_id) === 'Notitie' ? 'notitie' : 'bericht') : 'mail';
     const wie = m2oNaam(m.author_id) || m.email_from || '?';
     // Compact: lege regels weg (mails hebben er tientallen in hun handtekening).
-    const tekst = htmlNaarTekst(m.body, 1200).replace(/\n{2,}/g, '\n');
+    const tekst = htmlNaarTekst(m.body, 700).replace(/\n{2,}/g, '\n');
     r.push(`- ${datumTijd(m.date)} · ${soort} · ${wie} · ${recordNaam(kern, m.model, m.res_id)}${m.subject ? ' · ' + m.subject : ''}`
       + (tekst ? `\n  ${tekst.replace(/\n/g, '\n  ')}` : ''));
   }
@@ -344,15 +344,53 @@ export async function bouwDossier(env, args) {
     kern, gesch: geschiedenis, web: web && !web.fout ? web : null, punten,
     catalogi: { gebouw: cGebouw, contact: cContact, lead: cLead, actieblad: cBlad },
   });
-  r.unshift(
-    '[Voor Claude] Toon de gebruiker EERST enkel het blok "In het kort" hieronder, in die vorm (inkorten mag, uitbreiden niet).',
-    'Geen nummers of technische veldnamen naar de gebruiker: enkel namen, in gewone taal. De details eronder zijn voor jou, of voor als de gebruiker erom vraagt.',
-    'Ontbreekt er een schakel (contact, gebouw, lead of actieblad), zeg dat altijd en stel voor om ze aan te maken.',
-    'Eindig met een korte vraag wat hij nu wil doen (bv. een gesprek verwerken, de chatter bekijken, wat nog ontbreekt invullen).',
-    '', '## In het kort', ...kort, '---', '# Details (niet tonen tenzij gevraagd)', '');
+  // Standaard enkel "In het kort" + de sleutels: een volledig dossier is ~5.000 tokens van het
+  // Claude-account van de medewerker, en blijft in het gesprek staan. De rest per onderdeel.
+  const gevraagd = new Set((Array.isArray(args.onderdelen) ? args.onderdelen : []).filter((x) => ONDERDELEN.includes(x)));
+  const sleutels = [
+    '[Voor Claude, niet tonen] Sleutels om bij te werken:',
+    gebouw ? `gebouw "${gebouw.name}" gebouw_id ${gebouw.id}` : `nog geen gebouw (lead_id ${leads[0]?.id || '-'})`,
+    ...contacten.map((c) => `contact "${c.name}" id ${c.id}`),
+    ...leads.map((l) => `lead "${l.name}" lead_id ${l.id}${l.active === false ? ' (gesloten)' : ''}`),
+    ...actiebladen.map((b) => `actieblad id ${b.id}`),
+  ].join(' · ');
 
-  r.push('', `_Opgehaald in ${Date.now() - t0} ms._`);
-  return { tekst: r.join('\n'), kern };
+  let uit;
+  if (!gevraagd.size) {
+    uit = [
+      '[Voor Claude] Toon de gebruiker het blok "In het kort" hieronder, in die vorm (inkorten mag, uitbreiden niet).',
+      'Geen nummers of technische veldnamen naar de gebruiker: enkel namen, in gewone taal.',
+      'Ontbreekt er een schakel (contact, gebouw, lead of actieblad), zeg dat altijd en stel voor om ze aan te maken.',
+      'Eindig met een korte vraag wat hij nu wil doen (bv. een gesprek verwerken, de chatter bekijken, wat nog ontbreekt invullen).',
+      'Meer nodig? Roep gebouw_dossier opnieuw aan met enkel de onderdelen die je nodig hebt: "gegevens" (velden, interne notitie, pijnpunten), "ontbreekt" (lege velden met hun keuzes: nodig voor een voorstel), "chatter", "geschiedenis" (gesprekken, afspraken, taken, offertes, events, bijlagen), "website", "nakijken".',
+      '', '## In het kort', ...kort, '', sleutels,
+    ];
+  } else {
+    // Het dossier in stukken per kop; enkel de gevraagde stukken gaan mee.
+    const stukken = [];
+    let huidig = { kop: null, regels: [] };
+    for (const regel of r) {
+      if (regel.startsWith('## ')) { stukken.push(huidig); huidig = { kop: regel.slice(3), regels: [regel] }; }
+      else huidig.regels.push(regel);
+    }
+    stukken.push(huidig);
+    uit = [...stukken[0].regels];
+    for (const s of stukken.slice(1)) if (gevraagd.has(onderdeelVan(s.kop))) uit.push(...s.regels);
+    uit.push('', sleutels);
+  }
+  uit.push('', `_Opgehaald in ${Date.now() - t0} ms._`);
+  return { tekst: uit.join('\n'), kern };
+}
+
+export const ONDERDELEN = ['gegevens', 'ontbreekt', 'chatter', 'geschiedenis', 'website', 'nakijken'];
+
+function onderdeelVan(kop) {
+  if (/^(Gebouw|Contactpersonen|Leads|Actieblad)\b/.test(kop)) return 'gegevens';
+  if (/^Nog niet bekend/.test(kop)) return 'ontbreekt';
+  if (/^Chatter/.test(kop)) return 'chatter';
+  if (/^Website/.test(kop)) return 'website';
+  if (/^Na te kijken/.test(kop)) return 'nakijken';
+  return 'geschiedenis';
 }
 
 export { MODELLEN };

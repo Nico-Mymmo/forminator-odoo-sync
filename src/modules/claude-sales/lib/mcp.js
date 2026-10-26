@@ -3,7 +3,7 @@
  * POST /mcp/sales.
  *
  * Claude doet het denkwerk op het account van de medewerker. Deze server
- * heeft precies drie functies: een gebouw zoeken, het dossier geven, en
+ * heeft vier functies: een gebouw zoeken, een overzicht van leads, het dossier geven, en
  * wegschrijven wat de medewerker bevestigde. Er draait hier geen AI.
  *
  * Elke aanroep heeft een token (zie oauth.js). Zonder token: 401 met de
@@ -15,7 +15,8 @@ import { getCoreDb } from '../../../lib/core-db.js';
 import { valideerBearer, resourceMetadataUrl } from './oauth.js';
 import { gebruikerVoorConnector } from './toegang.js';
 import { zoekGebouw } from './zoeken.js';
-import { bouwDossier } from './dossier.js';
+import { bouwDossier, ONDERDELEN } from './dossier.js';
+import { mijnLeads } from './leads.js';
 import { werkDossierBij } from './bijwerken.js';
 import { SalesError, LOG_PREFIX } from './constants.js';
 
@@ -25,9 +26,9 @@ const INSTRUCTIES = `Je helpt een salesmedewerker van mymmo (OpenVME en Syndicoa
 
 Werkwijze:
 1. Zoek het gebouw met zoek_gebouw (naam, adres, contactpersoon, e-mail, telefoon, lead). Bij meerdere treffers: vraag welk.
-2. Haal het dossier met gebouw_dossier. Toon EERST enkel het blok "In het kort" uit het dossier: een tabel met de kern, hoogstens drie punten om na te kijken, wat er nog ontbreekt. Geen lap tekst, geen opsomming van alles wat je las. Eindig met een korte vraag wat de gebruiker nu wil doen. Details (de chatter, mails, website, de velden) geef je pas als hij erom vraagt.
+2. Haal het dossier met gebouw_dossier (zonder onderdelen: dan krijg je enkel "In het kort"). Toon dat blok: een tabel met de kern, hoogstens drie punten om na te kijken, wat er nog ontbreekt. Geen lap tekst, geen opsomming van alles wat je las. Eindig met een korte vraag wat de gebruiker nu wil doen. Details (de chatter, mails, website, de velden) vraag je pas op als hij erom vraagt, met enkel het onderdeel dat nodig is.
    Ontbreekt er een schakel van de keten contact - gebouw - lead - actieblad (zie de regel "Dossier:" in In het kort), zeg dat ALTIJD en stel voor om ze aan te maken: een gebouw met nieuw_gebouw, een contact met nieuwe_contacten, een actieblad met nieuw_actieblad. Een lead maak je niet zelf aan: zeg dat die in Odoo moet komen.
-3. Geeft de gebruiker nieuwe info (een gespreksverslag, notities, een document): stel een wijziging voor en toon die eerst, met:
+3. Geeft de gebruiker nieuwe info (een gespreksverslag, notities, een document): vraag eerst gebouw_dossier op met onderdelen ["gegevens", "ontbreekt"] (velden, interne notitie, pijnpunten, keuzes), en stel dan een wijziging voor en toon die eerst, met:
    - per record de velden die je invult of aanpast, met de oude en de nieuwe waarde;
    - de korte samenvatting die in de chatter komt, en op welke records (lead, gebouw, contact, actieblad: enkel waar het iets toevoegt);
    - de NIEUWE VOLLEDIGE interne notitie van de lead: een samenvatting van ALLES wat we over dit gebouw weten (de huidige notitie + het dossier + de nieuwe info), niet enkel het nieuwe. Houd ze gestructureerd (Situatie, Wie is wie, Noden en pijnpunten, Bezwaren, Afspraken en volgende stap).
@@ -35,6 +36,12 @@ Werkwijze:
    - de pijnpunten die uit het gesprek blijken, met een score van 1 (speelt nauwelijks) tot 5 (speelt sterk). Enkel wat echt gezegd werd; de rest laat je open.
    - Hangt er nog geen gebouw aan (een nieuwe aanvraag van een persoon): stel voor om het aan te maken met nieuw_gebouw (naam van de VME, adres, type). Gegevens van het gebouw (kavels, mede-eigenaars, huidige syndicus, type beheer) gaan dan naar dat gebouw (record "gebouw", id 0), nooit naar de persoon.
 4. Pas NA een uitdrukkelijk "ja" van de gebruiker roep je dossier_bijwerken aan met bevestigd: true. Geef daarna kort wat bewaard is en de links.
+
+Zuinig zijn (het verbruik gaat van het Claude-account van de gebruiker):
+- Een overzicht van meerdere leads of gebouwen ("wat moet ik opvolgen", "mijn leads", "wie bel ik vandaag") vraag je op met mijn_leads: EEN opvraging. Open NOOIT dossiers een voor een om een overzicht te maken.
+- Hoogstens 3 dossiers per vraag van de gebruiker. Moet het er meer zijn, vraag dan eerst welk gebouw.
+- Vraag een dossier niet opnieuw op als je het in dit gesprek al hebt, tenzij na een bewaring.
+- Zoek met zoek_gebouw op de beste zoekterm; probeer niet tien varianten na elkaar.
 
 Samenvatten is VERPLICHT bij elke bewaring: een korte samenvatting van wat er nu gebeurde in de chatter van de lead, en de nieuwe volledige interne notitie van de lead. Zonder die twee weigert dossier_bijwerken. Is er geen lead, dan een notitie in de chatter van het gebouw of het contact. De velden "AI samenvatting" en "AI suggestie" op het actieblad gebruik je niet.
 
@@ -65,12 +72,27 @@ const TOOLS = [
   {
     name: 'gebouw_dossier',
     title: 'Dossier van een gebouw',
-    description: 'Alles wat we over een gebouw weten: gebouw, contactpersonen, leads met hun interne notitie, actieblad, chatter en mails, gesprekken, afspraken, offertes en abonnementen, events, bijlagen, websitebezoeken (hoe ze ons vonden, wat ze bekeken), wat er nagekeken moet worden, en welke velden nog niet ingevuld zijn (met hun technische naam en keuzes). Geef gebouw_id, of lead_id voor een lead zonder gebouw. Toon de gebruiker eerst enkel het blok "In het kort".',
+    description: 'Het dossier van EEN gebouw. Zonder onderdelen: enkel "In het kort" (de kern, wat ontbreekt, wat na te kijken is) en de id\'s om bij te werken; dat is meestal genoeg. Vraag de rest per onderdeel op, enkel wat nodig is: gegevens (velden van gebouw, contacten, leads met hun interne notitie, actieblad met pijnpunten), ontbreekt (lege velden met hun keuzes, nodig voor een voorstel), chatter (mails en notities), geschiedenis (gesprekken, afspraken, taken, offertes en abonnementen, events, bijlagen), website, nakijken. Geef gebouw_id, of lead_id voor een lead zonder gebouw. Voor een overzicht van meerdere leads: mijn_leads.',
     inputSchema: {
       type: 'object',
       properties: {
         gebouw_id: { type: 'integer' },
         lead_id: { type: 'integer' },
+        onderdelen: { type: 'array', items: { type: 'string', enum: ONDERDELEN }, description: 'Leeg = enkel In het kort.' },
+      },
+    },
+    annotations: { readOnlyHint: true, openWorldHint: false },
+  },
+  {
+    name: 'mijn_leads',
+    title: 'Mijn leads',
+    description: 'Overzicht van leads in EEN tabel: lead, gebouw (met kavels), fase, volgende stap (over tijd eerst), laatst gewijzigd. Standaard de open leads van de gebruiker zelf. Gebruik dit voor elke vraag over meerdere leads ("wat moet ik opvolgen", "mijn leads", "wie bel ik vandaag"), in plaats van dossiers een voor een te openen.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        fase: { type: 'string', enum: ['open', 'gewonnen', 'verloren', 'alle'], description: 'Standaard open.' },
+        verantwoordelijke: { type: 'string', description: '"ik" (standaard), "iedereen", of de naam van een collega.' },
+        limiet: { type: 'integer', description: 'Hoogstens 50, standaard 30.' },
       },
     },
     annotations: { readOnlyHint: true, openWorldHint: false },
@@ -211,17 +233,54 @@ async function log(env, gebruiker, tool, { gebouw_id, lead_id, samenvatting, det
   }
 }
 
+// ── Rem ────────────────────────────────────────────────────────────────────
+
+// Hoeveel opvragingen per gebruiker in 5 minuten. Daarboven weigert de connector: dan is
+// Claude een overzicht aan het maken door dossiers een voor een te openen, en dat kost de
+// gebruiker zijn Claude-tegoed (83 dossiers en 286 zoekopdrachten in een uur, 2026-10-26).
+const REM = { gebouw_dossier: 10, zoek_gebouw: 20, mijn_leads: 10 };
+const REM_MS = 5 * 60 * 1000;
+
+async function teVeel(env, gebruiker, tool) {
+  const max = REM[tool];
+  if (!max) return false;
+  try {
+    const sinds = new Date(Date.now() - REM_MS).toISOString();
+    const { data } = await getCoreDb(env).from('claude_sales_log').select('id')
+      .eq('user_id', gebruiker.id).eq('tool', tool).gte('created_at', sinds).limit(max + 1);
+    return (data || []).length >= max;
+  } catch (err) {
+    console.error(LOG_PREFIX, 'rem', err?.message);
+    return false; // de rem mag de connector nooit tegenhouden als het logboek faalt
+  }
+}
+
+const REM_TEKST = {
+  gebouw_dossier: 'Gestopt: er zijn al 10 dossiers opgevraagd in 5 minuten. Open dossiers niet een voor een om een overzicht te maken: gebruik mijn_leads (EEN opvraging), of vraag de gebruiker welk gebouw hij bedoelt. Zeg de gebruiker kort dat dit zijn Claude-tegoed spaart.',
+  zoek_gebouw: 'Gestopt: er is al 20 keer gezocht in 5 minuten. Gebruik mijn_leads voor een overzicht, of vraag de gebruiker naar de naam, het adres of het mailadres van het gebouw.',
+  mijn_leads: 'Gestopt: het overzicht is al 10 keer opgevraagd in 5 minuten. Gebruik het overzicht dat je al hebt.',
+};
+
 // ── Functies ───────────────────────────────────────────────────────────────
 
 async function roepAan(env, ctx, gebruiker, naam, args) {
   const t0 = Date.now();
   const a = args || {};
   try {
+    if (await teVeel(env, gebruiker, naam)) {
+      ctx?.waitUntil?.(log(env, gebruiker, naam, { samenvatting: 'tegengehouden door de rem', ok: false, ms: Date.now() - t0 }));
+      return { tekst: REM_TEKST[naam], fout: true };
+    }
+    if (naam === 'mijn_leads') {
+      const tekst = await mijnLeads(env, gebruiker, a);
+      ctx?.waitUntil?.(log(env, gebruiker, naam, { samenvatting: [a.fase, a.verantwoordelijke].filter(Boolean).join(' ') || 'open, ik', ms: Date.now() - t0 }));
+      return { tekst };
+    }
     if (naam === 'zoek_gebouw') {
       const lijst = await zoekGebouw(env, a.zoekterm);
       ctx?.waitUntil?.(log(env, gebruiker, naam, { samenvatting: a.zoekterm, ms: Date.now() - t0 }));
       if (!lijst.length) return { tekst: `Niets gevonden voor "${a.zoekterm}". Probeer een stuk van het adres, de naam van een contactpersoon of een e-mailadres.` };
-      return { tekst: JSON.stringify({ resultaten: lijst, ms: Date.now() - t0 }, null, 1) };
+      return { tekst: JSON.stringify({ resultaten: lijst }) };
     }
     if (naam === 'gebouw_dossier') {
       const { tekst, kern } = await bouwDossier(env, a);
