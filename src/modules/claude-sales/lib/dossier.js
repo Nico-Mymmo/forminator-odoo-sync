@@ -51,7 +51,7 @@ const LEAD_EXTRA = ['name', 'partner_id', 'stage_id', 'user_id', 'team_id', 'act
   'x_studio_merged_kpi_html', 'x_studio_contact_message', 'x_studio_opportunity_actionsheet_ids'];
 const BLAD_EXTRA = ['x_name', 'x_studio_for_company_id', 'x_studio_user_id', 'x_studio_stage_id',
   'x_studio_discovery_progress', 'x_flag_level', 'x_flag_reason', 'x_flag_custom_message',
-  'x_studio_ai_insight_summary', 'x_studio_ai_suggested_next_step', 'x_studio_as_opportunity_ids'];
+  'x_studio_as_opportunity_ids'];
 
 /**
  * Ronde 1: het gebouw en wat er direct aan hangt.
@@ -113,7 +113,7 @@ async function laadGeschiedenis(env, kern) {
   };
   const leeg = Promise.resolve([]);
 
-  const [berichten, activiteiten, calendly, gesprekken, orders, events, bijlagen] = await Promise.all([
+  const [berichten, activiteiten, calendly, gesprekken, orders, events, bijlagen, pijnRijen, pijnpunten] = await Promise.all([
     groepen.length ? zacht(env, 'mail.message',
       [['message_type', 'in', ['comment', 'email', 'email_outgoing']], ...ofRecords('model', 'res_id')],
       ['date', 'model', 'res_id', 'author_id', 'email_from', 'subject', 'body', 'message_type', 'subtype_id', 'attachment_ids'],
@@ -136,8 +136,30 @@ async function laadGeschiedenis(env, kern) {
     groepen.length ? zacht(env, 'ir.attachment', ofRecords('res_model', 'res_id'),
       ['name', 'mimetype', 'create_date', 'res_model', 'res_id', 'file_size'],
       { order: 'create_date desc', limit: 25 }) : leeg,
+    bladIds.length ? zacht(env, 'x_action_sheet_pain_po', [['x_studio_action_sheet_id', 'in', bladIds]],
+      ['x_studio_action_sheet_id', 'x_studio_pain_point_id', 'x_studio_score'], { limit: 200 }) : leeg,
+    allePijnpunten(env),
   ]);
-  return { berichten, activiteiten, calendly, gesprekken, orders, events, bijlagen };
+  return { berichten, activiteiten, calendly, gesprekken, orders, events, bijlagen, pijnRijen, pijnpunten };
+}
+
+let pijnCache = { t: 0, lijst: null };
+/** De pijnpunten zoals ze in Odoo staan (x_user_painpoints), 10 minuten bewaard. */
+export async function allePijnpunten(env) {
+  if (pijnCache.lijst && Date.now() - pijnCache.t < 10 * 60 * 1000) return pijnCache.lijst;
+  const rijen = await zacht(env, 'x_user_painpoints', [['x_active', '=', true]], ['x_name', 'x_studio_short_description'], { order: 'x_studio_sequence, id' });
+  if (rijen) pijnCache = { t: Date.now(), lijst: rijen };
+  return rijen || [];
+}
+
+/** Per actieblad: elk pijnpunt met zijn score (null = nog niet gescoord). */
+export function pijnpuntenVan(gesch, bladId) {
+  const rijen = (gesch.pijnRijen || []).filter((r) => m2oId(r.x_studio_action_sheet_id) === bladId);
+  return (gesch.pijnpunten || []).map((p) => {
+    const r = rijen.find((x) => m2oId(x.x_studio_pain_point_id) === p.id);
+    const score = r && r.x_studio_score ? Number(r.x_studio_score) : null;
+    return { id: p.id, naam: p.x_name, uitleg: p.x_studio_short_description || '', score: score > 0 ? score : null };
+  });
 }
 
 // ── Tekst opbouwen ─────────────────────────────────────────────────────────
@@ -258,7 +280,11 @@ export async function bouwDossier(env, args) {
       `Odoo: ${link(env, 'x_sales_action_sheet', b.id)}`);
     const v = veldenBlok(cBlad, b);
     r.push(...v.bekend);
-    if (b.x_studio_ai_insight_summary) r.push(`- Eerdere AI-samenvatting: ${htmlNaarTekst(b.x_studio_ai_insight_summary, 800)}`);
+    const pp = pijnpuntenVan(geschiedenis, b.id);
+    if (pp.length) {
+      r.push('', `**Pijnpunten (actieblad ${b.id})**, score 1 = speelt nauwelijks, 5 = speelt sterk. Invullen met "pijnpunten" in dossier_bijwerken, enkel wat uit het gesprek blijkt:`);
+      pp.forEach((p) => r.push(`- [pijnpunt ${p.id}] ${p.naam}: ${p.score ? 'score ' + p.score : 'nog niet gescoord'}${p.uitleg ? ' (' + p.uitleg.slice(0, 160) + ')' : ''}`));
+    }
     if (v.onbekend.length) ontbreekt.push(`actieblad ${b.id}: ` + v.onbekend.map(onbekendRegel).join('; '));
   }
 
@@ -321,6 +347,7 @@ export async function bouwDossier(env, args) {
   r.unshift(
     '[Voor Claude] Toon de gebruiker EERST enkel het blok "In het kort" hieronder, in die vorm (inkorten mag, uitbreiden niet).',
     'Geen nummers of technische veldnamen naar de gebruiker: enkel namen, in gewone taal. De details eronder zijn voor jou, of voor als de gebruiker erom vraagt.',
+    'Ontbreekt er een schakel (contact, gebouw, lead of actieblad), zeg dat altijd en stel voor om ze aan te maken.',
     'Eindig met een korte vraag wat hij nu wil doen (bv. een gesprek verwerken, de chatter bekijken, wat nog ontbreekt invullen).',
     '', '## In het kort', ...kort, '---', '# Details (niet tonen tenzij gevraagd)', '');
 

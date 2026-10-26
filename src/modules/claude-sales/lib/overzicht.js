@@ -11,6 +11,7 @@
 
 import { isLeeg } from './velden.js';
 import { htmlNaarTekst } from './tekst.js';
+import { pijnpuntenVan } from './dossier.js';
 
 const m2oId = (v) => (Array.isArray(v) ? v[0] : null);
 const m2oNaam = (v) => (Array.isArray(v) ? v[1] : null);
@@ -74,6 +75,11 @@ export function kortOverzicht({ kern, gesch, web, punten, catalogi }) {
   ].filter(Boolean);
   r.push(`**${cel(kop[0])}**${kop.length > 1 ? ' · ' + kop.slice(1).map(cel).join(' · ') : ''}`, '');
 
+  // De keten contact - gebouw - lead - actieblad: wat ontbreekt, staat altijd bovenaan.
+  const schakels = [['contact', contacten.length > 0], ['gebouw', !!g], ['lead', leads.length > 0], ['actieblad', actiebladen.length > 0]];
+  const weg = schakels.filter(([, ok]) => !ok).map(([n]) => n);
+  r.push(`Dossier: ${schakels.map(([n, ok]) => `${ok ? '✅' : '❌'} ${n}`).join(' · ')}${weg.length ? ` — **ontbreekt: ${weg.join(', ')}**` : ''}`, '');
+
   const rij = (label, waarde) => { if (waarde) r.push(`| ${label} | ${cel(waarde)} |`); };
   r.push('| | |', '|---|---|');
   if (lead) {
@@ -118,6 +124,10 @@ export function kortOverzicht({ kern, gesch, web, punten, catalogi }) {
     ? `${kortDatum(volgende.t)}${Date.parse(volgende.t) < nu - 86400000 ? ' (over tijd)' : ''} ${volgende.tekst}`
     : 'niets gepland');
 
+  if (blad) {
+    const pp = pijnpuntenVan(gesch, blad.id).filter((p) => p.score).sort((a, b) => b.score - a.score);
+    rij('Pijnpunten', pp.length ? pp.slice(0, 4).map((p) => `${p.naam} (${p.score})`).join(', ') : 'nog niet gescoord');
+  }
   if (web?.samenvatting) rij('Website', web.samenvatting);
   r.push('');
 

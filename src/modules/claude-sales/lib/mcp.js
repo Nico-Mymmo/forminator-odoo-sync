@@ -26,13 +26,17 @@ const INSTRUCTIES = `Je helpt een salesmedewerker van mymmo (OpenVME en Syndicoa
 Werkwijze:
 1. Zoek het gebouw met zoek_gebouw (naam, adres, contactpersoon, e-mail, telefoon, lead). Bij meerdere treffers: vraag welk.
 2. Haal het dossier met gebouw_dossier. Toon EERST enkel het blok "In het kort" uit het dossier: een tabel met de kern, hoogstens drie punten om na te kijken, wat er nog ontbreekt. Geen lap tekst, geen opsomming van alles wat je las. Eindig met een korte vraag wat de gebruiker nu wil doen. Details (de chatter, mails, website, de velden) geef je pas als hij erom vraagt.
+   Ontbreekt er een schakel van de keten contact - gebouw - lead - actieblad (zie de regel "Dossier:" in In het kort), zeg dat ALTIJD en stel voor om ze aan te maken: een gebouw met nieuw_gebouw, een contact met nieuwe_contacten, een actieblad met nieuw_actieblad. Een lead maak je niet zelf aan: zeg dat die in Odoo moet komen.
 3. Geeft de gebruiker nieuwe info (een gespreksverslag, notities, een document): stel een wijziging voor en toon die eerst, met:
    - per record de velden die je invult of aanpast, met de oude en de nieuwe waarde;
    - de korte samenvatting die in de chatter komt, en op welke records (lead, gebouw, contact, actieblad: enkel waar het iets toevoegt);
    - de NIEUWE VOLLEDIGE interne notitie van de lead: een samenvatting van ALLES wat we over dit gebouw weten (de huidige notitie + het dossier + de nieuwe info), niet enkel het nieuwe. Houd ze gestructureerd (Situatie, Wie is wie, Noden en pijnpunten, Bezwaren, Afspraken en volgende stap).
    - eventueel een gesprek op het actieblad (type, datum, duur).
+   - de pijnpunten die uit het gesprek blijken, met een score van 1 (speelt nauwelijks) tot 5 (speelt sterk). Enkel wat echt gezegd werd; de rest laat je open.
    - Hangt er nog geen gebouw aan (een nieuwe aanvraag van een persoon): stel voor om het aan te maken met nieuw_gebouw (naam van de VME, adres, type). Gegevens van het gebouw (kavels, mede-eigenaars, huidige syndicus, type beheer) gaan dan naar dat gebouw (record "gebouw", id 0), nooit naar de persoon.
 4. Pas NA een uitdrukkelijk "ja" van de gebruiker roep je dossier_bijwerken aan met bevestigd: true. Geef daarna kort wat bewaard is en de links.
+
+Samenvatten is VERPLICHT bij elke bewaring: een korte samenvatting van wat er nu gebeurde in de chatter van de lead, en de nieuwe volledige interne notitie van de lead. Zonder die twee weigert dossier_bijwerken. Is er geen lead, dan een notitie in de chatter van het gebouw of het contact. De velden "AI samenvatting" en "AI suggestie" op het actieblad gebruik je niet.
 
 Regels:
 - Gewone taal, kort. Geen nummers (geen id's, geen "lead 11618", geen "#77") en geen technische veldnamen naar de gebruiker: noem een gebouw, lead, contact of offerte bij haar naam. Een link naar Odoo mag, met de naam als tekst. De id's in het dossier zijn enkel voor jou, om dossier_bijwerken aan te roepen.
@@ -74,7 +78,7 @@ const TOOLS = [
   {
     name: 'dossier_bijwerken',
     title: 'Dossier bijwerken in Odoo',
-    description: 'Schrijft bevestigde wijzigingen naar Odoo: velden invullen, chatternotities, de interne notitie van de lead vervangen door een nieuwe volledige samenvatting (de vorige versie komt in de chatter), een gesprek op het actieblad, nieuwe contactpersonen. ENKEL aanroepen nadat de gebruiker het voorstel gezien en uitdrukkelijk bevestigd heeft. Wordt een onderdeel geweigerd, dan wordt er niets geschreven en krijg je de reden.',
+    description: 'Schrijft bevestigde wijzigingen naar Odoo: velden invullen, pijnpunten scoren, chatternotities, de interne notitie van de lead vervangen door een nieuwe volledige samenvatting (de vorige versie komt in de chatter), een gesprek op het actieblad, nieuwe contactpersonen, een nieuw gebouw of actieblad. Met een lead in het dossier zijn een notitie op de lead en interne_notitie VERPLICHT. ENKEL aanroepen nadat de gebruiker het voorstel gezien en uitdrukkelijk bevestigd heeft. Wordt een onderdeel geweigerd, dan wordt er niets geschreven en krijg je de reden.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -135,6 +139,27 @@ const TOOLS = [
             contact_id: { type: 'integer', description: 'Het contact dat eronder komt; standaard de persoon van de lead.' },
           },
           required: ['naam'],
+        },
+        pijnpunten: {
+          type: 'array',
+          description: 'Pijnpunten op het actieblad scoren (de lijst en de huidige scores staan in het dossier). Score 1 = speelt nauwelijks, 5 = speelt sterk; null = wissen. Nieuw actieblad: actieblad_id 0.',
+          items: {
+            type: 'object',
+            properties: {
+              actieblad_id: { type: 'integer' },
+              pijnpunt: { description: 'Het id van het pijnpunt uit het dossier, of zijn naam.' },
+              score: { type: ['integer', 'null'], enum: [1, 2, 3, 4, 5, null] },
+            },
+            required: ['actieblad_id', 'pijnpunt', 'score'],
+          },
+        },
+        nieuw_actieblad: {
+          type: 'object',
+          description: 'Enkel als er nog geen actieblad is: maak het aan (fase Discovery), gekoppeld aan de contactpersoon en de lead. Velden, pijnpunten, een gesprek of notitie voor dit actieblad geef je met id 0.',
+          properties: {
+            contact_id: { type: 'integer', description: 'Standaard de contactpersoon van de lead.' },
+            lead_id: { type: 'integer', description: 'Standaard de open lead.' },
+          },
         },
         nieuwe_contacten: {
           type: 'array',

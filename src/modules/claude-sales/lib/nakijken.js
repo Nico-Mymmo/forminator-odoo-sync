@@ -126,7 +126,8 @@ export function nakijkPunten(kern, gesch, extra, web) {
   }
 
   // Actieblad
-  if (!actiebladen.length && open.some((l) => l.type === 'opportunity')) p.push('Er is een open verkoopkans, maar nog geen actieblad.');
+  if (!actiebladen.length && open.length) p.push('Er is nog geen actieblad. Maak het aan (nieuw_actieblad), dan kunnen de discoveryvragen en pijnpunten ingevuld worden.');
+  if (!leads.length) p.push('Er hangt nog geen lead aan dit gebouw.');
   for (const b of actiebladen) {
     const gelinkt = b.x_studio_as_opportunity_ids || [];
     if (!gelinkt.length && leads.length) p.push('Het actieblad hangt aan geen enkele lead.');

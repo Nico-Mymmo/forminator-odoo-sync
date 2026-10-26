@@ -41,7 +41,9 @@ export const BEWERKBAAR = {
   lead: [
     'name', 'contact_name', 'partner_name', 'email_from', 'phone', 'x_studio_mobile', 'function',
     'expected_revenue', 'date_deadline', 'priority',
-    'x_vme_naam', 'x_vme_straat', 'x_vme_huisnummer', 'x_vme_postcode', 'x_vme_plaats', 'x_vme_land', 'x_vme_kbo',
+    // Naam, straat, postcode, plaats en KBO van de VME op de lead zijn doorgeefvelden naar het
+    // gebouw (partner_id.parent_id): die vul je op het gebouw in, niet hier.
+    'x_vme_huisnummer', 'x_vme_land',
     'x_studio_search_syndic_amount_plots', 'x_studio_search_syndic_current_admin', 'x_studio_oprichting_vme',
     'x_studio_search_syndic_need_communication', 'x_studio_search_syndic_need_finance',
     'x_studio_search_syndic_need_legal', 'x_studio_search_syndic_need_management',

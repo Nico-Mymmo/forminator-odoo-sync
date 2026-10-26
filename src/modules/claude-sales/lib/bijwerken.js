@@ -13,11 +13,15 @@
  *   samenvatting, maar de vorige versie komt eerst als notitie in de chatter.
  *   Zo gaat er nooit iets verloren als Claude iets wegliet.
  * - In de chatter staat de medewerker als auteur, met "via Claude" erbij.
+ * - Elke bewaring met een lead in het dossier bevat een nieuwe VOLLEDIGE
+ *   interne notitie en een samenvatting in de chatter van de lead (Nico,
+ *   2026-10-26: "dit is een must"). Zonder lead: een notitie in de chatter.
+ *   De AI-velden op het actieblad gebruikt de connector niet.
  */
 
 import { executeKw } from '../../../lib/odoo.js';
 import { odooOrigin } from '../../../lib/medewerkers.js';
-import { laadKern } from './dossier.js';
+import { laadKern, allePijnpunten } from './dossier.js';
 import { MODELLEN, catalogus, naarOdoo } from './velden.js';
 import { esc, htmlNaarTekst, tekstNaarHtml } from './tekst.js';
 import { odooGebruiker } from './toegang.js';
@@ -68,13 +72,19 @@ export async function werkDossierBij(env, gebruiker, args) {
   // komen met record "gebouw" en id 0.
   const ng = args.nieuw_gebouw && !kern.gebouw ? args.nieuw_gebouw : null;
   if (args.nieuw_gebouw && kern.gebouw) fouten.push('nieuw_gebouw: er hangt al een gebouw aan dit dossier');
+  // Een NIEUW actieblad (er is er nog geen). Velden, pijnpunten en een gesprek daarvoor komen met id 0.
+  const na = args.nieuw_actieblad && !kern.actiebladen.length ? args.nieuw_actieblad : null;
+  if (args.nieuw_actieblad && kern.actiebladen.length) fouten.push('nieuw_actieblad: er is al een actieblad, gebruik dat');
   const recordOk = (soort, id, waar) => {
     if (!SOORTEN.includes(soort)) { fouten.push(`${waar}: onbekend record "${soort}" (gebruik ${SOORTEN.join(', ')})`); return false; }
     if (soort === 'gebouw' && ng && !Number(id)) return true;
+    if (soort === 'actieblad' && na && !Number(id)) return true;
     if (!toegelaten[soort].has(Number(id))) {
       fouten.push(soort === 'gebouw' && !kern.gebouw
         ? `${waar}: er is nog geen gebouw. Maak het aan met nieuw_gebouw (en gebruik dan id 0)`
-        : `${waar}: ${soort} ${id} hoort niet bij dit dossier`);
+        : soort === 'actieblad' && !kern.actiebladen.length
+          ? `${waar}: er is nog geen actieblad. Maak het aan met nieuw_actieblad (en gebruik dan id 0)`
+          : `${waar}: ${soort} ${id} hoort niet bij dit dossier`);
       return false;
     }
     return true;
@@ -103,6 +113,28 @@ export async function werkDossierBij(env, gebruiker, args) {
     ngContact = cid && kern.contacten.some((c) => c.id === cid) ? cid : null;
     if (ng.contact_id && !ngContact) fouten.push('nieuw_gebouw.contact_id: dat contact hoort niet bij dit dossier');
   }
+  const hoofdLead = kern.leads.find((l) => l.active !== false) || kern.leads[0] || null;
+  let naVals = null;
+  if (na) {
+    // Het gebouw van een actieblad volgt in Odoo uit zijn contactpersoon (parent_id), dus een contact is nodig.
+    const leadPartner = Array.isArray(hoofdLead?.partner_id) ? hoofdLead.partner_id[0] : null;
+    const cid = Number(na.contact_id) || (kern.contacten.some((c) => c.id === leadPartner) ? leadPartner : kern.contacten[0]?.id) || null;
+    const contact = kern.contacten.find((c) => c.id === cid);
+    if (!contact) fouten.push('nieuw_actieblad: er is geen contactpersoon (van dit gebouw) om het actieblad aan te hangen');
+    const leadId = Number(na.lead_id) || hoofdLead?.id || null;
+    if (na.lead_id && !kern.leads.some((l) => l.id === leadId)) fouten.push('nieuw_actieblad.lead_id: die lead hoort niet bij dit dossier');
+    const gNaam = kern.gebouw?.name || ng?.naam || '';
+    if (contact) {
+      naVals = {
+        x_name: `Actieblad voor ${gNaam ? gNaam + ', ' : ''}${String(contact.name).replace(/^.*?,\s*/, '')}`.slice(0, 200),
+        x_studio_contact_id: contact.id,
+        x_studio_stage_id: 1, // Discovery
+        x_active: true,
+        ...(leadId ? { x_studio_as_opportunity_ids: [[6, 0, [leadId]]] } : {}),
+        ...(Array.isArray(hoofdLead?.user_id) ? { x_studio_user_id: hoofdLead.user_id[0] } : {}),
+      };
+    }
+  }
   const schrijf = new Map(); // "soort:id" -> { model, id, vals }
   const wijzigingen = []; // leesbaar, voor het antwoord
   for (const [i, v] of (args.velden || []).entries()) {
@@ -113,9 +145,10 @@ export async function werkDossierBij(env, gebruiker, args) {
     // Een vraag op het actieblad die Odoo op het gebouw of het contact bewaart.
     if (v.record === 'actieblad' && item.via) {
       const blad = kern.actiebladen.find((b) => b.id === Number(v.id));
+      const nieuwBlad = !Number(v.id) && naVals;
       const heeft = item.via === 'gebouw'
-        ? (blad && blad.x_studio_for_company_id) || ng
-        : blad && blad.x_studio_contact_id;
+        ? (blad && blad.x_studio_for_company_id) || ng || (nieuwBlad && kern.gebouw)
+        : (blad && blad.x_studio_contact_id) || nieuwBlad;
       if (!heeft) {
         fouten.push(item.via === 'gebouw'
           ? `${waar} (${item.label}): wordt op het GEBOUW bewaard, en er hangt nog geen gebouw aan het actieblad. Maak eerst het gebouw aan (nieuw_gebouw).`
@@ -129,7 +162,7 @@ export async function werkDossierBij(env, gebruiker, args) {
         dossierContacten: kern.contacten,
       });
       const sleutel = `${v.record}:${Number(v.id) || 'nieuw'}`;
-      if (!schrijf.has(sleutel)) schrijf.set(sleutel, { model: MODELLEN[v.record], id: Number(v.id) || 'nieuw', vals: {} });
+      if (!schrijf.has(sleutel)) schrijf.set(sleutel, { soort: v.record, model: MODELLEN[v.record], id: Number(v.id) || 'nieuw', vals: {} });
       schrijf.get(sleutel).vals[item.naam] = waarde;
       wijzigingen.push(`${v.record} ${v.id}: ${item.label} = ${v.waarde === null || v.waarde === '' ? '(leeg)' : JSON.stringify(v.waarde)}`);
     } catch (err) {
@@ -164,10 +197,34 @@ export async function werkDossierBij(env, gebruiker, args) {
     return true;
   });
 
+  // Pijnpunten: score 1 (speelt nauwelijks) tot 5 (speelt sterk), null = wissen.
+  const pijn = [];
+  if ((args.pijnpunten || []).length) {
+    const lijst = await allePijnpunten(env);
+    for (const [i, p] of args.pijnpunten.entries()) {
+      const waar = `pijnpunten[${i}]`;
+      if (!p || !recordOk('actieblad', p.actieblad_id, waar)) continue;
+      const pp = lijst.find((x) => x.id === Number(p.pijnpunt)) || lijst.find((x) => String(x.x_name).toLowerCase() === String(p.pijnpunt || '').trim().toLowerCase());
+      if (!pp) { fouten.push(`${waar}: onbekend pijnpunt "${p.pijnpunt}" (kies uit: ${lijst.map((x) => `${x.id} ${x.x_name}`).join('; ')})`); continue; }
+      const score = p.score === null || p.score === '' || p.score === 0 ? null : Number(p.score);
+      if (score !== null && !(Number.isInteger(score) && score >= 1 && score <= 5)) { fouten.push(`${waar} (${pp.x_name}): score moet 1 tot 5 zijn, of null om te wissen`); continue; }
+      pijn.push({ bladId: Number(p.actieblad_id) || 0, id: pp.id, naam: pp.x_name, score });
+    }
+  }
+
+  const ietsTeBewaren = schrijf.size || notities.length || intern || gesprek || nieuwe.length || ng || na || pijn.length;
+  // Samenvatten is verplicht: de interne notitie van de lead en de chatter zijn het geheugen van sales.
+  if (ietsTeBewaren && hoofdLead) {
+    if (!intern) fouten.push(`interne_notitie ontbreekt: geef de NIEUWE VOLLEDIGE interne notitie van de lead "${hoofdLead.name}" (lead_id ${hoofdLead.id}) mee, met alles wat we weten, ook wat nu verandert.`);
+    if (!notities.some((n) => n.record === 'lead')) fouten.push(`notities ontbreekt: zet een korte samenvatting van wat er nu gebeurde in de chatter van de lead "${hoofdLead.name}" (record "lead", id ${hoofdLead.id}).`);
+  } else if (ietsTeBewaren && !notities.length) {
+    fouten.push('notities ontbreekt: zet een korte samenvatting van wat er nu gebeurde in de chatter (van het gebouw of het contact).');
+  }
+
   if (fouten.length) {
     throw new SalesError('Er is NIETS geschreven. Pas het voorstel aan:\n- ' + fouten.join('\n- '));
   }
-  if (!schrijf.size && !notities.length && !intern && !gesprek && !nieuwe.length && !ng) {
+  if (!ietsTeBewaren) {
     throw new SalesError('Er is niets om te bewaren.');
   }
 
@@ -195,8 +252,20 @@ export async function werkDossierBij(env, gebruiker, args) {
     if (ngContact) await doe('contactpersoon onder het gebouw gezet', () => kw(env, 'res.partner', 'write', [[ngContact], { parent_id: gebouwId }]));
     const losseBladen = kern.actiebladen.filter((b) => !b.x_studio_for_company_id).map((b) => b.id);
     if (losseBladen.length) await doe('actieblad aan het gebouw gehangen', () => kw(env, 'x_sales_action_sheet', 'write', [losseBladen, { x_studio_for_company_id: gebouwId }]));
-    for (const w of schrijf.values()) if (w.id === 'nieuw') w.id = gebouwId;
+    for (const w of schrijf.values()) if (w.id === 'nieuw' && w.soort === 'gebouw') w.id = gebouwId;
     notities.forEach((n) => { if (n.record === 'gebouw' && !Number(n.id)) n.id = gebouwId; });
+  }
+
+  let nieuwBladId = null;
+  if (naVals) {
+    nieuwBladId = await doe('actieblad aangemaakt', () => kw(env, 'x_sales_action_sheet', 'create', [naVals]));
+    if (!nieuwBladId) {
+      throw new SalesError(`Het actieblad kon niet aangemaakt worden (${mislukt.join('; ')}). ${gelukt.length ? 'Al gedaan: ' + gelukt.join(', ') + '. ' : ''}De rest is niet geschreven.`);
+    }
+    for (const w of schrijf.values()) if (w.id === 'nieuw' && w.soort === 'actieblad') w.id = nieuwBladId;
+    notities.forEach((n) => { if (n.record === 'actieblad' && !Number(n.id)) n.id = nieuwBladId; });
+    if (gesprek && !Number(gesprek.actieblad_id)) gesprek.actieblad_id = nieuwBladId;
+    pijn.forEach((p) => { if (!p.bladId) p.bladId = nieuwBladId; });
   }
 
   await Promise.all([...schrijf.values()].map((w) =>
@@ -212,6 +281,20 @@ export async function werkDossierBij(env, gebruiker, args) {
     ...(c.gsm ? { mobile: String(c.gsm).trim() } : {}),
     ...(c.functie ? { function: String(c.functie).trim() } : {}),
   }]))));
+
+  if (pijn.length) {
+    // Odoo maakt bij een nieuw actieblad zelf een regel per pijnpunt (automatisatie 29); bestaat ze niet, dan maken we ze.
+    const bladen = [...new Set(pijn.map((p) => p.bladId))];
+    const rijen = await kw(env, 'x_action_sheet_pain_po', 'search_read',
+      [[['x_studio_action_sheet_id', 'in', bladen]]], { fields: ['x_studio_action_sheet_id', 'x_studio_pain_point_id'] }).catch(() => []);
+    await Promise.all(pijn.map((p) => {
+      const r = rijen.find((x) => x.x_studio_action_sheet_id?.[0] === p.bladId && x.x_studio_pain_point_id?.[0] === p.id);
+      const score = p.score === null ? false : String(p.score);
+      return doe(`pijnpunt "${p.naam}" ${p.score === null ? 'gewist' : 'score ' + p.score}`, () => (r
+        ? kw(env, 'x_action_sheet_pain_po', 'write', [[r.id], { x_studio_score: score }])
+        : kw(env, 'x_action_sheet_pain_po', 'create', [{ x_studio_action_sheet_id: p.bladId, x_studio_pain_point_id: p.id, x_name: p.naam, x_studio_score: score, x_active: true }])));
+    }));
+  }
 
   if (gesprek) {
     const dag = gesprek.datum || new Date().toISOString().slice(0, 10);
@@ -249,6 +332,7 @@ export async function werkDossierBij(env, gebruiker, args) {
   if (gebouwId) links.push(`Gebouw${ng ? ' (nieuw)' : ''}: ${link(env, 'res.partner', gebouwId)}`);
   kern.leads.slice(0, 3).forEach((l) => links.push(`Lead ${l.name}: ${link(env, 'crm.lead', l.id)}`));
   kern.actiebladen.slice(0, 2).forEach((b) => links.push(`Actieblad: ${link(env, 'x_sales_action_sheet', b.id)}`));
+  if (nieuwBladId) links.push(`Actieblad (nieuw): ${link(env, 'x_sales_action_sheet', nieuwBladId)}`);
   nieuweIds.filter(Boolean).forEach((id) => links.push(`Nieuwe contactpersoon: ${link(env, 'res.partner', id)}`));
 
   const tekst = [
@@ -261,7 +345,7 @@ export async function werkDossierBij(env, gebruiker, args) {
   return {
     tekst,
     ok: !mislukt.length,
-    details: { gelukt, mislukt, wijzigingen, notities: notities.length, intern: !!intern, gesprek: !!gesprek, nieuwe_contacten: nieuwe.length },
+    details: { gelukt, mislukt, wijzigingen, notities: notities.length, intern: !!intern, gesprek: !!gesprek, nieuwe_contacten: nieuwe.length, pijnpunten: pijn.length, nieuw_actieblad: !!nieuwBladId },
     kern,
   };
 }

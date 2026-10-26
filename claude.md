@@ -6710,7 +6710,21 @@ Afspraken die bewust zo zijn:
 - **Toegang = de module `claude_sales`** (of beheerder), nagekeken bij het
   verbinden EN bij elke aanroep. Module afnemen of gebruiker deactiveren werkt
   binnen een minuut. Intrekken kan op `/claude-sales`.
-- **Nog niet gebouwd, bewust:** een gebouw aanmaken voor een lead zonder klant,
+- **Samenvatten is VERPLICHT** (Nico, 2026-10-26: "dit is een must"): met een lead
+  in het dossier weigert `dossier_bijwerken` elke bewaring zonder `interne_notitie`
+  (de nieuwe volledige samenvatting) en zonder notitie in de chatter van de lead;
+  zonder lead is een notitie op gebouw of contact verplicht. De AI-velden op het
+  actieblad (`x_studio_ai_*`) gebruikt de connector NIET: ze gaan weg.
+- **De keten contact - gebouw - lead - actieblad staat bovenaan "In het kort"**
+  (regel "Dossier:" met wat ontbreekt). Gebouw (`nieuw_gebouw`), contact
+  (`nieuwe_contacten`) en actieblad (`nieuw_actieblad`, fase Discovery, met lead en
+  contact) kan de connector aanmaken; een lead niet.
+- **Pijnpunten** (`x_action_sheet_pain_po`, score "1"-"5" per `x_user_painpoints`):
+  in het dossier per actieblad, invullen met `pijnpunten`. Odoo maakt de regels zelf
+  bij een nieuw actieblad (automatisatie 29); ontbreekt er een, dan maakt de
+  connector ze.
+- Dubbele velden tussen lead, actieblad en gebouw: `docs/dubbele-velden-lead-actieblad-gebouw.md`.
+- **Nog niet gebouwd, bewust:** een lead aanmaken,
   bijlagen uploaden naar Odoo (Claude leest het document zelf en zet de
   samenvatting in de chatter), de fase van een lead wijzigen, en schrijven
   namens de eigen Odoo-gebruiker (vraagt een Odoo-sleutel per persoon).
