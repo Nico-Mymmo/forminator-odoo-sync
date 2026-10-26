@@ -28,7 +28,7 @@ const VIEW = 1694;
 const NAAM_WEBHOOK = 'OpenVME: VME aanmaken (webhook)';
 const NAAM_KNOP = 'OpenVME: VME aanmaken';
 const VELDEN = [
-  'x_vme_naam', 'x_vme_kbo', 'x_vme_straat', 'x_vme_huisnummer', 'x_vme_postcode', 'x_vme_plaats', 'x_vme_land',
+  // De VME zelf gaat niet mee: OpenVME leest ze via partner_id -> parent_id (het bedrijf).
   'x_vme_members', 'partner_id', 'contact_name', 'email_from', 'phone', 'mobile',
   'x_odoo_database', // berekend, NIET bewaard: zegt uit welke database (productie of sandbox) de webhook komt
 ];
@@ -82,7 +82,9 @@ if (!knop) {
 
 // 2b. Rekenveld voor het overzicht in het venster
 const controle = readFileSync(join(hier, 'openvme-controle.py'), 'utf8').split(CR).join('');
-const DEPENDS = 'x_vme_naam,x_vme_kbo,x_vme_straat,x_vme_huisnummer,x_vme_postcode,x_vme_plaats,x_vme_land,x_vme_members,partner_id,email_from,phone,mobile,contact_name';
+const DEPENDS = ['partner_id', 'partner_id.email', 'partner_id.phone', 'partner_id.mobile', 'partner_id.is_company', 'partner_id.parent_id',
+  ...['name', 'is_company', 'street', 'zip', 'city', 'country_id', 'x_studio_registration_number'].map((f) => 'partner_id.parent_id.' + f),
+  'x_vme_members', 'email_from', 'phone', 'mobile', 'contact_name'].join(',');
 const cv = { compute: controle, depends: DEPENDS, store: false, readonly: true, sanitize: false };
 const [cveld] = await kw('ir.model.fields', 'search', [[['model', '=', 'crm.lead'], ['name', '=', 'x_vme_controle_html']]]).then((x) => x);
 if (cveld) { await kw('ir.model.fields', 'write', [[cveld], cv]); console.log('overzichtsveld bijgewerkt'); }

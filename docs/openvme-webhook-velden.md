@@ -21,7 +21,7 @@ wordt er niets verstuurd.
 ## Vorm van de webhook
 
 Eén POST met een JSON-object. Een leeg veld komt altijd als `false`, nooit
-als `""` of `null`. Een echte levering (testlead, 23/10/2026):
+als `""` of `null`. Voorbeeld:
 
 ```json
 {
@@ -29,13 +29,6 @@ als `""` of `null`. Een echte levering (testlead, 23/10/2026):
   "_id": 11905,
   "_model": "crm.lead",
   "id": 11905,
-  "x_vme_naam": "Test Nico",
-  "x_vme_kbo": "0145258741",
-  "x_vme_straat": "Teststraat",
-  "x_vme_huisnummer": "36",
-  "x_vme_postcode": "2150",
-  "x_vme_plaats": "Lier",
-  "x_vme_land": "BE",
   "x_vme_members": "[{\"firstname\":\"TEST\",\"lastname\":\"NICo\",\"email\":\"nico+testcreeer@mymmo.com\"}]",
   "partner_id": 938921,
   "contact_name": "TEST NICo",
@@ -55,15 +48,18 @@ iets anders. Zo kan OpenVME een levering uit een sandbox weigeren.
 
 ## VME (het gebouw)
 
-| Veld | Type | Verplicht | In de webhook |
-|---|---|---|---|
-| `x_vme_naam` | tekst | ja | `"VME Residentie Park"` |
-| `x_vme_straat` | tekst | ja | `"Registratiestraat"` |
-| `x_vme_huisnummer` | tekst | ja | `"25"` of `"25 bus 3"` |
-| `x_vme_postcode` | tekst | ja | `"2100"` (NL: `"1011 AB"`) |
-| `x_vme_plaats` | tekst | ja | `"Berchem"` |
-| `x_vme_land` | keuze | ja | `"BE"` of `"NL"` |
-| `x_vme_kbo` | tekst | ja | zoals getypt, bv. `"0637.852.501"` (punten, spaties of `BE` ervoor zijn mogelijk: normaliseren aan de kant van OpenVME), of `false` |
+De VME staat **niet** in de webhook. Ze is een bestaand bedrijf in Odoo: het
+**Bedrijf** (`parent_id`) van de contactpersoon. OpenVME haalt ze op via
+`partner_id` -> `parent_id` (`res.partner`, `is_company = true`).
+
+| Veld op het bedrijf | Verplicht (Odoo laat de knop pas toe als het ingevuld is) | Voorbeeld |
+|---|---|---|
+| `name` | ja | `"VME Residentie Park"` |
+| `street` | ja, met huisnummer | `"Teststraat 36"`, `"Teststraat 36 bus 3"` |
+| `zip` | ja | `"2100"` (NL: `"1011 AB"`) |
+| `city` | ja | `"Berchem"` |
+| `country_id` | ja, België of Nederland | land met code `BE` of `NL` |
+| `x_studio_registration_number` | ja (beslissing mymmo; voor OpenVME optioneel) | KBO/KvK zoals getypt, bv. `"0637.852.501"`: normaliseren aan de kant van OpenVME |
 
 ## Leden van de VME
 
@@ -94,7 +90,7 @@ Wordt de eerste gebruiker van de omgeving.
 
 | Veld | Type | Verplicht | In de webhook |
 |---|---|---|---|
-| `partner_id` | `res.partner` (persoon, `is_company = false`) | ja, en nog zonder `x_studio_soid` | het nummer van de partner |
+| `partner_id` | `res.partner` (persoon, `is_company = false`) | ja, nog zonder `x_studio_soid`, en met de VME als Bedrijf (`parent_id`) | het nummer van de partner |
 | `contact_name` | tekst | | volledige naam |
 | `email_from` | tekst | ja (geldig adres) | e-mailadres |
 | `mobile` | tekst | nee | gsm-nummer |
@@ -114,5 +110,8 @@ moet OpenVME zelf afleiden (of de partner ophalen via de API).
   de contactpersoon: dan weigert de knop.
 - **Odoo controleert vóór de knop, OpenVME controleert toch zelf.** Een
   e-mailadres of KBO-nummer kan de juiste vorm hebben maar toch niet kloppen.
-- **Naam van de VME = `x_vme_naam`.** Het standaardveld "Company Name"
-  (`partner_name`) staat er los van; niet gebruiken voor de VME.
+- **Naam van de VME = `name` van het bedrijf** (`partner_id` -> `parent_id`).
+  Het veld "Company Name" (`partner_name`) op de lead staat er los van; niet
+  gebruiken voor de VME.
+- **De velden `x_vme_naam`, `x_vme_straat`, ... `x_vme_kbo` op de lead worden
+  niet meer gebruikt** en zitten niet meer in de webhook.

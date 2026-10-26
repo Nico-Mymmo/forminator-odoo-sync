@@ -44,7 +44,7 @@ console.log('Klaargezet in', uit);
 if (!schrijf) process.exit(0);
 
 const [mod] = await kw('ir.model', 'search_read', [[['model', '=', 'crm.lead']]], { fields: ['id'] });
-const velden = await kw('ir.model.fields', 'search_read', [[['model', '=', 'crm.lead'], ['name', 'in', ['partner_id', 'x_vme_members', 'stage_id', 'email_from', 'x_vme_naam']]]], { fields: ['id'] });
+const velden = await kw('ir.model.fields', 'search_read', [[['model', '=', 'crm.lead'], ['name', 'in', ['partner_id', 'x_vme_members', 'stage_id', 'email_from']]]], { fields: ['id'] });
 
 let [aut] = await kw('base.automation', 'search_read', [[['name', '=', NAAM]]], { fields: ['id', 'action_server_ids'], context: { active_test: false } });
 if (!aut) {

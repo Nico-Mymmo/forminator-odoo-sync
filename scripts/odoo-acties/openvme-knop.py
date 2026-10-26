@@ -4,6 +4,7 @@
 # knop welk veld, en wordt er niets verstuurd.
 # Geen backslashes in deze code: nieuwe regels via chr(10).
 
+# De VME is een bedrijf in Odoo: het Bedrijf (parent_id) van de contactpersoon.
 # Wat verplicht is (afspraak met de ontwikkelaars van OpenVME). Zet op True of False.
 KBO_VERPLICHT = True
 LEDEN_VERPLICHT = False
@@ -24,22 +25,37 @@ def ml_mail_ok(e):
 NL = chr(10)
 for lead in records:
     fout = []
-    for veld, label in (('x_vme_naam', 'naam'), ('x_vme_straat', 'straat'),
-                        ('x_vme_huisnummer', 'nummer'), ('x_vme_postcode', 'postcode'),
-                        ('x_vme_plaats', 'plaats'), ('x_vme_land', 'land')):
-        w = lead[veld]
-        if not w or not str(w).strip():
-            fout.append('Vul de ' + label + ' van de VME in (tabblad Syndicoach).')
-    if KBO_VERPLICHT and not (lead.x_vme_kbo or '').strip():
-        fout.append('Vul het KBO-nummer van de VME in (tabblad Syndicoach).')
     p = lead.partner_id
+    vme = p.parent_id if p else False
     if not p:
         fout.append('Er staat geen klant (contactpersoon) op de lead.')
     else:
+        if p.is_company:
+            fout.append('De klant op de lead is een bedrijf. Zet er de contactpersoon (een persoon) op.')
         if p.x_studio_soid:
             fout.append('Deze contactpersoon staat al in OpenVME (soid ' + str(p.x_studio_soid) + ').')
         if not ml_mail_ok(p.email or lead.email_from):
             fout.append('De contactpersoon heeft geen geldig e-mailadres.')
+        if not vme and not p.is_company:
+            fout.append('De contactpersoon hangt nog aan geen VME. Maak de VME aan als bedrijf en kies ze bij de contactpersoon als Bedrijf.')
+    if vme:
+        wie = ' (bedrijf ' + (vme.name or '') + ')'
+        if not vme.is_company:
+            fout.append('Het bedrijf van de contactpersoon' + wie + ' staat niet als bedrijf in Odoo.')
+        for veld, label in (('name', 'naam'), ('street', 'straat en huisnummer'), ('zip', 'postcode'), ('city', 'plaats')):
+            if not (vme[veld] or '').strip():
+                fout.append('Vul de ' + label + ' van de VME in' + wie + '.')
+        straat = vme.street or ''
+        cijfer = False
+        for c in straat:
+            if c.isdigit():
+                cijfer = True
+        if straat.strip() and not cijfer:
+            fout.append('Het huisnummer ontbreekt in de straat van de VME' + wie + ': zet het achter de straat, bv. Teststraat 36.')
+        if not vme.country_id or vme.country_id.code not in ('BE', 'NL'):
+            fout.append('Het land van de VME moet België of Nederland zijn' + wie + '.')
+        if KBO_VERPLICHT and not (vme.x_studio_registration_number or '').strip():
+            fout.append('Vul het ondernemingsnummer (KBO) van de VME in' + wie + '.')
     leden = []
     for l in ml_parse(lead.x_vme_members):
         if isinstance(l, dict):
