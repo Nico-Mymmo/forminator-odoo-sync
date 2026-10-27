@@ -32,6 +32,8 @@
        een navbar, en de sandbox laat het iframe het venster niet wegnavigeren. -->
   <script>try { if (window.self !== window.top) document.getElementById('ovKnopTerug').hidden = true; } catch (e) { document.getElementById('ovKnopTerug').hidden = true; }</script>
   <span class="ov-werkbalk-titel">Offerte</span>
+  <!-- Enkel bij een sjabloon met versies (offerte-render.js, tekenVersies). -->
+  <span class="ov-versies" id="ovVersies" role="group" aria-label="Versie van de offerte" hidden></span>
   <!-- Wat collega's elke dag nodig hebben staat in de balk; al de rest zit
        onder Instellingen. Het menu is een <details>: werkt met het
        toetsenbord zonder eigen code, offerte-render.js sluit het enkel na een

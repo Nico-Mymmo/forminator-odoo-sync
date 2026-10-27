@@ -65,6 +65,21 @@
      een nieuwe offerte, en niet met de gegevens van gisteren erin. */
   var CONCEPT_GELDIG_MS = 12 * 60 * 60 * 1000;
 
+  /* VERSIES van een sjabloon: dezelfde offerte met een eigen tekst EN een
+     eigen indeling per soort postcode (Regio's). Een sjabloon met versies
+     heeft `data.varianten = { intern: copy, extern: copy, zonder: copy }`;
+     `data.copy` is dan een kopie van de eerste versie, zodat alles wat
+     `data.copy` leest (een stap zonder versiekeuze) blijft werken. Zonder
+     `varianten` is er geen keuze en verandert er niets.
+     Elke versie is een VOLLEDIGE copy, geen lijst afwijkingen: wat je ziet als
+     je een versie kiest, is precies wat er bewaard staat. */
+  var VERSIES = [
+    { id: 'intern', label: 'Syndicoach zelf' },
+    { id: 'extern', label: 'Externe syndicoach' },
+    { id: 'zonder', label: 'Geen syndicoach' }
+  ];
+  var VERSIE_SLEUTEL = TEMPLATE_ID ? 'offerte-versie-' + TEMPLATE_ID : null;
+
   /* De gegevens van het sjabloon zoals ze van de server kwamen. In "Offerte
      opstellen" staan die voorbeeldwaarden als hint in een leeg veld. */
   var sjabloonVoorbeeld = null;
@@ -861,6 +876,7 @@
     herberekenLicentie();
     var doc = document.getElementById('ovDocument');
     doc.innerHTML = tekenPaginas();
+    tekenVersies();
     document.body.classList.toggle('ov-bewerkstand', bewerken);
     document.body.classList.toggle('ov-opmaakstand', opmaakStand);
     var knopOpmaak = document.getElementById('ovKnopOpmaak');
@@ -961,7 +977,9 @@
     if (!Array.isArray(velden) || !staat || !staat.copy) return false;
 
     var gebruikt = {};
-    JSON.stringify(staat.copy).replace(/\{\{\s*([\w]+(?:\.[\w]+)+)\s*\}\}/g, function (_, pad) {
+    /* Met versies: een veld dat enkel in een ANDERE versie staat, mag niet
+       weg omdat het in de getoonde versie ontbreekt. */
+    JSON.stringify(staat.varianten ? metVersies().varianten : staat.copy).replace(/\{\{\s*([\w]+(?:\.[\w]+)+)\s*\}\}/g, function (_, pad) {
       if (!GEEN_INVULVELD.test(pad)) gebruikt[pad] = true;
       return '';
     });
@@ -1091,13 +1109,53 @@
         method: 'PUT',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ data: { gegevens: gegevensVoorSjabloon(), copy: staat.copy, velden: window.OFFERTE_VELDEN } })
+        body: JSON.stringify({ data: sjabloonData() })
       }).then(function (res) {
         melding(res.ok ? 'Bewaard.' : 'Bewaren mislukt.');
       }).catch(function () {
         melding('Bewaren mislukt (geen verbinding).');
       });
     }, 1000);
+  }
+
+  /* De versie die nu getoond wordt, terug in de lijst van versies zetten.
+     staat.copy is meestal hetzelfde object, maar JSON toepassen of herstellen
+     zet er een nieuw object in de plaats. */
+  function metVersies() {
+    if (staat.varianten) staat.varianten[staat.variant] = staat.copy;
+    return staat;
+  }
+
+  function sjabloonData() {
+    var d = { gegevens: gegevensVoorSjabloon(), copy: staat.copy, velden: window.OFFERTE_VELDEN };
+    if (staat.varianten) {
+      metVersies();
+      d.varianten = staat.varianten;
+      d.copy = staat.varianten[VERSIES[0].id] || staat.copy;
+    }
+    return d;
+  }
+
+  /* Een andere versie tonen. Tekst en indeling wisselen mee; de gegevens van
+     de offerte (klant, gebouw, nummer) blijven staan. */
+  function kiesVersie(id) {
+    if (!staat.varianten || !staat.varianten[id] || id === staat.variant) return;
+    metVersies();
+    staat.variant = id;
+    staat.copy = staat.varianten[id];
+    try { if (VERSIE_SLEUTEL) window.localStorage.setItem(VERSIE_SLEUTEL, id); } catch (e) { /* niet erg */ }
+    teken();
+  }
+
+  function tekenVersies() {
+    var houder = document.getElementById('ovVersies');
+    if (!houder) return;
+    houder.hidden = !staat.varianten;
+    if (!staat.varianten) { houder.innerHTML = ''; return; }
+    houder.innerHTML = VERSIES.filter(function (v) { return staat.varianten[v.id]; }).map(function (v) {
+      return '<button type="button" class="ov-versie' + (v.id === staat.variant ? ' ov-versie--actief' : '') + '"' +
+        ' data-action="versie" data-versie="' + v.id + '" aria-pressed="' + (v.id === staat.variant) + '">' + esc(v.label) + '</button>';
+    }).join('');
   }
 
   /* Het sjabloon van de server ophalen (bij het opstarten, of na "Herstellen"). */
@@ -1115,6 +1173,13 @@
         var data = json.data.data || {};
         window.OFFERTE_VELDEN = data.velden || window.OFFERTE_VELDEN;
         staat = { gegevens: data.gegevens, copy: data.copy };
+        if (data.varianten && typeof data.varianten === 'object' && data.varianten[VERSIES[0].id]) {
+          var gekozen = null;
+          try { gekozen = VERSIE_SLEUTEL && window.localStorage.getItem(VERSIE_SLEUTEL); } catch (e) { /* niet erg */ }
+          staat.varianten = data.varianten;
+          staat.variant = data.varianten[gekozen] ? gekozen : VERSIES[0].id;
+          staat.copy = data.varianten[staat.variant];
+        }
         sjabloonVoorbeeld = kopie(staat.gegevens || {});
         contactAuto = false;
         var eigenContact = herstelConcept();
@@ -2053,6 +2118,8 @@
       afdrukken();
     } else if (actie === 'pdf-maken') {
       maakPdf();
+    } else if (actie === 'versie') {
+      kiesVersie(el.dataset.versie);
     } else if (actie === 'documenten') {
       toonDocumenten();
     } else if (actie === 'gegevens') {

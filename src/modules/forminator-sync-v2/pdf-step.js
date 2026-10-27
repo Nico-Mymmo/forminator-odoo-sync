@@ -646,6 +646,14 @@ export function validatePdfTemplateData(data) {
   if (!Array.isArray(data.velden)) {
     throw validatieFout('Sjabloon: "velden" moet een lijst zijn.');
   }
+  /* Versies (offerte-render.js, VERSIES): optioneel, elk een volledige copy. */
+  if (data.varianten !== undefined) {
+    const v = data.varianten;
+    if (!v || typeof v !== 'object' || Array.isArray(v)
+        || Object.values(v).some((c) => !c || typeof c !== 'object' || Array.isArray(c))) {
+      throw validatieFout('Sjabloon: "varianten" moet per versie een copy-object zijn.');
+    }
+  }
 }
 
 /**
@@ -853,6 +861,11 @@ export async function updatePdfTemplate(env, id, { name, data, sequence_pattern,
     const huidig = await getPdfTemplate(env, id);
     const bestaand = (huidig.data && huidig.data.gegevens) || {};
     updates.data = { ...data, gegevens: mergeSjabloonGegevens(bestaand, data.gegevens) };
+    /* Een open tabblad met een editor van voor de versies stuurt er geen mee;
+       dan blijven de bewaarde versies staan in plaats van te verdwijnen. */
+    if (data.varianten === undefined && huidig.data && huidig.data.varianten) {
+      updates.data.varianten = huidig.data.varianten;
+    }
   }
   if (sequence_pattern !== undefined) updates.sequence_pattern = String(sequence_pattern || '').trim() || null;
   if (geldigheid_dagen !== undefined) {
