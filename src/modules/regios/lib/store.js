@@ -28,7 +28,7 @@ export function naamVanGebruiker(user) {
 
 export async function listSyndicoaches(env) {
   const rijen = check(await db(env).from('regio_syndicoaches')
-    .select('id, naam, kleur, position, created_at')
+    .select('id, naam, kleur, biv, adres, position, created_at')
     .order('position').order('created_at'), 'Syndicoaches lezen') || [];
   return rijen;
 }
@@ -108,7 +108,7 @@ export async function syndicoachVoorPostcode(env, raw) {
   const r = check(await db(env).from('regio_postcodes').select('syndicoach_id').eq('postcode', pc).maybeSingle(), 'Postcode lezen');
   if (!r) return null;
   const s = await getSyndicoach(env, r.syndicoach_id);
-  return s ? { postcode: pc, id: s.id, naam: s.naam, kleur: s.kleur } : null;
+  return s ? { postcode: pc, id: s.id, naam: s.naam, kleur: s.kleur, biv: s.biv || '', adres: s.adres || '' } : null;
 }
 
 // ── Logboek ───────────────────────────────────────────────────────────────
@@ -182,6 +182,11 @@ export async function updateSyndicoach(env, id, waarden, user) {
     const kleur = schoonKleur(waarden.kleur, null);
     if (!kleur) throw new RegioError('Ongeldige kleur.');
     if (kleur !== huidig.kleur) { upd.kleur = kleur; wat.push('andere kleur'); }
+  }
+  for (const [veld, label, max] of [['biv', 'BIV-nummer', 40], ['adres', 'adres', 200]]) {
+    if (waarden[veld] === undefined) continue;
+    const w = String(waarden[veld] || '').replace(/\s+/g, ' ').trim().slice(0, max);
+    if (w !== (huidig[veld] || '')) { upd[veld] = w; wat.push(w ? `${label} ${w}` : `${label} gewist`); }
   }
   if (!wat.length) return huidig;
   check(await db(env).from('regio_syndicoaches').update(upd).eq('id', id), 'Syndicoach bewaren');

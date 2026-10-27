@@ -87,6 +87,8 @@
     instellenId = id;
     $('dlgCoachNaam').value = s.naam;
     $('dlgCoachKleur').value = s.kleur;
+    $('dlgCoachBiv').value = s.biv || '';
+    $('dlgCoachAdres').value = s.adres || '';
     $('dlgCoach').showModal();
   }
 
@@ -96,6 +98,8 @@
     var body = {
       naam: $('dlgCoachNaam').value.trim(),
       kleur: $('dlgCoachKleur').value,
+      biv: $('dlgCoachBiv').value.trim(),
+      adres: $('dlgCoachAdres').value.trim(),
     };
     try {
       var bijgewerkt = await RG.schrijf(function () { return RG.api('/syndicoaches/' + encodeURIComponent(s.id), { method: 'PUT', body: body }); }, 'Bewaren mislukt');

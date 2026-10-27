@@ -33,6 +33,7 @@ import { resolveEmployeeRef } from './employee-reference.js';
 import { postChatterMessage } from './odoo-client.js';
 import { getSupabaseClient } from '../../lib/database.js';
 import { naarBase64 } from './mail-attachments.js';
+import { syndicoachVoorPostcode } from '../regios/lib/store.js';
 
 export class PdfStepError extends Error {
   constructor(message) {
@@ -474,11 +475,51 @@ export async function buildPdfGegevens(env, { target, template, mappings, form, 
     }
   }
 
+  const { copy, versie } = await kiesVersie(env, { template, gegevens, gekoppeld, waarschuwingen });
+
   const filename = veiligeBestandsnaam(
     vulTekst(target.pdf_filename_template || 'Offerte-{{offerte.nummer}}.pdf', gegevens)
   );
 
-  return { gegevens, copy: template.data.copy, filename, waarschuwingen };
+  return { gegevens, copy, versie, filename, waarschuwingen };
+}
+
+/* De drie versies van een offerte (offerte-render.js, VERSIES) hangen af van
+   de syndicoach van de postcode in Regio's:
+     Syndicoach zelf   -> 'intern'
+     een andere        -> 'extern', met naam, BIV en adres van die syndicoach
+                          in gegevens.syndicoach (uit Regio's)
+     geen syndicoach   -> 'zonder' (Enkel Digitaal)
+   Enkel als het sjabloon versies heeft EN een stap het pad regio.postcode
+   vult; anders blijft het data.copy, zoals voorheen. Kan Regio's niet gelezen
+   worden, dan ook data.copy (de versie Syndicoach), met een waarschuwing: een
+   verkeerde versie kiezen omdat de opzoeking stuk is, is erger. */
+const VERSIE_INTERN_NAAM = 'syndicoach';
+
+async function kiesVersie(env, { template, gegevens, gekoppeld, waarschuwingen }) {
+  const varianten = template.data && template.data.varianten;
+  if (!varianten || typeof varianten !== 'object' || !gekoppeld.has('regio.postcode')) {
+    return { copy: template.data.copy, versie: null };
+  }
+  const postcode = String((gegevens.regio && gegevens.regio.postcode) || '').trim();
+  let s = null;
+  if (postcode) {
+    try { s = await syndicoachVoorPostcode(env, postcode); }
+    catch (err) {
+      waarschuwingen.push(`Regio's kon niet gelezen worden (${err.message}) — versie Syndicoach gebruikt.`);
+      return { copy: template.data.copy, versie: null };
+    }
+  }
+  const versie = !s ? 'zonder' : (String(s.naam).trim().toLowerCase() === VERSIE_INTERN_NAAM ? 'intern' : 'extern');
+  if (versie === 'extern') {
+    gegevens.syndicoach = { ...(gegevens.syndicoach || {}), naam: s.naam, biv: s.biv || '', adres: s.adres || '' };
+    if (!s.biv) waarschuwingen.push(`Syndicoach "${s.naam}" heeft nog geen BIV-nummer in Regio's — leeg op de offerte.`);
+  }
+  if (!varianten[versie]) {
+    waarschuwingen.push(`Het sjabloon heeft geen versie "${versie}" — versie Syndicoach gebruikt.`);
+    return { copy: template.data.copy, versie: null };
+  }
+  return { copy: varianten[versie], versie };
 }
 
 // ─── Renderen (Cloudflare Browser Rendering) ─────────────────────────────────

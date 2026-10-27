@@ -89,6 +89,11 @@ function toonWaarde(v) {
   return String(v);
 }
 
+/* Een voorwaarde op een getal: "__gt__:25" (meer dan) of "__lte__:25" (tot en
+   met). Dezelfde vorm staat in condGetal() in
+   public/forminator-sync-v2-detail-mapping-tab.js; wijzig ze samen. */
+const GETAL_VOORWAARDE_RE = /^__(gt|lte)__:(-?\d+(?:[.,]\d+)?)$/;
+
 /**
  * Eén blok per stap: instellingen, welke waarde waar vandaan komt, wat er naar
  * Odoo gaat en waarom er gezocht of aangemaakt wordt.
@@ -1581,6 +1586,32 @@ async function runSubmissionAttempt(env, {
         const condRaw     = String(lookupFormValue(normalizedForm, target.condition_field) ?? '').trim().toLowerCase();
         const condAllowed = Array.isArray(target.condition_values) ? target.condition_values : [];
 
+        // Operator op een GETAL: ['__gt__:25'] = meer dan 25, ['__lte__:25'] =
+        // tot en met 25. Een leeg veld of iets dat geen getal is, voldoet niet.
+        const getalCond = condAllowed.length === 1 ? GETAL_VOORWAARDE_RE.exec(String(condAllowed[0])) : null;
+        if (getalCond) {
+          const grens = Number(getalCond[2].replace(',', '.'));
+          const waarde = Number(condRaw.replace(',', '.'));
+          const ok = condRaw !== '' && Number.isFinite(waarde) && (getalCond[1] === 'gt' ? waarde > grens : waarde <= grens);
+          if (!ok) {
+            console.log(attemptTag, `condition_not_met on target: ${target.id} | field: ${target.condition_field} | value: "${condRaw}" | ${getalCond[1]} ${grens}`);
+            const condResult = {
+              submission_id:   submission.id,
+              target_id:       target.id,
+              execution_order: executionOrder,
+              action_result:   'skipped',
+              skipped_reason:  'condition_not_met',
+              odoo_record_id:  null,
+              error_detail:    `Conditie niet voldaan: veld "${target.condition_field}" = "${condRaw || '(leeg)'}", verwacht: ${getalCond[1] === 'gt' ? 'meer dan' : 'tot en met'} ${grens}`,
+              processed_at:    new Date().toISOString()
+            };
+            await createSubmissionTargetResult(env, condResult);
+            targetResults.push(condResult);
+            continue;
+          }
+          console.log(attemptTag, `condition_met on target: ${target.id} | field: ${target.condition_field} | value: "${condRaw}" | ${getalCond[1]} ${grens}`);
+        } else {
+
         // Operator 'exists': sla stap over als veld leeg of afwezig is
         if (condAllowed.length === 1 && condAllowed[0] === '__exists__') {
           if (!condRaw) {
@@ -1639,6 +1670,7 @@ async function runSubmissionAttempt(env, {
         }
 
         console.log(attemptTag, `condition_met on target: ${target.id} | field: ${target.condition_field} | value: "${condRaw}"`);
+        }
       }
 
       // ── Calendly: gedrag per fase ──────────────────────────────────────────

@@ -901,6 +901,9 @@
         if (_valArea) {
           if (_op === 'exists') {
             _valArea.innerHTML = '<p class="text-xs text-base-content/50 italic">Stap wordt overgeslagen als het veld leeg of afwezig is.</p>';
+          } else if (_op === 'gt' || _op === 'lte') {
+            var _oudGetal = document.getElementById('stepCondGetal-' + _opTid);
+            _valArea.innerHTML = window.FSV2.condGetalHtml ? window.FSV2.condGetalHtml(_opTid, _oudGetal ? _oudGetal.value : '') : '';
           } else {
             var _flatFieldsOp = window.FSV2.buildDetailFlatFields
               ? [] // buildDetailFlatFields is internal; refill via handleCondFieldChanged

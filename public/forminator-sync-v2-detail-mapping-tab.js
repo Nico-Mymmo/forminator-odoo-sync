@@ -391,6 +391,8 @@
         : target.condition_field
           ? (Array.isArray(target.condition_values) && target.condition_values[0] === '__exists__'
               ? 'Als ' + esc(target.condition_field) + ' bestaat'
+              : condGetal(target.condition_values)
+              ? 'Als ' + esc(target.condition_field) + ' ' + esc(condGetal(target.condition_values).tekst)
               : 'Als ' + esc(target.condition_field) + ' = ' + esc(
                   Array.isArray(target.condition_values) && target.condition_values.length
                     ? target.condition_values.join(' / ') : '?'))
@@ -1811,6 +1813,30 @@
     return kort[waarde] || String(waarde || '');
   }
 
+  /* Voorwaarde op een getal: ['__gt__:25'] = meer dan 25, ['__lte__:25'] = tot
+     en met 25. Zelfde vorm als GETAL_VOORWAARDE_RE in worker-handler.js. */
+  var COND_GETAL_RE = /^__(gt|lte)__:(-?\d+(?:[.,]\d+)?)$/;
+  var COND_OPS = [['equals', 'gelijk aan'], ['gt', 'meer dan'], ['lte', 'tot en met'], ['exists', 'bestaat']];
+
+  function condGetal(waarden) {
+    if (!Array.isArray(waarden) || waarden.length !== 1) return null;
+    var m = COND_GETAL_RE.exec(String(waarden[0]));
+    if (!m) return null;
+    return { op: m[1], getal: m[2], tekst: (m[1] === 'gt' ? 'meer dan ' : 'tot en met ') + m[2] };
+  }
+
+  function condOpKnoppenHtml(tid, actief) {
+    return '<div class="flex items-center gap-1 flex-wrap">' + COND_OPS.map(function (o) {
+      return '<button type="button" class="btn btn-xs ' + (o[0] === actief ? 'btn-warning' : 'btn-ghost border border-base-200') + '"' +
+        ' data-action="cond-op-toggle" data-target-id="' + esc(tid) + '" data-op="' + o[0] + '">' + o[1] + '</button>';
+    }).join('') + '</div>';
+  }
+
+  function condGetalHtml(tid, waarde) {
+    return '<input type="number" id="stepCondGetal-' + esc(tid) + '" class="input input-bordered input-xs w-28"' +
+      ' step="any" value="' + esc(waarde == null ? '' : waarde) + '" placeholder="bv. 25">';
+  }
+
   function renderStepConditionSection(target, tid, flatFields) {
     var condEl = document.getElementById('det-cond-' + tid);
     if (!condEl) return;
@@ -1818,7 +1844,8 @@
     var condVals      = Array.isArray(target.condition_values) ? target.condition_values : [];
     var currentField  = target.condition_field || '';
     var isExists      = condVals.length === 1 && condVals[0] === '__exists__';
-    var currentOp     = isExists ? 'exists' : 'equals';
+    var getalCond     = condGetal(condVals);
+    var currentOp     = isExists ? 'exists' : getalCond ? getalCond.op : 'equals';
     var fieldTransforms = S().fieldTransforms || {};
 
     var fieldOpts = '<option value="">' + esc('\u2014 Geen voorwaarde \u2014') + '</option>';
@@ -1842,17 +1869,10 @@
 
     var valuesHtml = (currentField && currentOp === 'equals')
       ? buildCondValuesHtml(tid, currentField, flatFields, fieldTransforms, condVals)
-      : '';
+      : (currentField && getalCond) ? condGetalHtml(tid, getalCond.getal) : '';
 
-    // Operator-toggle: gelijk aan | bestaat
-    var opToggleHtml = currentField
-      ? '<div class="flex items-center gap-1 flex-wrap">' +
-          '<button type="button" class="btn btn-xs ' + (currentOp === 'equals' ? 'btn-warning' : 'btn-ghost border border-base-200') + '"' +
-            ' data-action="cond-op-toggle" data-target-id="' + esc(tid) + '" data-op="equals">gelijk aan</button>' +
-          '<button type="button" class="btn btn-xs ' + (currentOp === 'exists' ? 'btn-warning' : 'btn-ghost border border-base-200') + '"' +
-            ' data-action="cond-op-toggle" data-target-id="' + esc(tid) + '" data-op="exists">bestaat</button>' +
-        '</div>'
-      : '';
+    // Operator-toggle: gelijk aan | meer dan | tot en met | bestaat
+    var opToggleHtml = currentField ? condOpKnoppenHtml(tid, currentOp) : '';
 
     var existsNoteHtml = (currentField && currentOp === 'exists')
       ? '<p class="text-xs text-base-content/50 italic">Stap wordt overgeslagen als het veld leeg of afwezig is.</p>'
@@ -1901,14 +1921,7 @@
     var fieldTransforms = S().fieldTransforms || {};
     // Nieuw veld → reset operator naar 'equals' en toon waarden-input
     if (opArea) {
-      opArea.innerHTML = fieldId
-        ? '<div class="flex items-center gap-1 flex-wrap">' +
-            '<button type="button" class="btn btn-xs btn-warning"' +
-              ' data-action="cond-op-toggle" data-target-id="' + esc(tid) + '" data-op="equals">gelijk aan</button>' +
-            '<button type="button" class="btn btn-xs btn-ghost border border-base-200"' +
-              ' data-action="cond-op-toggle" data-target-id="' + esc(tid) + '" data-op="exists">bestaat</button>' +
-          '</div>'
-        : '';
+      opArea.innerHTML = fieldId ? condOpKnoppenHtml(tid, 'equals') : '';
     }
     area.innerHTML = fieldId ? buildCondValuesHtml(tid, fieldId, flatFields, fieldTransforms, []) : '';
     if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons({ context: area });
@@ -1943,6 +1956,14 @@
 
     if (condOp === 'exists') {
       condValues = ['__exists__'];
+    } else if (condOp === 'gt' || condOp === 'lte') {
+      var getalVeld = document.getElementById('stepCondGetal-' + tid);
+      var getal = getalVeld ? String(getalVeld.value || '').trim().replace(',', '.') : '';
+      if (!/^-?\d+(\.\d+)?$/.test(getal)) {
+        window.FSV2.showAlert('Vul een getal in voor de voorwaarde.', 'warning');
+        return;
+      }
+      condValues = ['__' + condOp + '__:' + getal];
     } else {
       // Validate: field geselecteerd maar geen waarden → stop en waarschuw
       if (condField && !condValues.length) {
@@ -2449,6 +2470,7 @@
     getOrderedValueMapKeys: getOrderedValueMapKeys,
     getComposerFase: getComposerFase,
     handleCondFieldChanged: handleCondFieldChanged,
+    condGetalHtml: condGetalHtml,
     handleDeleteTarget: handleDeleteTarget,
     handleDuplicateTarget: handleDuplicateTarget,
     handleReorderTarget: handleReorderTarget,
