@@ -9,8 +9,15 @@
  * alinea's), de foto (uitgelichte afbeelding), de functie en de kleur achter
  * de tekst (het vak "Functie en kleur") en de volgorde (Volgorde, laag eerst).
  * Wie iemand toevoegt of een functie aanpast, doet dat een keer; elke pagina
- * met het blok volgt. Per site: syndicoach.be en openvme.be hebben elk hun
- * eigen lijst (beslissing David, 2026-10-27).
+ * met het blok volgt.
+ *
+ * EEN BRON VOOR BEIDE SITES. Het team is op openvme.be en syndicoach.be
+ * hetzelfde (David, 2026-10-27), dus het wordt op EEN site beheerd: de bron
+ * (openvme.be, zie BRON). Die geeft het team openbaar door
+ * (/wp-json/mymmo-cards/v1/team); een andere site haalt het daar op, bewaart
+ * het een kwartier en houdt de laatste goede versie als terugval. Daar staat
+ * geen eigen lijst in het menu, enkel een verwijzing naar de bron. De foto's
+ * komen van de bron.
  *
  * GROEPEN (mymmo_team_groep) zijn optioneel: "Directie" voor de vier
  * bovenaan, bijvoorbeeld. Het blok toont iedereen, of een groep.
@@ -53,12 +60,25 @@ final class Mymmo_Cards_Team {
     /** Hoeveel teamleden een blok hoogstens toont. */
     private const MAX = 100;
 
+    /** Waar het team beheerd wordt. Elders: define('MYMMO_CARDS_TEAM_BRON', ...). */
+    private const BRON      = 'https://openvme.be';
+    private const TTL       = 900;
+    private const TIMEOUT   = 4;
+    private const TRANSIENT = 'mymmo_team_van_bron';
+    private const BEWAARD   = 'mymmo_team_van_bron_laatst';
+
     /** @var int hoeveel teams er op deze pagina al getoond zijn */
     private static int $teller = 0;
+
+    /** @var array<string,mixed>|null per verzoek */
+    private static ?array $alles = null;
 
     public static function init(): void {
         add_action('init', [self::class, 'register']);
         add_action('enqueue_block_assets', [self::class, 'assets']);
+        add_action('enqueue_block_editor_assets', [self::class, 'editor']);
+        add_action('rest_api_init', [self::class, 'routes']);
+        add_action('admin_menu', [self::class, 'verwijzing']);
         add_action('after_setup_theme', [self::class, 'fotos'], 99);
         add_filter('allowed_block_types_all', [self::class, 'blokken_in_lijst'], 10, 2);
 
@@ -138,28 +158,12 @@ final class Mymmo_Cards_Team {
         wp_register_script(
             'mymmo-team-editor',
             MYMMO_CARDS_URL . 'assets/js/mymmo-team-editor.js',
-            ['wp-blocks', 'wp-element', 'wp-block-editor', 'wp-components', 'wp-data', 'wp-core-data', 'wp-server-side-render'],
+            ['wp-blocks', 'wp-element', 'wp-block-editor', 'wp-components', 'wp-server-side-render'],
             MYMMO_CARDS_VERSION,
             true
         );
 
         wp_register_script('mymmo-team', MYMMO_CARDS_URL . 'assets/js/mymmo-team.js', [], MYMMO_CARDS_VERSION, true);
-
-        $vormen = [];
-        foreach (self::vormen() as $sleutel => $rij) {
-            $vormen[] = ['value' => $sleutel, 'label' => $rij[0]];
-        }
-
-        wp_localize_script('mymmo-team-editor', 'MymmoTeam', [
-            'teksten'  => self::keuzes(self::teksten()),
-            'koppen'   => self::keuzes(self::koppen()),
-            'kolommen' => self::keuzes(self::kolommen()),
-            'vormen'   => $vormen,
-            'type'     => self::TYPE,
-            'groep'    => self::GROEP,
-            'beheer'   => admin_url('edit.php?post_type=' . self::TYPE),
-            'nieuw'    => admin_url('post-new.php?post_type=' . self::TYPE),
-        ]);
 
         register_block_type(self::BLOK, [
             'api_version'     => 2,
@@ -198,8 +202,9 @@ final class Mymmo_Cards_Team {
             'public'              => false,
             'publicly_queryable'  => false,
             'exclude_from_search' => true,
-            'show_ui'             => true,
-            'show_in_menu'        => true,
+            // Enkel op de bron: elders zou een lege tweede lijst verwarren.
+            'show_ui'             => self::is_bron(),
+            'show_in_menu'        => self::is_bron(),
             'show_in_rest'        => true,
             'rest_base'           => self::TYPE,
             'has_archive'         => false,
@@ -224,7 +229,7 @@ final class Mymmo_Cards_Team {
                 'not_found'     => 'Nog geen groepen',
             ],
             'public'            => false,
-            'show_ui'           => true,
+            'show_ui'           => self::is_bron(),
             'show_in_rest'      => true,
             'rest_base'         => self::GROEP,
             'show_admin_column' => true,
@@ -282,37 +287,201 @@ final class Mymmo_Cards_Team {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Render
+    // Eén bron: openvme.be
     // ─────────────────────────────────────────────────────────────────────────
 
+    /** De site waar het team beheerd wordt, zonder / op het einde. */
+    public static function bron(): string {
+        $bron = defined('MYMMO_CARDS_TEAM_BRON') ? (string) MYMMO_CARDS_TEAM_BRON : self::BRON;
+
+        return rtrim($bron, '/');
+    }
+
+    /** Is DEZE site de bron? Een www ervoor telt niet. */
+    public static function is_bron(): bool {
+        $hier = strtolower((string) wp_parse_url(home_url(), PHP_URL_HOST));
+        $daar = strtolower((string) wp_parse_url(self::bron(), PHP_URL_HOST));
+
+        return preg_replace('/^www\./', '', $hier) === preg_replace('/^www\./', '', $daar);
+    }
+
+    /** Waar je het team beheert, in wp-admin van de bron. */
+    public static function beheer_adres(): string {
+        return self::is_bron()
+            ? admin_url('edit.php?post_type=' . self::TYPE)
+            : self::bron() . '/wp-admin/edit.php?post_type=' . self::TYPE;
+    }
+
+    public static function routes(): void {
+        if (!self::is_bron()) {
+            return;
+        }
+        // Openbaar: dezelfde namen, functies, teksten en foto's staan op de
+        // pagina's zelf. Enkel gepubliceerde teamleden.
+        register_rest_route('mymmo-cards/v1', '/team', [
+            'methods'             => 'GET',
+            'permission_callback' => '__return_true',
+            'callback'            => static function (): WP_REST_Response {
+                return new WP_REST_Response(self::lokaal(), 200);
+            },
+        ]);
+    }
+
     /**
-     * De teamleden van een groep (slug; '' = iedereen), in hun volgorde.
+     * Het hele team en de groepen. Op de bron uit de lijst zelf; elders van de
+     * bron, een kwartier bewaard, met de laatste goede versie als terugval
+     * (valt de bron even weg, dan staat het team er nog).
      *
-     * @return array<int,WP_Post>
+     * @return array{leden:array<int,array<string,mixed>>,groepen:array<int,array{slug:string,naam:string}>}
      */
-    public static function leden(string $groep): array {
-        $vraag = [
+    public static function alles(): array {
+        if (self::$alles !== null) {
+            return self::$alles;
+        }
+        if (self::is_bron()) {
+            return self::$alles = self::lokaal();
+        }
+
+        $leeg = ['leden' => [], 'groepen' => []];
+        $kort = get_transient(self::TRANSIENT);
+        if (is_array($kort)) {
+            return self::$alles = $kort + $leeg;
+        }
+        $lang = get_option(self::BEWAARD);
+        $lang = is_array($lang) ? $lang + $leeg : $leeg;
+
+        $antwoord = wp_remote_get(self::bron() . '/wp-json/mymmo-cards/v1/team', [
+            'timeout' => self::TIMEOUT,
+            'headers' => ['Accept' => 'application/json'],
+        ]);
+        $body = is_wp_error($antwoord) ? null : json_decode((string) wp_remote_retrieve_body($antwoord), true);
+        if (is_wp_error($antwoord) || (int) wp_remote_retrieve_response_code($antwoord) !== 200 || !is_array($body)) {
+            // Even niet opnieuw proberen: anders wacht elke pagina op de time-out.
+            set_transient(self::TRANSIENT, $lang, 60);
+            return self::$alles = $lang;
+        }
+
+        $data = self::schoon($body);
+        set_transient(self::TRANSIENT, $data, self::TTL);
+        update_option(self::BEWAARD, $data, false);
+
+        return self::$alles = $data;
+    }
+
+    /**
+     * Wat van de bron komt, nagekeken: enkel de velden die we kennen, tekst
+     * als tekst, de tekst over iemand door wp_kses_post, beelden enkel http(s).
+     *
+     * @param array<string,mixed> $ruw
+     * @return array{leden:array<int,array<string,mixed>>,groepen:array<int,array{slug:string,naam:string}>}
+     */
+    private static function schoon(array $ruw): array {
+        $leden = [];
+        foreach ((array) ($ruw['leden'] ?? []) as $l) {
+            if (!is_array($l)) {
+                continue;
+            }
+            $foto = null;
+            if (is_array($l['foto'] ?? null) && mymmo_cards_afbeelding((string) ($l['foto']['src'] ?? '')) !== '') {
+                $srcset = [];
+                foreach (explode(',', (string) ($l['foto']['srcset'] ?? '')) as $deel) {
+                    $stukken = preg_split('/\s+/', trim($deel)) ?: [];
+                    $url = mymmo_cards_afbeelding((string) ($stukken[0] ?? ''));
+                    if ($url !== '' && isset($stukken[1]) && preg_match('/^\d+w$/', $stukken[1])) {
+                        $srcset[] = $url . ' ' . $stukken[1];
+                    }
+                }
+                $foto = [
+                    'src'    => mymmo_cards_afbeelding((string) $l['foto']['src']),
+                    'srcset' => implode(', ', $srcset),
+                    'width'  => (int) ($l['foto']['width'] ?? 0),
+                    'height' => (int) ($l['foto']['height'] ?? 0),
+                    'alt'    => sanitize_text_field((string) ($l['foto']['alt'] ?? '')),
+                ];
+            }
+            $leden[] = [
+                'id'      => (int) ($l['id'] ?? 0),
+                'naam'    => sanitize_text_field((string) ($l['naam'] ?? '')),
+                'functie' => sanitize_text_field((string) ($l['functie'] ?? '')),
+                'bio'     => trim(wp_kses_post((string) ($l['bio'] ?? ''))),
+                'kleur'   => self::slug($l['kleur'] ?? ''),
+                'groepen' => array_values(array_filter(array_map('sanitize_title', (array) ($l['groepen'] ?? [])))),
+                'foto'    => $foto,
+            ];
+        }
+
+        $groepen = [];
+        foreach ((array) ($ruw['groepen'] ?? []) as $g) {
+            if (is_array($g) && sanitize_title((string) ($g['slug'] ?? '')) !== '') {
+                $groepen[] = ['slug' => sanitize_title((string) $g['slug']), 'naam' => sanitize_text_field((string) ($g['naam'] ?? $g['slug']))];
+            }
+        }
+
+        return ['leden' => $leden, 'groepen' => $groepen];
+    }
+
+    /**
+     * Het team uit de lijst op deze site.
+     *
+     * @return array{leden:array<int,array<string,mixed>>,groepen:array<int,array{slug:string,naam:string}>}
+     */
+    private static function lokaal(): array {
+        $berichten = get_posts([
             'post_type'        => self::TYPE,
             'post_status'      => 'publish',
             'posts_per_page'   => self::MAX,
             'orderby'          => ['menu_order' => 'ASC', 'title' => 'ASC'],
             'no_found_rows'    => true,
             'suppress_filters' => false,
-        ];
-        if ($groep !== '') {
-            $vraag['tax_query'] = [[
-                'taxonomy' => self::GROEP,
-                'field'    => 'slug',
-                'terms'    => $groep,
-            ]];
+        ]);
+
+        $leden = [];
+        foreach ($berichten as $lid) {
+            if (!$lid instanceof WP_Post) {
+                continue;
+            }
+            $groepen = wp_get_post_terms($lid->ID, self::GROEP, ['fields' => 'slugs']);
+            $leden[] = [
+                'id'      => $lid->ID,
+                'naam'    => trim((string) $lid->post_title),
+                'functie' => trim((string) get_post_meta($lid->ID, self::FUNCTIE, true)),
+                'bio'     => self::bio($lid),
+                'kleur'   => self::slug((string) get_post_meta($lid->ID, self::KLEUR, true)),
+                'groepen' => is_array($groepen) ? array_values(array_map('strval', $groepen)) : [],
+                'foto'    => self::foto_gegevens($lid),
+            ];
         }
 
-        $leden = get_posts($vraag);
+        $groepen = [];
+        $termen = get_terms(['taxonomy' => self::GROEP, 'hide_empty' => true]);
+        foreach (is_array($termen) ? $termen : [] as $t) {
+            if ($t instanceof WP_Term) {
+                $groepen[] = ['slug' => $t->slug, 'naam' => $t->name];
+            }
+        }
 
-        return array_values(array_filter($leden, static function ($l): bool {
-            return $l instanceof WP_Post;
+        return ['leden' => $leden, 'groepen' => $groepen];
+    }
+
+    /**
+     * De teamleden van een groep (slug; '' = iedereen), in hun volgorde.
+     *
+     * @return array<int,array<string,mixed>>
+     */
+    public static function leden(string $groep): array {
+        $leden = self::alles()['leden'];
+        if ($groep === '') {
+            return $leden;
+        }
+
+        return array_values(array_filter($leden, static function (array $l) use ($groep): bool {
+            return in_array($groep, (array) $l['groepen'], true);
         }));
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Render
+    // ─────────────────────────────────────────────────────────────────────────
 
     /** @param array<string,mixed> $attrs */
     public static function render($attrs = [], string $content = '', $block = null): string {
@@ -367,23 +536,29 @@ final class Mymmo_Cards_Team {
             . '</div>';
     }
 
-    /** Een teamlid. */
-    private static function kaart(WP_Post $lid, string $team, string $tekst, string $kop): string {
-        $naam    = trim((string) $lid->post_title);
-        $functie = trim((string) get_post_meta($lid->ID, self::FUNCTIE, true));
-        $bio     = $tekst === 'geen' ? '' : self::bio($lid);
+    /**
+     * Een teamlid.
+     *
+     * @param array<string,mixed> $lid
+     */
+    private static function kaart(array $lid, string $team, string $tekst, string $kop): string {
+        $naam    = (string) $lid['naam'];
+        $functie = (string) $lid['functie'];
+        $bio     = $tekst === 'geen' ? '' : (string) $lid['bio'];
 
         $stijl = [];
-        $kleur = mymmo_cards_color(self::slug((string) get_post_meta($lid->ID, self::KLEUR, true)));
+        $kleur = self::slug($lid['kleur'] ?? '');
         if ($kleur !== '') {
-            $stijl[] = '--mk-lid-kleur:' . $kleur;
+            // Met de terugval: staat die kleur niet in het palet van DEZE site,
+            // dan het gewone vlak in plaats van niets.
+            $stijl[] = '--mk-lid-kleur:var(--wp--preset--color--' . $kleur . ', var(--mymmo-kleur-vlak))';
         }
 
         $html = '<li class="mymmo-team-lid"' . ($stijl !== [] ? ' style="' . esc_attr(implode(';', $stijl)) . '"' : '') . '>';
 
-        $html .= '<div class="mymmo-team-beeld">' . self::foto($lid, $naam);
+        $html .= '<div class="mymmo-team-beeld">' . self::foto(is_array($lid['foto'] ?? null) ? $lid['foto'] : null, $naam);
         if ($tekst === 'aanwijzen' && $bio !== '') {
-            $id = $team . '-bio-' . $lid->ID;
+            $id = $team . '-bio-' . (int) $lid['id'];
             $html .= '<div class="mymmo-team-bio" id="' . esc_attr($id) . '">' . $bio . '</div>'
                 . '<button type="button" class="mymmo-team-knop" aria-expanded="false" aria-controls="' . esc_attr($id) . '"'
                 . ' aria-label="' . esc_attr(sprintf('Over %s', $naam !== '' ? $naam : 'dit teamlid')) . '"></button>';
@@ -414,25 +589,116 @@ final class Mymmo_Cards_Team {
         return mymmo_cards_heeft_inhoud($html) ? $html : '';
     }
 
-    /** De foto, of '' (dan staat de kleur van het teamlid er). */
-    private static function foto(WP_Post $lid, string $naam): string {
+    /**
+     * De foto als gegevens (ook voor de andere site), of null.
+     *
+     * @return array{src:string,srcset:string,width:int,height:int,alt:string}|null
+     */
+    private static function foto_gegevens(WP_Post $lid): ?array {
         $id = (int) get_post_thumbnail_id($lid);
-        if ($id <= 0) {
+        $beeld = $id > 0 ? wp_get_attachment_image_src($id, 'large') : false;
+        if (!is_array($beeld) || empty($beeld[0])) {
+            return null;
+        }
+        $srcset = wp_get_attachment_image_srcset($id, 'large');
+
+        return [
+            'src'    => (string) $beeld[0],
+            'srcset' => is_string($srcset) ? $srcset : '',
+            'width'  => (int) ($beeld[1] ?? 0),
+            'height' => (int) ($beeld[2] ?? 0),
+            'alt'    => trim((string) get_post_meta($id, '_wp_attachment_image_alt', true)),
+        ];
+    }
+
+    /**
+     * De foto, of '' (dan staat de kleur van het teamlid er).
+     *
+     * @param array<string,mixed>|null $foto
+     */
+    private static function foto(?array $foto, string $naam): string {
+        if ($foto === null || (string) ($foto['src'] ?? '') === '') {
             return '';
         }
+        $alt = trim((string) ($foto['alt'] ?? ''));
 
-        $alt = trim((string) get_post_meta($id, '_wp_attachment_image_alt', true));
-
-        $img = wp_get_attachment_image($id, 'large', false, [
+        $attr = [
+            'src'       => esc_url((string) $foto['src']),
             'class'     => 'mymmo-team-foto',
-            'alt'       => $alt !== '' ? $alt : $naam,
+            'alt'       => esc_attr($alt !== '' ? $alt : $naam),
+            'loading'   => 'lazy',
+            'decoding'  => 'async',
+            'draggable' => 'false',
+        ];
+        if ((int) ($foto['width'] ?? 0) > 0 && (int) ($foto['height'] ?? 0) > 0) {
+            $attr['width'] = (string) (int) $foto['width'];
+            $attr['height'] = (string) (int) $foto['height'];
+        }
+        if ((string) ($foto['srcset'] ?? '') !== '') {
+            $attr['srcset'] = esc_attr((string) $foto['srcset']);
             // Vier naast elkaar op een computer, ruim een derde op een tablet,
             // driekwart op een telefoon.
-            'sizes'     => '(max-width: 639px) 80vw, (max-width: 781px) 45vw, 400px',
-            'draggable' => 'false',
-        ]);
+            $attr['sizes'] = '(max-width: 639px) 80vw, (max-width: 781px) 45vw, 400px';
+        }
 
-        return is_string($img) ? $img : '';
+        $html = '<img';
+        foreach ($attr as $naam_attr => $waarde) {
+            $html .= ' ' . $naam_attr . '="' . $waarde . '"';
+        }
+
+        return $html . '>';
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // De editor
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * De gesloten lijsten, de groepen en of er al iemand in het team zit.
+     * Hier en niet in register(): op de andere site kost dat een vraag aan de
+     * bron, en die hoort niet bij elke bezoeker.
+     */
+    public static function editor(): void {
+        $vormen = [];
+        foreach (self::vormen() as $sleutel => $rij) {
+            $vormen[] = ['value' => $sleutel, 'label' => $rij[0]];
+        }
+        $groepen = [['value' => '', 'label' => 'Iedereen']];
+        $alles = self::alles();
+        foreach ($alles['groepen'] as $g) {
+            $groepen[] = ['value' => $g['slug'], 'label' => $g['naam']];
+        }
+
+        wp_localize_script('mymmo-team-editor', 'MymmoTeam', [
+            'teksten'  => self::keuzes(self::teksten()),
+            'koppen'   => self::keuzes(self::koppen()),
+            'kolommen' => self::keuzes(self::kolommen()),
+            'vormen'   => $vormen,
+            'groepen'  => $groepen,
+            'aantal'   => count($alles['leden']),
+            'isBron'   => self::is_bron(),
+            'bron'     => (string) wp_parse_url(self::bron(), PHP_URL_HOST),
+            'beheer'   => self::beheer_adres(),
+            'nieuw'    => self::is_bron() ? admin_url('post-new.php?post_type=' . self::TYPE) : self::bron() . '/wp-admin/post-new.php?post_type=' . self::TYPE,
+        ]);
+    }
+
+    /** Op een andere site dan de bron: Team in het menu wijst naar de bron. */
+    public static function verwijzing(): void {
+        if (self::is_bron()) {
+            return;
+        }
+        add_menu_page('Team', 'Team', 'edit_posts', 'mymmo-team-bron', [self::class, 'toon_verwijzing'], '', 22);
+    }
+
+    public static function toon_verwijzing(): void {
+        $alles = self::alles();
+        echo '<div class="wrap"><h1>Team</h1>'
+            . '<p>Het team is op beide sites hetzelfde en wordt beheerd op <strong>' . esc_html((string) wp_parse_url(self::bron(), PHP_URL_HOST)) . '</strong>. '
+            . 'Wat je daar aanpast, staat hier binnen het kwartier ook.</p>'
+            . '<p><a class="button button-primary" href="' . esc_url(self::beheer_adres()) . '" target="_blank" rel="noopener">Team beheren op ' . esc_html((string) wp_parse_url(self::bron(), PHP_URL_HOST)) . '</a></p>'
+            . '<p>Nu gekend op deze site: ' . count($alles['leden']) . ' teamleden.</p>'
+            . '</div>';
     }
 
     // ─────────────────────────────────────────────────────────────────────────

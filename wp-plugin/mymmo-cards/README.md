@@ -473,6 +473,19 @@ Uitzetten per site: `define('MYMMO_CARDS_GEEN_AUTO_UPDATE', true);` in
 
 ## Versies
 
+**1.17.2** — **Team: een bron voor beide sites.** Het team is op openvme.be
+en syndicoach.be hetzelfde, dus het wordt enkel op openvme.be beheerd
+(`Mymmo_Cards_Team::BRON`, te verzetten met `MYMMO_CARDS_TEAM_BRON`). De bron
+geeft het team openbaar door op `/wp-json/mymmo-cards/v1/team` (enkel wat ook
+op de pagina's staat); een andere site haalt het daar op, bewaart het een
+kwartier (transient) en houdt de laatste goede versie als optie. Wat van de
+bron komt, wordt opnieuw nagekeken (tekst, `wp_kses_post`, beelden enkel
+http(s)). Elders geen eigen lijst in het menu maar een verwijzing naar de bron,
+en ook Overnemen enkel op de bron. Een kleur die niet in het palet van de
+andere site staat, valt terug op het vlak van de huisstijl. De editor krijgt
+de groepen en het aantal teamleden van de server in plaats van uit de eigen
+REST.
+
 **1.17.1** — **Team → Overnemen** (`includes/class-team-overnemen.php`): leest
 een pagina van de site zelf (de blokken, ook in een gesynchroniseerd patroon) en
 maakt van elk blok met de klasse `hover-cover` een teamlid: foto (beeld van de

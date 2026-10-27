@@ -33,6 +33,7 @@ final class Mymmo_Cards_Nieuw {
      * Gewone taal: wat het is en waar je het vindt, geen techniek.
      */
     private const NIEUWS = [
+        '1.17.2' => 'Team: het team beheer je voortaan op een plek, op openvme.be (links in het menu: Team). Syndicoach.be toont automatisch dezelfde mensen, binnen het kwartier na een aanpassing.',
         '1.17.1' => 'Team: staat het team al op een pagina van de site (de oude kaarten), neem het dan in een klik over. Links in het menu: Team, Overnemen. Je ziet eerst wie er gevonden is, met foto, naam, functie en tekst.',
         '1.17.0' => 'Nieuw blok: Team. Het team met foto, naam en functie; de tekst over iemand verschijnt in de foto als je erover gaat, op een telefoon veeg je erdoor. De teamleden zet je links in het menu onder Team (naam, foto, functie, kleur en volgorde). Op de pagina: blok toevoegen, categorie Mymmo, Team.',
         '1.16.1' => 'Productfeature en Productfeature-header: het label krijgt een kleur uit het palet van de site. Klik het blok aan en open rechts Label (staat er als het label aan staat): de achtergrond en de tekst kies je apart.',
