@@ -44,6 +44,10 @@ final class Mymmo_Cards_Team_Overnemen {
     }
 
     public static function menu(): void {
+        // Enkel waar het team beheerd wordt: elders is er geen lijst.
+        if (!Mymmo_Cards_Team::is_bron()) {
+            return;
+        }
         add_submenu_page(
             'edit.php?post_type=' . Mymmo_Cards_Team::TYPE,
             'Team overnemen van een pagina',

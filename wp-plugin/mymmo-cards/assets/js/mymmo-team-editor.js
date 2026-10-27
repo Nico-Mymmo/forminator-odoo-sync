@@ -5,21 +5,24 @@
  *
  * Er is GEEN tweede renderer: het voorbeeld in de editor is de render van de
  * server (ServerSideRender), dus wat je hier ziet, is wat op de pagina komt.
- * De teamleden pas je niet hier aan maar in de lijst Team (links in het
- * menu); hier kies je WELKE groep, waar de tekst staat en hoe het eruitziet.
+ * De teamleden pas je niet hier aan maar in de lijst Team op de bron
+ * (openvme.be); hier kies je WELKE groep, waar de tekst staat en hoe het
+ * eruitziet.
  *
- * De gesloten lijsten komen uit class-team.php via window.MymmoTeam.
+ * De gesloten lijsten, de groepen en het aantal teamleden komen uit
+ * class-team.php via window.MymmoTeam: op de andere site komen ze van de bron,
+ * dus niet uit de eigen REST van WordPress.
  */
 
-(function (blocks, element, blockEditor, components, data, serverSideRender) {
+(function (blocks, element, blockEditor, components, serverSideRender) {
   'use strict';
 
-  if (!blocks || !element || !blockEditor || !components || !data) {
+  if (!blocks || !element || !blockEditor || !components) {
     return;
   }
 
   var el = element.createElement;
-  var T = window.MymmoTeam || { teksten: [], koppen: [], kolommen: [], vormen: [], type: 'mymmo_teamlid', groep: 'mymmo_team_groep', beheer: '', nieuw: '' };
+  var T = window.MymmoTeam || { teksten: [], koppen: [], kolommen: [], vormen: [], groepen: [], aantal: 0, isBron: true, bron: '', beheer: '', nieuw: '' };
 
   var InspectorControls = blockEditor.InspectorControls;
   var useBlockProps = blockEditor.useBlockProps;
@@ -28,35 +31,11 @@
   var SelectControl = components.SelectControl;
   var Placeholder = components.Placeholder;
   var Button = components.Button;
-  var Spinner = components.Spinner;
   var ExternalLink = components.ExternalLink;
 
   var ServerSideRender = serverSideRender && (serverSideRender.default || serverSideRender);
 
   var BLOK = 'mymmo/team';
-
-  /** De groepen en of er al teamleden zijn, uit de site zelf. */
-  function useLijst() {
-    return data.useSelect(function (select) {
-      var kern = select('core');
-      var vraag = { per_page: 1, status: 'publish', _fields: 'id' };
-      var leden = kern.getEntityRecords('postType', T.type, vraag);
-      var groepen = kern.getEntityRecords('taxonomy', T.groep, { per_page: 100, _fields: 'id,name,slug' });
-      return {
-        leden: leden,
-        groepen: groepen,
-        klaar: kern.hasFinishedResolution('getEntityRecords', ['postType', T.type, vraag])
-      };
-    }, []);
-  }
-
-  function groepOpties(groepen) {
-    var uit = [{ value: '', label: 'Iedereen' }];
-    (groepen || []).forEach(function (g) {
-      uit.push({ value: g.slug, label: g.name });
-    });
-    return uit;
-  }
 
   blocks.registerBlockType(BLOK, {
     apiVersion: 2,
@@ -83,7 +62,6 @@
       var a = props.attributes;
       var zet = props.setAttributes;
       var blockProps = useBlockProps();
-      var lijst = useLijst();
 
       var zijbalk = el(
         InspectorControls,
@@ -94,9 +72,9 @@
           el(SelectControl, {
             label: 'Wie',
             value: a.groep,
-            options: groepOpties(lijst.groepen),
+            options: T.groepen && T.groepen.length ? T.groepen : [{ value: '', label: 'Iedereen' }],
             onChange: function (w) { zet({ groep: w }); },
-            help: 'Iedereen, of een groep (bv. Directie). Groepen maak je in de lijst Team, onder Groepen.',
+            help: 'Iedereen, of een groep (bv. Directie). Groepen maak je in de lijst Team, onder Groepen.' + (T.isBron ? '' : ' Die lijst staat op ' + T.bron + '.'),
             __nextHasNoMarginBottom: true
           }),
           el('div', { style: { height: '16px' } }),
@@ -118,7 +96,9 @@
             __nextHasNoMarginBottom: true
           }),
           el('p', { style: { marginTop: '16px' } },
-            'Namen, functies, foto\'s en de volgorde pas je aan in de lijst Team. ',
+            T.isBron
+              ? 'Namen, functies, foto\'s en de volgorde pas je aan in de lijst Team. Ze gelden ook op de andere site. '
+              : 'Het team komt van ' + T.bron + ': daar pas je namen, functies, foto\'s en de volgorde aan. Hier staat het binnen het kwartier. ',
             T.beheer ? el(ExternalLink, { href: T.beheer }, 'Team openen') : null)
         ),
         el(
@@ -143,14 +123,10 @@
         )
       );
 
-      if (!lijst.klaar) {
-        return el('div', blockProps, zijbalk, el(Placeholder, { icon: 'groups', label: 'Team' }, el(Spinner)));
-      }
-
-      if (!lijst.leden || !lijst.leden.length) {
+      if (!T.aantal) {
         return el('div', blockProps, zijbalk, el(
           Placeholder,
-          { icon: 'groups', label: 'Team', instructions: 'Er staat nog niemand in de lijst Team. Voeg een teamlid toe: naam, foto, functie en een korte tekst. Daarna verschijnt het hier.' },
+          { icon: 'groups', label: 'Team', instructions: 'Er staat nog niemand in de lijst Team' + (T.isBron ? '' : ' op ' + T.bron) + '. Voeg een teamlid toe: naam, foto, functie en een korte tekst. Daarna verschijnt het hier (laad de pagina opnieuw).' },
           T.nieuw ? el(Button, { variant: 'primary', href: T.nieuw, target: '_blank' }, 'Nieuw teamlid') : null
         ));
       }
@@ -176,4 +152,4 @@
       return null;
     }
   });
-})(window.wp && window.wp.blocks, window.wp && window.wp.element, window.wp && window.wp.blockEditor, window.wp && window.wp.components, window.wp && window.wp.data, window.wp && window.wp.serverSideRender);
+})(window.wp && window.wp.blocks, window.wp && window.wp.element, window.wp && window.wp.blockEditor, window.wp && window.wp.components, window.wp && window.wp.serverSideRender);
