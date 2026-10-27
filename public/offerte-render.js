@@ -74,9 +74,9 @@
      Elke versie is een VOLLEDIGE copy, geen lijst afwijkingen: wat je ziet als
      je een versie kiest, is precies wat er bewaard staat. */
   var VERSIES = [
-    { id: 'intern', label: 'Syndicoach zelf' },
+    { id: 'intern', label: 'Syndicoach' },
     { id: 'extern', label: 'Externe syndicoach' },
-    { id: 'zonder', label: 'Geen syndicoach' }
+    { id: 'zonder', label: 'Enkel Digitaal' }
   ];
   var VERSIE_SLEUTEL = TEMPLATE_ID ? 'offerte-versie-' + TEMPLATE_ID : null;
 

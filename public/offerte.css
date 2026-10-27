@@ -589,7 +589,7 @@ html, body{
 }
 .ov-werkbalk-hint{ color: #64748b; margin-left: auto; font-size: 12px; }
 
-/* Versies (Syndicoach zelf / extern / geen syndicoach): een knoppengroep. */
+/* Versies (Syndicoach / extern / Enkel Digitaal): een knoppengroep. */
 .ov-versies{
   display: inline-flex;
   gap: 2px;
