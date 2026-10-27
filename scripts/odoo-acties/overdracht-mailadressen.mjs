@@ -236,6 +236,13 @@ const PY_1201_AL_NIEUW = `    al_html = ''
                    + "het voegt een nieuwe overdracht toe. Gaat het ook naar OpenVME en staat de VME daar al, dan wordt OpenVME overgeslagen.</div>")
     html = al_html + ("<div data-ovd data-id='"`;
 
+// De link naar de VME in OpenVME (res.partner.x_openvme_url, gezet door
+// openvme-link-naar-syndicoach.mjs) gaat mee; de Navigator vult er het veld
+// OpenVME-link mee. Leeg = de Navigator laat staan wat er staat.
+const PY_1179_URL_OUD = `    "aantal_kavels": partner.x_studio_number_of_plots or 0 if partner else 0,`;
+const PY_1179_URL_NIEUW = `    "aantal_kavels": partner.x_studio_number_of_plots or 0 if partner else 0,
+    "openvme_url": (partner.x_openvme_url or "") if partner else "",`;
+
 // --vanaf-oud: opnieuw toepassen op de code van VOOR de eerste aanpassing
 // (bewaard in .uit/), om een verbeterde versie in te zetten.
 const vanafOud = process.argv.includes('--vanaf-oud');
@@ -258,6 +265,7 @@ c1179 = vervang(c1179, PY_1179_PUNT_OUD, PY_1179_PUNT_NIEUW, '1179 punten');
 c1179 = vervang(c1179, PY_1179_START_OUD, PY_1179_START_NIEUW, '1179 start');
 c1179 = vervang(c1179, PY_1179_NA_OUD, PY_1179_NA_NIEUW, '1179 naar leads');
 c1179 = vervang(c1179, PY_1179_CHATTER_OUD, PY_1179_CHATTER_NIEUW, '1179 chatter');
+c1179 = vervang(c1179, PY_1179_URL_OUD, PY_1179_URL_NIEUW, '1179 openvme-link');
 
 const uit = join(hier, '.uit');
 mkdirSync(uit, { recursive: true });

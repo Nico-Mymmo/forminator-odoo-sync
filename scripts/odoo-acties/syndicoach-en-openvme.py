@@ -10,6 +10,7 @@ OPENVME_KNOP = __OPENVME_KNOP__
 NL = chr(10)
 
 if env.context.get('syndicoach_overdracht'):
+    meldingen = []
     for sheet in records:
         gebouw = sheet.x_studio_for_company_id
         lead = False
@@ -29,6 +30,16 @@ if env.context.get('syndicoach_overdracht'):
         al_gedaan = bool(lead.partner_id.x_studio_soid) or env['mail.message'].search_count([
             ('model', '=', 'crm.lead'), ('res_id', '=', lead.id), ('body', 'ilike', 'Doorgestuurd naar OpenVME')]) > 0
         if al_gedaan:
+            meldingen.append('OpenVME overgeslagen: de VME staat er al.')
             continue
         env['ir.actions.server'].browse(OPENVME_KNOP).with_context(
             active_model='crm.lead', active_id=lead.id, active_ids=[lead.id], openvme_bevestigd=True).run()
+        meldingen.append('De VME wordt aangemaakt in OpenVME. Binnen enkele seconden staat de link in de chatter van de lead, en ook in Syndicoach.')
+    # De melding na het versturen. Actie 1180 geeft het resultaat van de laatste
+    # stap die iets teruggeeft; de webhook daarna geeft niets terug.
+    action = {
+        'type': 'ir.actions.client',
+        'tag': 'display_notification',
+        'params': {'title': 'Doorgegeven aan Syndicoach', 'message': ' '.join(meldingen), 'type': 'success',
+                   'sticky': False, 'next': {'type': 'ir.actions.act_window_close'}},
+    }
