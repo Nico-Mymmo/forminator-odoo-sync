@@ -222,6 +222,20 @@ const PY_1201_LUS_NIEUW = `        attr = " data-punt='" + h(nid) + "'"
             waarde = ', '.join(ml_delen)
         if soort == 'tekst':`;
 
+// Al eerder doorgegeven? Dan een melding bovenaan het venster. De Navigator
+// herkent het gebouw aan zijn Odoo-nummer (geen dubbel gebouw, en wat Syndicoach
+// zelf invulde blijft staan); opnieuw versturen voegt enkel een nieuwe overdracht toe.
+const PY_1201_AL_OUD = `    html = ("<div data-ovd data-id='"`;
+const PY_1201_AL_NIEUW = `    al_html = ''
+    al = env['mail.message'].search([('model', '=', 'x_sales_action_sheet'), ('res_id', '=', sheet.id),
+                                     ('body', 'ilike', 'Doorgegeven aan Syndicoach')], order='date desc', limit=1)
+    if al:
+        al_html = ("<div style='background-color:#fef3c7;border:1px solid #f59e0b;border-radius:6px;padding:8px 10px;margin-bottom:10px;font-size:13px;'>"
+                   + "<b>Al eens doorgegeven aan Syndicoach</b> op " + al.date.strftime('%d/%m/%Y') + " door " + h(al.author_id.name or '') + ". "
+                   + "Opnieuw versturen maakt geen tweede gebouw aan en overschrijft niets wat Syndicoach zelf invulde: "
+                   + "het voegt een nieuwe overdracht toe. Gaat het ook naar OpenVME en staat de VME daar al, dan wordt OpenVME overgeslagen.</div>")
+    html = al_html + ("<div data-ovd data-id='"`;
+
 // --vanaf-oud: opnieuw toepassen op de code van VOOR de eerste aanpassing
 // (bewaard in .uit/), om een verbeterde versie in te zetten.
 const vanafOud = process.argv.includes('--vanaf-oud');
@@ -235,6 +249,7 @@ if (c1201.includes('ML_LIB')) throw new Error('1201 is al aangepast');
 c1201 = vervang(c1201, '\ndef h(s):', PY_1201 + PY_LEAD + 'def h(s):', '1201 invoegpunt');
 c1201 = vervang(c1201, "    rijen = ''\n    for it in env['x_sc_checklist']", "    ml_lead_ids = ','.join([str(l.id) for l in sheet.x_studio_as_opportunity_ids])\n    ml_lead = ml_lead_lijst(sheet)\n    rijen = ''\n    for it in env['x_sc_checklist']", '1201 lead');
 c1201 = vervang(c1201, PY_1201_LUS_OUD, PY_1201_LUS_NIEUW, '1201 lus');
+c1201 = vervang(c1201, PY_1201_AL_OUD, PY_1201_AL_NIEUW, '1201 al doorgegeven');
 
 let c1179 = code[1179];
 if (c1179.includes('ml_lijst')) throw new Error('1179 is al aangepast');

@@ -90,6 +90,18 @@ const [cveld] = await kw('ir.model.fields', 'search', [[['model', '=', 'crm.lead
 if (cveld) { await kw('ir.model.fields', 'write', [[cveld], cv]); console.log('overzichtsveld bijgewerkt'); }
 else console.log('overzichtsveld aangemaakt', await kw('ir.model.fields', 'create', [{ model_id: mod.id, name: 'x_vme_controle_html', ttype: 'html', field_description: 'OpenVME: controle', state: 'manual', copied: false, ...cv }]));
 
+// 2b2. Tweede keuze in het venster: ook naar Syndicoach (opent het venster van het actieblad)
+const NAAM_OOK = 'OpenVME: ook naar Syndicoach';
+const ookCode = readFileSync(join(hier, 'openvme-ook-syndicoach.py'), 'utf8').split(CR).join('');
+let [ook] = await kw('ir.actions.server', 'search_read', [[['name', '=', NAAM_OOK]]], { fields: ['id'] });
+if (!ook) {
+  ook = { id: await kw('ir.actions.server', 'create', [{ name: NAAM_OOK, model_id: mod.id, state: 'code', code: ookCode }]) };
+  console.log('actie ook-Syndicoach aangemaakt', ook.id);
+} else {
+  await kw('ir.actions.server', 'write', [[ook.id], { code: ookCode }]);
+  console.log('actie ook-Syndicoach bijgewerkt', ook.id);
+}
+
 // 2c. Het venster "Maak in OpenVME" (eigen weergave, nooit de standaard)
 const VENSTER = 'OpenVME: bevestigen';
 const vensterArch = `<form string="Maak in OpenVME">
@@ -97,7 +109,8 @@ const vensterArch = `<form string="Maak in OpenVME">
     <field name="x_vme_controle_html" nolabel="1" readonly="1" widget="html"/>
   </sheet>
   <footer>
-    <button name="${knop.id}" type="action" string="Toch doorsturen" class="btn-primary" context="{'openvme_bevestigd': True}"/>
+    <button name="${knop.id}" type="action" string="Enkel naar OpenVME" class="btn-primary" context="{'openvme_bevestigd': True}"/>
+    <button name="${ook.id}" type="action" string="Naar OpenVME en Syndicoach..." class="btn-secondary"/>
     <button string="Annuleren" special="cancel" class="btn-secondary"/>
   </footer>
 </form>`;
