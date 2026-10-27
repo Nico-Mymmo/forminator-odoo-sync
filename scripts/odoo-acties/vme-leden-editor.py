@@ -27,7 +27,11 @@ def schoon(s):
 # ziet een functie de andere namen van deze code niet (Odoo houdt ze apart).
 def ml_rij(e, v, n, h=h, ML_CEL=ML_CEL, ML_VELD=ML_VELD):
     tds = ''
-    for k, w, ph in (('e', e, 'naam@voorbeeld.be'), ('v', v, 'Voornaam'), ('n', n, 'Naam')):
+    for k, w, ph in (('e', e, 'naam@voorbeeld.be'), ('v', v, 'Voornaam'), ('w', '', ''), ('n', n, 'Naam')):
+        if k == 'w':
+            tds += ("<td style='" + ML_CEL + "width:24px;text-align:center;'><button type='button' data-mlwissel='1'"
+                    + " title='Voornaam en naam omwisselen' style='border:0;background:none;cursor:pointer;color:#017e84;font-size:15px;padding:0 2px;'>⇄</button></td>")
+            continue
         tds += ("<td style='" + ML_CEL + "'><input type='text' data-mlk='" + k + "' value='" + h(w)
                 + "' placeholder='" + ph + "' style='" + ML_VELD + "'></td>")
     return ("<tr data-mlr='1'>" + tds + "<td style='" + ML_CEL + "width:28px;text-align:center;'>"
@@ -56,7 +60,7 @@ for record in self:
     for r in rijen:
         rijen_html += ml_rij(r[0], r[1], r[2])
     kop = ''
-    for t in ('E-mail', 'Voornaam', 'Naam', ''):
+    for t in ('E-mail', 'Voornaam', '', 'Naam', ''):
         kop += "<th style='text-align:left;font-weight:600;color:#666;font-size:12px;padding:2px 4px;'>" + t + "</th>"
     record['x_vme_members_editor'] = (
         "<div data-mllead='1' data-id='" + str(rid) + "'>"

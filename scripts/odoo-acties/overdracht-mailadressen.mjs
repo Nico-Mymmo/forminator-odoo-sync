@@ -114,7 +114,11 @@ def is_mailpunt(it):
 
 def ml_rij(e, v, n):
     tds = ''
-    for k, val, ph in (('e', e, 'naam@voorbeeld.be'), ('v', v, 'Voornaam'), ('n', n, 'Naam')):
+    for k, val, ph in (('e', e, 'naam@voorbeeld.be'), ('v', v, 'Voornaam'), ('w', '', ''), ('n', n, 'Naam')):
+        if k == 'w':
+            tds += ("<td style='" + ML_CEL + "width:24px;text-align:center;'><button type='button' data-mlwissel='1'"
+                    + " title='Voornaam en naam omwisselen' style='border:0;background:none;cursor:pointer;color:#017e84;font-size:15px;padding:0 2px;'>⇄</button></td>")
+            continue
         tds += ("<td style='" + ML_CEL + "'><input type='text' data-mlk='" + k + "' value='" + h(val)
                 + "' placeholder='" + ph + "' style='" + ML_VELD + "'></td>")
     return ("<tr data-mlr='1'>" + tds + "<td style='" + ML_CEL + "width:28px;text-align:center;'>"
@@ -131,7 +135,7 @@ def ml_doos(nid, waarde, leads):
     else:
         raw = waarde
     kop = ''
-    for t in ('E-mail', 'Voornaam', 'Naam', ''):
+    for t in ('E-mail', 'Voornaam', '', 'Naam', ''):
         kop += "<th style='text-align:left;font-weight:600;color:#666;font-size:12px;padding:2px 4px;'>" + t + "</th>"
     auto = ''
     if raw and '@' in raw:

@@ -10,6 +10,7 @@ var GEWOON = /^(gmail|googlemail|hotmail|outlook|live|msn|yahoo|icloud|me|mac|te
 var EMAIL = /[A-Za-z0-9._%+\-]+@[A-Za-z0-9\-]+(\.[A-Za-z0-9\-]+)*\.[A-Za-z]{2,}/g;
 var CEL = "padding:3px 4px;border-bottom:1px solid #eee;";
 var VELD = "width:100%;padding:3px 6px;border:1px solid #ccc;border-radius:4px;font-size:12px;";
+var WISSEL = "border:0;background:none;cursor:pointer;color:#017e84;font-size:15px;padding:0 2px;";
 var timer = null;
 
 function norm(s) { return String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase(); }
@@ -133,8 +134,20 @@ function nieuweRij(box, e, v, n) {
   var tb = box.querySelector("[data-mlt] tbody");
   var tr = document.createElement("tr");
   tr.setAttribute("data-mlr", "1");
-  [["e", e, "naam@voorbeeld.be"], ["v", v, "Voornaam"], ["n", n, "Naam"]].forEach(function (c) {
+  [["e", e, "naam@voorbeeld.be"], ["v", v, "Voornaam"], ["w"], ["n", n, "Naam"]].forEach(function (c) {
     var td = document.createElement("td");
+    if (c[0] === "w") {
+      td.style.cssText = CEL + "width:24px;text-align:center;";
+      var wk = document.createElement("button");
+      wk.type = "button";
+      wk.setAttribute("data-mlwissel", "1");
+      wk.title = "Voornaam en naam omwisselen";
+      wk.textContent = "⇄";
+      wk.style.cssText = WISSEL;
+      td.appendChild(wk);
+      tr.appendChild(td);
+      return;
+    }
     td.style.cssText = CEL;
     var i = document.createElement("input");
     i.type = "text";
@@ -211,6 +224,12 @@ function klik(el) {
   if (!box) return;
   if (el.closest("[data-mlhaal]")) { haal(el); return; }
   if (el.closest("[data-mlplus]")) { var tr = nieuweRij(box, "", "", ""); tr.querySelector("input").focus(); return; }
+  var wis = el.closest("[data-mlwissel]");
+  if (wis) {
+    var rij = wis.closest("tr"), iv = rij.querySelector("[data-mlk=v]"), inn = rij.querySelector("[data-mlk=n]");
+    if (iv) { if (inn) { var t = iv.value; iv.value = inn.value; inn.value = t; sync(box); } }
+    return;
+  }
   var weg = el.closest("[data-mlweg]");
   if (weg) { weg.closest("tr").remove(); sync(box); }
 }

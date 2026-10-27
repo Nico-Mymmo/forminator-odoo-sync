@@ -86,6 +86,16 @@ if (bestaand.length) {
   console.log('rekenveld aangemaakt', id);
 }
 
+// 1b. x_vme_members mag NIET alleen-lezen zijn. Een alleen-lezen veld stuurt het
+// formulier bij Opslaan niet mee: de lijst stond op het scherm en was na het
+// bewaren weg (melding Thomas, 2026-10-27).
+const leden = await kw('ir.model.fields', 'search_read', [[['model', '=', 'crm.lead'], ['name', '=', 'x_vme_members']]], { fields: ['id', 'readonly'] });
+if (leden.length !== 1) throw new Error('x_vme_members niet gevonden');
+if (leden[0].readonly) {
+  await kw('ir.model.fields', 'write', [[leden[0].id], { readonly: false }]);
+  console.log('x_vme_members niet meer alleen-lezen');
+}
+
 // 2. In de rechterkolom van het tabblad Syndicoach
 const [view] = await kw('ir.ui.view', 'read', [[VIEW]], { fields: ['arch_db'] });
 if (!view.arch_db.includes(`name="${VELD}"`)) {

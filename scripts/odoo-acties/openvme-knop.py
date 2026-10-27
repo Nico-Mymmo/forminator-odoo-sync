@@ -70,6 +70,11 @@ for lead in records:
     if fouteAdressen:
         fout.append('Deze adressen in de ledenlijst kloppen niet: ' + ', '.join(fouteAdressen) + '.')
     if fout:
+        if env.context.get('syndicoach_overdracht'):
+            # Gestart vanuit "Versturen naar Syndicoach" (syndicoach-en-openvme.mjs):
+            # dan is er ook niets naar Syndicoach gegaan.
+            raise UserError('Er is niets verstuurd, niet naar Syndicoach en niet naar OpenVME. Op de lead "'
+                            + (lead.name or '') + '" ontbreekt nog:' + NL + NL + NL.join(['- ' + f for f in fout]))
         raise UserError('Nog niet klaar voor OpenVME:' + NL + NL + NL.join(['- ' + f for f in fout]))
     if not env.context.get('openvme_bevestigd'):
         # Eerst het venster: wat er doorgaat en wat nog leeg is; doorsturen
@@ -89,7 +94,8 @@ for lead in records:
     if not webhook.exists() or not webhook.webhook_url:
         raise UserError('Alles is ingevuld, maar het adres van OpenVME staat nog niet in de actie "OpenVME: VME aanmaken (webhook)". Vraag het aan de ontwikkelaars van OpenVME.')
     webhook.with_context(active_model='crm.lead', active_id=lead.id, active_ids=[lead.id]).run()
-    lead.message_post(body='Doorgestuurd naar OpenVME door ' + (env.user.name or '') + '.',
+    lead.message_post(body='Doorgestuurd naar OpenVME door ' + (env.user.name or '')
+                      + (' (samen met de overdracht naar Syndicoach).' if env.context.get('syndicoach_overdracht') else '.'),
                       message_type='comment', subtype_xmlid='mail.mt_note')
     action = {
         'type': 'ir.actions.client',
