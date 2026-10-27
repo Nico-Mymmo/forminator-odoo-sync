@@ -49,7 +49,7 @@ if (!veld.length) {
 
 // 2. De regel
 const [msgModel] = await kw('ir.model', 'search_read', [[['model', '=', 'mail.message']]], { fields: ['id'] });
-const filter = "[('model', '=', 'crm.lead'), ('body', 'ilike', 'aangemaakt in OpenVME')]";
+const filter = "[('model', '=', 'crm.lead'), ('body', 'ilike', 'aangemaakt in OpenVME'), ('body', 'ilike', 'app.cindy.eu/dashboard/estate/')]";
 let [aut] = await kw('base.automation', 'search_read', [[['name', '=', NAAM]]], { fields: ['id', 'action_server_ids'], context: { active_test: false } });
 if (!aut) {
   const id = await kw('base.automation', 'create', [{ name: NAAM, model_id: msgModel.id, trigger: 'on_create', filter_domain: filter, active: true }]);

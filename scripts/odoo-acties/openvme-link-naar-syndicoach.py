@@ -16,7 +16,9 @@ for msg in records:
     if i < 0:
         continue
     url = body[i + 6:].split(Q)[0].strip()
-    if not url.startswith('https://'):
+    # Enkel de notitie van OpenVME zelf, met een link naar een omgeving. Een gewone
+    # mail met "aangemaakt in OpenVME" en een link naar openvme.be telt niet.
+    if not url.startswith('https://app.cindy.eu/dashboard/estate/'):
         continue
     lead = env['crm.lead'].browse(msg.res_id)
     if not lead.exists():
@@ -27,6 +29,12 @@ for msg in records:
     for sheet in lead.x_studio_opportunity_actionsheet_ids:
         gebouw = sheet.x_studio_for_company_id
         if not gebouw:
+            continue
+        # NOOIT een gebouw naar Syndicoach sturen dat er nog niet is: enkel een
+        # actieblad dat al met de knop doorgegeven werd, krijgt de link.
+        overdrachten = env['mail.message'].search([('model', '=', 'x_sales_action_sheet'), ('res_id', '=', sheet.id),
+                                                   ('body', 'ilike', 'Doorgegeven aan Syndicoach')])
+        if not overdrachten.filtered(lambda m: 'Link naar OpenVME' not in (m.body or '')):
             continue
         if gebouw.x_openvme_url != url:
             gebouw.write({'x_openvme_url': url})
