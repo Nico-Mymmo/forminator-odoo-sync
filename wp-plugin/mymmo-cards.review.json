@@ -1,8 +1,8 @@
 {
   "plugin": "mymmo-cards",
-  "versie": "1.17.2",
-  "hash": "54656f861c615fab",
-  "datum": "2026-10-27T15:43:19.000Z",
+  "versie": "1.17.3",
+  "hash": "b51e8c7a6f3745d1",
+  "datum": "2026-10-27T15:46:57.000Z",
   "door": "Claude",
-  "samenvatting": "Team: een bron voor beide sites. openvme.be beheert de lijst en geeft ze openbaar door; syndicoach.be haalt ze op met een kwartier cache en de laatste goede versie als terugval, toont geen eigen lijst maar een verwijzing. Data van de bron opnieuw nagekeken, kleur valt terug op het vlak. Opmaak identiek op beide sites (getest met nagebootste bron)."
+  "samenvatting": "Team: vegen zonder einde op telefoon en tablet. Kopieen van de reeks ervoor en erna, verborgen voor schermlezers en Tab, zonder dubbele ids; sprong naar het echte lid na het glijden, meteen bij reduce. Getest met echte aanraking en de pijlen op 375 px: lus in beide richtingen, geen horizontale paginascroll."
 }
