@@ -1,8 +1,8 @@
 {
   "plugin": "mymmo-cards",
-  "versie": "1.17.0",
-  "hash": "4df069e74d9a078d",
-  "datum": "2026-10-27T15:16:11.000Z",
+  "versie": "1.17.1",
+  "hash": "d1ce584c2f5c9ffd",
+  "datum": "2026-10-27T15:28:16.000Z",
   "door": "Claude",
-  "samenvatting": "Nieuw blok Team met eigen lijst per site (naam, foto, functie, kleur uit het palet, volgorde, groepen). Nagekeken: tekst in de foto houdt altijd zijn plaats zodat lange teksten de kaart hoger maken zonder springen, geen schaduw of rand op de kaarten, afronding m zoals beeld in een vlak, naam als kop 3, focusring en aria op de knop, beweging stil bij reduce. Getest op 375, 768 en 1280 px: vegen onder 782px zonder schuifbalk, geen horizontale paginascroll, raster zonder script."
+  "samenvatting": "Team -> Overnemen: een adminscherm dat de oude hover-cover-kaarten van een pagina leest en na een overzicht met vinkjes als teamleden aanmaakt (foto, naam, functie, tekst zonder oude opmaak, volgorde). Geen wijziging aan de pagina of aan het blok; enkel wp-admin, zonder eigen stijl. Getest op twee nagebouwde paginaopbouwen."
 }

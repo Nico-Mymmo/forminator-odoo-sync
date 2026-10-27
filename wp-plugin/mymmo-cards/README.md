@@ -473,6 +473,15 @@ Uitzetten per site: `define('MYMMO_CARDS_GEEN_AUTO_UPDATE', true);` in
 
 ## Versies
 
+**1.17.1** — **Team → Overnemen** (`includes/class-team-overnemen.php`): leest
+een pagina van de site zelf (de blokken, ook in een gesynchroniseerd patroon) en
+maakt van elk blok met de klasse `hover-cover` een teamlid: foto (beeld van de
+cover, of het eerste beeldblok), tekst (de alinea's, zonder hun oude opmaak),
+naam en functie (de eerste twee teksten na de kaart, of een kop en de alinea
+erna in de kaart) en de volgorde van de pagina. Eerst een overzicht met
+vinkjes; wie al in de lijst staat (zelfde naam), wordt overgeslagen. De
+pagina zelf verandert niet.
+
 **1.17.0** — nieuw blok **Team** (`mymmo/team`) met een eigen lijst
 (`mymmo_teamlid`, menu Team): naam (titel), tekst (enkel alinea's), foto
 (uitgelichte afbeelding), functie en kleur achter de tekst (vak "Functie en
