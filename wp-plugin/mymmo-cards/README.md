@@ -12,6 +12,7 @@ regel CSS. Wat erin zit:
 | **Veelgestelde vragen** | twee blokken en een bibliotheek. Vragen die openklappen, uit een bibliotheek met thema's of eigen aan de pagina, met de gegevens voor zoekmachines (FAQPage). |
 | **Productfeature-header** | dezelfde feature als header bovenaan een pagina: gecentreerd met het beeld paginabreed eronder, tekst en beeld naast elkaar, of een gekleurd vlak met swirl. Knoppen zet je zelf in het blok. |
 | **Productfeature** | een feature uit de bibliotheek van de Operations Manager (Productfeatures): beeld links of rechts, met label, titel, uitleg, USP's en een knop naar keuze. |
+| **Team** | een blok en een lijst. Wie er werkt, met foto, naam en functie, uit de lijst Team in wp-admin. De tekst over iemand verschijnt in de foto bij aanwijzen of tikken; op een telefoon veeg je door het team. |
 | **Knop die een venster opent** | de gewone WordPress-knop, met één keuze erbij: welk tabblad van welke pop-up hij opent. |
 
 Elk component volgt dezelfde regel: **geometrie en gedrag, nooit typografie**. In
@@ -471,6 +472,30 @@ Uitzetten per site: `define('MYMMO_CARDS_GEEN_AUTO_UPDATE', true);` in
 `wp-config.php`. De nieuwe versie staat dan nog wel onder Updates.
 
 ## Versies
+
+**1.17.0** — nieuw blok **Team** (`mymmo/team`) met een eigen lijst
+(`mymmo_teamlid`, menu Team): naam (titel), tekst (enkel alinea's), foto
+(uitgelichte afbeelding), functie en kleur achter de tekst (vak "Functie en
+kleur", kleur uit het palet) en volgorde (Volgorde). Optioneel in groepen
+(`mymmo_team_groep`), zodat een blok enkel de directie kan tonen. Vervangt de
+handgebouwde rij met eigen CSS (`hover-cover`) op openvme.be/over-ons. Elke
+site heeft haar eigen lijst (beslissing David, 2026-10-27); een gedeelde lijst
+in de OM kan later, zoals bij de Productfeatures.
+
+- **De tekst in de foto** neemt altijd zijn plaats in (`visibility: hidden`),
+  dus een lange tekst maakt de kaart hoger in plaats van eruit te lopen, en
+  de kaarten in een rij zijn even hoog: er springt niets bij het aanwijzen.
+  Zichtbaar bij aanwijzen (`@media (hover: hover)`) en na een tik, klik of
+  Enter (`.is-open`, `aria-expanded` op een knop over de foto). Ook "onder de
+  naam" of "niet tonen" kan.
+- **Vegen op een telefoon en een tablet** (smaller dan 782px): `mymmo-team.js` zet
+  `.is-vegen` en schuift de rij met `--mk-schuif`; het venster knipt af met
+  `overflow: hidden`, niet met een schuifbalk (H09). Verticaal scrollen blijft
+  van de browser (`touch-action: pan-y`). Vorige en volgende als knoppen van
+  44px. Een kaart is driekwart breed op een telefoon, 42% op een tablet: de
+  volgende is al zichtbaar. Zonder script: een raster (per twee, per drie).
+- Vanaf 782px het aantal kolommen dat de redacteur koos (minder als er minder
+  teamleden zijn).
 
 **1.16.1** — het label van Productfeature en Productfeature-header krijgt een
 achtergrond- en tekstkleur uit het palet van het thema (paneel Label). Bewust met

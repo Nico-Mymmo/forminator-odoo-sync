@@ -1,8 +1,8 @@
 {
   "plugin": "mymmo-cards",
-  "versie": "1.16.1",
-  "hash": "2725e4e9fe5543d8",
-  "datum": "2026-10-22T11:47:21.000Z",
-  "door": "Nico-Mymmo",
-  "samenvatting": "Productfeature 1.16.1: labelkleuren (achtergrond en tekst) uit het palet van het thema, met de themaklassen has-<slug>-background-color / has-<slug>-color zoals een core-blok; geen kleurwaarde in de plugin. ColorPalette zonder eigen kleuren, paneel enkel als het label aanstaat. In Productfeature wordt een gekleurd label een pilletje (afronding-rond)."
+  "versie": "1.17.0",
+  "hash": "4df069e74d9a078d",
+  "datum": "2026-10-27T15:16:11.000Z",
+  "door": "Claude",
+  "samenvatting": "Nieuw blok Team met eigen lijst per site (naam, foto, functie, kleur uit het palet, volgorde, groepen). Nagekeken: tekst in de foto houdt altijd zijn plaats zodat lange teksten de kaart hoger maken zonder springen, geen schaduw of rand op de kaarten, afronding m zoals beeld in een vlak, naam als kop 3, focusring en aria op de knop, beweging stil bij reduce. Getest op 375, 768 en 1280 px: vegen onder 782px zonder schuifbalk, geen horizontale paginascroll, raster zonder script."
 }
