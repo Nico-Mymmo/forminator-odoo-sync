@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Mymmo Componenten
  * Description:       Bouwstenen voor de blok-editor: de kaartenstapel en de markeerstift. Elk component bezit geometrie en gedrag, nooit typografie -- de letter komt altijd uit het thema.
- * Version:           1.16.1
+ * Version:           1.17.0
  * Requires at least: 6.2
  * Requires PHP:      8.0
  * Author:            Mymmo
@@ -76,6 +76,8 @@
  *     uit de bibliotheek van de Operations Manager, beeld naast tekst
  *   - de PRODUCTFEATURE-HEADER (`includes/class-productfeature-header.php`) --
  *     dezelfde feature als header bovenaan een pagina, in drie indelingen
+ *   - het TEAM (`includes/class-team.php`) -- wie er werkt, met foto, naam en
+ *     functie, uit een eigen lijst; de tekst verschijnt in de foto
  *
  * DE HUISSTIJL (sinds 1.9.0)
  * --------------------------
@@ -105,7 +107,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('MYMMO_CARDS_VERSION', '1.16.1');
+define('MYMMO_CARDS_VERSION', '1.17.0');
 define('MYMMO_CARDS_FILE', __FILE__);
 define('MYMMO_CARDS_DIR', plugin_dir_path(__FILE__));
 define('MYMMO_CARDS_URL', plugin_dir_url(__FILE__));
@@ -125,6 +127,7 @@ require_once MYMMO_CARDS_DIR . 'includes/class-kostencalculator.php';
 require_once MYMMO_CARDS_DIR . 'includes/class-faq.php';
 require_once MYMMO_CARDS_DIR . 'includes/class-productfeature.php';
 require_once MYMMO_CARDS_DIR . 'includes/class-productfeature-header.php';
+require_once MYMMO_CARDS_DIR . 'includes/class-team.php';
 
 function mymmo_cards_bootstrap(): void {
     Mymmo_Cards_Huisstijl::init();
@@ -141,5 +144,6 @@ function mymmo_cards_bootstrap(): void {
     Mymmo_Cards_Faq::init();
     Mymmo_Cards_Productfeature::init();
     Mymmo_Cards_Productfeature_Header::init();
+    Mymmo_Cards_Team::init();
 }
 add_action('plugins_loaded', 'mymmo_cards_bootstrap');

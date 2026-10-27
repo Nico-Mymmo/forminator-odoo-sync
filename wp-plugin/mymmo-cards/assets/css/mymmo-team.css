@@ -1,0 +1,303 @@
+/**
+ * Het team -- geometrie en gedrag, nooit typografie.
+ *
+ * OP EEN COMPUTER staan de teamleden in een raster, zo veel kolommen als de
+ * server telde (--mk-kolommen). Elke kaart is een foto in de vorm die de
+ * redacteur koos (--mk-verhouding), met de naam en de functie eronder.
+ *
+ * DE TEKST IN DE FOTO (`--tekst-aanwijzen`) staat altijd in de kaart, ook
+ * verborgen (visibility: hidden): zo bepaalt hij mee hoe hoog de foto is. Een
+ * lange tekst maakt de kaart hoger in plaats van eruit te lopen, en omdat de
+ * kaarten in een rij even hoog zijn, springt er niets bij het aanwijzen. De
+ * foto ligt eronder (position: absolute) en vult wat er is. Zichtbaar bij
+ * aanwijzen met de muis, en na een tik, een klik of Enter (`.is-open`, gezet
+ * door mymmo-team.js). Niet bij focus: een tik geeft de knop ook focus, en
+ * dan ging de tekst bij een tweede tik niet meer dicht.
+ *
+ * OP EEN TELEFOON EN EEN TABLET (smaller dan 782px) veeg je door het team:
+ * mymmo-team.js zet `.is-vegen` op het blok en schuift de rij met
+ * --mk-schuif. Een kaart is op een telefoon driekwart breed, op een tablet
+ * ruim een derde, zodat de volgende al zichtbaar is. Zonder het script staan
+ * ze in een raster (per twee op een telefoon, per drie op een tablet), want
+ * een rij die niet schuift, verbergt mensen.
+ *
+ * Geen schaduw en geen rand: de foto's staan op de pagina, ze zweven niet.
+ */
+
+.mymmo-team {
+  --mk-kolommen: 4;
+  --mk-verhouding: 8 / 15;
+  /* De kleur achter de tekst; een teamlid kan een eigen kleur hebben. */
+  --mk-lid-kleur: var(--mymmo-kleur-vlak);
+  /* Hoe breed een kaart is als je veegt: op een tablet ruim een derde. */
+  --mk-veeg-breedte: 42%;
+}
+
+/* ── De rij ───────────────────────────────────────────────────────────────── */
+
+.mymmo-team .mymmo-team-rij {
+  display: grid;
+  grid-template-columns: repeat(var(--mk-kolommen, 4), minmax(0, 1fr));
+  gap: var(--mymmo-ruimte-normaal) var(--mymmo-ruimte-krap);
+  align-items: stretch;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Tussen 640 en 781px zonder het script: hoogstens drie naast elkaar, anders
+   wordt een foto een strookje. */
+@media (min-width: 640px) and (max-width: 781px) {
+  .mymmo-team .mymmo-team-rij {
+    grid-template-columns: repeat(var(--mk-kolommen-smal, 3), minmax(0, 1fr));
+  }
+}
+
+/* ── Een teamlid ──────────────────────────────────────────────────────────── */
+
+.mymmo-team .mymmo-team-lid {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  text-align: center;
+}
+
+/* De foto, en daarin de tekst. Groeit mee als de kaart ernaast hoger is: de
+   namen staan dan in een rij op dezelfde hoogte. */
+.mymmo-team .mymmo-team-beeld {
+  position: relative;
+  display: grid;
+  flex: 1 0 auto;
+  aspect-ratio: var(--mk-verhouding);
+  border-radius: var(--mymmo-afronding-m);
+  background-color: var(--mk-lid-kleur);
+}
+
+/* Met de tekst onder de naam groeit de foto niet mee: dan vult de langste
+   tekst de rij, niet de foto ernaast. */
+.mymmo-team.mymmo-team--tekst-onder .mymmo-team-beeld {
+  flex-grow: 0;
+}
+
+.mymmo-team .mymmo-team-beeld .mymmo-team-foto {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  /* Een gezicht staat bovenaan: wordt de kaart hoger, dan valt er onderaan
+     iets weg, niet het hoofd. */
+  object-fit: cover;
+  object-position: center top;
+  border-radius: var(--mymmo-afronding-m);
+}
+
+.mymmo-team .mymmo-team-naam {
+  margin: var(--mymmo-ruimte-krap) 0 0;
+}
+
+/* De functie: de tekstkleur, zacht. Zo blijft de naam het hoofdelement en haalt
+   de tekst op de pagina nog 4,5:1. */
+.mymmo-team .mymmo-team-functie {
+  margin: 0;
+  opacity: 0.75;
+}
+
+.mymmo-team .mymmo-team-bio-onder {
+  margin-top: var(--mymmo-ruimte-krap);
+  text-align: start;
+}
+
+.mymmo-team .mymmo-team-bio-onder > :first-child,
+.mymmo-team .mymmo-team-bio > :first-child { margin-top: 0; }
+.mymmo-team .mymmo-team-bio-onder > :last-child,
+.mymmo-team .mymmo-team-bio > :last-child { margin-bottom: 0; }
+
+/* ── De tekst in de foto ──────────────────────────────────────────────────── */
+
+.mymmo-team .mymmo-team-bio {
+  position: relative;
+  z-index: 1;
+  isolation: isolate;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: var(--mymmo-ruimte-krap);
+  border-radius: var(--mymmo-afronding-m);
+  text-align: start;
+  visibility: hidden;
+  opacity: 0;
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+}
+
+/* De kleur van het teamlid over de wazige foto: de tekst blijft leesbaar,
+   de persoon blijft herkenbaar. */
+.mymmo-team .mymmo-team-bio::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background-color: var(--mk-lid-kleur);
+  opacity: 0.85;
+}
+
+.mymmo-team .mymmo-team-lid.is-open .mymmo-team-bio {
+  visibility: visible;
+  opacity: 1;
+}
+
+@media (hover: hover) {
+  .mymmo-team .mymmo-team-beeld:hover .mymmo-team-bio {
+    visibility: visible;
+    opacity: 1;
+  }
+}
+
+/* Zacht verschijnen; stil voor wie beweging afwijst (onderaan). */
+.mymmo-team .mymmo-team-bio {
+  transition: opacity 0.25s ease, visibility 0.25s ease;
+}
+
+/* De knop ligt over de hele foto: tikken opent of sluit de tekst. Open ligt
+   de tekst erboven, zodat een link erin werkt (een tik op de tekst sluit). */
+.mymmo-team .mymmo-team-knop {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--mymmo-afronding-m);
+  background: none;
+  cursor: pointer;
+}
+
+.mymmo-team .mymmo-team-lid.is-open .mymmo-team-bio {
+  z-index: 3;
+}
+
+.mymmo-team .mymmo-team-knop:focus-visible {
+  outline: var(--mymmo-focus);
+  outline-offset: var(--mymmo-focus-afstand);
+}
+
+/* ── Vegen ────────────────────────────────────────────────────────────────── */
+
+/* Het venster laat 4px lucht rondom, zodat de focusring van een kaart aan de
+   rand niet weggeknipt wordt. */
+.mymmo-team.is-vegen .mymmo-team-venster {
+  margin: -4px;
+  padding: 4px;
+  overflow: hidden;
+  touch-action: pan-y;
+}
+
+.mymmo-team.is-vegen .mymmo-team-rij {
+  display: flex;
+  gap: var(--mymmo-ruimte-krap-telefoon);
+  /* Elke kaart even hoog, ook met een langere tekst. */
+  align-items: stretch;
+  transform: translateX(var(--mk-schuif, 0px));
+}
+
+.mymmo-team.is-vegen .mymmo-team-lid {
+  flex: 0 0 var(--mk-veeg-breedte);
+}
+
+.mymmo-team.is-vegen .mymmo-team-bediening {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--mymmo-ruimte-krap-telefoon);
+  margin-top: var(--mymmo-ruimte-krap-telefoon);
+}
+
+.mymmo-team .mymmo-team-bediening[hidden] {
+  display: none;
+}
+
+.mymmo-team.is-vegen .mymmo-team-rij {
+  transition: transform 0.35s ease;
+}
+
+/* Tijdens het slepen volgt de rij de vinger meteen. */
+.mymmo-team.is-vegen.is-slepen .mymmo-team-rij {
+  transition: none;
+}
+
+/* Vorige en volgende: rondjes van 44px, het pijltje met CSS getekend. */
+.mymmo-team .mymmo-team-pijl {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  margin: 0;
+  padding: 0;
+  border: var(--mymmo-rand) solid var(--mymmo-kleur-lijn);
+  border-radius: var(--mymmo-afronding-rond);
+  background-color: var(--mymmo-kleur-vlak-licht);
+  color: inherit;
+  cursor: pointer;
+}
+
+.mymmo-team .mymmo-team-pijl::before {
+  content: "";
+  width: 9px;
+  height: 9px;
+  border-top: var(--mymmo-rand) solid currentColor;
+  border-right: var(--mymmo-rand) solid currentColor;
+}
+
+.mymmo-team .mymmo-team-pijl--vorige::before {
+  margin-left: 4px;
+  transform: rotate(-135deg);
+}
+
+.mymmo-team .mymmo-team-pijl--volgende::before {
+  margin-right: 4px;
+  transform: rotate(45deg);
+}
+
+.mymmo-team .mymmo-team-pijl:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.mymmo-team .mymmo-team-pijl:focus-visible {
+  outline: var(--mymmo-focus);
+  outline-offset: var(--mymmo-focus-afstand);
+}
+
+/* ── Een telefoon ─────────────────────────────────────────────────────────── */
+
+/* Zonder het script: per twee, de foto wat minder hoog. Met het script vegen
+   (zie hierboven): dan geldt de flex-rij van .is-vegen. */
+@media (max-width: 639.98px) {
+  .mymmo-team {
+    --mk-veeg-breedte: 78%;
+  }
+
+  .mymmo-team .mymmo-team-rij {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--mymmo-ruimte-normaal-telefoon) var(--mymmo-ruimte-krap-telefoon);
+  }
+
+  .mymmo-team .mymmo-team-bio {
+    padding: var(--mymmo-ruimte-krap-telefoon);
+  }
+}
+
+/* ── Wie beweging afwijst ─────────────────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  .mymmo-team .mymmo-team-bio,
+  .mymmo-team.is-vegen .mymmo-team-rij {
+    transition: none;
+  }
+}
