@@ -473,6 +473,12 @@ Uitzetten per site: `define('MYMMO_CARDS_GEEN_AUTO_UPDATE', true);` in
 
 ## Versies
 
+**1.17.3** — **Team: vegen zonder einde** (vraag David). Op een telefoon en
+een tablet komt na de laatste persoon de eerste weer, in beide richtingen; de
+pijlen zijn nooit uitgeschakeld. `mymmo-team.js` zet een kopie van de reeks
+ervoor en erna (`aria-hidden`, zonder id, niet bereikbaar met Tab) en springt
+na het glijden zonder overgang van een kopie naar hetzelfde echte teamlid.
+
 **1.17.2** — **Team: een bron voor beide sites.** Het team is op openvme.be
 en syndicoach.be hetzelfde, dus het wordt enkel op openvme.be beheerd
 (`Mymmo_Cards_Team::BRON`, te verzetten met `MYMMO_CARDS_TEAM_BRON`). De bron
