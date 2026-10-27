@@ -1177,6 +1177,46 @@ function resolveMappingValue(mapping, normalizedForm, contextObject, fieldTransf
   return null;
 }
 
+/* Een lead die niet gevonden wordt via het contact, alsnog vinden via het
+   e-mailadres. Waarom: in Odoo staat dezelfde persoon soms twee keer als
+   contact (bv. Marie Fransman, 2026-10-27: de afspraak kwam bij het oude
+   contact, de lead hing aan het nieuwe). Zoeken op partner_id vond dan niets.
+   Het e-mailadres komt van het contact waarop gezocht werd, anders uit het
+   formulier (invitee_email bij Calendly, anders email). Het wordt vergeleken
+   zonder hoofdletters, met het e-mailadres van de lead EN dat van het contact
+   van de lead; eerst bij de lopende leads, dan bij de gearchiveerde. Bij
+   meerdere wint de laatst bijgewerkte. */
+async function zoekLeadOpEmail(env, { searchDomain, normalizedForm, fields }) {
+  let email = '';
+  const partnerTerm = Array.isArray(searchDomain)
+    ? searchDomain.find((t) => Array.isArray(t) && t[0] === 'partner_id' && t[1] === '=')
+    : null;
+  if (partnerTerm && parsePositiveInteger(partnerTerm[2])) {
+    const p = await searchRead(env, { model: 'res.partner', domain: [['id', '=', parsePositiveInteger(partnerTerm[2])]], fields: ['email'], limit: 1, context: { active_test: false } });
+    email = String((Array.isArray(p) && p[0] && p[0].email) || '').trim();
+  }
+  if (!email) email = String(lookupFormValue(normalizedForm, 'invitee_email') || lookupFormValue(normalizedForm, 'email') || '').trim();
+  if (!email || !email.includes('@')) return null;
+  const domein = ['|', ['email_from', '=ilike', email], ['partner_id.email', '=ilike', email]];
+  for (const gearchiveerd of [false, true]) {
+    const rijen = await searchRead(env, {
+      model: 'crm.lead',
+      domain: gearchiveerd ? [['active', '=', false], ...domein] : domein,
+      fields,
+      limit: 1,
+      order: 'write_date desc',
+      context: gearchiveerd ? { active_test: false } : undefined
+    });
+    if (Array.isArray(rijen) && rijen.length) {
+      return {
+        record: rijen[0],
+        uitleg: `Gevonden via het e-mailadres ${email}${gearchiveerd ? ' (gearchiveerde lead)' : ''}: niet via het contact (mogelijk staat dit contact dubbel in Odoo).`
+      };
+    }
+  }
+  return null;
+}
+
 export function buildIdentifierDomainForTarget(target, mappings, normalizedForm, contextObject) {
   if (target.identifier_type === 'single_email') {
     const emailValue = lookupFormValue(normalizedForm, 'email');
@@ -2402,11 +2442,16 @@ async function runSubmissionAttempt(env, {
           // en was leeg (zie buildIdentifierDomainForTarget). Er valt dan
           // niets te zoeken, en dat is hetzelfde resultaat als "niet
           // gevonden" -- search_on_not_found beslist wat er verder gebeurt.
-          const found = searchDomain === null ? null : await findRecordByIdentifier(env, {
+          let found = searchDomain === null ? null : await findRecordByIdentifier(env, {
             model: target.odoo_model,
             identifierDomain: searchDomain,
             fields: ['id', ...searchExtra]
           });
+          let gevondenVia = null;
+          if (!found?.id && target.odoo_model === 'crm.lead') {
+            const viaMail = await zoekLeadOpEmail(env, { searchDomain, normalizedForm, fields: ['id', ...searchExtra] });
+            if (viaMail) { found = viaMail.record; gevondenVia = viaMail.uitleg; }
+          }
 
           if (found?.id) {
             const targetResult = {
@@ -2416,7 +2461,7 @@ async function runSubmissionAttempt(env, {
               action_result:   'found',
               skipped_reason:  null,
               odoo_record_id:  found.id,
-              error_detail:    null,
+              error_detail:    gevondenVia,
               processed_at:    new Date().toISOString()
             };
             await createSubmissionTargetResult(env, targetResult);
