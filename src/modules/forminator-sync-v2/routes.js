@@ -3201,17 +3201,50 @@ export const routes = {
         if (cfg && cfg.odoo_model) odooModel = cfg.odoo_model;
       } catch (_) {}
 
-      const domain = q ? [['display_name', 'ilike', q]] : [];
+      // Zonder zoektekst: een klein model (landen, talen, ...) komt VOLLEDIG
+      // terug. Met de oude grens van 20 stopte de lijst van res.country bij
+      // Belarus, en dan bestaat Belgie voor wie enkel scrolt niet.
+      const KLEIN_MODEL = 500;
+      if (!q) {
+        let rows = limit;
+        try {
+          const aantal = await executeKw(context.env, {
+            model: odooModel, method: 'search_count', args: [[]], kwargs: {},
+          });
+          if (Number(aantal) <= KLEIN_MODEL) rows = KLEIN_MODEL;
+        } catch (_) {}
+        const records = await executeKw(context.env, {
+          model: odooModel,
+          method: 'search_read',
+          args: [[]],
+          kwargs: { fields: ['id', 'display_name'], limit: rows },
+        });
+        const results = (records || []).map(r => ({ id: r.id, label: r.display_name }));
+        return jsonResponse({ success: true, data: results });
+      }
 
-      const records = await executeKw(context.env, {
+      // Met zoektekst: tot 50 treffers, en ook in het Nederlands. Odoo geeft
+      // namen in de taal van de API-gebruiker (Engels: "Belgium"), dus wie
+      // "Belgie" typt vond anders niets. De Engelse naam blijft het label.
+      const zoek = (lang) => executeKw(context.env, {
         model: odooModel,
         method: 'search_read',
-        args: [domain],
-        kwargs: { fields: ['id', 'display_name'], limit },
+        args: [[['display_name', 'ilike', q]]],
+        kwargs: Object.assign({ fields: ['id', 'display_name'], limit: 50 },
+          lang ? { context: { lang } } : {}),
       });
-
-      const results = (records || []).map(r => ({ id: r.id, label: r.display_name }));
-      return jsonResponse({ success: true, data: results });
+      const [standaard, nederlands] = await Promise.all([
+        zoek(null),
+        zoek('nl_BE').catch(() => []),
+      ]);
+      const gezien = new Set();
+      const results = [];
+      for (const r of [...(standaard || []), ...(nederlands || [])]) {
+        if (gezien.has(r.id)) continue;
+        gezien.add(r.id);
+        results.push({ id: r.id, label: r.display_name });
+      }
+      return jsonResponse({ success: true, data: results.slice(0, 50) });
     } catch (error) {
       return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
     }
