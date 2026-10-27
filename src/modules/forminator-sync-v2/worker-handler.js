@@ -767,6 +767,42 @@ function shouldSkipOnRetry(latestResult) {
   return true;
 }
 
+/* Het contact bij een e-mailadres. Staat dezelfde persoon meer dan eens in
+   Odoo (Marie Fransman, 2026-10-27: een contact van december 2025 en een dat
+   een verkoper op 19 oktober zelf aanmaakte, met de lead eraan), dan wint:
+   1. het contact met een lopende lead (de laatst bijgewerkte lead);
+   2. anders het laatst bijgewerkte contact.
+   Vroeger won gewoon het oudste, en dan hing een afspraak bij een contact
+   zonder lead: de lead werd niet gevonden en de afspraak stond niet bij de
+   lead. Het e-mailadres wordt vergeleken zonder hoofdletters.
+   @returns {Promise<{id: number, detail: string|null}|null>} */
+async function kiesContactOpEmail(env, email) {
+  const contacten = await searchRead(env, {
+    model: 'res.partner',
+    domain: [['email', '=ilike', String(email).trim()]],
+    fields: ['id', 'name'],
+    order: 'write_date desc',
+    limit: 20
+  });
+  if (!Array.isArray(contacten) || !contacten.length) return null;
+  if (contacten.length === 1) return { id: contacten[0].id, detail: null };
+  const ids = contacten.map((c) => c.id);
+  const leads = await searchRead(env, {
+    model: 'crm.lead',
+    domain: [['partner_id', 'in', ids]],
+    fields: ['id', 'partner_id'],
+    order: 'write_date desc',
+    limit: 1
+  });
+  const metLead = Array.isArray(leads) && leads.length && Array.isArray(leads[0].partner_id) ? leads[0].partner_id[0] : null;
+  const gekozen = metLead && ids.includes(metLead) ? metLead : ids[0];
+  const reden = metLead && ids.includes(metLead) ? 'heeft een lopende lead' : 'laatst bijgewerkt, geen van hen heeft een lopende lead';
+  return {
+    id: gekozen,
+    detail: `${contacten.length} contacten met het e-mailadres ${email} (${ids.join(', ')}); gekozen: ${gekozen} (${reden}). Voeg ze samen in Odoo.`
+  };
+}
+
 async function runResolver(env, resolver, normalizedForm, contextObject, resolverLogs) {
   const resolverType = resolver.resolver_type;
   const inputField = normalizeString(resolver.input_source_field);
@@ -778,15 +814,12 @@ async function runResolver(env, resolver, normalizedForm, contextObject, resolve
   }
 
   if (resolverType === 'partner_by_email') {
-    const partner = await findRecordByIdentifier(env, {
-      model: 'res.partner',
-      identifierDomain: [['email', '=', inputValue]],
-      fields: ['id']
-    });
+    const keuze = await kiesContactOpEmail(env, inputValue);
 
-    if (partner?.id) {
-      setContextValue(contextObject, resolver.output_context_key, partner.id);
-      resolverLogs.push({ resolver_type: resolverType, action: 'found', input_field: inputField, created: false, record_id: partner.id });
+    if (keuze) {
+      setContextValue(contextObject, resolver.output_context_key, keuze.id);
+      resolverLogs.push({ resolver_type: resolverType, action: 'found', input_field: inputField, created: false, record_id: keuze.id, ...(keuze.detail ? { detail: keuze.detail } : {}) });
+      if (keuze.detail) console.log('[resolver] partner_by_email:', keuze.detail);
       return;
     }
 
