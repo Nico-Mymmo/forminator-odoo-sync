@@ -960,7 +960,7 @@ Dashboards: er is nergens een tweede bron van "waar ligt 9000".**
 | Kaart over alle koppelingen | tab "Kaart" in `public/dashboards.html` + `public/dashboards-map.js`, `GET /dashboards/api/aanvragen-kaart` |
 | Veld "Straat en huisnummer" (`street`): straten per postcode | `forms/straten.js` (puur: herkennen), `forms/straten-db.js` (ophalen), tabel `straten` in D1 om-core (`0016_straten.sql`), gevuld met `python scripts/postcodes/build-straten.py --cache <map>` + `npx wrangler d1 execute om-core --remote --file <map>/straten-be.sql`, publiek `GET /forminator-v2/public/v1/streets/BE/:postcode` |
 | Keuzelijst met straten in de browser (plugin 1.24.0) | `wp-plugin/mymmo-forms/assets/js/mymmo-forms-straat.js`, route `/wp-json/mymmo-forms/v1/straten/BE/<postcode>` in `includes/class-straten.php` |
-| "Adres naar dit gebouw" (knop bij een Gebouw-stap): zip/street zoeken mee, city, name = "VME {straat}" enkel bij nieuw | `src/modules/forminator-sync-v2/adres-voorstel.js`, `POST /api/targets/:id/adres` (zonder `uitvoeren` = enkel zeggen wat verandert) |
+| "Adres naar dit gebouw" (knop bij een Gebouw-stap): zip/street (straat + huisnummer) zoeken mee, city, name = "VME {straat} {nummer}" enkel bij nieuw | `src/modules/forminator-sync-v2/adres-voorstel.js`, `POST /api/targets/:id/adres` (zonder `uitvoeren` = enkel zeggen wat verandert) |
 | Kaart van één koppeling | tabblad "Kaart" naast Indieningen, `public/forminator-sync-v2-detail-kaart-tab.js`, `GET /forminator-v2/api/integrations/:id/aanvragen-kaart` (+ `/postcode-velden` om te weten of het tabblad er hoort) |
 
 Afspraken die bewust zo zijn:
@@ -1052,10 +1052,15 @@ Afspraken die bewust zo zijn:
 - **Leaflet en leaflet.heat komen van cdnjs, en pas bij het openen van het
   tabblad.** `.om-kaart` heeft `isolation: isolate`: anders schuiven de
   zoomknoppen van Leaflet (z-index 1000) over de navbar.
-- **Straat en huisnummer is EEN veld** (`street`, 2026-10-29), zoals Odoo het
-  in `street` bewaart ("Kerkstraat 12-16": een VME heeft soms meerdere
-  nummers). Het hoort bij het dichtstbijzijnde postcodeveld erboven (zelfde
-  regel, `koppelPostcodeVelden()`). De straat wordt bij een inzending herkend
+- **De straat is een eigen veld (`street`), het huisnummer een gewoon
+  tekstveld ernaast** (2026-10-29; eerst was het een veld voor beide, op vraag
+  van Nico gesplitst: de bezoeker typt zelf "12-16" voor een VME met meerdere
+  nummers). Odoo bewaart beide samen in `street`; "Adres naar dit gebouw"
+  voegt ze samen met een template (`{straat} {nummer}`, het tekstveld vlak na
+  de straat). Het straatveld hoort bij het dichtstbijzijnde postcodeveld
+  erboven (zelfde regel, `koppelPostcodeVelden()`), dus postcode en gemeente
+  staan BOVEN straat en nummer. Typt iemand het nummer toch achter de straat,
+  dan blijft het staan. De straat wordt bij een inzending herkend
   in de lijst van die postcode en krijgt de officiele schrijfwijze
   ("kerkstr. 12" -> "Kerkstraat 12"); een onbekende straat gaat door zoals
   getypt -- de lijst HELPT, ze weigert nooit. De lijst staat in D1 (~146.000
