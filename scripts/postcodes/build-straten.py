@@ -35,8 +35,8 @@ BRONNEN = {
     'wal': 'https://opendata.bosa.be/download/best/openaddress-bewal.zip',
 }
 
-# Rijen per INSERT: D1 aanvaardt statements tot 100 KB.
-PER_INSERT = 20
+# Een postcode per INSERT: D1 weigert te lange statements (SQLITE_TOOBIG).
+PER_INSERT = 1
 
 
 def haal(url, cache):
