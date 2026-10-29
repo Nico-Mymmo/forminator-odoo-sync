@@ -1012,11 +1012,11 @@
       }
       return pc ? `
         <p class="text-xs text-base-content/50 -mt-1 mb-2">
-          Straat en huisnummer samen ("Kerkstraat 12", ook "12-16" voor een VME met meerdere
-          nummers). De straat wordt herkend in de officiële lijst van
-          <strong>${esc(pc.label || pc.field_key)}</strong> en krijgt de officiële schrijfwijze
-          ("kerkstr. 12" wordt "Kerkstraat 12"). Een straat die niet in de lijst staat, gaat door
-          zoals getypt. Koppel dit veld aan <strong>Straat</strong> van het gebouw.
+          De bezoeker krijgt de straten van <strong>${esc(pc.label || pc.field_key)}</strong>
+          voorgesteld terwijl hij typt, en een herkende straat krijgt de officiële schrijfwijze
+          ("kerkstr." wordt "Kerkstraat"). Een straat die niet in de lijst staat, gaat door zoals
+          getypt. Zet het huisnummer in een eigen vak ernaast (ook "12-16" voor een VME met
+          meerdere nummers); de knop "Adres naar dit gebouw" op een Gebouw-stap voegt ze samen.
         </p>` : `
         <p class="text-xs text-warning -mt-1 mb-2 flex items-start gap-1">
           <i data-lucide="alert-triangle" class="w-3 h-3 mt-0.5 shrink-0"></i>
@@ -1310,9 +1310,13 @@
         postcodeVeld.validation = { country: 'BE' };
         voegVeldToe('city', 'Gemeente');
         B.fields[B.fields.length - 1].width = 'half';
-        // En de straat eronder: samen het adres van het gebouw.
-        voegVeldToe('street', 'Straat en huisnummer');
-        B.sel = B.fields.length - 3;
+        // En daaronder de straat (met keuzelijst) en het huisnummer, elk een
+        // eigen vak: een VME heeft soms meerdere nummers ("12-16").
+        voegVeldToe('street', 'Straat');
+        B.fields[B.fields.length - 1].width = 'half';
+        voegVeldToe('text', 'Huisnummer');
+        B.fields[B.fields.length - 1].width = 'half';
+        B.sel = B.fields.length - 4;
       } else {
         voegVeldToe(btn.dataset.type);
         B.sel = B.fields.length - 1;

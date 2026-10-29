@@ -34,11 +34,15 @@ export function vindAdresVelden(fields) {
   const postcode = lijst.find((f) => f.field_key === postcodeVan[straat.field_key]);
   const gemeenteKey = gemeenteVan[postcode.field_key];
   const gemeente = gemeenteKey ? lijst.find((f) => f.field_key === gemeenteKey) : null;
-  const nietVerplicht = [postcode, straat].filter((f) => !f.is_required).map((f) => `"${f.label || f.field_key}"`);
+  // Het huisnummer: het tekstveld vlak na de straat (zo zet de knop Postcode
+  // het neer). Zonder zo'n veld typt de bezoeker het nummer achter de straat.
+  const volgende = lijst[lijst.indexOf(straat) + 1];
+  const nummer = volgende && volgende.field_type === 'text' ? volgende : null;
+  const nietVerplicht = [postcode, straat, nummer].filter((f) => f && !f.is_required).map((f) => `"${f.label || f.field_key}"`);
   if (nietVerplicht.length) {
     return { fout: `Zet ${nietVerplicht.join(' en ')} eerst op verplicht in het tabblad Formulier. Het adres wordt het zoekcriterium voor het gebouw, en zonder adres kan de stap het gebouw niet terugvinden of aanmaken.` };
   }
-  return { postcode, straat, gemeente };
+  return { postcode, straat, nummer, gemeente };
 }
 
 /**
@@ -46,12 +50,18 @@ export function vindAdresVelden(fields) {
  *   rijen: per Odoo-veld de nieuwe mapping (met het id van de bestaande als die er is)
  */
 export function planAdres(velden, mappings) {
-  const { postcode, straat, gemeente } = velden;
+  const { postcode, straat, nummer, gemeente } = velden;
+  const naamVan = (f) => `"${f.label || f.field_key}"`;
+  // Odoo bewaart straat en huisnummer samen in `street` ("Kerkstraat 12-16").
+  const adres = nummer ? `{${straat.field_key}} {${nummer.field_key}}` : `{${straat.field_key}}`;
+  const straatBron = nummer
+    ? { source_type: 'template', source_value: adres, wat: `Straat van het gebouw: ${naamVan(straat)} en ${naamVan(nummer)} samen (zoekt mee)` }
+    : { source_type: 'form', source_value: straat.field_key, wat: `Straat van het gebouw: uit ${naamVan(straat)} (zoekt mee)` };
   const doel = [
-    { odoo_field: 'zip', source_type: 'form', source_value: postcode.field_key, is_identifier: true, is_update_field: true, wat: `Postcode van het gebouw: uit "${postcode.label || postcode.field_key}" (zoekt mee)` },
-    { odoo_field: 'street', source_type: 'form', source_value: straat.field_key, is_identifier: true, is_update_field: true, wat: `Straat van het gebouw: uit "${straat.label || straat.field_key}" (zoekt mee)` },
-    ...(gemeente ? [{ odoo_field: 'city', source_type: 'form', source_value: gemeente.field_key, is_identifier: false, is_update_field: true, wat: `Gemeente van het gebouw: uit "${gemeente.label || gemeente.field_key}"` }] : []),
-    { odoo_field: 'name', source_type: 'template', source_value: `VME {${straat.field_key}}`, is_identifier: false, is_update_field: false, wat: `Naam van een nieuw gebouw: "VME" met straat en huisnummer` },
+    { odoo_field: 'zip', source_type: 'form', source_value: postcode.field_key, is_identifier: true, is_update_field: true, wat: `Postcode van het gebouw: uit ${naamVan(postcode)} (zoekt mee)` },
+    { odoo_field: 'street', ...straatBron, is_identifier: true, is_update_field: true },
+    ...(gemeente ? [{ odoo_field: 'city', source_type: 'form', source_value: gemeente.field_key, is_identifier: false, is_update_field: true, wat: `Gemeente van het gebouw: uit ${naamVan(gemeente)}` }] : []),
+    { odoo_field: 'name', source_type: 'template', source_value: `VME ${adres}`, is_identifier: false, is_update_field: false, wat: `Naam van een nieuw gebouw: "VME" met straat en huisnummer` },
   ];
   const opVeld = (veld) => mappings.find((m) => m.odoo_field === veld);
   const rijen = doel.map((d) => ({ ...d, bestaand: opVeld(d.odoo_field) || null }));

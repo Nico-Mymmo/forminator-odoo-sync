@@ -37,11 +37,12 @@ export const FIELD_TYPES = {
   // DICHTSTBIJZIJNDE postcodeveld erboven (koppelPostcodeVelden()).
   postcode:       { input: true,  options: false, multi: false, odooType: 'text',      label: 'Postcode' },
   city:           { input: true,  options: false, multi: false, odooType: 'text',      label: 'Gemeente' },
-  // Straat en huisnummer in EEN veld ("Kerkstraat 12-16"), zoals Odoo het in
-  // `street` bewaart. De straat wordt herkend in de officiele lijst van de
-  // postcode erboven (forms/straten.js) en krijgt dan de officiele
-  // schrijfwijze; een onbekende straat gaat door zoals getypt.
-  street:         { input: true,  options: false, multi: false, odooType: 'text',      label: 'Straat en huisnummer' },
+  // De straat, met een keuzelijst uit de officiele lijst van de postcode
+  // erboven (forms/straten.js); een herkende straat krijgt de officiele
+  // schrijfwijze, een onbekende gaat door zoals getypt. Het huisnummer staat
+  // gewoonlijk in een eigen tekstveld erna; staat het er toch achter
+  // ("Kerkstraat 12"), dan blijft het staan.
+  street:         { input: true,  options: false, multi: false, odooType: 'text',      label: 'Straat' },
   number:         { input: true,  options: false, multi: false, odooType: 'integer',   label: 'Getal' },
   date:           { input: true,  options: false, multi: false, odooType: 'text',      label: 'Datum' },
   textarea:       { input: true,  options: false, multi: false, odooType: 'text',      label: 'Lange tekst' },
