@@ -13,8 +13,28 @@
  */
 
 import { handleGenericWebhook } from '../worker-handler.js';
-import { validateSubmissionValues, buildPipelinePayload, isLanguage, DEFAULT_LANGUAGE } from './schema.js';
+import { validateSubmissionValues, buildPipelinePayload, isLanguage, DEFAULT_LANGUAGE, koppelPostcodeVelden, postcodeLandVan } from './schema.js';
+import { normalizePostcode } from './postcodes.js';
+import { stratenVoor } from './straten-db.js';
 import { valueLabelsFromFormFields, mergeValueLabels } from '../display-values.js';
+
+/**
+ * Per straatveld de straten van zijn postcode, zodat validateSubmissionValues()
+ * (puur) de straat kan herkennen. Enkel als de postcode geldig is; anders, of
+ * als de lijst niet te lezen is, gaat de straat door zoals getypt.
+ */
+async function stratenPerVeld(env, fields, formData) {
+  const { postcodeVan } = koppelPostcodeVelden(fields);
+  const perKey = Object.fromEntries((fields || []).map((f) => [f.field_key, f]));
+  const uit = {};
+  await Promise.all((fields || []).filter((f) => f.field_type === 'street' && postcodeVan[f.field_key]).map(async (f) => {
+    const pcVeld = perKey[postcodeVan[f.field_key]];
+    const land = postcodeLandVan(pcVeld);
+    const pc = normalizePostcode(land, String(formData?.[pcVeld.field_key] ?? ''));
+    if (pc.ok) uit[f.field_key] = await stratenVoor(env, land, pc.waarde);
+  }));
+  return uit;
+}
 
 /**
  * @param {object}  env
@@ -36,7 +56,8 @@ export async function submitFormEntry(env, { integration, form, fields, body, re
   // met een sitesleutel en die mag hier niets kunnen forceren.
   const taal = taalVanInzending(form, body?.meta?.lang);
 
-  const { errors, values } = validateSubmissionValues(fields, body?.form_data, taal);
+  const straten = await stratenPerVeld(env, fields, body?.form_data);
+  const { errors, values } = validateSubmissionValues(fields, body?.form_data, taal, { straten });
 
   if (errors.length > 0) {
     // 422 en niet 400: de aanvraag is welgevormd, de inhoud voldoet niet. De

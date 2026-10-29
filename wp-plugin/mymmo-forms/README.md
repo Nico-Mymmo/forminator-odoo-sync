@@ -576,6 +576,17 @@ injectiepad zijn naar elke site die het formulier toont.
 
 ## Versies
 
+**1.24.0** -- veldtype **Straat en huisnummer** uit de OM. Zodra de postcode
+erboven ingevuld is, staat er bij het typen een lijstje met de straten van die
+postcode onder het veld (`assets/js/mymmo-forms-straat.js`, met pijltjes, Enter
+en Esc; een standaard combobox voor schermlezers). Een klik zet de straat in
+het veld, de bezoeker typt er het huisnummer achter. De straten komen via
+WordPress (`/wp-json/mymmo-forms/v1/straten/BE/<postcode>`, een dag bewaard,
+`includes/class-straten.php`) uit de OM, zodat de sitesleutel op de server
+blijft. Het helpt, het houdt niets tegen: een straat die niet in de lijst
+staat, typt de bezoeker zelf; zonder JavaScript is het een gewoon tekstveld.
+Vereist de OM met de straatlijst (tabel `straten` in D1).
+
 **1.23.1** — het gemeenteveld stond er DUBBEL: het tekstvak en, eronder, een
 lege keuzelijst. Die keuzelijst hoort verborgen te staan (`hidden`) tot een
 postcode meerdere plaatsen heeft, maar `.mymmo-form-wrap .mymmo-form-input`

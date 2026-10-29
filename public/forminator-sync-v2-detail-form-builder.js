@@ -1005,6 +1005,25 @@
             : 'Zet er een veld <strong>Gemeente</strong> onder, dan wordt dat vanzelf ingevuld.'}
         </p>`;
     }
+    if (veld.field_type === 'street') {
+      var pc = null;
+      for (var k = index - 1; k >= 0; k -= 1) {
+        if (B.fields[k].field_type === 'postcode') { pc = B.fields[k]; break; }
+      }
+      return pc ? `
+        <p class="text-xs text-base-content/50 -mt-1 mb-2">
+          Straat en huisnummer samen ("Kerkstraat 12", ook "12-16" voor een VME met meerdere
+          nummers). De straat wordt herkend in de officiële lijst van
+          <strong>${esc(pc.label || pc.field_key)}</strong> en krijgt de officiële schrijfwijze
+          ("kerkstr. 12" wordt "Kerkstraat 12"). Een straat die niet in de lijst staat, gaat door
+          zoals getypt. Koppel dit veld aan <strong>Straat</strong> van het gebouw.
+        </p>` : `
+        <p class="text-xs text-warning -mt-1 mb-2 flex items-start gap-1">
+          <i data-lucide="alert-triangle" class="w-3 h-3 mt-0.5 shrink-0"></i>
+          <span>Er staat geen postcodeveld boven dit veld, dus de straat wordt niet herkend.
+          Sleep het onder een postcodeveld.</span>
+        </p>`;
+    }
     if (veld.field_type === 'city') {
       var bron = null;
       for (var j = index - 1; j >= 0; j -= 1) {
@@ -1291,7 +1310,9 @@
         postcodeVeld.validation = { country: 'BE' };
         voegVeldToe('city', 'Gemeente');
         B.fields[B.fields.length - 1].width = 'half';
-        B.sel = B.fields.length - 2;
+        // En de straat eronder: samen het adres van het gebouw.
+        voegVeldToe('street', 'Straat en huisnummer');
+        B.sel = B.fields.length - 3;
       } else {
         voegVeldToe(btn.dataset.type);
         B.sel = B.fields.length - 1;

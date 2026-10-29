@@ -98,6 +98,7 @@ import {
 import { FIELD_TYPES, ODOO_FIELD_TYPES, META_KEYS, META_PREFIX, LANGUAGES, validateFormDefinition, slugifyForm, postcodeLandenLijst } from './forms/schema.js';
 import { getAanvragenKaart, normalizeKaartPeriode, postcodeveldenVanKoppeling } from '../dashboards/lib/aanvragen-kaart.js';
 import { calendlyRoutes } from './calendly/routes.js';
+import { adresNaarGebouw } from './adres-voorstel.js';
 import { ensureCalendlySystemSteps } from './calendly/system-step.js';
 import { botRejectionRoutes } from './forms/bot-rejection-routes.js';
 
@@ -1975,6 +1976,18 @@ export const routes = {
       });
     } catch (error) {
       return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
+    }
+  },
+
+  // "Adres naar dit gebouw": eerst zonder `uitvoeren` (wat verandert er, in
+  // gewone taal), daarna met. Zie adres-voorstel.js.
+  'POST /api/targets/:targetId/adres': async (context) => {
+    try {
+      const payload = await readJsonBody(context.request).catch(() => ({}));
+      const data = await adresNaarGebouw(context.env, context.params?.targetId, { uitvoeren: payload?.uitvoeren === true });
+      return jsonResponse({ success: true, data });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, 400);
     }
   },
 

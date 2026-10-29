@@ -830,6 +830,10 @@
         await window.FSV2.handleReorderTarget(btn.dataset.targetId, 1);
         return;
       }
+      if (action === 'adres-naar-gebouw') {
+        window.FSV2.handleAdresNaarGebouw(btn.dataset.targetId);
+        return;
+      }
       if (action === 'apply-chain-suggestion') {
         // De soort koppeling bepaalt WAT er gezet wordt: het record uit de
         // vorige stap of een veld ervan, als zoekcriterium of als gewone

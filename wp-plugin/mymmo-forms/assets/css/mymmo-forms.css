@@ -306,6 +306,43 @@
   display: none;
 }
 
+/* Voorstellen onder het veld "Straat en huisnummer" (mymmo-forms-straat.js).
+   Twee klassen voor elke regel op de ul/li: een blokthema zet ul en li
+   anders zwaarder dan een losse klasse. */
+.mymmo-form-wrap .mymmo-form-field--street {
+  position: relative;
+}
+.mymmo-form-wrap .mymmo-form-suggesties {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  margin: 4px 0 0;
+  padding: 4px;
+  list-style: none;
+  background: var(--mf-field-bg);
+  border: 1px solid var(--mf-border);
+  border-radius: var(--mf-radius);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+  max-height: 260px;
+  overflow-y: auto;
+}
+.mymmo-form-wrap .mymmo-form-suggesties[hidden] {
+  display: none;
+}
+.mymmo-form-wrap .mymmo-form-suggestie {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: calc(var(--mf-radius) - 4px);
+  color: var(--mf-text);
+  cursor: pointer;
+  list-style: none;
+}
+.mymmo-form-wrap .mymmo-form-suggestie:hover,
+.mymmo-form-wrap .mymmo-form-suggestie[aria-selected="true"] {
+  background: color-mix(in srgb, var(--mf-accent) 10%, transparent);
+}
+
 .mymmo-form-input:focus {
   outline: none;
   border-color: var(--mf-border-focus);

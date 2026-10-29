@@ -958,6 +958,9 @@ Dashboards: er is nergens een tweede bron van "waar ligt 9000".**
 | De kaart tekenen (EEN component, twee plekken) | `public/aanvragen-kaart.js` (`window.OMAanvragenKaart.maak()`) |
 | De data (EEN serverfunctie) | `getAanvragenKaart()` in `src/modules/dashboards/lib/aanvragen-kaart.js` |
 | Kaart over alle koppelingen | tab "Kaart" in `public/dashboards.html` + `public/dashboards-map.js`, `GET /dashboards/api/aanvragen-kaart` |
+| Veld "Straat en huisnummer" (`street`): straten per postcode | `forms/straten.js` (puur: herkennen), `forms/straten-db.js` (ophalen), tabel `straten` in D1 om-core (`0016_straten.sql`), gevuld met `python scripts/postcodes/build-straten.py --cache <map>` + `npx wrangler d1 execute om-core --remote --file <map>/straten-be.sql`, publiek `GET /forminator-v2/public/v1/streets/BE/:postcode` |
+| Keuzelijst met straten in de browser (plugin 1.24.0) | `wp-plugin/mymmo-forms/assets/js/mymmo-forms-straat.js`, route `/wp-json/mymmo-forms/v1/straten/BE/<postcode>` in `includes/class-straten.php` |
+| "Adres naar dit gebouw" (knop bij een Gebouw-stap): zip/street zoeken mee, city, name = "VME {straat}" enkel bij nieuw | `src/modules/forminator-sync-v2/adres-voorstel.js`, `POST /api/targets/:id/adres` (zonder `uitvoeren` = enkel zeggen wat verandert) |
 | Kaart van één koppeling | tabblad "Kaart" naast Indieningen, `public/forminator-sync-v2-detail-kaart-tab.js`, `GET /forminator-v2/api/integrations/:id/aanvragen-kaart` (+ `/postcode-velden` om te weten of het tabblad er hoort) |
 
 Afspraken die bewust zo zijn:
@@ -1049,9 +1052,19 @@ Afspraken die bewust zo zijn:
 - **Leaflet en leaflet.heat komen van cdnjs, en pas bij het openen van het
   tabblad.** `.om-kaart` heeft `isolation: isolate`: anders schuiven de
   zoomknoppen van Leaflet (z-index 1000) over de navbar.
+- **Straat en huisnummer is EEN veld** (`street`, 2026-10-29), zoals Odoo het
+  in `street` bewaart ("Kerkstraat 12-16": een VME heeft soms meerdere
+  nummers). Het hoort bij het dichtstbijzijnde postcodeveld erboven (zelfde
+  regel, `koppelPostcodeVelden()`). De straat wordt bij een inzending herkend
+  in de lijst van die postcode en krijgt de officiele schrijfwijze
+  ("kerkstr. 12" -> "Kerkstraat 12"); een onbekende straat gaat door zoals
+  getypt -- de lijst HELPT, ze weigert nooit. De lijst staat in D1 (~146.000
+  straten, enkel BE) en niet als module: een formulier heeft er telkens maar
+  die van EEN postcode nodig. Voorstellen terwijl de bezoeker typt komen in de
+  plugin (nog te bouwen, via de publieke route).
 - **Nog niet gebouwd, bewust:** een landkeuze IN het formulier (BE/NL door
-  elkaar), straat + huisnummer (dat vraagt de volledige adreslijst, ~6,6
-  miljoen adressen), de kaart van Forminator- en webhookkoppelingen (geen veldtype om op te steunen),
+  elkaar), het huisnummer nakijken tegen de adreslijst (~6,6 miljoen
+  adressen), de kaart van Forminator- en webhookkoppelingen (geen veldtype om op te steunen),
   en een kaart "per inwoner" (`a` = aantal adressen per postcode staat al in de
   lijst, om de aanvragen tegen af te zetten).
 

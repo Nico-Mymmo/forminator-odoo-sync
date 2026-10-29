@@ -187,6 +187,12 @@
         // getal -- een NL-postcode heeft letters, en "0612" mag geen 612 worden).
         invoer = '<input type="text" class="mymmo-form-input" value="' + esc(veld.default_value) +
           '" placeholder="' + esc(plaats) + '" autocomplete="postal-code"' + prefillAttr + ' disabled>';
+      } else if (type === 'street') {
+        // Zoals field.php: een tekstvak met de (lege, verborgen) lijst voor de
+        // voorstellen eronder. In de bouwer typt niemand, dus de lijst blijft leeg.
+        invoer = '<input type="text" class="mymmo-form-input" value="' + esc(veld.default_value) +
+          '" placeholder="' + esc(plaats) + '" autocomplete="address-line1"' + prefillAttr + ' disabled>' +
+          '<ul class="mymmo-form-suggesties" hidden></ul>';
       } else if (type === 'city') {
         // Het tekstvak plus de (verborgen) keuzelijst die het script op de site
         // aanzet als een postcode meerdere plaatsen heeft. Ook hier, omdat de
@@ -216,7 +222,7 @@
 
   // Spiegelt submitLayoutVoor-regel in forms/schema.js (SUBMIT_LAYOUTS,
   // KNOP_NAAST_TYPES) en mymmo_forms_knop_naast_index() in helpers.php.
-  var KNOP_NAAST_TYPES = ['text', 'email', 'tel', 'postcode', 'city', 'number', 'date', 'select'];
+  var KNOP_NAAST_TYPES = ['text', 'email', 'tel', 'postcode', 'city', 'street', 'number', 'date', 'select'];
   var KNOP_NAAST = { '1:1': '1-1', '2:1': '2-1', '3:1': '3-1' };
 
   /** Het laatste eenregelige veld: daar komt de knop naast. -1 = knop onder de velden. */

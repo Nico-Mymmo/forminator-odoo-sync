@@ -227,6 +227,29 @@ if ($type === 'hidden') {
                    data-mymmo-postcode-lijst="<?php echo esc_url($lijst); ?>"<?php echo $gemeente !== '' ? ' data-mymmo-gemeente="' . esc_attr($gemeente) . '"' : ''; ?>
                    <?php echo $req_attr . $beschrijft . $prefill_attr; ?>>
 
+        <?php elseif ($type === 'street') :
+            // Straat en huisnummer. Een gewoon tekstvak; mymmo-forms-straat.js
+            // stelt de straten van de postcode erboven voor (lijst onder het
+            // veld). Zonder JavaScript of zonder lijst typt de bezoeker zelf.
+            $postcode_veld = (string) ($veld['postcode_field'] ?? '');
+            $lijst_id      = $veld_id . '-straten';
+            ?>
+            <input type="text"
+                   id="<?php echo esc_attr($veld_id); ?>"
+                   name="<?php echo esc_attr($key); ?>"
+                   class="mymmo-form-input"
+                   value="<?php echo esc_attr($waarde); ?>"
+                   placeholder="<?php echo esc_attr($plaats); ?>"
+                   autocomplete="address-line1"<?php if ($postcode_veld !== '') : ?>
+                   role="combobox"
+                   aria-autocomplete="list"
+                   aria-expanded="false"
+                   aria-controls="<?php echo esc_attr($lijst_id); ?>"
+                   data-mymmo-straat-van="<?php echo esc_attr($postcode_veld); ?>"
+                   data-mymmo-straat-url="<?php echo esc_url(Mymmo_Forms_Straten::url('BE')); ?>"<?php endif; ?>
+                   <?php echo $req_attr . $beschrijft . $lengte_attrs . $prefill_attr; ?>>
+            <ul id="<?php echo esc_attr($lijst_id); ?>" class="mymmo-form-suggesties" role="listbox" hidden></ul>
+
         <?php elseif ($type === 'city') :
             // De gemeente bij een postcode. Een gewoon tekstvak, zodat het ook
             // zonder JavaScript werkt; heeft de postcode meerdere plaatsen

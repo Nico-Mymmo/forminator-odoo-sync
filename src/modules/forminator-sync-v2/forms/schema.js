@@ -14,6 +14,7 @@
  */
 
 import { POSTCODE_LANDEN, STANDAARD_LAND, isPostcodeLand, normalizePostcode, plaatsNaam } from './postcodes.js';
+import { herkenStraat } from './straten.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Veldtypes
@@ -36,6 +37,11 @@ export const FIELD_TYPES = {
   // DICHTSTBIJZIJNDE postcodeveld erboven (koppelPostcodeVelden()).
   postcode:       { input: true,  options: false, multi: false, odooType: 'text',      label: 'Postcode' },
   city:           { input: true,  options: false, multi: false, odooType: 'text',      label: 'Gemeente' },
+  // Straat en huisnummer in EEN veld ("Kerkstraat 12-16"), zoals Odoo het in
+  // `street` bewaart. De straat wordt herkend in de officiele lijst van de
+  // postcode erboven (forms/straten.js) en krijgt dan de officiele
+  // schrijfwijze; een onbekende straat gaat door zoals getypt.
+  street:         { input: true,  options: false, multi: false, odooType: 'text',      label: 'Straat en huisnummer' },
   number:         { input: true,  options: false, multi: false, odooType: 'integer',   label: 'Getal' },
   date:           { input: true,  options: false, multi: false, odooType: 'text',      label: 'Datum' },
   textarea:       { input: true,  options: false, multi: false, odooType: 'text',      label: 'Lange tekst' },
@@ -214,7 +220,7 @@ export const SUCCESS_MODES = ['message', 'redirect'];
  * en mymmo_forms_knop_naast_index() in wp-plugin/mymmo-forms/includes/helpers.php.
  */
 export const SUBMIT_LAYOUTS = ['below', '1:1', '2:1', '3:1'];
-export const KNOP_NAAST_TYPES = ['text', 'email', 'tel', 'postcode', 'city', 'number', 'date', 'select'];
+export const KNOP_NAAST_TYPES = ['text', 'email', 'tel', 'postcode', 'city', 'street', 'number', 'date', 'select'];
 
 /**
  * Welk postcodeveld vult welk gemeenteveld?
@@ -228,6 +234,9 @@ export const KNOP_NAAST_TYPES = ['text', 'email', 'tel', 'postcode', 'city', 'nu
  *
  * Een postcodeveld vult hoogstens EEN gemeenteveld: het eerste eronder.
  *
+ * Een straatveld volgt dezelfde regel: zijn straten komen uit de lijst van het
+ * dichtstbijzijnde postcodeveld erboven (postcodeVan[streetKey]).
+ *
  * @returns {{gemeenteVan: Object<string,string>, postcodeVan: Object<string,string>}}
  *          gemeenteVan[postcodeKey] = cityKey, postcodeVan[cityKey] = postcodeKey
  */
@@ -240,6 +249,7 @@ export function koppelPostcodeVelden(fields) {
     const key = f && (f.field_key || f.key);
     if (!key) continue;
     if (type === 'postcode') laatste = key;
+    if (type === 'street' && laatste) postcodeVan[key] = laatste;
     if (type === 'city' && laatste) {
       postcodeVan[key] = laatste;
       if (!gemeenteVan[laatste]) gemeenteVan[laatste] = key;
@@ -839,8 +849,12 @@ export function toPublicFormListItem(form, fieldCount, adminName = '', extra = {
  * volgorde van het formulier. Alles wat niet in het formulier staat wordt
  * WEGGEGOOID: anders kan een willekeurige poster elke sleutel bijverzinnen die
  * een mapping toevallig verwacht.
+ *
+ * `straten` (optioneel): per straatveld de straten van zijn postcode
+ * ({streetKey: [...]}, opgehaald door submit.js). Zonder lijst gaat de straat
+ * door zoals getypt.
  */
-export function validateSubmissionValues(fields, rawValues, lang = DEFAULT_LANGUAGE) {
+export function validateSubmissionValues(fields, rawValues, lang = DEFAULT_LANGUAGE, { straten = {} } = {}) {
   const taal = isLanguage(lang) ? lang : DEFAULT_LANGUAGE;
   const errors = [];
   const values = {};
@@ -902,6 +916,12 @@ export function validateSubmissionValues(fields, rawValues, lang = DEFAULT_LANGU
       if (bron && bron.entry && Array.isArray(bron.entry.p) && bron.entry.p.length) {
         raw = plaatsNaam(bron.entry.p[0], taal);
       }
+    }
+
+    // Een herkende straat krijgt de officiele schrijfwijze; het huisnummer
+    // blijft zoals getypt. Nooit een reden om te weigeren.
+    if (field.field_type === 'street' && raw) {
+      raw = herkenStraat(raw, straten[key], taal) || raw;
     }
 
     if (field.is_required && !raw) {

@@ -7,6 +7,7 @@
  *   GET  /forminator-v2/public/v1/forms                 → lijst (shortcode-bouwer)
  *   GET  /forminator-v2/public/v1/forms/{slug}          → schema
  *   POST /forminator-v2/public/v1/forms/{slug}/submit   → inzending
+ *   GET  /forminator-v2/public/v1/streets/{land}/{postcode} → straten (veld Straat en huisnummer)
  *
  * Er is bewust GEEN route die inzendingen teruggeeft, en geen route die iets
  * anders wijzigt dan een nieuwe inzending aanmaken. Een sitesleutel staat op
@@ -29,10 +30,14 @@ import { recordBotRejection } from './bot-rejections.js';
 import { conversieSoort } from '../../../lib/web-conversions.js';
 import { signAcademyToken } from '../../../lib/academy-token.js';
 import { getLinkBySlug, toPublicBookingLink, fetchOwnerAvatar, ALGEMEEN } from '../../booking-links/lib/links.js';
+import { normalizePostcode } from './postcodes.js';
+import { stratenVoor } from './straten-db.js';
 
 const PUBLIC_PREFIX = '/forminator-v2/public/v1/forms';
 // Afspraaklinks (module booking-links): zelfde plugin, zelfde sitesleutel.
 const BOOKING_PREFIX = '/forminator-v2/public/v1/booking-links';
+// Straten per postcode, voor de voorstellen in het veld "Straat en huisnummer".
+const STREETS_PREFIX = '/forminator-v2/public/v1/streets';
 const LOG_PREFIX = '[forms-public]';
 
 // Per isolate, niet globaal. Voor het doel (iemand die de API platlegt) is dat
@@ -161,7 +166,7 @@ function etagForForm(form) {
 export function isFormsPublicApiPath(pathname) {
   // Ook het pad zonder slug (met of zonder afsluitende slash): dat is de lijst.
   return pathname === PUBLIC_PREFIX || pathname.startsWith(`${PUBLIC_PREFIX}/`)
-    || pathname.startsWith(`${BOOKING_PREFIX}/`);
+    || pathname.startsWith(`${BOOKING_PREFIX}/`) || pathname.startsWith(`${STREETS_PREFIX}/`);
 }
 
 export async function handleFormsPublicApi(request, env, ctx, pathname) {
@@ -171,6 +176,9 @@ export async function handleFormsPublicApi(request, env, ctx, pathname) {
 
   if (pathname.startsWith(`${BOOKING_PREFIX}/`)) {
     return handleBookingLink(request, env, pathname.slice(BOOKING_PREFIX.length + 1));
+  }
+  if (pathname.startsWith(`${STREETS_PREFIX}/`)) {
+    return handleStraten(request, env, pathname.slice(STREETS_PREFIX.length + 1));
   }
 
   const rest = pathname.slice(PUBLIC_PREFIX.length).replace(/^\//, '');
@@ -342,6 +350,39 @@ async function handleBookingLink(request, env, ruweSlug) {
   const photo = link.show_photo === false ? null : await fetchOwnerAvatar(env, link.odoo_user_id);
   return json({ success: true, data: toPublicBookingLink(link, { photo }) }, 200, request, env,
     { 'Cache-Control': 'public, max-age=60' });
+}
+
+/**
+ * De straten van een postcode, de drukste eerst. Een meertalige straat komt
+ * als {nl, fr} of {de, fr}: de browser toont de taal van het formulier en
+ * herkent alle talen. Openbare gegevens (BeST), dus een dag bewaard; een
+ * onbekende postcode geeft een lege lijst, geen fout.
+ */
+async function handleStraten(request, env, rest) {
+  if (request.method !== 'GET') {
+    return json({ success: false, error: 'Method not allowed' }, 405, request, env);
+  }
+  const site = validateSiteKey(request, env);
+  if (!site) {
+    return json({ success: false, error: 'Unauthorized' }, 401, request, env);
+  }
+  const [land, ruw] = String(rest || '').split('/');
+  const pc = normalizePostcode(String(land || '').toUpperCase(), String(ruw || ''));
+  if (!pc.ok) {
+    return json({ success: true, data: { postcode: null, straten: [] } }, 200, request, env,
+      { 'Cache-Control': 'public, max-age=86400' });
+  }
+  const limiet = checkRateLimitLocal(`streets:${site.key}`, RATE_LIMIT_READ);
+  if (!limiet.allowed) {
+    return json(
+      { success: false, error: 'Te veel aanvragen. Probeer het zo meteen opnieuw.' },
+      429, request, env,
+      { 'Retry-After': String(limiet.retryAfter) }
+    );
+  }
+  const straten = await stratenVoor(env, String(land).toUpperCase(), pc.waarde);
+  return json({ success: true, data: { postcode: pc.waarde, straten } }, 200, request, env,
+    { 'Cache-Control': 'public, max-age=86400' });
 }
 
 /**

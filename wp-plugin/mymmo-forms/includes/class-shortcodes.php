@@ -84,10 +84,21 @@ final class Mymmo_Forms_Shortcodes {
             true
         );
 
+        // Voorstellen in het veld "Straat en huisnummer". Zelfde afweging als
+        // het postcodescript: klein, en het haalt pas iets op als iemand in
+        // zo'n veld klikt.
+        wp_register_script(
+            'mymmo-forms-straat',
+            MYMMO_FORMS_URL . 'assets/js/mymmo-forms-straat.js',
+            [],
+            MYMMO_FORMS_VERSION,
+            true
+        );
+
         wp_register_script(
             'mymmo-forms',
             MYMMO_FORMS_URL . 'assets/js/mymmo-forms.js',
-            ['mymmo-forms-postcode'],
+            ['mymmo-forms-postcode', 'mymmo-forms-straat'],
             MYMMO_FORMS_VERSION,
             true
         );

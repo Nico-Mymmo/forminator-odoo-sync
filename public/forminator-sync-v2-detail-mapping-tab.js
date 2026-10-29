@@ -336,6 +336,24 @@
         return (aStudio ? 1 : 0) - (zStudio ? 1 : 0);
       });
 
+      // "Adres naar dit gebouw": een Gebouw-stap in een koppeling met een
+      // OM-formulier dat een straatveld heeft, zolang het adres nog niet
+      // gekoppeld is. De server zegt eerst wat er verandert (adres-voorstel.js).
+      var formVelden = Array.isArray(S().detailFormFields) ? S().detailFormFields : [];
+      var heeftStraat = formVelden.some(function (f) { return f.type === 'street'; });
+      var stapMappings = (S().detail.mappingsByTarget && S().detail.mappingsByTarget[target.id]) || [];
+      if (target.odoo_model === 'company' && heeftStraat && !target.is_system &&
+          !stapMappings.some(function (m) { return m.odoo_field === 'street'; })) {
+        html += '<div class="mt-3 rounded-lg border border-info/20 bg-info/5 flex items-start gap-3 px-3 py-2.5">' +
+                  '<i data-lucide="map-pin" class="w-4 h-4 text-info shrink-0 mt-0.5"></i>' +
+                  '<div class="flex-1 min-w-0">' +
+                    '<p class="text-sm font-medium">Adres uit het formulier naar dit gebouw</p>' +
+                    '<p class="text-xs opacity-60 mt-0.5 leading-relaxed">Postcode, gemeente en straat op het gebouw, de naam wordt "VME" met straat en huisnummer. Een gebouw met hetzelfde adres wordt hergebruikt.</p>' +
+                  '</div>' +
+                  '<button type="button" class="btn btn-info btn-xs" data-action="adres-naar-gebouw" data-target-id="' + esc(tid) + '">Instellen</button>' +
+                '</div>';
+      }
+
       if (openSuggesties.length) {
         var suggestieRij = function (sug) {
           return '<div class="flex items-start gap-3 px-3 py-2.5 border-t border-info/10">' +
@@ -2408,6 +2426,22 @@
     await window.FSV2.openDetail(S().activeId);
   }
 
+  /** "Adres naar dit gebouw": eerst tonen wat er verandert, dan pas instellen. */
+  async function handleAdresNaarGebouw(tid) {
+    try {
+      var plan = await window.FSV2.api('/targets/' + tid + '/adres', { method: 'POST', body: JSON.stringify({}) });
+      var zinnen = (plan && plan.data && plan.data.zinnen) || [];
+      if (!window.confirm('Dit wordt ingesteld op de Gebouw-stap:\n\n- ' + zinnen.join('\n- ') + '\n\nDoorgaan?')) return;
+      await window.FSV2.api('/targets/' + tid + '/adres', { method: 'POST', body: JSON.stringify({ uitvoeren: true }) });
+      window.FSV2.showAlert('Adres ingesteld op de Gebouw-stap.', 'success');
+      var integrationId = S().detail && S().detail.integration && S().detail.integration.id;
+      if (integrationId) window.FSV2.getPipelineOpen(integrationId)[String(tid)] = true;
+      await window.FSV2.openDetail(S().activeId);
+    } catch (e) {
+      window.FSV2.showAlert(e.message || 'Instellen mislukt.', 'error');
+    }
+  }
+
   function applyChainSuggestion(tid, odooField, odooLabel, stepOrder, stepLabel, opties) {
     var integrationId = S().detail && S().detail.integration && S().detail.integration.id;
     if (!S().detail._extraRowsByTarget)       S().detail._extraRowsByTarget = {};
@@ -2467,6 +2501,7 @@
 
   Object.assign(window.FSV2, {
     applyChainSuggestion: applyChainSuggestion,
+    handleAdresNaarGebouw: handleAdresNaarGebouw,
     getOrderedValueMapKeys: getOrderedValueMapKeys,
     getComposerFase: getComposerFase,
     handleCondFieldChanged: handleCondFieldChanged,
