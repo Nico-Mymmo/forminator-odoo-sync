@@ -51,6 +51,38 @@ async function openCases(env) {
   return casesCache.rijen;
 }
 
+/**
+ * Een adres in straatnaam en huisnummers. "Kerkstraat 12-16 bus 3" ->
+ * { straat: 'kerkstraat', van: 12, tot: 16 }. Een VME heeft soms meerdere
+ * nummers (12-16, 12/14, 12, 14 en 16): van en tot zijn dan het kleinste en
+ * het grootste. Geen nummer -> null.
+ */
+export function leesAdres(street) {
+  const m = String(street || '').match(/^(.*?)[\s,]+(\d+\s*[a-z]?(?:\s*(?:-|\/|,|&|\+|en)\s*\d+\s*[a-z]?)*)(?:\s|,|$)/i);
+  if (!m) return null;
+  const nrs = (m[2].match(/\d+/g) || []).map(Number).filter((n) => n > 0 && n < 10000);
+  const straat = straatSleutel(m[1]);
+  if (!nrs.length || !straat) return null;
+  return { straat, van: Math.min(...nrs), tot: Math.max(...nrs) };
+}
+
+/** Een straatnaam zonder schrijfwijze: geen accenten, hoofdletters of leestekens, "str." = "straat". */
+export function straatSleutel(s) {
+  return String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+    .replace(/\bstr\.?(?=\s|$)/g, 'straat').replace(/str\.?$/, 'straat')
+    .replace(/[^a-z0-9]+/g, '');
+}
+
+/** Hoeveel nummers twee adressen uit elkaar liggen; 0 = ze overlappen (12-16 en 14). */
+export function nummerAfstand(a, b) {
+  if (a.tot < b.van) return b.van - a.tot;
+  if (b.tot < a.van) return a.van - b.tot;
+  return 0;
+}
+
+/** Hoe ver een gebouw in dezelfde straat mag liggen om als buur te tellen (12 -> 6 tot 18, beide kanten van de straat). */
+export const BUUR_AFSTAND = 6;
+
 const ruim = (s) => String(s || '').toLowerCase().replace(/^(vme|acp|vzw|residentie|résidence|residence)\s+/i, '').replace(/[^a-z0-9]+/g, ' ').trim();
 
 export async function extraVragen(env, kern) {
@@ -70,15 +102,34 @@ export async function extraVragen(env, kern) {
   }
   const eigen = new Set([g?.id, ...kern.contacten.map((c) => c.id)].filter(Boolean));
 
-  const [dubbels, elders, leadsElders, cases] = await Promise.all([
+  // Gebouwen in dezelfde straat, met de postcode: wie op 8 of 13 staat, hoort
+  // misschien bij dezelfde VME als 12. Er wordt ruim gezocht (het langste woord
+  // van de straatnaam) en daarna nauw gefilterd, zodat "Kerkstr. 8" ook gevonden wordt.
+  const adres = g && g.zip ? leesAdres(g.street) : null;
+  const woord = adres ? String(g.street).replace(/\d.*$/, '').split(/[\s.,-]+/).sort((a, b) => b.length - a.length)[0] : '';
+  const zoekBuren = adres && woord && woord.length >= 4;
+
+  const [dubbels, buren, elders, leadsElders, cases] = await Promise.all([
     g ? sr(env, 'res.partner', dubbelDomein, ['name', 'street', 'zip', 'city', 'x_studio_company_type', 'active'], { limit: 8, context: { active_test: false } }) : [],
+    zoekBuren ? sr(env, 'res.partner', [['is_company', '=', true], ['id', '!=', g.id], ['zip', '=', g.zip], ['street', 'ilike', woord.slice(0, 6)]], ['name', 'street', 'zip', 'city', 'active'], { limit: 60, context: { active_test: false } }) : [],
     alleEmails.length ? sr(env, 'res.partner', [['email', 'in', alleEmails]], ['name', 'email', 'commercial_partner_id', 'is_company'], { limit: 30 }) : [],
     alleEmails.length ? sr(env, 'crm.lead', [['email_from', 'in', alleEmails]], ['name', 'email_from', 'partner_id', 'stage_id', 'active', 'probability'], { limit: 30, context: { active_test: false } }) : [],
     openCases(env),
   ]);
 
+  const dubbelIds = new Set(dubbels.map((d) => d.id));
+  const naast = [];
+  for (const b of buren) {
+    const a = leesAdres(b.street);
+    if (!a || a.straat !== adres.straat || dubbelIds.has(b.id)) continue;
+    const afstand = nummerAfstand(adres, a);
+    if (afstand === 0) dubbels.push(b);
+    else if (afstand <= BUUR_AFSTAND) naast.push(b);
+  }
+
   return {
     dubbels,
+    buren: naast.slice(0, 5),
     contactElders: elders.filter((p) => !eigen.has(p.id) && m2oId(p.commercial_partner_id) !== g?.id),
     leadsElders: leadsElders.filter((l) => !kern.leads.some((k) => k.id === l.id)),
     cases,
@@ -100,6 +151,9 @@ export function nakijkPunten(kern, gesch, extra, web) {
   // Dubbels en verspreide gegevens
   for (const d of extra.dubbels || []) {
     p.push(`Mogelijk staat dit gebouw twee keer in Odoo: "${d.name}"${d.street ? ' (' + d.street + (d.city ? ', ' + d.city : '') + ')' : ''}${d.active === false ? ', gearchiveerd' : ''}. Nakijken of het hetzelfde gebouw is.`);
+  }
+  for (const b of extra.buren || []) {
+    p.push(`In dezelfde straat staat ook "${b.name}" (${b.street}${b.active === false ? ', gearchiveerd' : ''}). Hoort dat bij dezelfde VME? Dan samenvoegen tot een gebouw met alle huisnummers.`);
   }
   for (const c of extra.contactElders || []) {
     const bij = m2oNaam(c.commercial_partner_id);

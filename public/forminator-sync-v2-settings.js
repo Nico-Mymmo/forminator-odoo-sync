@@ -22,7 +22,7 @@
         { value: 'video',         label: 'Webinar (video)' },
         { value: 'box',           label: 'Vak (box)' },
         { value: 'briefcase',     label: 'Portfolio (briefcase)' },
-        { value: 'building-2',    label: 'Bedrijf (building-2)' },
+        { value: 'building-2',    label: 'Gebouw (building-2)' },
         { value: 'shopping-cart', label: 'Order (shopping-cart)' },
         { value: 'calendar',      label: 'Agenda (calendar)' },
         { value: 'file-text',     label: 'Document (file-text)' },
@@ -217,7 +217,7 @@
             </div>
             <div class="form-control">
                 <label class="label py-0 mb-1"><span class="label-text text-xs font-semibold">Label (weergave)</span></label>
-                <input id="newModelLabel" type="text" placeholder="bijv. Bedrijf" class="input input-sm input-bordered w-36" />
+                <input id="newModelLabel" type="text" placeholder="bijv. Gebouw" class="input input-sm input-bordered w-36" />
             </div>
             <div class="form-control">
                 <label class="label py-0 mb-1"><span class="label-text text-xs font-semibold">Icoon</span></label>
