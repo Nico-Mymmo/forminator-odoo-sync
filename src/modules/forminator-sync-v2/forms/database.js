@@ -212,6 +212,7 @@ export async function saveForm(env, integrationId, { form, fields }) {
     submit_label:    form.submit_label,
     success_mode:    form.success_mode,
     success_message: form.success_message,
+    success_rule:    form.success_rule || null,
     redirect_url:    form.redirect_url,
     theme:           form.theme,
     allowed_sites:   form.allowed_sites,

@@ -226,6 +226,37 @@
     veld.i18n[B.taal][sleutel] = waarde;
   }
 
+  /* Een andere bedankboodschap als een veld boven een getal zit (bv. meer
+     dan 25 kavels). Hoort bij het formulier, net als de gewone bedanktekst;
+     de plugin toont ze. Enkel in de standaardtaal. */
+  function renderBedankRegel() {
+    var r = B.form.success_rule || {};
+    var velden = (B.fields || []).filter(function (f) { return f.field_key; });
+    var aan = !!(r.field || r.title || r.text);
+    return `<details class="mb-3" ${aan ? 'open' : ''}>
+        <summary class="text-xs cursor-pointer text-base-content/70">Andere boodschap als een getal te hoog is</summary>
+        <div class="mt-2 space-y-2">
+          <div class="flex items-center gap-1.5 flex-wrap text-xs">
+            <span>Als</span>
+            <select class="select select-bordered select-xs" data-fb-form="success_rule.field">
+              <option value="">kies een veld</option>
+              ${velden.map(function (f) {
+                return `<option value="${esc(f.field_key)}" ${f.field_key === r.field ? 'selected' : ''}>${esc(f.label || f.field_key)}</option>`;
+              }).join('')}
+            </select>
+            <span>meer dan</span>
+            <input type="number" step="any" class="input input-bordered input-xs w-20" data-fb-form="success_rule.above"
+                   value="${esc(r.above == null ? '' : r.above)}">
+          </div>
+          <input type="text" class="input input-bordered input-sm w-full" data-fb-form="success_rule.title"
+                 value="${esc(r.title || '')}" placeholder="Titel">
+          <textarea class="textarea textarea-bordered textarea-sm w-full" rows="2" data-fb-form="success_rule.text"
+                    placeholder="Tekst">${esc(r.text || '')}</textarea>
+          <p class="text-xs text-base-content/50">Dan ziet de bezoeker na het versturen deze boodschap in plaats van de gewone.</p>
+        </div>
+      </details>`;
+  }
+
   function leesForm(sleutel) {
     if (bewerktStandaardtaal()) return B.form[sleutel] || '';
     var vertaling = (B.form.i18n || {})[B.taal] || {};
@@ -1210,7 +1241,8 @@
             <textarea class="textarea textarea-bordered textarea-sm" rows="2"
                       data-fb-form="success_message"
                       placeholder="${esc(bewerktStandaardtaal() ? '' : (B.form.success_message || ''))}">${esc(leesForm('success_message'))}</textarea>
-          </label>`}
+          </label>
+          ${renderBedankRegel()}`}
         `}
 
         ${renderTalenBlok()}
@@ -1462,6 +1494,14 @@
   function handleFormBuilderChange(inp, gebeurtenis) {
     var veld = B.sel !== null ? B.fields[B.sel] : null;
     var soort = inp.dataset.fbChange;
+
+    // ── Andere bedankboodschap (success_rule) ────────────────────────────────
+    if (inp.dataset.fbForm && inp.dataset.fbForm.indexOf('success_rule.') === 0) {
+      var regelSleutel = inp.dataset.fbForm.slice('success_rule.'.length);
+      B.form.success_rule = Object.assign({}, B.form.success_rule || {});
+      B.form.success_rule[regelSleutel] = inp.value;
+      return true;
+    }
 
     // ── Tekstvelden van het formulier zelf ───────────────────────────────────
     if (inp.dataset.fbForm) {

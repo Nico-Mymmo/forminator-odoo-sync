@@ -66,9 +66,6 @@ final class Mymmo_Forms_Submit {
     /** Het inlogbewijs van de academy, als de OM er een meegaf. */
     private static string $academy_token = '';
 
-    /** Een eigen eindscherm uit de OM: ['titel' => ..., 'tekst' => ...], of leeg. */
-    private static array $dank = [];
-
     public static function init(): void {
         add_action('admin_post_nopriv_' . self::ACTION, [self::class, 'handle']);
         add_action('admin_post_' . self::ACTION, [self::class, 'handle']);
@@ -282,15 +279,9 @@ final class Mymmo_Forms_Submit {
             // browser meteen de academy. Een klassieke redirect zou het in de
             // URL zetten, en daar hoort het niet.
             self::$academy_token = (string) ($resultaat['academy_token'] ?? '');
-            self::$dank = is_array($resultaat['dank'] ?? null) ? $resultaat['dank'] : [];
             $bericht = Mymmo_Forms_I18n::text($form, $lang, 'success_message');
             if ($bericht === '') {
                 $bericht = 'Bedankt, we hebben je bericht goed ontvangen.';
-            }
-            // Zonder JavaScript (gewone redirect) is er enkel een melding: dan
-            // de tekst van het eigen eindscherm.
-            if (!self::$ajax && (self::$dank['tekst'] ?? '') !== '') {
-                $bericht = (string) self::$dank['tekst'];
             }
 
             if (($form['success_mode'] ?? 'message') === 'redirect' && !empty($form['redirect_url'])) {
@@ -306,6 +297,13 @@ final class Mymmo_Forms_Submit {
                     wp_redirect($doel);
                     exit;
                 }
+            }
+
+            // De andere bedankboodschap van het formulier (success_rule uit de
+            // OM). Zonder JavaScript is er enkel een melding: dan die tekst.
+            $regel = is_array($form['success_rule'] ?? null) ? $form['success_rule'] : [];
+            if (!self::$ajax && mymmo_forms_bedank_regel_geldt($regel, $values)) {
+                $bericht = (string) (($regel['text'] ?? '') !== '' ? $regel['text'] : ($regel['title'] ?? $bericht));
             }
 
             self::finish($redirect, $slug, 'success', $bericht);
@@ -427,9 +425,6 @@ final class Mymmo_Forms_Submit {
             ];
             if ($status === 'success' && self::$academy_token !== '') {
                 $antwoord['academy_token'] = self::$academy_token;
-            }
-            if ($status === 'success' && self::$dank) {
-                $antwoord['dank'] = self::$dank;
             }
             wp_send_json($antwoord);
         }

@@ -763,7 +763,7 @@ if ($panel_extra !== '') {
 
                             echo mymmo_forms_render_body($tb['steps'], $tb['form'], $tb['slug'], $body_args);
                                 // Het sjabloon voor de bouwer (bewerken in het voorbeeld).
-                                echo mymmo_forms_render_dank($tb['id'], $dank_tab, false); // phpcs:ignore WordPress.Security.EscapeOutput
+                                echo mymmo_forms_render_dank($tb['id'], $dank_tab, false, is_array($tb['form']['success_rule'] ?? null) ? $tb['form']['success_rule'] : []); // phpcs:ignore WordPress.Security.EscapeOutput
                             endif;
                             ?>
                         <?php endif; ?>

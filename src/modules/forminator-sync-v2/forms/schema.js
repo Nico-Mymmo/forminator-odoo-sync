@@ -489,6 +489,25 @@ export function pickText(bron, i18n, lang, key, verplicht = true) {
  *                        inzending hebben en dus niet meer mogen verdwijnen of
  *                        hernoemen (zie fs_v2_form_fields in de migratie).
  */
+/**
+ * Een andere bedankboodschap als een veld boven een getal zit:
+ * `{ field, above, title, text }`. Bv. de offertecalculator: meer dan 25
+ * kavels = geen offerte maar een mail met de volgende stap, dus een andere
+ * boodschap. Zonder veld, of zonder titel EN tekst, is er geen regel (null).
+ * De plugin toont ze; de vergelijking is "strikt meer dan".
+ *
+ * @returns {{field: string, above: number, title: string, text: string}|null}
+ */
+export function bedankRegel(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const field = str(raw.field).replace(/[^A-Za-z0-9_.-]/g, '');
+  const above = Number(String(raw.above ?? '').replace(',', '.'));
+  const title = str(raw.title).slice(0, 200);
+  const text = str(raw.text).slice(0, 600);
+  if (!field || !Number.isFinite(above) || (!title && !text)) return null;
+  return { field, above, title, text };
+}
+
 export function validateFormDefinition(input, opts = {}) {
   const errors = [];
   const lockedKeys = opts.lockedKeys instanceof Set ? opts.lockedKeys : new Set();
@@ -537,6 +556,7 @@ export function validateFormDefinition(input, opts = {}) {
     submit_layout: SUBMIT_LAYOUTS.includes(rawForm.submit_layout) ? rawForm.submit_layout : 'below',
     success_mode: successMode,
     success_message: str(rawForm.success_message) || 'Bedankt, we hebben je bericht goed ontvangen.',
+    success_rule: bedankRegel(rawForm.success_rule),
     redirect_url: successMode === 'redirect' ? redirectUrl : null,
     theme: (rawForm.theme && typeof rawForm.theme === 'object' && !Array.isArray(rawForm.theme)) ? rawForm.theme : {},
     languages,
@@ -767,6 +787,7 @@ export function toPublicFormPayload(form, fields, { busy = '', turnstile = null 
     submit_layout: SUBMIT_LAYOUTS.includes(form.submit_layout) ? form.submit_layout : 'below',
     success_mode: form.success_mode,
     success_message: form.success_message,
+    ...(bedankRegel(form.success_rule) ? { success_rule: bedankRegel(form.success_rule) } : {}),
     redirect_url: form.success_mode === 'redirect' ? form.redirect_url : null,
     theme: form.theme || {},
     languages,

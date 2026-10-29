@@ -338,22 +338,11 @@ final class Mymmo_Forms_Api_Client {
         if ($code === 200 && is_array($body) && !empty($body['success'])) {
             // Een formulier van de academy: de OM geeft het inlogbewijs mee
             // (zie Mymmo_Forms_Academy). Enkel iets met de vorm van zo'n bewijs.
-            $uit = ['ok' => true, 'error' => ''];
             $bewijs = (string) ($body['data']['academy_token'] ?? '');
             if ($bewijs !== '' && preg_match('/^v1\.[A-Za-z0-9_-]{8,1000}\.[A-Za-z0-9_-]{20,200}$/', $bewijs)) {
-                $uit['academy_token'] = $bewijs;
+                return ['ok' => true, 'error' => '', 'academy_token' => $bewijs];
             }
-            // Een eigen eindscherm uit de OM (een stap van de koppeling die bij
-            // deze inzending liep). Enkel tekst, ingekort.
-            $dank = $body['data']['dank'] ?? null;
-            if (is_array($dank)) {
-                $titel = mb_substr(trim((string) ($dank['titel'] ?? '')), 0, 200);
-                $tekst = mb_substr(trim((string) ($dank['tekst'] ?? '')), 0, 600);
-                if ($titel !== '' || $tekst !== '') {
-                    $uit['dank'] = ['titel' => $titel, 'tekst' => $tekst];
-                }
-            }
-            return $uit;
+            return ['ok' => true, 'error' => ''];
         }
 
         // 422 = de OM keurde de inhoud af. Die melding gaat over een veld en is

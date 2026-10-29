@@ -576,12 +576,16 @@ injectiepad zijn naar elke site die het formulier toont.
 
 ## Versies
 
-**1.24.2** -- een eigen eindscherm per stap. Een stap van de koppeling in de
-OM kan een titel en tekst voor het eindscherm hebben; liep die stap bij de
-inzending (bv. de mail voor gebouwen met meer dan 25 kavels), dan toont het
-venster dat scherm in plaats van het gewone dankjewelscherm. Waarom: het
-venster weet niet hoeveel kavels er ingevuld zijn, de koppeling wel -- zo hangt
-het scherm aan dezelfde voorwaarde als de mail.
+**1.24.3** -- een andere bedankboodschap, ingesteld bij het FORMULIER in de
+OM ("Andere boodschap als een getal te hoog is", onder de bedanktekst). Zit
+een veld bij het versturen boven een grens (bv. meer dan 25 kavels), dan
+toont het venster die titel en tekst in plaats van het gewone
+dankjewelscherm. Vervangt 1.24.2, waar die boodschap op een stap van de
+koppeling stond: dat was de verkeerde plek, want ze hoort bij het formulier,
+en andere formulieren krijgen er ook een.
+
+**1.24.2** -- (vervangen door 1.24.3) de bedankboodschap kwam van een stap
+van de koppeling.
 
 **1.24.1** -- drie dingen rond de formulieren uit de OM.
 - **Een gewijzigd formulier staat meteen op de site.** De OM geeft na elke

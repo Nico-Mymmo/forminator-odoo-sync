@@ -1352,8 +1352,6 @@ export const routes = {
         ...(payload.mail_from_display_name !== undefined ? { mail_from_display_name: String(payload.mail_from_display_name || '').trim() || null } : {}),
         ...(payload.mail_from_email        !== undefined ? { mail_from_email:        payload.mail_from_email        || null } : {}),
         ...(payload.mail_from_domain       !== undefined ? { mail_from_domain:       afzenderDomein(payload.mail_from_domain) } : {}),
-        ...(payload.end_title              !== undefined ? { end_title:              String(payload.end_title || '').trim().slice(0, 200) || null } : {}),
-        ...(payload.end_text               !== undefined ? { end_text:               String(payload.end_text || '').trim().slice(0, 600) || null } : {}),
         ...(payload.mail_reply_to          !== undefined ? { mail_reply_to:          payload.mail_reply_to          || null } : {}),
         // Expliciet zetten, want de default (ir.mail_server 4) is de Postmark
         // broadcast-stream. Een persoonlijke mail hoort op de transactional.
@@ -1462,8 +1460,6 @@ export const routes = {
         ...(payload.mail_from_display_name !== undefined ? { mail_from_display_name: String(payload.mail_from_display_name || '').trim() || null } : {}),
         ...(payload.mail_from_email        !== undefined ? { mail_from_email:        payload.mail_from_email        || null } : {}),
         ...(payload.mail_from_domain       !== undefined ? { mail_from_domain:       afzenderDomein(payload.mail_from_domain) } : {}),
-        ...(payload.end_title              !== undefined ? { end_title:              String(payload.end_title || '').trim().slice(0, 200) || null } : {}),
-        ...(payload.end_text               !== undefined ? { end_text:               String(payload.end_text || '').trim().slice(0, 600) || null } : {}),
         ...(payload.mail_reply_to          !== undefined ? { mail_reply_to:          payload.mail_reply_to          || null } : {}),
         // Expliciet zetten, want de default (ir.mail_server 4) is de Postmark
         // broadcast-stream. Een persoonlijke mail hoort op de transactional.

@@ -639,7 +639,7 @@
         // (venster dicht, academy open) en zegt dat met preventDefault(). Staat
         // dat script er niet, dan gewoon het dankjewelscherm.
         if (uitkomst.academy_token && meldAcademyBewijs(form, uitkomst.academy_token)) return;
-        toonDankInVenster(form, uitkomst.dank);
+        toonDankInVenster(form);
         return;
       }
       verbergBezigInVenster(form);
@@ -709,20 +709,31 @@
     if (wikkel) wikkel.classList.remove('mymmo-form-wrap--bezig');
   }
 
-  function toonDankInVenster(form, eigen) {
+  function toonDankInVenster(form) {
     var paneel = form.closest('[data-mymmo-paneel]');
     var scherm = paneel ? paneel.querySelector('[data-mymmo-dank-scherm]') : null;
     var wikkel = form.closest('.mymmo-form-wrap');
     if (!paneel || !scherm) return;
 
-    // Een eigen eindscherm uit de OM (een stap van de koppeling die bij deze
-    // inzending liep, bv. enkel bij meer dan 25 kavels): titel en tekst
-    // vervangen die van het venster. Het beeld blijft.
-    if (eigen && (eigen.titel || eigen.tekst)) {
-      var titelEl = scherm.querySelector('[data-mymmo-dank="titel"]');
-      var tekstEl = scherm.querySelector('[data-mymmo-dank="tekst"]');
-      if (titelEl && eigen.titel) titelEl.textContent = eigen.titel;
-      if (tekstEl && eigen.tekst) tekstEl.textContent = eigen.tekst;
+    // De andere bedankboodschap van het formulier (success_rule uit de OM):
+    // staat het veld boven de grens, dan een andere titel en tekst.
+    var regelVeld = scherm.getAttribute('data-mymmo-regel-veld');
+    var invoer = regelVeld && form.elements ? form.elements.namedItem(regelVeld) : null;
+    if (invoer && typeof invoer.value === 'string') {
+      var getal = Number(invoer.value.replace(',', '.'));
+      var grens = Number(scherm.getAttribute('data-mymmo-regel-boven'));
+      if (invoer.value.trim() !== '' && isFinite(getal) && getal > grens) {
+        var titelEl = scherm.querySelector('[data-mymmo-dank="titel"]');
+        var tekstEl = scherm.querySelector('[data-mymmo-dank="tekst"]');
+        var nieuwTitel = scherm.getAttribute('data-mymmo-regel-titel');
+        var nieuwTekst = scherm.getAttribute('data-mymmo-regel-tekst');
+        if (titelEl) {
+          if (nieuwTitel) titelEl.textContent = nieuwTitel;
+        }
+        if (tekstEl) {
+          if (nieuwTekst) tekstEl.textContent = nieuwTekst;
+        }
+      }
     }
 
     // Wat er in het paneel stond (het formulier, of de hele stappenreeks) gaat

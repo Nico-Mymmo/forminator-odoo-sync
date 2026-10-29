@@ -32,7 +32,6 @@ import { signAcademyToken } from '../../../lib/academy-token.js';
 import { getLinkBySlug, toPublicBookingLink, fetchOwnerAvatar, ALGEMEEN } from '../../booking-links/lib/links.js';
 import { normalizePostcode } from './postcodes.js';
 import { stratenVoor } from './straten-db.js';
-import { getSupabaseClient } from '../../../lib/database.js';
 
 const PUBLIC_PREFIX = '/forminator-v2/public/v1/forms';
 // Afspraaklinks (module booking-links): zelfde plugin, zelfde sitesleutel.
@@ -41,35 +40,6 @@ const BOOKING_PREFIX = '/forminator-v2/public/v1/booking-links';
 const STREETS_PREFIX = '/forminator-v2/public/v1/streets';
 const LOG_PREFIX = '[forms-public]';
 
-/* Een eigen eindscherm voor de bezoeker. Een stap van de koppeling kan een
-   titel en tekst hebben (end_title / end_text); is die stap bij DEZE inzending
-   uitgevoerd (niet overgeslagen, niet mislukt), dan krijgt de bezoeker dat
-   scherm in plaats van het standaardscherm van het venster. Zo hangt het
-   scherm aan dezelfde voorwaarde als de stap zelf (bv. meer dan 25 kavels).
-   Bij meerdere wint de laatste stap. Faalt dit, dan het standaardscherm. */
-async function eindschermVan(env, integrationId, submissionId) {
-  if (!submissionId) return null;
-  try {
-    const targets = (await listTargetsByIntegration(env, integrationId))
-      .filter((t) => t.is_active !== false && (t.end_title || t.end_text));
-    if (!targets.length) return null;
-    const { data, error } = await getSupabaseClient(env)
-      .from('fs_v2_submission_targets')
-      .select('target_id, action_result')
-      .eq('submission_id', submissionId);
-    if (error) throw new Error(error.message);
-    const gedaan = new Set((data || [])
-      .filter((r) => r.action_result !== 'skipped' && !/failed$/.test(String(r.action_result || '')))
-      .map((r) => r.target_id));
-    const stap = targets
-      .filter((t) => gedaan.has(t.id))
-      .sort((a, b) => (b.execution_order || 0) - (a.execution_order || 0))[0];
-    return stap ? { titel: stap.end_title || '', tekst: stap.end_text || '' } : null;
-  } catch (err) {
-    console.error(`${LOG_PREFIX} eindscherm niet bepaald:`, err.message);
-    return null;
-  }
-}
 
 // Per isolate, niet globaal. Voor het doel (iemand die de API platlegt) is dat
 // genoeg, en het scheelt een KV-write per verzoek — exact de afweging die het
@@ -538,8 +508,6 @@ async function handleSubmit(request, env, { form, fields }, site) {
       academyToken = await signAcademyToken(env, adres).catch(() => null);
     }
 
-    const dank = gelukt ? await eindschermVan(env, integration.id, uitkomst?.data?.submission_id) : null;
-
     return json(
       gelukt
         ? {
@@ -547,7 +515,6 @@ async function handleSubmit(request, env, { form, fields }, site) {
             data: {
               status: uitkomst?.data?.status || 'received',
               ...(academyToken ? { academy_token: academyToken } : {}),
-              ...(dank ? { dank } : {}),
             },
           }
         : { success: false, error: uitkomst?.error || 'De inzending kon niet verwerkt worden.' },

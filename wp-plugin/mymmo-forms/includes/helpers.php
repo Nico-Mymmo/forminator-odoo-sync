@@ -821,12 +821,32 @@ function mymmo_forms_formulier_sectie(array $form, array $form_args, string $lan
  *
  * @param array{image?:string,title?:string,text?:string} $dank
  */
-function mymmo_forms_render_dank(string $tab, array $dank, bool $zichtbaar): string {
+/**
+ * Geldt de andere bedankboodschap van het formulier (`success_rule` uit de
+ * OM: `{field, above, title, text}`) voor deze verstuurde waarden?
+ */
+function mymmo_forms_bedank_regel_geldt(array $regel, array $waarden): bool {
+    $veld = (string) ($regel['field'] ?? '');
+    if ($veld === '' || !isset($waarden[$veld])) return false;
+    $getal = str_replace(',', '.', trim((string) $waarden[$veld]));
+    return is_numeric($getal) && (float) $getal > (float) ($regel['above'] ?? 0);
+}
+
+function mymmo_forms_render_dank(string $tab, array $dank, bool $zichtbaar, array $regel = []): string {
     $beeld = (string) ($dank['image'] ?? '');
     $titel = (string) ($dank['title'] ?? '');
     $tekst = (string) ($dank['text'] ?? '');
 
     $html = '<div class="mymmo-dank" data-mymmo-dank-scherm="' . esc_attr($tab) . '"';
+    // De andere bedankboodschap van het formulier (success_rule uit de OM). Het
+    // script wisselt titel en tekst als het veld bij het versturen boven de
+    // grens zit.
+    if (!$zichtbaar && (string) ($regel['field'] ?? '') !== '') {
+        $html .= ' data-mymmo-regel-veld="' . esc_attr((string) $regel['field']) . '"'
+            . ' data-mymmo-regel-boven="' . esc_attr((string) ($regel['above'] ?? 0)) . '"'
+            . ' data-mymmo-regel-titel="' . esc_attr((string) ($regel['title'] ?? '')) . '"'
+            . ' data-mymmo-regel-tekst="' . esc_attr((string) ($regel['text'] ?? '')) . '"';
+    }
     $html .= $zichtbaar
         ? ' data-mymmo-geslaagd role="status" tabindex="-1" data-mymmo-focus'
         : ' hidden';
