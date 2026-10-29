@@ -357,11 +357,15 @@ export async function listRegistrationsForMail(
 
   const domain = [
     [REGISTRATION_FIELDS.EVENT, '=', Number(eventId)],
-    [REGISTRATION_FIELDS.ACTIVE, '=', true],
-    // Geannuleerde inschrijvingen krijgen niets. Wachtlijst wél: die persoon
-    // is ingeschreven, alleen niet zeker van een plaats.
-    [REGISTRATION_FIELDS.STATE, '!=', REGISTRATION_STATE.CANCELLED]
+    [REGISTRATION_FIELDS.ACTIVE, '=', true]
   ];
+  // Afgemelde inschrijvingen krijgen geen bevestiging en geen reminder, maar
+  // WEL de recap: wie vooraf afmeldt, wil de opname vaak toch nog zien.
+  // Wachtlijst krijgt alles: die persoon is ingeschreven, alleen niet zeker
+  // van een plaats.
+  if (kind !== MAIL_KIND.RECAP) {
+    domain.push([REGISTRATION_FIELDS.STATE, '!=', REGISTRATION_STATE.CANCELLED]);
+  }
 
   if (Array.isArray(registrationIds) && registrationIds.length > 0) {
     domain.push([REGISTRATION_FIELDS.ID, 'in', registrationIds.filter((n) => Number.isInteger(n))]);
@@ -853,18 +857,56 @@ export async function setRegistrationState(env, registrationId, state, actor = n
     throw new ValidationError(`Onbekende toestand: ${state}. Verwacht een van ${allowed.join(', ')}.`);
   }
 
+  // De vorige toestand lezen: enkel wie UIT "afgemeld" komt, krijgt zijn
+  // klaarstaande mails terug.
+  const vorige = await searchRead(env, {
+    model: ODOO_MODELS.REGISTRATION,
+    domain: [[REGISTRATION_FIELDS.ID, '=', id]],
+    fields: [REGISTRATION_FIELDS.STATE],
+    limit: 1,
+    context: { active_test: false }
+  });
+  if (!vorige || vorige.length === 0) {
+    throw new ValidationError(`Inschrijving ${id} niet gevonden`, { status: 404 });
+  }
+  const vorigeState = String(vorige[0][REGISTRATION_FIELDS.STATE] || REGISTRATION_STATE.REGISTERED);
+
   await write(env, {
     model: ODOO_MODELS.REGISTRATION,
     ids: [id],
     values: { [REGISTRATION_FIELDS.STATE]: state }
   });
 
+  // Afgemeld (op voorhand) = geen plaats meer, geen bevestiging of reminder
+  // meer (de recap wel, zie listRegistrationsForMail). Odoo's
+  // mailcron kijkt niet naar de toestand, dus een klaarstaande reminder zou
+  // anders gewoon vertrekken. Terugzetten haalt ze terug, zolang hun moment
+  // nog niet voorbij is -- zelfde regel als archiveren.
+  let mailGevolg = { cancelled: 0, revived: 0 };
+  try {
+    if (state === REGISTRATION_STATE.CANCELLED && vorigeState !== REGISTRATION_STATE.CANCELLED) {
+      mailGevolg = await cancelPendingMails(env, [id], { behoudSoorten: [MAIL_KIND.RECAP] });
+    } else if (state !== REGISTRATION_STATE.CANCELLED && vorigeState === REGISTRATION_STATE.CANCELLED) {
+      mailGevolg = await revivePendingMails(env, [id], new Date(), { behoudSoorten: [MAIL_KIND.RECAP] });
+    }
+  } catch (error) {
+    console.warn(`${LOG_PREFIX} mails bij toestandswissel mislukt (${id}):`, error?.message);
+  }
+
+  const LABELS = {
+    [REGISTRATION_STATE.REGISTERED]: 'ingeschreven',
+    [REGISTRATION_STATE.WAITLISTED]: 'wachtlijst',
+    [REGISTRATION_STATE.CANCELLED]: 'afgemeld'
+  };
   const who = actor?.email || actor?.name || 'onbekende gebruiker';
+  const mails = mailGevolg.cancelled > 0
+    ? ` ${mailGevolg.cancelled} klaarstaande mail(s) geannuleerd.`
+    : (mailGevolg.revived > 0 ? ` ${mailGevolg.revived} klaarstaande mail(s) weer in de wachtrij.` : '');
   try {
     await messagePost(env, {
       model: ODOO_MODELS.REGISTRATION,
       id,
-      body: `Toestand gewijzigd naar <b>${escapeHtml(state)}</b> door ${escapeHtml(who)}.`,
+      body: `Toestand gewijzigd naar <b>${escapeHtml(LABELS[state] || state)}</b> door ${escapeHtml(who)}.${escapeHtml(mails)}`,
       isHtml: true
     });
   } catch (error) {
@@ -874,7 +916,12 @@ export async function setRegistrationState(env, registrationId, state, actor = n
   // Zichtbaar op de website: binnen de bestaande TTL, of meteen na een
   // expliciete "Publiceer naar website"-actie (publishToWebsite() in
   // events-service.js) -- niet automatisch bij elke schrijfactie hier.
-  return getRegistration(env, id);
+  const dto = await getRegistration(env, id);
+  return {
+    ...(dto || { id }),
+    mails_cancelled: mailGevolg.cancelled || 0,
+    mails_revived: mailGevolg.revived || 0
+  };
 }
 
 /**

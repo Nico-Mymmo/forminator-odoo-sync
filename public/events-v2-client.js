@@ -1670,6 +1670,34 @@
     }
   }
 
+  /**
+   * Afgemeld zetten (of terug ingeschreven). Een afgemelde telt niet meer mee
+   * voor de plaatsen en krijgt geen bevestiging of herinnering meer (de recap
+   * wel); de server annuleert wat daarvan nog klaarstond. Terugzetten haalt die mails terug.
+   */
+  async function setRegistrationState(registrationId, eventId, nieuweState, name) {
+    if (nieuweState === 'cancelled' && !window.confirm(
+      (name || 'Deze deelnemer') + ' als afgemeld noteren?\n\n' +
+      'Telt niet meer mee voor de plaatsen en krijgt geen herinnering meer, de recap wel. Je kan dit altijd terugzetten.'
+    )) return;
+
+    try {
+      var antwoord = await api('/registrations/' + registrationId, {
+        method: 'PATCH',
+        body: { state: nieuweState }
+      });
+      var data = (antwoord.payload || {}).data || {};
+      var extra = data.mails_cancelled > 0
+        ? ' — ' + data.mails_cancelled + ' klaarstaande mail(s) geannuleerd'
+        : (data.mails_revived > 0 ? ' — ' + data.mails_revived + ' mail(s) weer in de wachtrij' : '');
+      toast((nieuweState === 'cancelled' ? 'Genoteerd als afgemeld' : 'Terug ingeschreven') + extra, 'success');
+      await loadRegistrations(Number(eventId), state.registrations.page);
+      await selectEvent(Number(eventId));
+    } catch (error) {
+      toast(error.message, 'error');
+    }
+  }
+
   async function restoreRegistration(registrationId, eventId) {
     try {
       var terug = await api('/registrations/' + registrationId + '/restore', { method: 'POST' });
@@ -2047,6 +2075,7 @@
 
     var reg = state.registrations;
     var attended = reg.rows.filter(function (row) { return row.attended; }).length;
+    var afgemeld = reg.rows.filter(function (row) { return row.state === 'cancelled' && row.active !== false; }).length;
 
     var rows = reg.rows.map(function (row) {
       // 'Ingeschreven' is de standaardtoestand van iedereen in deze lijst --
@@ -2102,6 +2131,17 @@
                   }).join('') +
                 '</ul>' +
               '</div> ' +
+              // Afgemeld op voorhand: geen plaats, geen herinnering (wel de recap), maar
+              // de inschrijving blijft staan (anders dan verwijderen).
+              (row.state === 'cancelled'
+                ? '<button class="btn btn-xs btn-ghost btn-square" data-action="set-registration-state"' +
+                  ' data-registration-id="' + row.id + '" data-event-id="' + eventId + '" data-state="registered"' +
+                  ' data-registration-name="' + esc(name) + '" title="Toch terug ingeschreven">' +
+                  '<i data-lucide="user-check" class="w-3 h-3"></i></button> '
+                : '<button class="btn btn-xs btn-ghost btn-square" data-action="set-registration-state"' +
+                  ' data-registration-id="' + row.id + '" data-event-id="' + eventId + '" data-state="cancelled"' +
+                  ' data-registration-name="' + esc(name) + '" title="Afgemeld (komt niet)">' +
+                  '<i data-lucide="user-x" class="w-3 h-3"></i></button> ') +
               '<button class="btn btn-xs btn-ghost btn-square text-error" data-action="archive-registration"' +
               ' data-registration-id="' + row.id + '" data-event-id="' + eventId + '"' +
               ' data-registration-name="' + esc(name) + '" title="Verwijderen (wordt gearchiveerd in Odoo)">' +
@@ -2115,7 +2155,8 @@
       '<div class="flex items-center justify-between gap-3 flex-wrap">' +
         '<div class="flex items-center gap-2 text-sm">' +
           '<span class="badge badge-ghost">' + reg.total + ' totaal</span>' +
-          '<span class="text-xs opacity-60">' + attended + ' van ' + reg.rows.length + ' aanwezig op deze pagina</span>' +
+          '<span class="text-xs opacity-60">' + attended + ' van ' + reg.rows.length + ' aanwezig op deze pagina' +
+            (afgemeld > 0 ? ', ' + afgemeld + ' afgemeld' : '') + '</span>' +
         '</div>' +
         '<div class="flex items-center gap-1.5 flex-wrap">' +
           '<button class="btn btn-xs ' + (state.registrations.includeArchived ? 'btn-active' : 'btn-ghost') +
@@ -2583,6 +2624,14 @@
           trigger.getAttribute('data-registration-id'),
           trigger.getAttribute('data-event-id'),
           trigger.getAttribute('data-mail-kind'),
+          trigger.getAttribute('data-registration-name')
+        );
+        break;
+      case 'set-registration-state':
+        setRegistrationState(
+          trigger.getAttribute('data-registration-id'),
+          trigger.getAttribute('data-event-id'),
+          trigger.getAttribute('data-state'),
           trigger.getAttribute('data-registration-name')
         );
         break;

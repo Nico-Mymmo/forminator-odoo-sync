@@ -612,6 +612,14 @@ export function buildMessageId(eventId, kind, registrationId) {
 }
 
 /**
+ * Domeinregels die mails van deze soorten buiten schot houden. De soort staat
+ * enkel in de message_id (`<evt1-recap-reg2@...>`), dus daar wordt op gefilterd.
+ */
+function soortUitsluiting(soorten) {
+  return (soorten || []).map((soort) => [MAIL_FIELDS.MESSAGE_ID, 'not ilike', `-${soort}-reg`]);
+}
+
+/**
  * Wanneer deze soort mag vertrekken.
  *
  * De reminder krijgt zijn `scheduled_date` HIER, bij het klaarzetten -- niet
@@ -777,7 +785,7 @@ export async function findExistingMails(env, eventId, kind, registrationIds) {
  * @param {number[]} registrationIds
  * @returns {Promise<{ cancelled: number, ids: number[] }>}
  */
-export async function cancelPendingMails(env, registrationIds) {
+export async function cancelPendingMails(env, registrationIds, { behoudSoorten = [] } = {}) {
   const ids = (registrationIds || []).map(Number).filter((n) => Number.isInteger(n) && n > 0);
   if (ids.length === 0) return { cancelled: 0, ids: [] };
 
@@ -787,7 +795,8 @@ export async function cancelPendingMails(env, registrationIds) {
       domain: [
         [MAIL_FIELDS.MODEL, '=', ODOO_MODELS.REGISTRATION],
         [MAIL_FIELDS.RES_ID, 'in', ids],
-        [MAIL_FIELDS.STATE, '=', 'outgoing']
+        [MAIL_FIELDS.STATE, '=', 'outgoing'],
+        ...soortUitsluiting(behoudSoorten)
       ],
       fields: [MAIL_FIELDS.ID],
       limit: false
@@ -831,7 +840,7 @@ export async function cancelPendingMails(env, registrationIds) {
  * @param {Date} [now]
  * @returns {Promise<{ revived: number }>}
  */
-export async function revivePendingMails(env, registrationIds, now = new Date()) {
+export async function revivePendingMails(env, registrationIds, now = new Date(), { behoudSoorten = [] } = {}) {
   const ids = (registrationIds || []).map(Number).filter((n) => Number.isInteger(n) && n > 0);
   if (ids.length === 0) return { revived: 0 };
 
@@ -842,7 +851,8 @@ export async function revivePendingMails(env, registrationIds, now = new Date())
         [MAIL_FIELDS.MODEL, '=', ODOO_MODELS.REGISTRATION],
         [MAIL_FIELDS.RES_ID, 'in', ids],
         [MAIL_FIELDS.STATE, '=', 'cancel'],
-        [MAIL_FIELDS.SCHEDULED_DATE, '>', toOdooDatetime(now)]
+        [MAIL_FIELDS.SCHEDULED_DATE, '>', toOdooDatetime(now)],
+        ...soortUitsluiting(behoudSoorten)
       ],
       fields: [MAIL_FIELDS.ID],
       limit: false
@@ -922,9 +932,10 @@ export async function queueMails(env, { event, registrations, kind, actor = null
   const candidates = [];
 
   for (const registration of registrations) {
-    // Geannuleerde inschrijvingen krijgen niets. Wachtlijst wél: die persoon
+    // Afgemelde inschrijvingen krijgen enkel nog de recap (wie vooraf
+    // afmeldt, wil de opname vaak toch). Wachtlijst krijgt alles: die persoon
     // is ingeschreven, alleen niet zeker van een plaats.
-    if (registration.state === REGISTRATION_STATE.CANCELLED) {
+    if (registration.state === REGISTRATION_STATE.CANCELLED && kind !== MAIL_KIND.RECAP) {
       skipped.push({ id: registration.id, reason: 'inschrijving geannuleerd' });
       continue;
     }
