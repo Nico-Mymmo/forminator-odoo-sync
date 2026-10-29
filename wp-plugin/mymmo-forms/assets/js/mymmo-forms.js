@@ -639,7 +639,7 @@
         // (venster dicht, academy open) en zegt dat met preventDefault(). Staat
         // dat script er niet, dan gewoon het dankjewelscherm.
         if (uitkomst.academy_token && meldAcademyBewijs(form, uitkomst.academy_token)) return;
-        toonDankInVenster(form);
+        toonDankInVenster(form, uitkomst.dank);
         return;
       }
       verbergBezigInVenster(form);
@@ -709,11 +709,21 @@
     if (wikkel) wikkel.classList.remove('mymmo-form-wrap--bezig');
   }
 
-  function toonDankInVenster(form) {
+  function toonDankInVenster(form, eigen) {
     var paneel = form.closest('[data-mymmo-paneel]');
     var scherm = paneel ? paneel.querySelector('[data-mymmo-dank-scherm]') : null;
     var wikkel = form.closest('.mymmo-form-wrap');
     if (!paneel || !scherm) return;
+
+    // Een eigen eindscherm uit de OM (een stap van de koppeling die bij deze
+    // inzending liep, bv. enkel bij meer dan 25 kavels): titel en tekst
+    // vervangen die van het venster. Het beeld blijft.
+    if (eigen && (eigen.titel || eigen.tekst)) {
+      var titelEl = scherm.querySelector('[data-mymmo-dank="titel"]');
+      var tekstEl = scherm.querySelector('[data-mymmo-dank="tekst"]');
+      if (titelEl && eigen.titel) titelEl.textContent = eigen.titel;
+      if (tekstEl && eigen.tekst) tekstEl.textContent = eigen.tekst;
+    }
 
     // Wat er in het paneel stond (het formulier, of de hele stappenreeks) gaat
     // weg; het scherm komt in de plaats. De wikkel blijft in de DOM staan: die

@@ -29,6 +29,7 @@
  */
 
 import { searchRead, create } from '../../lib/odoo.js';
+import { HOOFDDOMEIN } from '../../lib/medewerkers.js';
 import { renderPlainMailHtml, renderPlainSubject, nietPlatteOpmaak } from '../../lib/mail/render-plain.js';
 import { renderMailHtml, renderSubject, fillPlaceholders } from '../../lib/mail/render-blocks.js';
 import { resolveMailAttachments } from './mail-attachments.js';
@@ -294,11 +295,28 @@ export async function resolveSender(env, { target, model, recordId, signatureUse
 
   return {
     name: String(user.name || vast.name || '').trim(),
-    email: String(user.email).trim(),
+    email: opAfzenderdomein(String(user.email).trim(), target.mail_from_domain),
     jobTitle: String(user.job_title || '').trim(),
     firstName: await leesVoornaam(env, m2oId(user.partner_id)),
     userId
   };
+}
+
+/**
+ * Het adres van de persoon op het domein van het MERK (`mail_from_domain` op
+ * de stap): jiri@mymmo.com wordt jiri@syndicoach.be. Medewerkers staan in Odoo
+ * op het hoofddomein, maar een klant van Syndicoach kent Syndicoach. Enkel een
+ * adres op het hoofddomein wordt omgezet; wie in Odoo bewust een ander adres
+ * heeft, houdt dat. Antwoorden komen aan zolang dat domein een alias is van
+ * dezelfde mailbox (zo is het voor syndicoach.be en openvme.be).
+ *
+ * @param {string} email @param {string|null} domein @returns {string}
+ */
+export function opAfzenderdomein(email, domein) {
+  const d = String(domein || '').trim().toLowerCase();
+  const m = /^([^@\s]+)@([^@\s]+)$/.exec(String(email || ''));
+  if (!d || !m || m[2].toLowerCase() !== HOOFDDOMEIN || d === HOOFDDOMEIN) return email;
+  return `${m[1]}@${d}`;
 }
 
 /**

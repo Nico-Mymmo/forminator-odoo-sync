@@ -576,6 +576,13 @@ injectiepad zijn naar elke site die het formulier toont.
 
 ## Versies
 
+**1.24.2** -- een eigen eindscherm per stap. Een stap van de koppeling in de
+OM kan een titel en tekst voor het eindscherm hebben; liep die stap bij de
+inzending (bv. de mail voor gebouwen met meer dan 25 kavels), dan toont het
+venster dat scherm in plaats van het gewone dankjewelscherm. Waarom: het
+venster weet niet hoeveel kavels er ingevuld zijn, de koppeling wel -- zo hangt
+het scherm aan dezelfde voorwaarde als de mail.
+
 **1.24.1** -- drie dingen rond de formulieren uit de OM.
 - **Een gewijzigd formulier staat meteen op de site.** De OM geeft na elke
   bewaring een seintje (`POST /wp-json/mymmo-forms/v1/formulier/ververs`,

@@ -236,6 +236,8 @@
     if (stap) stap.style.display = modus === 'step' ? '' : 'none';
     if (emp)  emp.style.display  = modus === 'employee' ? '' : 'none';
     if (persoonUitleg) persoonUitleg.style.display = modus === 'fixed' ? 'none' : '';
+    var domeinRij = document.getElementById('mailFromDomainRow-' + tid);
+    if (domeinRij) domeinRij.style.display = modus === 'fixed' ? 'none' : '';
     // Bij een vast adres IS dit de afzender; bij een persoon enkel de terugval,
     // ingeklapt -- anders leest het alsof die naam de afzender wordt.
     if (terug) terug.open = modus === 'fixed' ? true : terug.open;
@@ -445,6 +447,16 @@
             </span>
           </label>
 
+          <div class="flex items-center gap-2 mt-2 flex-wrap" id="mailFromDomainRow-${esc(tid)}"
+               ${afzender.modus === 'fixed' ? 'style="display:none"' : ''}>
+            <span class="text-sm">Adres op het domein</span>
+            <select id="mailFromDomain-${esc(tid)}" class="select select-bordered select-sm">
+              ${[['', 'zoals in Odoo (mymmo.com)'], ['syndicoach.be', 'syndicoach.be'], ['openvme.be', 'openvme.be']].map(([w, l]) =>
+                `<option value="${w}" ${String(target.mail_from_domain || '') === w ? 'selected' : ''}>${l}</option>`).join('')}
+            </select>
+            <span class="text-xs text-base-content/50">jiri@mymmo.com wordt dan jiri@syndicoach.be</span>
+          </div>
+
           <details id="mailFromFallback-${esc(tid)}" class="mt-2" ${afzender.modus === 'fixed' ? 'open' : ''}>
             <summary id="mailFromFallbackSummary-${esc(tid)}" class="text-xs text-base-content/60 cursor-pointer"
                      ${afzender.modus === 'fixed' ? 'style="display:none"' : ''}>
@@ -468,6 +480,18 @@
             </span>
           </label>
         </div>
+
+        <details class="rounded-lg border border-base-content/10 p-3" ${target.end_title || target.end_text ? 'open' : ''}>
+          <summary class="text-sm font-medium cursor-pointer">Eigen eindscherm voor de bezoeker</summary>
+          <p class="text-xs text-base-content/60 mt-2">
+            Vertrekt deze mail, dan ziet de bezoeker na het versturen dit scherm in plaats van het gewone
+            dankjewelscherm. Leeg = het gewone scherm. Werkt in het venster op de site (plugin 1.24.2 of nieuwer).
+          </p>
+          <input type="text" id="mailEndTitle-${esc(tid)}" class="input input-bordered input-sm w-full mt-2"
+                 value="${esc(target.end_title || '')}" placeholder="Titel, bv. Je aanvraag is goed aangekomen.">
+          <textarea id="mailEndText-${esc(tid)}" class="textarea textarea-bordered textarea-sm w-full mt-2" rows="2"
+                    placeholder="Tekst, bv. Kijk in je mailbox, daar vind je meteen de volgende stap.">${esc(target.end_text || '')}</textarea>
+        </details>
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div class="form-control">
@@ -889,6 +913,9 @@
       mail_from_name:         (document.getElementById('mailFromName-' + tid) || {}).value || '',
       mail_from_display_name: (document.getElementById('mailFromDisplay-' + tid) || {}).value || '',
       mail_from_email:        (document.getElementById('mailFromEmail-' + tid) || {}).value || '',
+      end_title:              (document.getElementById('mailEndTitle-' + tid) || {}).value || '',
+      end_text:               (document.getElementById('mailEndText-' + tid) || {}).value || '',
+      mail_from_domain:       modus === 'fixed' ? null : ((document.getElementById('mailFromDomain-' + tid) || {}).value || null),
       mail_reply_to:          (document.getElementById('mailReplyTo-' + tid) || {}).value || '',
       mail_server_id:         serverRaw ? Number(serverRaw) : null,
       mail_track_opens:       !!(document.getElementById('mailTrackOpens-' + tid) || {}).checked,

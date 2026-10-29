@@ -103,6 +103,13 @@ import { seinFormulier } from './forms/sein-sites.js';
 import { ensureCalendlySystemSteps } from './calendly/system-step.js';
 import { botRejectionRoutes } from './forms/bot-rejection-routes.js';
 
+/* Het domein voor het adres van de afzender (mail_from_domain): enkel een
+   kaal domein, anders niets. */
+function afzenderDomein(waarde) {
+  const d = String(waarde || '').trim().toLowerCase().replace(/^@/, '');
+  return /^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(d) ? d : null;
+}
+
 function jsonResponse(data, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
@@ -1344,6 +1351,9 @@ export const routes = {
         ...(payload.mail_from_name         !== undefined ? { mail_from_name:         payload.mail_from_name         || null } : {}),
         ...(payload.mail_from_display_name !== undefined ? { mail_from_display_name: String(payload.mail_from_display_name || '').trim() || null } : {}),
         ...(payload.mail_from_email        !== undefined ? { mail_from_email:        payload.mail_from_email        || null } : {}),
+        ...(payload.mail_from_domain       !== undefined ? { mail_from_domain:       afzenderDomein(payload.mail_from_domain) } : {}),
+        ...(payload.end_title              !== undefined ? { end_title:              String(payload.end_title || '').trim().slice(0, 200) || null } : {}),
+        ...(payload.end_text               !== undefined ? { end_text:               String(payload.end_text || '').trim().slice(0, 600) || null } : {}),
         ...(payload.mail_reply_to          !== undefined ? { mail_reply_to:          payload.mail_reply_to          || null } : {}),
         // Expliciet zetten, want de default (ir.mail_server 4) is de Postmark
         // broadcast-stream. Een persoonlijke mail hoort op de transactional.
@@ -1451,6 +1461,9 @@ export const routes = {
         ...(payload.mail_from_name         !== undefined ? { mail_from_name:         payload.mail_from_name         || null } : {}),
         ...(payload.mail_from_display_name !== undefined ? { mail_from_display_name: String(payload.mail_from_display_name || '').trim() || null } : {}),
         ...(payload.mail_from_email        !== undefined ? { mail_from_email:        payload.mail_from_email        || null } : {}),
+        ...(payload.mail_from_domain       !== undefined ? { mail_from_domain:       afzenderDomein(payload.mail_from_domain) } : {}),
+        ...(payload.end_title              !== undefined ? { end_title:              String(payload.end_title || '').trim().slice(0, 200) || null } : {}),
+        ...(payload.end_text               !== undefined ? { end_text:               String(payload.end_text || '').trim().slice(0, 600) || null } : {}),
         ...(payload.mail_reply_to          !== undefined ? { mail_reply_to:          payload.mail_reply_to          || null } : {}),
         // Expliciet zetten, want de default (ir.mail_server 4) is de Postmark
         // broadcast-stream. Een persoonlijke mail hoort op de transactional.
