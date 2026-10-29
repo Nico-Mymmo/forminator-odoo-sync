@@ -1,5 +1,5 @@
 /**
- * Mymmo Forms — voorstellen in het veld "Straat en huisnummer".
+ * Mymmo Forms — voorstellen in het veld "Straat".
  *
  * Zodra de postcode erboven ingevuld is, worden de straten van die postcode
  * opgehaald (via WordPress, Mymmo_Forms_Straten). Bij het typen staat er een
@@ -117,6 +117,79 @@
     });
     ul.hidden = false;
     invoer.setAttribute('aria-expanded', 'true');
+    plaats(invoer, ul);
+  }
+
+  /**
+   * Waar de lijst zichtbaar mag zijn: het scherm, ingeperkt door elke voorouder
+   * die zijn inhoud afknipt of scrolt (het paneel van de pop-up).
+   */
+  function zichtbaarVlak(el) {
+    var boven = 0;
+    var onder = window.innerHeight || document.documentElement.clientHeight;
+    for (var p = el.parentElement; p && p !== document.body; p = p.parentElement) {
+      var o = window.getComputedStyle(p).overflowY;
+      if (o === 'auto' || o === 'scroll' || o === 'hidden' || o === 'clip') {
+        var r = p.getBoundingClientRect();
+        if (r.top > boven) boven = r.top;
+        if (r.bottom < onder) onder = r.bottom;
+      }
+    }
+    return { boven: boven, onder: onder };
+  }
+
+  /**
+   * Past de lijst niet onder het veld, en is er boven meer plaats, dan opent
+   * ze naar boven. Anders kreeg het paneel van de pop-up een schuifbalk en
+   * stond de helft van de lijst buiten beeld.
+   */
+  function plaats(invoer, ul) {
+    ul.classList.remove('mymmo-form-suggesties--boven');
+    ul.style.maxHeight = '';
+    var vlak = zichtbaarVlak(invoer);
+    var r = invoer.getBoundingClientRect();
+    var onder = vlak.onder - r.bottom - 12;
+    var boven = r.top - vlak.boven - 12;
+    var nodig = Math.min(ul.scrollHeight, 260);
+    var ruimte = onder;
+    if (nodig > onder && boven > onder) {
+      ul.classList.add('mymmo-form-suggesties--boven');
+      ruimte = boven;
+    }
+    ul.style.maxHeight = Math.max(96, Math.min(260, ruimte)) + 'px';
+  }
+
+  /** Het vak voor het huisnummer: het tekstveld vlak na de straat, als dat er is. */
+  function nummerVeld(invoer) {
+    var veld = invoer.closest ? invoer.closest('.mymmo-form-field') : null;
+    var volgende = veld ? veld.nextElementSibling : null;
+    while (volgende && !volgende.classList.contains('mymmo-form-field')) volgende = volgende.nextElementSibling;
+    if (!volgende || !volgende.classList.contains('mymmo-form-field--text')) return null;
+    var nr = volgende.querySelector('input[type="text"]');
+    return nr && !nr.disabled ? nr : null;
+  }
+
+  /**
+   * Staat er een huisnummer achter de straat (een browser vult "Kerkstraat 12"
+   * in als adresregel, of de bezoeker typte het erbij) en is er een eigen vak
+   * voor het nummer, dan verhuist het daarheen. Alleen iets dat op een
+   * huisnummer lijkt ("12", "12-16", "12A", "12 bus 3"): "Rue du 9 Novembre"
+   * blijft heel.
+   */
+  function splitsNummer(invoer) {
+    var d = delen(invoer.value);
+    if (!d.straat || !d.rest) return;
+    if (!/^\d+[a-z]?(\s*[-\/]\s*\d+[a-z]?)*(\s*(bus|bte|boite|boîte|b)\.?\s*\w+)?$/i.test(d.rest.trim())) return;
+    var nr = nummerVeld(invoer);
+    if (!nr) return;
+    var huidig = String(nr.value || '').trim();
+    if (huidig !== '' && huidig !== d.rest.trim()) return;
+    invoer.value = d.straat.trim();
+    if (huidig === '') {
+      nr.value = d.rest.trim();
+      nr.dispatchEvent(new Event('input', { bubbles: true }));
+      nr.dispatchEvent(new Event('change', { bubbles: true }));
+    }
   }
 
   function kies(invoer, li) {
@@ -154,7 +227,13 @@
   }
 
   document.addEventListener('input', function (e) {
-    if (isStraat(e.target) && e.isTrusted !== false) ververs(e.target);
+    if (!isStraat(e.target) || e.isTrusted === false) return;
+    // Automatisch invullen door de browser komt zonder inputType binnen.
+    if (!e.inputType || e.inputType === 'insertReplacementText') splitsNummer(e.target);
+    ververs(e.target);
+  });
+  document.addEventListener('change', function (e) {
+    if (isStraat(e.target)) splitsNummer(e.target);
   });
   document.addEventListener('focusin', function (e) {
     if (isStraat(e.target)) ververs(e.target);

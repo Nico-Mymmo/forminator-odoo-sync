@@ -99,6 +99,7 @@ import { FIELD_TYPES, ODOO_FIELD_TYPES, META_KEYS, META_PREFIX, LANGUAGES, valid
 import { getAanvragenKaart, normalizeKaartPeriode, postcodeveldenVanKoppeling } from '../dashboards/lib/aanvragen-kaart.js';
 import { calendlyRoutes } from './calendly/routes.js';
 import { adresNaarGebouw } from './adres-voorstel.js';
+import { seinFormulier } from './forms/sein-sites.js';
 import { ensureCalendlySystemSteps } from './calendly/system-step.js';
 import { botRejectionRoutes } from './forms/bot-rejection-routes.js';
 
@@ -2412,6 +2413,10 @@ export const routes = {
       } catch (seedError) {
         console.error('[forms] veldtransformaties aanvullen mislukt:', seedError.message);
       }
+
+      // De sites meteen laten verversen, niet pas na hun bewaartijd.
+      const sein = seinFormulier(context.env, bundle?.form?.slug).catch((err) => console.error('[forms] seintje:', err?.message));
+      if (context.ctx?.waitUntil) context.ctx.waitUntil(sein);
 
       return jsonResponse({
         success: true,

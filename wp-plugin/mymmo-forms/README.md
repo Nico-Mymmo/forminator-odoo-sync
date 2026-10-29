@@ -576,6 +576,23 @@ injectiepad zijn naar elke site die het formulier toont.
 
 ## Versies
 
+**1.24.1** -- drie dingen rond de formulieren uit de OM.
+- **Een gewijzigd formulier staat meteen op de site.** De OM geeft na elke
+  bewaring een seintje (`POST /wp-json/mymmo-forms/v1/formulier/ververs`,
+  `includes/class-ververs.php`); de site haalt de nieuwe versie op en leegt,
+  als die echt veranderde, haar paginacache. Tot nu bleef de oude versie staan
+  tot het einde van de Cacheduur, en daarna nog in de paginacache: op
+  syndicoach.be zag het calculatorformulier er na een aanpassing een tijd
+  onveranderd uit, tot "Cache legen". De uitleg bij Cacheduur beweerde dat een
+  nieuwe versie de cache vanzelf oversloeg; dat klopte niet en is aangepast.
+- **De keuzelijst met straten opent naar boven** als er onder het veld geen
+  plaats is. Onderaan de pop-up gaf ze anders een schuifbalk en stond de
+  helft buiten beeld.
+- **Het huisnummer gaat naar zijn eigen vak.** Vult de browser het adres
+  automatisch in, dan zet die "Kerkstraat 36" in het straatveld; het nummer
+  verhuist nu naar het tekstveld vlak na de straat, als dat leeg is. Enkel
+  iets dat op een huisnummer lijkt ("36", "12-16", "12A", "12 bus 3").
+
 **1.24.0** -- veldtype **Straat en huisnummer** uit de OM. Zodra de postcode
 erboven ingevuld is, staat er bij het typen een lijstje met de straten van die
 postcode onder het veld (`assets/js/mymmo-forms-straat.js`, met pijltjes, Enter

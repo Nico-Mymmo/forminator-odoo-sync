@@ -327,6 +327,11 @@
   max-height: 260px;
   overflow-y: auto;
 }
+/* Naar boven als er onder het veld geen plaats is (plaats() in het script). */
+.mymmo-form-wrap .mymmo-form-suggesties.mymmo-form-suggesties--boven {
+  bottom: 100%;
+  margin: 0 0 4px;
+}
 .mymmo-form-wrap .mymmo-form-suggesties[hidden] {
   display: none;
 }

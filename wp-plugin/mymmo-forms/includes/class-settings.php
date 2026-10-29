@@ -2131,8 +2131,10 @@ final class Mymmo_Forms_Settings {
                                value="<?php echo esc_attr((string) get_option('mymmo_forms_cache_ttl', 300)); ?>">
                         seconden
                         <p class="description">
-                            0 = niet cachen (alleen voor testen). Ook met cache verschijnt een wijziging
-                            meteen: het versienummer verandert dan, en de bewaarde versie wordt overgeslagen.
+                            0 = niet cachen (alleen voor testen). Bewaar je een formulier in de Operations
+                            Manager, dan krijgt deze site een seintje en haalt ze de nieuwe versie meteen op
+                            (en leegt ze haar paginacache). Komt dat seintje niet aan, dan verschijnt de
+                            wijziging na deze cacheduur, of meteen met "Cache legen" hieronder.
                         </p>
                     </td>
                 </tr>
