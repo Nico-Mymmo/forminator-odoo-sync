@@ -6764,6 +6764,53 @@ Afspraken die bewust zo zijn:
 `npm run db:push`, dan `npm run deploy` vanaf `master`. Geen nieuwe secrets.
 Daarna in Beheer de module geven aan wie het mag gebruiken.
 
+## Opvolging (Sales Sequences) -- gesprekken afronden en het controlepaneel (2026-10-30)
+
+**Regel: opvolging is GEEN eigen module. De taken leven in de takenlijst van
+de medewerker (Mijn taken in Projecten), het overzicht komt in CX Powerboard
+(bij de vernieuwing), de instellingen van de sequenties in CX Automations (CX
+= sales en customer success samen). Het werk achter de schermen staat in
+`src/modules/cx-automations/opvolging/`.**
+
+**"Ik heb gebeld" is EEN handeling: het afronden van de beltaak.** Een gesprek
+afronden (opgenomen / ingesproken / niets ingesproken) vinkt de open beltaken
+van de kans af, zet de uitkomst in de chatter met de medewerker als auteur,
+plant eventueel een nieuwe beltaak en werkt het controlepaneel bij. Werklijst
+en afspraken: https://claude.ai/artifact/QwXUNv4HtUfr1PfayjeVUu
+
+| Wat | Waar |
+|---|---|
+| Uitkomsten, datums (Brussel, werkdagen) | `src/modules/cx-automations/opvolging/constants.js` |
+| Lezen uit Odoo in bulk (open kansen, activiteiten, beltaken, gesprekken) | `opvolging/odoo-data.js` |
+| Gesprek afronden | `opvolging/gesprek.js` |
+| Handlers voor Mijn taken | `opvolging/api.js`, routes in `src/modules/projecten/routes.js` (`/api/odoo-beltaken`, `/api/odoo-kansen/:id`, `POST /api/odoo-kansen/:id/gesprek`) |
+| Groep "Bellen (uit Odoo)" + venster | `public/projecten-odoo.js` (Mijn taken, `#/mijn?gesprek=<kans-id>`) |
+| Controlepaneel bovenaan de kans | `opvolging/paneel.js`, 15-min-cron, Studio-veld `x_studio_om_paneel_html` op crm.lead |
+| Bijhouden (voor de rapportering later) | tabel `opv_contactmomenten` in D1 om-core (`0017_opvolging.sql`) |
+
+- **De beltaken blijven activiteiten in Odoo** (daar haakt veel op in). Mijn
+  taken toont ze bovenaan in een eigen groep, enkel tot en met vandaag; wat
+  later gepland is, staat er als aantal. Een beltaak = een activiteit met
+  categorie `phonecall` (Call, Syndicoach - Nieuwe aanvraag), toegewezen aan
+  de Odoo-gebruiker van de medewerker.
+- **De chattertekst is die van de oude oproepknoppen** (serveracties 1205,
+  1206, 1207: "Oproep: opgenomen", "Oproep: voicemail ingesproken", "Oproep:
+  geen antwoord, niets ingesproken"). Het paneel leest gesprekken uit de
+  chatter op die tekst, dus oude en nieuwe tellen allebei. Wijzig die zinnen
+  niet.
+- **Afvinken gebeurt met `action_feedback`**; daarna wordt de auteur van dat
+  bericht op de partner van de medewerker gezet. Geen beltaak = een notitie.
+- **`OPVOLGING_PANEEL_MODE`** (wrangler.jsonc): leeg = niets, `dry` = loggen,
+  `on` = schrijven. Zonder het Studio-veld wordt er niets geschreven (melding
+  in de log). Het paneel wordt enkel geschreven als het veranderde (hash in KV);
+  het tijdstip onderaan telt niet mee.
+- **De knoppen in het paneel zijn links naar Mijn taken** met het venster voor
+  die kans open. Bewust geen knoppen tussen de gegevens van de kans en geen
+  Odoo-actieknoppen: Nico wil een paneel met context.
+- **Nog niet gebouwd:** de sequentie zelf (instellen in CX Automations), het
+  overzicht in CX Powerboard, berichten (macro's), contact via mail en
+  WhatsApp in het paneel, Dstny.
+
 ## Bestandsstructuur
 
 ```

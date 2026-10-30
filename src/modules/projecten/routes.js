@@ -25,6 +25,7 @@ import { vandaagInBrussel } from './lib/datum.js';
 import { searchRead } from '../../lib/odoo.js';
 import { odooOrigin } from '../../lib/medewerkers.js';
 import { teamVan, managers } from './lib/team.js';
+import { mijnBeltaken, kansVoorGesprek, rondGesprekAf, OpvolgingError } from '../cx-automations/opvolging/api.js';
 import {
   ASSET_CATEGORY_PREFIXES, isWithinAssetNamespace, canReadAssetPrefix, listDynamicAssetCategories,
 } from '../asset-manager/lib/namespace.js';
@@ -39,7 +40,7 @@ function json(body, status = 200) {
 }
 
 function fout(err) {
-  const status = err instanceof PmError ? err.status : 500;
+  const status = (err instanceof PmError || err instanceof OpvolgingError) ? err.status : 500;
   if (status >= 500) console.error(LOG_PREFIX, err);
   return json({ success: false, error: err?.message || 'Onbekende fout' }, status);
 }
@@ -333,6 +334,31 @@ export const routes = {
           vandaag: vandaagInBrussel(),
         },
       });
+    } catch (err) { return fout(err); }
+  },
+
+  // ── Beltaken uit Odoo (groep "Bellen (uit Odoo)" bovenaan Mijn taken) ──
+  // De taak blijft een activiteit in Odoo; het werk gebeurt in
+  // src/modules/cx-automations/opvolging/.
+
+  'GET /api/odoo-beltaken': async ({ env, user }) => {
+    try { return json({ success: true, data: await mijnBeltaken(env, user) }); }
+    catch (err) { return fout(err); }
+  },
+
+  'GET /api/odoo-kansen/:id': async ({ env, params }) => {
+    try {
+      const id = Number.parseInt(params.id, 10);
+      if (!Number.isInteger(id)) throw new PmError('Ongeldige kans.');
+      return json({ success: true, data: await kansVoorGesprek(env, id) });
+    } catch (err) { return fout(err); }
+  },
+
+  'POST /api/odoo-kansen/:id/gesprek': async ({ env, user, params, request }) => {
+    try {
+      const id = Number.parseInt(params.id, 10);
+      if (!Number.isInteger(id)) throw new PmError('Ongeldige kans.');
+      return json({ success: true, data: await rondGesprekAf(env, user, id, await leesBody(request)) });
     } catch (err) { return fout(err); }
   },
 

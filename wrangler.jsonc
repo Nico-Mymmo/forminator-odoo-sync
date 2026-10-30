@@ -168,6 +168,12 @@
 		//   "on"    + naar Odoo schrijven. PAS NADAT de tracker LEAD_TIMELINE_BY_OM=1 heeft.
 		// Hier en niet in het dashboard: zonder keep_vars wist een deploy dashboardvariabelen.
 		"WEB_STORY_MODE": "match",
+		// Opvolging -- het controlepaneel bovenaan de kans in Odoo (src/modules/cx-automations/opvolging/paneel.js,
+		// 15-min-cron-tak). Schrijft in het Studio-veld x_studio_om_paneel_html op crm.lead.
+		//   ""    niets
+		//   "dry" berekenen wat er naar Odoo zou gaan, en loggen ([opvolging])
+		//   "on"  naar Odoo schrijven (ook meteen na een afgerond gesprek)
+		"OPVOLGING_PANEEL_MODE": "",
 		// Nieuwsbrieven (src/modules/newsletters/). Alles behalve exact "live" is
 		// TESTSTAND: dan kan de OM enkel een testmail sturen, en enkel naar
 		// NEWSLETTER_TEST_EMAILS (via een eigen Odoo-lijst "OM nieuwsbrief -

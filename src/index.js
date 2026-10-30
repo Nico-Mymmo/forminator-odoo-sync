@@ -17,6 +17,7 @@ import { runDueScheduledTasks } from './modules/mini-apps/lib/scheduler.js';
 import { runDueConditionTasks } from './modules/mini-apps/lib/condition-scheduler.js';
 import { runGmailChatterSync } from './modules/gmail-chatter/lib/sync.js';
 import { runWebStoryCron } from './modules/web-story/lib/push.js';
+import { runOpvolgingCron } from './modules/cx-automations/opvolging/paneel.js';
 import { runSalesCron } from './modules/dashboards/lib/sales/routes.js';
 import { purgeOldBotRejections } from './modules/forminator-sync-v2/forms/bot-rejections.js';
 import { runNewsletterCron } from './modules/newsletters/lib/cron.js';
@@ -118,6 +119,13 @@ export default {
       ctx.waitUntil(
         runWebStoryCron(env, { scheduledTime: event?.scheduledTime }).catch(err =>
           console.error('[scheduled][web-story] CRASH:', err?.message, err?.stack)
+        )
+      );
+      // Opvolging: het controlepaneel bovenaan elke open kans in Odoo bijwerken.
+      // Doet NIETS zolang OPVOLGING_PANEEL_MODE leeg is.
+      ctx.waitUntil(
+        runOpvolgingCron(env).catch(err =>
+          console.error('[scheduled][opvolging] CRASH:', err?.message, err?.stack)
         )
       );
       // Verkoop: Odoo -> D1 om-sales (Dashboards, tabs Verkoop en Targets).

@@ -269,7 +269,8 @@
       html += '<div class="text-center py-12 opacity-60"><i data-lucide="party-popper" class="w-10 h-10 mx-auto mb-3 opacity-40"></i>'
         + '<p class="text-sm">Niets op jouw naam. Typ hierboven een to-do, of open een project links.</p></div>';
     }
-    PM.$('pmHoofd').innerHTML = kaartWrap('<div class="card-body p-0">' + html + '</div>');
+    // Bovenaan: de beltaken uit Odoo (public/projecten-odoo.js).
+    PM.$('pmHoofd').innerHTML = (PM.odooBelKaart ? PM.odooBelKaart() : '') + kaartWrap('<div class="card-body p-0">' + html + '</div>');
   }
 
   // ── Project: Lijst ────────────────────────────────────────────────────────
@@ -634,7 +635,10 @@
     var werk = [PM.laadProjecten()];
     if (S.route.soort === 'project') werk.push(PM.api('/projects/' + S.route.id).then(function (d) { S.project = d; }));
     else if (S.route.soort === 'team') werk.push(PM.api('/team' + (S.route.id ? '?manager=' + encodeURIComponent(S.route.id) : '')).then(function (d) { S.team = d; }));
-    else werk.push(PM.api('/my-tasks').then(function (d) { S.mijn = d; }));
+    else {
+      werk.push(PM.api('/my-tasks').then(function (d) { S.mijn = d; }));
+      if (PM.laadOdooBel) werk.push(PM.laadOdooBel());
+    }
     await Promise.all(werk);
     PM.teken();
   };
