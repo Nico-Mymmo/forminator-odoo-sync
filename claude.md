@@ -6772,7 +6772,7 @@ de medewerker (Mijn taken in Projecten), het overzicht komt in CX Powerboard
 = sales en customer success samen). Het werk achter de schermen staat in
 `src/modules/cx-automations/opvolging/`.**
 
-**"Ik heb gebeld" is EEN handeling: het afronden van de beltaak.** Een gesprek
+**"Oproep registreren" is EEN handeling: het afronden van de beltaak.** Een gesprek
 afronden (opgenomen / ingesproken / niets ingesproken) vinkt de open beltaken
 van de kans af, zet de uitkomst in de chatter met de medewerker als auteur,
 plant eventueel een nieuwe beltaak en werkt het controlepaneel bij. Werklijst
@@ -6808,25 +6808,31 @@ en afspraken: https://claude.ai/artifact/QwXUNv4HtUfr1PfayjeVUu
   flex door). Links de volgende stap (komende Calendly-afspraak, eerste open
   beltaak, anders eerste activiteit), midden het laatste ECHTE contact over alle
   kanalen (telefoon "nam op", een mail VAN de klant, een gehouden meeting) met
-  onze eigen pogingen daarna klein ernaast, rechts de knoppen. Een mail telt als
+  onze eigen pogingen daarna klein ernaast. Geen knoppen in het paneel. Een mail telt als
   van de klant als de afzender niet op een eigen domein staat (eigenDomeinen()
   van de Gmail-app). Labels gaan over het GESPREK ("Gebeld, nam op"), nooit over
   de lead.
-- **"Telefoonactie registreren" bestaat op TWEE plekken met dezelfde werking**:
+- **"Oproep registreren" bestaat op TWEE plekken met dezelfde werking**:
   in Odoo als echte knop naast het paneel (overervende view "OM controlepaneel
-  bovenaan de kans", serveractie "Ik heb gebeld - Venster openen", venster
+  bovenaan de kans", groene knop, serveractie "Ik heb gebeld - Venster openen", venster
   `x_oproep_notitie` = view 3968, opslaan = serveractie 1207) en in de OM (Mijn
   taken, `gesprek.js`). Beide schrijven exact dezelfde chattertekst; wijzig je de
-  werking, wijzig ze samen. Sales blijft zo in Odoo; in het paneel zelf staat
-  enkel de 🔄 (link naar `/projecten/api/odoo-kansen/:id/vernieuw`, werkt het
-  paneel bij en stuurt terug naar de kans). De oude knop "Opgenomen" (1204) opent
+  werking, wijzig ze samen. De vragen hangen af van de uitkomst: nam op = "Wat
+  hebben jullie besproken?" (`x_notitie`); voicemail = "Wat heb je ingesproken?"
+  (`x_ingesproken`) + opnieuw bellen; nam niet op = enkel opnieuw bellen.
+  Opnieuw bellen (`x_terugbellen`): morgen, over 2 werkdagen (standaard),
+  volgende week, andere datum (`x_volgende`), niet. Na "nam op" komt er geen
+  beltaak vanzelf. Sales blijft zo in Odoo. De route
+  `/projecten/api/odoo-kansen/:id/vernieuw` bestaat nog, maar geen knop wijst
+  ernaar (de 🔄 is weg, Nico 30/10). De oude knop "Opgenomen" (1204) opent
   hetzelfde venster met "Nam op" gekozen. Het paneel draait daarom in de
   5-minutentak: een telefoonactie in Odoo zelf kan de OM niet melden.
 - **CX Automations -> Opvolging -> "Alle panelen nu bijwerken"** schrijft elk
   paneel opnieuw (`POST /cx-automations/api/opvolging/panelen`, force).
 - **Nog niet gebouwd:** de sequentie zelf (instellen in CX Automations), het
   overzicht in CX Powerboard, berichten (macro's), contact via mail en
-  WhatsApp in het paneel, Dstny.
+  WhatsApp in het paneel, Dstny, en een optionele mail na een oproep zonder
+  antwoord ("ik heb je vandaag gebeld ...", een macro).
 
 ## Bestandsstructuur
 
