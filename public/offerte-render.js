@@ -955,7 +955,7 @@
      ====================================================================== */
 
   /* Afgeleid of met een eigen bron -- geen invulveld. */
-  var GEEN_INVULVELD = /^(prijs\.licentie_totaal|prijs\.licentie_totaal_label|prijs\.licentie_basis)$|^(contact|bedrijf|beeld)\./;
+  var GEEN_INVULVELD = /^(prijs\.licentie_totaal|prijs\.licentie_totaal_label|prijs\.licentie_basis)$|^(contact|bedrijf|beeld|syndicoach|regio)\./;
 
   var GROEP_VOOR = { offerte: 'Offerte', gebouw: 'Gebouw en klant', klant: 'Gebouw en klant', prijs: 'Prijzen' };
 
@@ -1155,7 +1155,45 @@
     houder.innerHTML = VERSIES.filter(function (v) { return staat.varianten[v.id]; }).map(function (v) {
       return '<button type="button" class="ov-versie' + (v.id === staat.variant ? ' ov-versie--actief' : '') + '"' +
         ' data-action="versie" data-versie="' + v.id + '" aria-pressed="' + (v.id === staat.variant) + '">' + esc(v.label) + '</button>';
-    }).join('');
+    }).join('') + (staat.variant === 'extern' ? coachKiezerHtml() : '');
+    if (staat.variant === 'extern') laadCoaches();
+  }
+
+  /* De externe syndicoach voor de versie "Externe syndicoach": een keuzelijst
+     uit Regio's. Naam, BIV-nummer, ondernemingsnummer en adres komen in
+     gegevens.syndicoach, zoals de koppeling ze vult (pdf-step.js). */
+  var coaches = { lijst: null, bezig: false };
+
+  function coachKiezerHtml() {
+    var gekozen = String(lees('syndicoach.naam', staat.gegevens) || '');
+    var opties = !coaches.lijst
+      ? '<option value="">Laden...</option>'
+      : '<option value="">Kies de syndicoach...</option>' + coaches.lijst.map(function (c) {
+          return '<option value="' + esc(c.naam) + '"' + (c.naam === gekozen ? ' selected' : '') + '>' + esc(c.naam) + '</option>';
+        }).join('');
+    return '<select class="ov-versie-coach' + (gekozen ? '' : ' ov-versie-coach--leeg') + '" data-change="syndicoach-kiezen" aria-label="Welke syndicoach">' + opties + '</select>';
+  }
+
+  function laadCoaches() {
+    if (coaches.lijst || coaches.bezig || SERVER) return;
+    coaches.bezig = true;
+    apiFetch('/forminator-v2/api/regio-syndicoaches', { credentials: 'include' })
+      .then(function (res) { return res.json(); })
+      .then(function (json) {
+        if (!json || !json.success) throw new Error((json && json.error) || 'onbekende fout');
+        coaches.lijst = json.data || [];
+      })
+      .catch(function () { coaches.lijst = []; melding('De syndicoaches uit Regio\'s konden niet geladen worden.'); })
+      .then(function () { coaches.bezig = false; tekenVersies(); });
+  }
+
+  function kiesCoach(naam) {
+    var c = (coaches.lijst || []).filter(function (x) { return x.naam === naam; })[0];
+    ['naam', 'biv', 'kbo', 'adres'].forEach(function (veld) {
+      zet('syndicoach.' + veld, c ? (c[veld] || '') : '', staat.gegevens);
+    });
+    teken();
+    bewaar();
   }
 
   /* Het sjabloon van de server ophalen (bij het opstarten, of na "Herstellen"). */
@@ -1286,6 +1324,9 @@
       (groep.velden || []).forEach(function (v) {
         var pad = v[0];
         if (!hoortInStand(pad, opstellen ? 'offerte' : 'sjabloon')) return;
+        /* De syndicoach kies je bij de versie (keuzelijst), de postcode is
+           enkel voor de koppeling: ze kiest er de versie mee. */
+        if (/^(syndicoach|regio)\./.test(pad)) return;
         var waarde = lees(pad, staat.gegevens);
         if (/^contact\./.test(pad)) {
           /* Geen invoervelden: naam, adres en foto komen van de gekozen
@@ -2226,6 +2267,7 @@
     if (!el) return;
     if (el.dataset.change === 'contact-kiezen') kiesContact(el.value);
     if (el.dataset.change === 'contact-domein') kiesDomein(el.value);
+    if (el.dataset.change === 'syndicoach-kiezen') kiesCoach(el.value);
     if (el.dataset.change === 'documenten-filter') tekenDocumenten();
   });
 

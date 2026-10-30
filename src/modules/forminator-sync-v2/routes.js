@@ -103,6 +103,7 @@ import { adresNaarGebouw } from './adres-voorstel.js';
 import { seinFormulier } from './forms/sein-sites.js';
 import { ensureCalendlySystemSteps } from './calendly/system-step.js';
 import { botRejectionRoutes } from './forms/bot-rejection-routes.js';
+import { listSyndicoaches } from '../regios/lib/store.js';
 
 /* Het domein voor het adres van de afzender (mail_from_domain): enkel een
    kaal domein, anders niets. */
@@ -1568,6 +1569,20 @@ export const routes = {
   'GET /api/pdf-contacten': async (context) => {
     try {
       const data = await listOfferContacten(context.env);
+      return jsonResponse({ success: true, data });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
+    }
+  },
+
+  // De externe syndicoaches uit Regio's, voor de keuzelijst bij de versie
+  // "Externe syndicoach" in de editor. Syndicoach zelf staat er niet in: dat
+  // is de versie "Syndicoach". Enkel wat op de offerte komt.
+  'GET /api/regio-syndicoaches': async (context) => {
+    try {
+      const data = (await listSyndicoaches(context.env))
+        .filter((s) => String(s.naam || '').trim().toLowerCase() !== 'syndicoach')
+        .map((s) => ({ naam: s.naam, biv: s.biv || '', kbo: s.kbo || '', adres: s.adres || '' }));
       return jsonResponse({ success: true, data });
     } catch (error) {
       return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));

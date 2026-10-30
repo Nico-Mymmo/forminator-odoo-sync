@@ -609,6 +609,17 @@ html, body{
 }
 .ov-versie:hover{ color: var(--ov-blauw); }
 .ov-versie--actief{ background: #fff; color: var(--ov-blauw); box-shadow: 0 1px 2px rgba(15, 23, 42, .12); }
+.ov-versie-coach{
+  margin-left: 4px;
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  color: #0f172a;
+  border-radius: 6px;
+  padding: 4px 8px;
+  font: 500 13px var(--ov-font-tekst);
+  cursor: pointer;
+}
+.ov-versie-coach--leeg{ border-color: #f59e0b; color: #92400e; }
 
 /* Menu "Instellingen": een <details> met de knopstijl op de <summary>. */
 .ov-menu{ position: relative; }
