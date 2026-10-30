@@ -118,7 +118,7 @@ export function chatterKaart({ uitkomst, naam, notitie, volgende }) {
   const u = UITKOMSTEN[uitkomst];
   const [rand, vlak] = KAART_KLEUR[uitkomst];
   const s = brusselsStempel();
-  let h = `<div style="border-left:4px solid ${rand};background-color:${vlak};padding:8px 12px;border-radius:6px;">`
+  let h = `<div style="box-sizing:border-box;width:1000px;max-width:100%;border:1px solid ${rand};border-left:4px solid ${rand};background-color:${vlak};padding:8px 12px;border-radius:6px;">`
     + `<p style="margin:0;"><b>${u.icoon} ${esc(u.chatter)}</b></p>`
     + `<p style="margin:2px 0 0;font-size:12px;color:#6b7280;">${s.datum} om ${s.uur} · ${esc(naam)}</p>`;
   if (notitie) {
