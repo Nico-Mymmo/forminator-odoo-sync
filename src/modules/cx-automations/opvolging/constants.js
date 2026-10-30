@@ -35,7 +35,7 @@ export function uitkomstUitTekst(tekst) {
   return null;
 }
 
-/** Activiteitstypes in Odoo met categorie 'phonecall' (Call, Syndicoach - Nieuwe aanvraag, ...). */
+/** Activiteitstypes in Odoo met categorie 'phonecall' (Call, Nieuwe aanvraag - contacteren, ...). */
 export const BEL_CATEGORIE = 'phonecall';
 
 // ── Datums, in Europe/Brussels ────────────────────────────────────────────

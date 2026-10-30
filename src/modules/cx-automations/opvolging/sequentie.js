@@ -5,7 +5,7 @@
  * Opvolging (opv_instellingen, sleutel 'sequentie'):
  *
  *   eerste    de beltaak bij elke nieuwe kans ("Nieuwe lead opvolgen", type
- *             "Syndicoach - Nieuwe aanvraag"): binnen voor `middag_uur`
+ *             "Nieuwe aanvraag - contacteren"): binnen voor `middag_uur`
  *             (standaard 12, Brussel) op een werkdag = dezelfde dag, anders
  *             de werkdag erna (eersteVervaldag() in constants.js)
  *   pogingen  na een oproep ZONDER contact (voicemail of nam niet op): de
@@ -31,7 +31,7 @@ import { UITKOMSTEN, LOG_PREFIX, vandaag, plusWerkdagen, korteDatum, esc, Opvolg
 const KV = 'opvolging:seq:';
 const DATUM_RE = /^\d{4}-\d{2}-\d{2}$/;
 
-// Activiteitstypes in Odoo: 25 = "Syndicoach - Nieuwe aanvraag" (de taak
+// Activiteitstypes in Odoo: 25 = "Nieuwe aanvraag - contacteren" (de taak
 // "Nieuwe lead opvolgen" van de koppelingen), 2 = Call, 4 = To-Do.
 export const STANDAARD = {
   actief: true,

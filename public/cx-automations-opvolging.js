@@ -43,7 +43,7 @@
       + '<span class="text-sm opacity-70">binnen voor</span>'
       + '<input type="number" min="1" max="23" class="input input-bordered input-sm w-20" data-seq="eerste.middag_uur" value="' + c.eerste.middag_uur + '">'
       + '<span class="text-sm opacity-70">uur op een werkdag: dezelfde dag bellen. Later, of in het weekend: de werkdag erna.</span></div>'
-      + '<p class="text-xs opacity-60 mt-1">Type in Odoo: Syndicoach - Nieuwe aanvraag. Maakt een koppeling deze taak al, dan komt er geen tweede.</p>');
+      + '<p class="text-xs opacity-60 mt-1">Type in Odoo: Nieuwe aanvraag - contacteren. Maakt een koppeling deze taak al, dan komt er geen tweede.</p>');
     c.pogingen.forEach(function (p, i) {
       h += stapRij('Stap ' + (i + 2) + ' van ' + totaal + ' · na een oproep zonder contact', 'bg-warning/15 text-warning', 'phone-missed', 'Opnieuw bellen',
         velden('pogingen.' + i, p.titel, p.na_werkdagen, 'werkdagen na die oproep')

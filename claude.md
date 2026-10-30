@@ -6795,7 +6795,7 @@ https://claude.ai/artifact/QwXUNv4HtUfr1PfayjeVUu
 
 - **De sequentie beslist wanneer er opnieuw gebeld wordt, niet de verkoper.**
   Stappen (standaard, aan te passen door Thomas): eerste beltaak "Nieuwe lead
-  opvolgen" (type 25, Syndicoach - Nieuwe aanvraag): binnen voor 12 uur
+  opvolgen" (type 25, Nieuwe aanvraag - contacteren): binnen voor 12 uur
   (`eerste.middag_uur`, Brussel) op een werkdag = dezelfde dag, later of in het
   weekend = de werkdag erna (`eersteVervaldag()` in constants.js);
   na elke oproep zonder contact de volgende poging (1, 2, 3 werkdagen na die
