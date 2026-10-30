@@ -512,7 +512,7 @@ async function kiesVersie(env, { template, gegevens, gekoppeld, waarschuwingen }
   }
   const versie = !s ? 'zonder' : (String(s.naam).trim().toLowerCase() === VERSIE_INTERN_NAAM ? 'intern' : 'extern');
   if (versie === 'extern') {
-    gegevens.syndicoach = { ...(gegevens.syndicoach || {}), naam: s.naam, biv: s.biv || '', adres: s.adres || '' };
+    gegevens.syndicoach = { ...(gegevens.syndicoach || {}), naam: s.naam, biv: s.biv || '', kbo: s.kbo || '', adres: s.adres || '' };
     if (!s.biv) waarschuwingen.push(`Syndicoach "${s.naam}" heeft nog geen BIV-nummer in Regio's — leeg op de offerte.`);
   }
   if (!varianten[versie]) {

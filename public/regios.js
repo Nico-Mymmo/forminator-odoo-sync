@@ -26,6 +26,11 @@
             '<span class="badge badge-sm badge-ghost ml-1">' + pcs.length + '</span>' +
           '</button>' +
           '<button class="btn btn-xs btn-ghost text-base-content/60" data-action="coach-instellen" data-id="' + e(s.id) + '" title="Instellen"><i data-lucide="settings-2" class="w-3.5 h-3.5"></i></button>' +
+        '</div>' +
+        '<div class="px-2.5 pb-2 -mt-1 text-xs text-base-content/60 leading-snug">' +
+          'BIV ' + (s.biv ? e(s.biv) : '<span class="text-warning">ontbreekt</span>') +
+          ' &middot; KBO ' + (s.kbo ? e(s.kbo) : '<span class="text-base-content/40">-</span>') +
+          (s.adres ? '<br>' + e(s.adres) : '') +
         '</div>';
       if (actief) {
         html += '<div class="border-t border-base-content/10 bg-base-100 p-2.5">' +
@@ -88,6 +93,7 @@
     $('dlgCoachNaam').value = s.naam;
     $('dlgCoachKleur').value = s.kleur;
     $('dlgCoachBiv').value = s.biv || '';
+    $('dlgCoachKbo').value = s.kbo || '';
     $('dlgCoachAdres').value = s.adres || '';
     $('dlgCoach').showModal();
   }
@@ -99,6 +105,7 @@
       naam: $('dlgCoachNaam').value.trim(),
       kleur: $('dlgCoachKleur').value,
       biv: $('dlgCoachBiv').value.trim(),
+      kbo: $('dlgCoachKbo').value.trim(),
       adres: $('dlgCoachAdres').value.trim(),
     };
     try {
