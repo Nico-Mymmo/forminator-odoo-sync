@@ -5,10 +5,11 @@
 
 import { searchRead, executeKw } from '../../../lib/odoo.js';
 import { odooOrigin } from '../../../lib/medewerkers.js';
+import { eigenDomeinen } from '../../gmail-chatter/lib/matching.js';
 import { BEL_CATEGORIE, uitkomstUitTekst, odooDatum } from './constants.js';
 
 const LEAD_VELDEN = ['id', 'name', 'partner_id', 'contact_name', 'partner_name', 'phone', 'email_from',
-  'stage_id', 'user_id', 'active', 'type'];
+  'stage_id', 'user_id', 'active', 'type', 'x_studio_cm_calendlymeeting_ids'];
 
 export function leadUrl(env, id) {
   return `${odooOrigin(env)}/web#id=${id}&model=crm.lead&view_type=form`;
@@ -111,6 +112,57 @@ export async function gesprekken(env, leadIds, { perLead = 5 } = {}) {
       if (lijst.length >= perLead) continue;
       lijst.push({ uitkomst, datum: odooDatum(r.date), door: Array.isArray(r.author_id) ? r.author_id[1] : '' });
     }
+  }
+  return per;
+}
+
+/**
+ * Mails in de chatter (van de Gmail-app, of door Odoo/de OM verstuurd), nieuwste
+ * eerst: Map(leadId -> [{ inkomend, datum: Date, van }]). Inkomend = de afzender
+ * staat niet op een van onze eigen domeinen (dezelfde lijst als de Gmail-app).
+ */
+export async function mails(env, leadIds, { perLead = 5 } = {}) {
+  const per = new Map();
+  if (!leadIds.length) return per;
+  const eigen = eigenDomeinen(env);
+  for (let i = 0; i < leadIds.length; i += 400) {
+    const rijen = (await searchRead(env, {
+      model: 'mail.message',
+      domain: [['model', '=', 'crm.lead'], ['res_id', 'in', leadIds.slice(i, i + 400)], ['message_type', 'in', ['email', 'email_outgoing']]],
+      fields: ['res_id', 'date', 'email_from', 'author_id'],
+      order: 'date desc',
+      limit: 4000,
+    })) || [];
+    for (const r of rijen) {
+      if (!per.has(r.res_id)) per.set(r.res_id, []);
+      const lijst = per.get(r.res_id);
+      if (lijst.length >= perLead) continue;
+      const adres = (String(r.email_from || '').match(/[^\s<>"]+@([^\s<>"]+)/) || [])[1] || '';
+      const domein = adres.toLowerCase();
+      const ons = !domein || eigen.some(d => domein === d || domein.endsWith('.' + d));
+      lijst.push({ inkomend: !ons, datum: odooDatum(r.date), van: Array.isArray(r.author_id) ? r.author_id[1] : '' });
+    }
+  }
+  return per;
+}
+
+/**
+ * Calendly-afspraken per kans (via de partner, zoals Odoo ze bij de lead toont),
+ * zonder geannuleerde: Map(leadId -> [{ start: Date }]).
+ */
+export async function meetings(env, leads) {
+  const per = new Map();
+  const ids = [...new Set(leads.flatMap(l => l.x_studio_cm_calendlymeeting_ids || []))];
+  if (!ids.length) return per;
+  const rijen = (await searchRead(env, {
+    model: 'x_calendlymeeting',
+    domain: [['id', 'in', ids], ['x_studio_cm_iscancelled', '!=', true]],
+    fields: ['id', 'x_studio_cm_start_time'],
+  })) || [];
+  const start = new Map(rijen.map(r => [r.id, odooDatum(r.x_studio_cm_start_time)]));
+  for (const l of leads) {
+    const lijst = (l.x_studio_cm_calendlymeeting_ids || []).filter(id => start.get(id)).map(id => ({ start: start.get(id) }));
+    if (lijst.length) per.set(l.id, lijst);
   }
   return per;
 }

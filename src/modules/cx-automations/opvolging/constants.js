@@ -17,9 +17,10 @@ export class OpvolgingError extends Error {
  * zo leest het controlepaneel oude en nieuwe gesprekken op dezelfde manier.
  */
 export const UITKOMSTEN = {
-  opgenomen: { soort: 'contact', label: 'Opgenomen', icoon: '✅', chatter: 'Oproep: opgenomen' },
-  ingesproken: { soort: 'poging', label: 'Ingesproken', icoon: '🎙️', chatter: 'Oproep: voicemail ingesproken' },
-  niets: { soort: 'poging', label: 'Niets ingesproken', icoon: '🔇', chatter: 'Oproep: geen antwoord, niets ingesproken' },
+  // `label` gaat over het GESPREK ("de klant nam op"), nooit over de lead.
+  opgenomen: { soort: 'contact', label: 'Gebeld, nam op', icoon: '✅', chatter: 'Oproep: opgenomen' },
+  ingesproken: { soort: 'poging', label: 'Gebeld, voicemail ingesproken', icoon: '🎙️', chatter: 'Oproep: voicemail ingesproken' },
+  niets: { soort: 'poging', label: 'Gebeld, nam niet op', icoon: '🔇', chatter: 'Oproep: geen antwoord, niets ingesproken' },
 };
 
 /** Een chatterbericht terug naar een uitkomst. De volgorde telt: 'niets' bevat ook 'ingesproken'. */

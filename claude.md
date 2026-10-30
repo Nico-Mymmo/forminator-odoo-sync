@@ -6804,7 +6804,15 @@ en afspraken: https://claude.ai/artifact/QwXUNv4HtUfr1PfayjeVUu
   `on` = schrijven. Zonder het Studio-veld wordt er niets geschreven (melding
   in de log). Het paneel wordt enkel geschreven als het veranderde (hash in KV);
   het tijdstip onderaan telt niet mee.
-- **De knoppen in het paneel zijn links naar Mijn taken** met het venster voor
+- **Het paneel is EEN smalle balk** (een tabel: Odoo's sanitizer laat geen
+  flex door). Links de volgende stap (komende Calendly-afspraak, eerste open
+  beltaak, anders eerste activiteit), midden het laatste ECHTE contact over alle
+  kanalen (telefoon "nam op", een mail VAN de klant, een gehouden meeting) met
+  onze eigen pogingen daarna klein ernaast, rechts de knoppen. Een mail telt als
+  van de klant als de afzender niet op een eigen domein staat (eigenDomeinen()
+  van de Gmail-app). Labels gaan over het GESPREK ("Gebeld, nam op"), nooit over
+  de lead.
+- **De knoppen in het paneel zijn links naar Mijn taken** ("Ik heb gebeld") met het venster voor
   die kans open. Bewust geen knoppen tussen de gegevens van de kans en geen
   Odoo-actieknoppen: Nico wil een paneel met context.
 - **Nog niet gebouwd:** de sequentie zelf (instellen in CX Automations), het

@@ -18,7 +18,7 @@
  */
 
 import { write } from '../../../lib/odoo.js';
-import { openKansen, leesLead, activiteiten, gesprekken, heeftVelden } from './odoo-data.js';
+import { openKansen, leesLead, activiteiten, gesprekken, mails, meetings, heeftVelden } from './odoo-data.js';
 import { UITKOMSTEN, LOG_PREFIX, vandaag, dagenTussen, korteDatum, geleden, brusselsStempel, esc } from './constants.js';
 
 export const PANEEL_VELD = 'x_studio_om_paneel_html';
@@ -39,69 +39,101 @@ function basis(env) {
   return String(env.OM_PUBLIC_ORIGIN || 'https://operations.openvme.be').replace(/\/+$/, '');
 }
 
-function pil(tekst, toon) {
+function pil(tekst, toon, uitleg = '') {
   const k = KLEUR[toon] || KLEUR.stil;
-  return `<span style="display:inline-block;padding:3px 10px;margin:2px 6px 2px 0;border-radius:999px;font-size:12px;font-weight:600;background-color:${k.bg};color:${k.fg};">${esc(tekst)}</span>`;
+  return `<span${uitleg ? ` title="${esc(uitleg)}"` : ''} style="display:inline-block;padding:2px 9px;margin:1px 4px 1px 0;border-radius:999px;font-size:12px;font-weight:600;white-space:nowrap;background-color:${k.bg};color:${k.fg};">${esc(tekst)}</span>`;
 }
 
 function knop(tekst, url, hoofd) {
   const stijl = hoofd
     ? 'background-color:#1d4ed8;color:#ffffff;border:1px solid #1d4ed8;'
     : 'background-color:#ffffff;color:#1d4ed8;border:1px solid #93c5fd;';
-  return `<a href="${esc(url)}" target="_blank" rel="noopener" style="display:inline-block;padding:6px 14px;margin:4px 8px 0 0;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;${stijl}">${esc(tekst)}</a>`;
+  return `<a href="${esc(url)}" target="_blank" rel="noopener" style="display:inline-block;padding:3px 12px;margin-left:6px;border-radius:7px;font-size:12px;font-weight:600;white-space:nowrap;text-decoration:none;${stijl}">${esc(tekst)}</a>`;
 }
 
 /**
- * Wat het paneel zegt over een kans (puur). Geeft { zin, pillen, knoppen }.
- * `acts` = open activiteiten van de kans, `gespr` = gesprekken (nieuwste eerst).
+ * Alles wat het paneel van een reeks kansen nodig heeft, in bulk. Per kans:
+ * { acts, gespr, mails, meet } (zie odoo-data.js).
  */
-export function paneelInhoud(env, lead, acts = [], gespr = [], nu = vandaag()) {
-  const pillen = [];
-  const laatste = gespr[0];
-  if (laatste) {
-    const u = UITKOMSTEN[laatste.uitkomst];
-    const dag = laatste.datum ? vandaag(laatste.datum) : nu;
-    pillen.push(pil(`${u.icoon} ${u.label}, ${geleden(dag, nu)}${laatste.door ? ` (${laatste.door})` : ''}`,
-      u.soort === 'contact' ? 'goed' : 'stil'));
-  } else {
-    pillen.push(pil('Nog geen gesprek', 'stil'));
-  }
-
-  const bel = acts.filter(a => a.bellen).sort((a, b) => String(a.deadline).localeCompare(String(b.deadline)))[0];
-  const volgende = bel || acts[0];
-  let zin;
-  if (!volgende) {
-    pillen.push(pil('Geen volgende stap gepland', 'let'));
-    zin = 'Er staat geen volgende stap op deze kans.';
-  } else {
-    const wat = volgende.bellen ? 'Bellen' : (volgende.typeNaam || 'Taak');
-    const n = volgende.deadline ? dagenTussen(volgende.deadline, nu) : 0;
-    if (!volgende.deadline || n === 0) {
-      pillen.push(pil(`${wat}: vandaag`, 'info'));
-      zin = volgende.bellen ? 'Vandaag bellen.' : `Vandaag: ${wat.toLowerCase()}.`;
-    } else if (n > 0) {
-      pillen.push(pil(`${wat}: ${n === 1 ? '1 dag' : `${n} dagen`} te laat`, 'laat'));
-      zin = volgende.bellen ? 'Dit gesprek staat te laat.' : 'De volgende stap staat te laat.';
-    } else {
-      pillen.push(pil(`${wat}: ${korteDatum(volgende.deadline)}`, 'stil'));
-      zin = `Volgende stap op ${korteDatum(volgende.deadline)}.`;
-    }
-  }
-  if (!lead.user_id) pillen.push(pil('Geen verkoper', 'laat'));
-
-  // De knoppen openen Mijn taken in Projecten, met het venster voor deze kans al open.
-  const knoppen = [knop('Gesprek afronden', `${basis(env)}/projecten#/mijn?gesprek=${lead.id}`, !!bel)];
-  if (!volgende) knoppen.push(knop('Volgende stap plannen', `${basis(env)}/projecten#/mijn?gesprek=${lead.id}&stap=volgende`, false));
-  return { zin, pillen, knoppen };
+export async function laadContext(env, kansen) {
+  const ids = kansen.map(k => k.id);
+  const [acts, gespr, ml, meet] = await Promise.all([
+    activiteiten(env, ids), gesprekken(env, ids), mails(env, ids), meetings(env, kansen),
+  ]);
+  return (id) => ({ acts: acts.get(id) || [], gespr: gespr.get(id) || [], mails: ml.get(id) || [], meet: meet.get(id) || [] });
 }
 
+/**
+ * Elk contactmoment op een tijdlijn (puur). `contact` = er was echt contact
+ * (de klant nam op, mailde zelf, had een meeting); anders was het een poging van ons.
+ */
+export function contactmomenten({ gespr = [], mails: ml = [], meet = [] }, nuMs = Date.now()) {
+  const uit = [];
+  for (const g of gespr) {
+    const u = UITKOMSTEN[g.uitkomst];
+    if (g.datum) uit.push({ datum: g.datum, contact: u.soort === 'contact', tekst: `${u.icoon} ${u.label}`, door: g.door });
+  }
+  for (const m of ml) {
+    if (m.datum) uit.push({ datum: m.datum, contact: m.inkomend, tekst: m.inkomend ? '✉️ Klant mailde' : '✉️ Mail gestuurd', door: m.inkomend ? '' : m.van });
+  }
+  for (const m of meet) {
+    if (m.start && m.start.getTime() <= nuMs) uit.push({ datum: m.start, contact: true, tekst: '📅 Meeting gehad', door: '' });
+  }
+  return uit.sort((a, b) => b.datum - a.datum);
+}
+
+/**
+ * Wat het paneel zegt over een kans (puur): drie vakken op een balk.
+ *   stap     (links)  de volgende stap: een komende Calendly-afspraak en de
+ *                     eerste open BELTAAK, anders de eerste open activiteit
+ *   gesprek  (midden) het laatste ECHTE contact (telefoon, mail of meeting), met
+ *                     onze eigen pogingen daarna klein ernaast
+ *   knoppen  (rechts) enkel wat nu zin heeft
+ */
+export function paneelInhoud(env, lead, ctx = {}, nu = vandaag(), nuMs = Date.now()) {
+  const acts = ctx.acts || [];
+  const bel = acts.filter(a => a.bellen).sort((a, b) => String(a.deadline).localeCompare(String(b.deadline)))[0];
+  const volgende = bel || acts[0];
+  const komend = (ctx.meet || []).filter(m => m.start && m.start.getTime() > nuMs).sort((a, b) => a.start - b.start)[0];
+  const stap = [];
+  if (komend) stap.push(pil(`📅 Meeting ${korteDatum(vandaag(komend.start))}`, 'info', 'Komende Calendly-afspraak'));
+  if (volgende) {
+    const wat = volgende.bellen ? 'Bellen' : (volgende.typeNaam || 'Taak');
+    const uitleg = `Eerstvolgende ${volgende.bellen ? 'beltaak' : 'taak'}${volgende.userNaam ? ` voor ${volgende.userNaam}` : ''}${volgende.samenvatting ? `: ${volgende.samenvatting}` : ''}`;
+    const n = volgende.deadline ? dagenTussen(volgende.deadline, nu) : 0;
+    if (!volgende.deadline || n === 0) stap.push(pil(`${wat}: vandaag`, 'info', uitleg));
+    else if (n > 0) stap.push(pil(`${wat}: ${n === 1 ? '1 dag' : `${n} dagen`} te laat`, 'laat', uitleg));
+    else stap.push(pil(`${wat}: ${korteDatum(volgende.deadline)}`, 'stil', uitleg));
+  } else if (!komend) {
+    stap.push(pil('Geen volgende stap', 'let', 'Er staat geen taak en geen afspraak op deze kans.'));
+  }
+  if (!lead.user_id) stap.push(pil('Geen verkoper', 'laat', 'Op deze kans staat geen verkoper.'));
+
+  const momenten = contactmomenten(ctx, nuMs);
+  const contact = momenten.find(m => m.contact);
+  const poging = momenten.find(m => !m.contact && (!contact || m.datum > contact.datum));
+  let gesprek = contact
+    ? pil(`${contact.tekst} · ${geleden(vandaag(contact.datum), nu)}`, 'goed', `Laatste echte contact${contact.door ? `, door ${contact.door}` : ''}`)
+    : pil('Nog geen contact', 'stil', 'Nog geen gesprek, mail van de klant of meeting.');
+  if (poging) {
+    gesprek += `<span title="Laatste poging van ons, nog zonder antwoord" style="font-size:11px;color:#6b7280;white-space:nowrap;">daarna: ${esc(poging.tekst)} · ${esc(geleden(vandaag(poging.datum), nu))}</span>`;
+  }
+
+  // De knoppen openen Mijn taken in Projecten, met het venster voor deze kans al open.
+  const knoppen = [knop('Ik heb gebeld', `${basis(env)}/projecten#/mijn?gesprek=${lead.id}`, !!bel)];
+  if (!volgende && !komend) knoppen.push(knop('Volgende stap plannen', `${basis(env)}/projecten#/mijn?gesprek=${lead.id}&stap=volgende`, false));
+  return { stap, gesprek, knoppen };
+}
+
+/** Een balk, links/midden/rechts. Een tabel: Odoo's sanitizer laat flex-eigenschappen niet door. */
 export function paneelHtml(inhoud, stempel = '') {
-  return `<div style="border:1px solid #dbe4f0;border-radius:10px;padding:10px 14px;background-color:#f8fafc;font-size:13px;line-height:1.45;">`
-    + `<div style="font-weight:600;color:#111827;margin-bottom:4px;">${esc(inhoud.zin)}</div>`
-    + `<div>${inhoud.pillen.join('')}</div>`
-    + `<div>${inhoud.knoppen.join('')}</div>`
-    + (stempel ? `<div style="margin-top:6px;font-size:11px;color:#9ca3af;">Operations Manager · stand van ${esc(stempel)}</div>` : '')
-    + `</div>`;
+  const titel = stempel ? ` title="Operations Manager, stand van ${esc(stempel)}"` : '';
+  const cel = 'padding:5px 10px;vertical-align:middle;';
+  return `<table${titel} style="width:100%;border-collapse:separate;border:1px solid #dbe4f0;border-radius:8px;background-color:#f8fafc;font-size:12px;"><tr>`
+    + `<td style="${cel}text-align:left;">${inhoud.stap.join('')}</td>`
+    + `<td style="${cel}text-align:center;">${inhoud.gesprek}</td>`
+    + `<td style="${cel}text-align:right;white-space:nowrap;">${inhoud.knoppen.join('')}</td>`
+    + `</tr></table>`;
 }
 
 async function sha(str) {
@@ -130,8 +162,8 @@ export async function werkPaneelBij(env, leadId) {
     if (!(await heeftVelden(env, 'crm.lead', [PANEEL_VELD]))) return { ok: false, reden: `veld ${PANEEL_VELD} bestaat nog niet` };
     const lead = await leesLead(env, leadId);
     if (!lead) return { ok: false, reden: 'kans niet gevonden' };
-    const [acts, gespr] = await Promise.all([activiteiten(env, [leadId]), gesprekken(env, [leadId])]);
-    const r = await schrijfPaneel(env, lead, paneelInhoud(env, lead, acts.get(leadId), gespr.get(leadId)), { mode, force: true });
+    const ctx = await laadContext(env, [lead]);
+    const r = await schrijfPaneel(env, lead, paneelInhoud(env, lead, ctx(leadId)), { mode, force: true });
     return { ok: true, resultaat: r };
   } catch (err) {
     console.error(LOG_PREFIX, 'paneel', leadId, err?.message);
@@ -148,15 +180,14 @@ export async function runOpvolgingCron(env) {
     return null;
   }
   const kansen = await openKansen(env);
-  const ids = kansen.map(k => k.id);
-  const [acts, gespr] = await Promise.all([activiteiten(env, ids), gesprekken(env, ids)]);
+  const ctx = await laadContext(env, kansen);
   const nu = vandaag();
-  const stats = { kansen: ids.length, geschreven: 0, zou_schrijven: 0, ongewijzigd: 0, fouten: 0 };
+  const stats = { kansen: kansen.length, geschreven: 0, zou_schrijven: 0, ongewijzigd: 0, fouten: 0 };
   let geschreven = 0;
   for (const lead of kansen) {
     if (geschreven >= MAX_SCHRIJVEN) break;
     try {
-      const r = await schrijfPaneel(env, lead, paneelInhoud(env, lead, acts.get(lead.id), gespr.get(lead.id), nu), { mode });
+      const r = await schrijfPaneel(env, lead, paneelInhoud(env, lead, ctx(lead.id), nu), { mode });
       stats[r]++;
       if (r === 'geschreven') geschreven++;
     } catch (err) {

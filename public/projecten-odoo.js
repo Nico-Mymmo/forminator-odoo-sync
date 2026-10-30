@@ -1,6 +1,6 @@
 /**
  * Projecten -- de groep "Bellen (uit Odoo)" bovenaan Mijn taken, en het
- * venster "Gesprek afronden".
+ * venster "Ik heb gebeld".
  *
  * De beltaken blijven activiteiten in Odoo; hier zie je ze en rond je ze af.
  * Afronden vinkt de beltaak af, zet de uitkomst in de chatter van de kans en
@@ -16,9 +16,9 @@
 
   var B = { data: null, kans: null, uitkomst: null, alleenVolgende: false, bezig: false };
   var UITKOMSTEN = [
-    { id: 'opgenomen', label: 'Opgenomen', icoon: '✅', uitleg: 'Er was echt contact.' },
-    { id: 'ingesproken', label: 'Ingesproken', icoon: '🎙️', uitleg: 'Voicemail ingesproken.' },
-    { id: 'niets', label: 'Niets ingesproken', icoon: '🔇', uitleg: 'Geen antwoord, niets ingesproken.' },
+    { id: 'opgenomen', label: 'Nam op', icoon: '✅', uitleg: 'Je had de persoon aan de lijn.' },
+    { id: 'ingesproken', label: 'Voicemail ingesproken', icoon: '🎙️', uitleg: 'Nam niet op, je liet een bericht na.' },
+    { id: 'niets', label: 'Nam niet op', icoon: '🔇', uitleg: 'Geen antwoord, niets ingesproken.' },
   ];
   var MAANDEN = ['jan', 'feb', 'mrt', 'apr', 'mei', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec'];
 
@@ -60,7 +60,7 @@
         +   '<div class="text-xs mt-0.5">' + gesprekTekst(k.laatste_gesprek) + '</div>'
         + '</div>'
         + '<div class="flex items-center gap-2 shrink-0">' + badge
-        +   '<button type="button" class="btn btn-sm btn-primary" data-action="odoo-gesprek" data-id="' + k.id + '">Gesprek afronden</button>'
+        +   '<button type="button" class="btn btn-sm btn-primary" data-action="odoo-gesprek" data-id="' + k.id + '">Ik heb gebeld</button>'
         + '</div></div>';
     }).join('');
     return '<div class="card bg-base-100 border border-base-content/10 shadow-sm mb-4"><div class="card-body p-0">'
@@ -92,7 +92,7 @@
 
   function tekenVenster() {
     var k = B.kans;
-    var h = '<h3 class="font-bold text-lg">' + (B.alleenVolgende ? 'Gesprek plannen' : 'Gesprek afronden') + '</h3>'
+    var h = '<h3 class="font-bold text-lg">' + (B.alleenVolgende ? 'Gesprek plannen' : 'Ik heb gebeld') + '</h3>'
       + '<div class="text-sm mt-1"><a class="link link-hover font-medium" href="' + esc(k.url) + '" target="_blank" rel="noopener">' + esc(k.naam) + '</a></div>'
       + '<div class="text-xs opacity-70 flex flex-wrap gap-x-3 mt-0.5">' + (k.contact ? '<span>' + esc(k.contact) + '</span>' : '') + telefoon(k)
       + '<span>' + esc(k.fase) + '</span><span>' + (k.heeft_verkoper ? 'Verkoper: ' + esc(k.verkoper) : '<span class="text-error">Geen verkoper</span>') + '</span></div>';
