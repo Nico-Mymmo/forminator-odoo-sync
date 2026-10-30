@@ -121,13 +121,6 @@ export default {
           console.error('[scheduled][web-story] CRASH:', err?.message, err?.stack)
         )
       );
-      // Opvolging: het controlepaneel bovenaan elke open kans in Odoo bijwerken.
-      // Doet NIETS zolang OPVOLGING_PANEEL_MODE leeg is.
-      ctx.waitUntil(
-        runOpvolgingCron(env).catch(err =>
-          console.error('[scheduled][opvolging] CRASH:', err?.message, err?.stack)
-        )
-      );
       // Verkoop: Odoo -> D1 om-sales (Dashboards, tabs Verkoop en Targets).
       // Doet niets zolang de SALES_DB-binding ontbreekt.
       ctx.waitUntil(
@@ -161,6 +154,14 @@ export default {
     }
 
     if (runFiveMinJobs) {
+      // Opvolging: het controlepaneel bovenaan elke open kans in Odoo bijwerken
+      // (elke 5 minuten: een telefoonactie in Odoo zelf kan de OM niet melden).
+      // Schrijft enkel wat veranderde. Doet NIETS zolang OPVOLGING_PANEEL_MODE leeg is.
+      ctx.waitUntil(
+        runOpvolgingCron(env).catch(err =>
+          console.error('[scheduled][opvolging] CRASH:', err?.message, err?.stack)
+        )
+      );
       // Links in het Chat-kanaal "Media insights" -> een concept in Nieuws &
       // updates. Doet NIETS zolang NEWS_CHAT_SPACE of NEWS_CHAT_READER leeg is.
       ctx.waitUntil(

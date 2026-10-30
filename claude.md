@@ -6812,9 +6812,18 @@ en afspraken: https://claude.ai/artifact/QwXUNv4HtUfr1PfayjeVUu
   van de klant als de afzender niet op een eigen domein staat (eigenDomeinen()
   van de Gmail-app). Labels gaan over het GESPREK ("Gebeld, nam op"), nooit over
   de lead.
-- **De knoppen in het paneel zijn links naar Mijn taken** ("Ik heb gebeld") met het venster voor
-  die kans open. Bewust geen knoppen tussen de gegevens van de kans en geen
-  Odoo-actieknoppen: Nico wil een paneel met context.
+- **"Telefoonactie registreren" bestaat op TWEE plekken met dezelfde werking**:
+  in Odoo als echte knop naast het paneel (overervende view "OM controlepaneel
+  bovenaan de kans", serveractie "Ik heb gebeld - Venster openen", venster
+  `x_oproep_notitie` = view 3968, opslaan = serveractie 1207) en in de OM (Mijn
+  taken, `gesprek.js`). Beide schrijven exact dezelfde chattertekst; wijzig je de
+  werking, wijzig ze samen. Sales blijft zo in Odoo; in het paneel zelf staat
+  enkel de 🔄 (link naar `/projecten/api/odoo-kansen/:id/vernieuw`, werkt het
+  paneel bij en stuurt terug naar de kans). De oude knop "Opgenomen" (1204) opent
+  hetzelfde venster met "Nam op" gekozen. Het paneel draait daarom in de
+  5-minutentak: een telefoonactie in Odoo zelf kan de OM niet melden.
+- **CX Automations -> Opvolging -> "Alle panelen nu bijwerken"** schrijft elk
+  paneel opnieuw (`POST /cx-automations/api/opvolging/panelen`, force).
 - **Nog niet gebouwd:** de sequentie zelf (instellen in CX Automations), het
   overzicht in CX Powerboard, berichten (macro's), contact via mail en
   WhatsApp in het paneel, Dstny.

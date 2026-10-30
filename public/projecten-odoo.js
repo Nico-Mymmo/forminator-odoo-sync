@@ -60,7 +60,7 @@
         +   '<div class="text-xs mt-0.5">' + gesprekTekst(k.laatste_gesprek) + '</div>'
         + '</div>'
         + '<div class="flex items-center gap-2 shrink-0">' + badge
-        +   '<button type="button" class="btn btn-sm btn-primary" data-action="odoo-gesprek" data-id="' + k.id + '">Ik heb gebeld</button>'
+        +   '<button type="button" class="btn btn-sm btn-primary" data-action="odoo-gesprek" data-id="' + k.id + '">Telefoonactie registreren</button>'
         + '</div></div>';
     }).join('');
     return '<div class="card bg-base-100 border border-base-content/10 shadow-sm mb-4"><div class="card-body p-0">'
@@ -92,7 +92,7 @@
 
   function tekenVenster() {
     var k = B.kans;
-    var h = '<h3 class="font-bold text-lg">' + (B.alleenVolgende ? 'Gesprek plannen' : 'Ik heb gebeld') + '</h3>'
+    var h = '<h3 class="font-bold text-lg">' + (B.alleenVolgende ? 'Gesprek plannen' : 'Telefoonactie registreren') + '</h3>'
       + '<div class="text-sm mt-1"><a class="link link-hover font-medium" href="' + esc(k.url) + '" target="_blank" rel="noopener">' + esc(k.naam) + '</a></div>'
       + '<div class="text-xs opacity-70 flex flex-wrap gap-x-3 mt-0.5">' + (k.contact ? '<span>' + esc(k.contact) + '</span>' : '') + telefoon(k)
       + '<span>' + esc(k.fase) + '</span><span>' + (k.heeft_verkoper ? 'Verkoper: ' + esc(k.verkoper) : '<span class="text-error">Geen verkoper</span>') + '</span></div>';
