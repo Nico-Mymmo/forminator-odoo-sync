@@ -6,6 +6,7 @@
  */
 
 import { runOpvolgingCron } from './opvolging/paneel.js';
+import { leesSequentie, bewaarSequentie, STANDAARD } from './opvolging/sequentie.js';
 import { handleGetOdooConfig, handleGetTechnicalBlocks, handleGetThresholds, handleSaveThresholds, handleGetSettings, handleSaveSettings, handleGetLog, handleRunCron, handleGetMergerConfig, handleGetMergerFields, handleSaveMergerConfig, handlePatchLeadPreview, handleFixLeadSearch, handleUpgradeLeadPreview, handleAddFieldExclusions, handleDisableSanitize, handleInlineCheckboxes, handleFixInlineCheckboxes } from './routes.js';
 
 export default {
@@ -43,6 +44,22 @@ export default {
       return new Response(JSON.stringify({ success: !!stats, data: stats, mode: env.OPVOLGING_PANEEL_MODE || '' }), {
         headers: { 'Content-Type': 'application/json' },
       });
+    },
+
+    // Opvolging: de sequentie (sequentie.js) lezen en bewaren.
+    'GET /api/opvolging/sequentie': async ({ env }) => {
+      const data = await leesSequentie(env, { vers: true });
+      return new Response(JSON.stringify({ success: true, data, standaard: STANDAARD }), { headers: { 'Content-Type': 'application/json' } });
+    },
+    'PUT /api/opvolging/sequentie': async ({ env, user, request }) => {
+      try {
+        const data = await bewaarSequentie(env, await request.json(), user?.full_name || user?.email);
+        return new Response(JSON.stringify({ success: true, data }), { headers: { 'Content-Type': 'application/json' } });
+      } catch (err) {
+        return new Response(JSON.stringify({ success: false, error: err.message }), {
+          status: err.status || 500, headers: { 'Content-Type': 'application/json' },
+        });
+      }
     },
 
     'GET /api/merger-config': handleGetMergerConfig,

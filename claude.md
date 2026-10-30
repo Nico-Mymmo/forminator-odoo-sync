@@ -6764,97 +6764,96 @@ Afspraken die bewust zo zijn:
 `npm run db:push`, dan `npm run deploy` vanaf `master`. Geen nieuwe secrets.
 Daarna in Beheer de module geven aan wie het mag gebruiken.
 
-## Opvolging (Sales Sequences) -- gesprekken afronden en het controlepaneel (2026-10-30)
+## Opvolging (Sales Sequences) -- gesprekken, de sequentie en het controlepaneel (2026-10-30)
 
 **Regel: opvolging is GEEN eigen module. De taken leven in de takenlijst van
-de medewerker (Mijn taken in Projecten), het overzicht komt in CX Powerboard
-(bij de vernieuwing), de instellingen van de sequenties in CX Automations (CX
+de medewerker (Mijn taken in Projecten), het teamoverzicht in CX Powerboard
+(tabblad Opvolging), de instellingen van de sequentie in CX Automations (CX
 = sales en customer success samen). Het werk achter de schermen staat in
 `src/modules/cx-automations/opvolging/`.**
 
-**"Oproep registreren" is EEN handeling: het afronden van de beltaak.** Een gesprek
-afronden (opgenomen / ingesproken / niets ingesproken) vinkt de open beltaken
-van de kans af, zet de uitkomst in de chatter met de medewerker als auteur,
-plant eventueel een nieuwe beltaak en werkt het controlepaneel bij. Werklijst
-en afspraken: https://claude.ai/artifact/QwXUNv4HtUfr1PfayjeVUu
+**"Oproep registreren" is EEN handeling: het afronden van de beltaak.** Een
+oproep registreren (nam op / klant belde zelf terug / voicemail ingesproken /
+nam niet op) vinkt de open beltaken van de kans af, zet de uitkomst als kaart
+in de chatter met de medewerker als auteur, laat de SEQUENTIE de volgende
+beltaak plannen en werkt het controlepaneel bij. Werklijst en afspraken:
+https://claude.ai/artifact/QwXUNv4HtUfr1PfayjeVUu
 
 | Wat | Waar |
 |---|---|
-| Uitkomsten, datums (Brussel, werkdagen) | `src/modules/cx-automations/opvolging/constants.js` |
+| Uitkomsten, chatterkaart, datums (Brussel, werkdagen) | `src/modules/cx-automations/opvolging/constants.js` |
+| De sequentie: stappen, waar een kans staat, plannen | `opvolging/sequentie.js`, tabel `opv_instellingen` in D1 om-core (`0018_opv_instellingen.sql`) |
+| Sequentie instellen | CX Automations -> Opvolging, `public/cx-automations-opvolging.js`, `GET/PUT /cx-automations/api/opvolging/sequentie` |
 | Lezen uit Odoo in bulk (open kansen, activiteiten, beltaken, gesprekken) | `opvolging/odoo-data.js` |
 | Gesprek afronden | `opvolging/gesprek.js` |
-| Handlers voor Mijn taken | `opvolging/api.js`, routes in `src/modules/projecten/routes.js` (`/api/odoo-beltaken`, `/api/odoo-kansen/:id`, `POST /api/odoo-kansen/:id/gesprek`) |
+| Handlers voor Mijn taken | `opvolging/api.js`, routes in `src/modules/projecten/routes.js` (`/api/odoo-beltaken`, `/api/odoo-kansen/:id`, `POST /api/odoo-kansen/:id/gesprek`, `GET /api/odoo-kansen/:id/vernieuw`) |
 | Groep "Bellen (uit Odoo)" + venster | `public/projecten-odoo.js` (Mijn taken, `#/mijn?gesprek=<kans-id>`) |
-| Controlepaneel bovenaan de kans | `opvolging/paneel.js`, 15-min-cron, Studio-veld `x_studio_om_paneel_html` op crm.lead |
+| Controlepaneel bovenaan de kans | `opvolging/paneel.js`, 5-min-cron, Studio-veld `x_studio_om_paneel_html` op crm.lead |
 | Bijhouden (voor de rapportering later) | tabel `opv_contactmomenten` in D1 om-core (`0017_opvolging.sql`) |
-| Overzicht voor het team: tabblad Opvolging in CX Powerboard | `opvolging/overzicht.js`, `GET /cx-powerboard/api/opvolging`, `public/cx-powerboard-opvolging.js` |
+| Teamoverzicht: tabblad Opvolging in CX Powerboard | `opvolging/overzicht.js`, `GET /cx-powerboard/api/opvolging`, `public/cx-powerboard-opvolging.js` |
+| Odoo-kant (venster, opslaan, knop) | view 3968 (`x_oproep_notitie`), serveracties 1207 (opslaan) en "Ik heb gebeld - Venster openen", view 3978 (knop naast het paneel) |
 
-- **De beltaken blijven activiteiten in Odoo** (daar haakt veel op in). Mijn
-  taken toont ze bovenaan in een eigen groep, enkel tot en met vandaag; wat
-  later gepland is, staat er als aantal. Een beltaak = een activiteit met
-  categorie `phonecall` (Call, Syndicoach - Nieuwe aanvraag), toegewezen aan
-  de Odoo-gebruiker van de medewerker.
-- **De chattertekst is die van de oude oproepknoppen** (serveracties 1205,
-  1206, 1207: "Oproep: opgenomen", "Oproep: voicemail ingesproken", "Oproep:
-  geen antwoord, niets ingesproken"). Het paneel leest gesprekken uit de
-  chatter op die tekst, dus oude en nieuwe tellen allebei. Wijzig die zinnen
-  niet: ze staat letterlijk en aaneen in de kaart.
-- **Een oproep is een gekleurde KAART in de chatter** (`chatterKaart()` in
-  constants.js, en dezelfde in serveractie 1207): groen nam op, blauw
-  voicemail, oranje nam niet op; datum, uur, wie, wat besproken/ingesproken en
-  wanneer opnieuw. Eerst gaat de beltaak af met `action_feedback` ZONDER
-  feedback (Odoo 17 toont feedback als platte tekst, en dan viel de oproep weg
-  in een lange chatter), daarna komt de kaart met `message_post`, zodat ze
-  bovenaan staat. Auteur = de medewerker.
-- **De nieuwe beltaak heet "Terugbellen"** met als notitie de vorige poging
-  (`beltaakNotitie()`: uitkomst, datum, wie, en wat ingesproken werd).
-  "Over 2 werkdagen" telt het weekend niet mee.
-- **`OPVOLGING_PANEEL_MODE`** (wrangler.jsonc): leeg = niets, `dry` = loggen,
-  `on` = schrijven. Zonder het Studio-veld wordt er niets geschreven (melding
-  in de log). Het paneel wordt enkel geschreven als het veranderde (hash in KV);
-  het tijdstip onderaan telt niet mee.
+- **De sequentie beslist wanneer er opnieuw gebeld wordt, niet de verkoper.**
+  Stappen (standaard, aan te passen door Thomas): eerste beltaak "Nieuwe lead
+  opvolgen" (type 25, Syndicoach - Nieuwe aanvraag) 1 werkdag na de aanvraag;
+  na elke oproep zonder contact de volgende poging (1, 2, 3 werkdagen na die
+  oproep); na de laatste een To-Do om te beslissen. Contact (nam op, klant
+  belde terug, mailde zelf, meeting) STOPT de sequentie; daarna plant de
+  verkoper zelf. Pogingen na een contact tellen opnieuw vanaf 1.
+- **De OM plant, op twee momenten**: meteen na het registreren (Odoo via de
+  `act_url` van 1207 naar `/vernieuw`, Mijn taken via `gesprek.js`), en als
+  vangnet in de 5-minutencron (`pasSequentieToe()`). Elke stap EEN keer (vlag
+  `opvolging:seq:<kans>:<stap>` in KV): wie een taak wegdoet, krijgt ze niet
+  terug. Staat er al een beltaak open, dan plant de OM niets. Zonder verkoper
+  ook niet (het paneel zegt "Geen verkoper").
+- **Enkel nieuwe kansen doen mee** (`actief_vanaf`, standaard 30/10/2026), of
+  een oude kans met een oproep NA die datum. Anders plande de eerste ronde een
+  taak op elke kans met een oude poging van de vroegere knoppen.
+- **De eerste beltaak maakt meestal de koppeling** (stap "Nieuwe lead
+  opvolgen", 1 werkdag); de OM maakt ze enkel als ze ontbreekt. De
+  Odoo-automatisering 1 ("Nieuwe lead zonder activiteit", na 30 minuten) vuurt
+  daardoor niet meer: de OM is er binnen 5 minuten.
+- **De beltaken blijven activiteiten in Odoo** (daar haakt veel op in). Een
+  beltaak = een activiteit met categorie `phonecall` (Call, Syndicoach -
+  Nieuwe aanvraag). Mijn taken toont de eigen beltaken tot en met vandaag; CX
+  Powerboard toont ze van iedereen.
+- **De chattertekst blijft die van de oude oproepknoppen** ("Oproep:
+  opgenomen", "Oproep: voicemail ingesproken", "Oproep: geen antwoord, niets
+  ingesproken"), plus "Oproep: klant belde terug". Het paneel en de sequentie
+  lezen gesprekken op die zinnen; wijzig ze niet. De oude knoppen van Thomas
+  (view 3967, serveracties 1204-1206) zijn weg sinds 30/10/2026 (view
+  gearchiveerd).
+- **Een oproep is een gekleurde KAART in de chatter** (`chatterKaart()`, en
+  dezelfde in serveractie 1207): groen contact, blauw voicemail, oranje nam
+  niet op. Eerst gaat de beltaak af met `action_feedback` ZONDER feedback
+  (Odoo 17 toont feedback als platte tekst), daarna komt de kaart met
+  `message_post`, zodat ze bovenaan staat. Een TABEL met `width="100%"`: Odoo
+  knipt `border`, `width` en `max-width` uit een style.
 - **Het paneel is EEN smalle balk** (een tabel: Odoo's sanitizer laat geen
-  flex door). Links de volgende stap (komende Calendly-afspraak, eerste open
-  beltaak, anders eerste activiteit), midden het laatste ECHTE contact over alle
-  kanalen (telefoon "nam op", een mail VAN de klant, een gehouden meeting) met
-  onze eigen pogingen daarna klein ernaast. Geen knoppen in het paneel. Een mail telt als
-  van de klant als de afzender niet op een eigen domein staat (eigenDomeinen()
-  van de Gmail-app). Labels gaan over het GESPREK ("Gebeld, nam op"), nooit over
-  de lead.
-- **"Oproep registreren" bestaat op TWEE plekken met dezelfde werking**:
-  in Odoo als echte knop naast het paneel (overervende view "OM controlepaneel
-  bovenaan de kans", groene knop, serveractie "Ik heb gebeld - Venster openen", venster
-  `x_oproep_notitie` = view 3968, opslaan = serveractie 1207) en in de OM (Mijn
-  taken, `gesprek.js`). Beide schrijven exact dezelfde chattertekst; wijzig je de
-  werking, wijzig ze samen. De vragen hangen af van de uitkomst: nam op = "Wat
-  hebben jullie besproken?" (`x_notitie`); voicemail = "Wat heb je ingesproken?"
-  (`x_ingesproken`) + opnieuw bellen; nam niet op = enkel opnieuw bellen.
-  Opnieuw bellen (`x_terugbellen`): morgen, over 2 werkdagen (standaard),
-  volgende week, andere datum (`x_volgende`), niet. Na "nam op" komt er geen
-  beltaak vanzelf. Sales blijft zo in Odoo. De route
-  `/projecten/api/odoo-kansen/:id/vernieuw` bestaat nog, maar geen knop wijst
-  ernaar (de 🔄 is weg, Nico 30/10). De oude knop "Opgenomen" (1204) opent
-  hetzelfde venster met "Nam op" gekozen. Het paneel draait daarom in de
-  5-minutentak: een telefoonactie in Odoo zelf kan de OM niet melden.
-- **Tabblad Opvolging in CX Powerboard** (2026-10-30): ALLE open beltaken op
-  kansen, van het hele team (filter per persoon), met wat niet klopt: kans
-  verloren/gearchiveerd of gewonnen, nog een lead, taak bij iemand anders dan
-  de verkoper, geen verkoper, twee beltaken op een kans. Daaronder de open
-  kansen zonder enige taak of komende afspraak. Enkel lezen. Mijn taken toont
-  enkel de eigen beltaken; dit is het teamoverzicht.
-- **Na "Opslaan" in Odoo werkt de OM het paneel meteen bij**: serveractie
-  1207 eindigt met een `act_url` naar `/projecten/api/odoo-kansen/:id/vernieuw`,
-  die het paneel schrijft en terugstuurt naar de kans. Zonder aanmelding in
-  de OM komt eerst het aanmeldscherm.
-- **De oproepkaart is een TABEL met `width="100%"`**: Odoo knipt `border`,
-  `width` en `max-width` uit een style. De rand is de buitenste kleur die door
-  de opvulling van de cel komt.
+  flex door). Links het VERLOOP als iconen (Font Awesome 4, dat Odoo zelf
+  laadt; een leeg `<i class="fa ...">` overleeft de sanitizer): aanvraag,
+  elke oproep/mail van de klant/meeting, de geplande stap (gestippeld), en wat
+  de sequentie nog voorziet (grijs). Kleur: groen contact, oranje voicemail,
+  rood nam niet op, blauw gepland, grijs nog te komen. Midden het laatste
+  echte contact en het aantal pogingen; rechts de volgende stap. Geen emoji in
+  de balk, geen knoppen erin.
+- **`OPVOLGING_PANEEL_MODE`** (wrangler.jsonc): leeg = niets, `dry` = loggen,
+  `on` = schrijven en plannen. Het paneel wordt enkel geschreven als het
+  veranderde (hash in KV).
+- **"Oproep registreren" bestaat op TWEE plekken met dezelfde werking**: in
+  Odoo (groene knop naast het paneel) en in Mijn taken. Wijzig je de werking,
+  wijzig ze samen (de Odoo-kant staat in serveractie 1207). Na "Opslaan" in
+  Odoo gaat de browser langs de OM (`/vernieuw`: sequentie + paneel) en terug
+  naar de kans; zonder aanmelding in de OM komt eerst het aanmeldscherm.
+- **Tabblad Opvolging in CX Powerboard**: ALLE open beltaken op kansen, van het
+  hele team, met wat niet klopt (kans verloren of gewonnen, nog een lead, taak
+  bij iemand anders dan de verkoper, geen verkoper, twee beltaken), en de open
+  kansen zonder volgende stap. Enkel lezen.
 - **CX Automations -> Opvolging -> "Alle panelen nu bijwerken"** schrijft elk
   paneel opnieuw (`POST /cx-automations/api/opvolging/panelen`, force).
-- **Nog niet gebouwd:** de sequentie zelf (instellen in CX Automations), het
-  overzicht in CX Powerboard, berichten (macro's), contact via mail en
-  WhatsApp in het paneel, Dstny, en een optionele mail na een oproep zonder
-  antwoord ("ik heb je vandaag gebeld ...", een macro).
+- **Nog niet gebouwd:** meerdere sequenties (per merk of soort aanvraag), mail
+  of WhatsApp als stap, berichten (macro's), Dstny, en een optionele mail na
+  een oproep zonder antwoord ("ik heb je vandaag gebeld ...").
 
 ## Bestandsstructuur
 

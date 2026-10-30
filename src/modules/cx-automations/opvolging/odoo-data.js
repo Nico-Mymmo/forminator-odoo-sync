@@ -9,7 +9,7 @@ import { eigenDomeinen } from '../../gmail-chatter/lib/matching.js';
 import { BEL_CATEGORIE, uitkomstUitTekst, odooDatum } from './constants.js';
 
 const LEAD_VELDEN = ['id', 'name', 'partner_id', 'contact_name', 'partner_name', 'phone', 'email_from',
-  'stage_id', 'user_id', 'active', 'type', 'x_studio_cm_calendlymeeting_ids'];
+  'stage_id', 'user_id', 'active', 'type', 'create_date', 'x_studio_cm_calendlymeeting_ids'];
 
 export function leadUrl(env, id) {
   return `${odooOrigin(env)}/web#id=${id}&model=crm.lead&view_type=form`;
@@ -91,7 +91,7 @@ export async function beltakenVoor(env, odooUid) {
 
 /**
  * De gesprekken in de chatter: notities met "Oproep: ..." (van de oude knoppen
- * en van de OM), nieuwste eerst. Map(leadId -> [{ uitkomst, datum: Date, door }]).
+ * en van de OM), nieuwste eerst. Map(leadId -> [{ id, uitkomst, datum: Date, door }]).
  */
 export async function gesprekken(env, leadIds, { perLead = 5 } = {}) {
   const per = new Map();
@@ -100,7 +100,7 @@ export async function gesprekken(env, leadIds, { perLead = 5 } = {}) {
     const rijen = (await searchRead(env, {
       model: 'mail.message',
       domain: [['model', '=', 'crm.lead'], ['res_id', 'in', leadIds.slice(i, i + 400)], ['body', 'ilike', 'Oproep:']],
-      fields: ['res_id', 'date', 'body', 'author_id'],
+      fields: ['id', 'res_id', 'date', 'body', 'author_id'],
       order: 'date desc',
       limit: 4000,
     })) || [];
@@ -110,7 +110,7 @@ export async function gesprekken(env, leadIds, { perLead = 5 } = {}) {
       if (!per.has(r.res_id)) per.set(r.res_id, []);
       const lijst = per.get(r.res_id);
       if (lijst.length >= perLead) continue;
-      lijst.push({ uitkomst, datum: odooDatum(r.date), door: Array.isArray(r.author_id) ? r.author_id[1] : '' });
+      lijst.push({ id: r.id, uitkomst, datum: odooDatum(r.date), door: Array.isArray(r.author_id) ? r.author_id[1] : '' });
     }
   }
   return per;

@@ -409,6 +409,7 @@ function switchTab(name) {
     panel.style.display = panel.id === 'tab-' + name ? '' : 'none';
   });
   if (name === 'mergers' && !mergerState[currentMergerPair].loaded) loadMergerConfig();
+  if (name === 'opvolging' && window.OpvSequentie) window.OpvSequentie.laad();
 }
 
 // ====== Merger state ======

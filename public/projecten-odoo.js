@@ -3,8 +3,9 @@
  * venster "Oproep registreren".
  *
  * De beltaken blijven activiteiten in Odoo; hier zie je ze en rond je ze af.
- * Afronden vinkt de beltaak af, zet de uitkomst in de chatter van de kans en
- * plant eventueel een nieuwe beltaak (src/modules/cx-automations/opvolging/).
+ * Afronden vinkt de beltaak af, zet de uitkomst in de chatter van de kans, en
+ * na een poging zonder contact plant de sequentie de volgende beltaak
+ * (src/modules/cx-automations/opvolging/sequentie.js).
  *
  * Het controlepaneel in Odoo linkt naar #/mijn?gesprek=<kans-id>
  * (&stap=volgende om enkel een beltaak te plannen): dan opent het venster meteen.
@@ -16,9 +17,10 @@
 
   var B = { data: null, kans: null, uitkomst: null, alleenVolgende: false, bezig: false };
   var UITKOMSTEN = [
-    { id: 'opgenomen', label: 'Nam op', icoon: '✅', uitleg: 'Je had de persoon aan de lijn.' },
-    { id: 'ingesproken', label: 'Voicemail ingesproken', icoon: '🎙️', uitleg: 'Nam niet op, je liet een bericht na.' },
-    { id: 'niets', label: 'Nam niet op', icoon: '🔇', uitleg: 'Geen antwoord, niets ingesproken.' },
+    { id: 'opgenomen', label: 'Nam op', icoon: 'phone', kleur: 'text-success', uitleg: 'Je had de persoon aan de lijn.' },
+    { id: 'teruggebeld', label: 'Klant belde zelf terug', icoon: 'phone-incoming', kleur: 'text-success', uitleg: 'De klant belde ons, en je sprak hem.' },
+    { id: 'ingesproken', label: 'Voicemail ingesproken', icoon: 'voicemail', kleur: 'text-warning', uitleg: 'Nam niet op, je liet een bericht na.' },
+    { id: 'niets', label: 'Nam niet op', icoon: 'phone-missed', kleur: 'text-error', uitleg: 'Geen antwoord, niets ingesproken.' },
   ];
   var MAANDEN = ['jan', 'feb', 'mrt', 'apr', 'mei', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec'];
 
@@ -31,7 +33,7 @@
   function gesprekTekst(g) {
     if (!g) return '<span class="opacity-50">Nog geen gesprek</span>';
     var u = UITKOMSTEN.filter(function (x) { return x.id === g.uitkomst; })[0];
-    return (u ? u.icoon + ' ' : '') + esc(g.label) + ' · ' + esc(korteDatum(g.datum)) + (g.door ? ' · ' + esc(g.door) : '');
+    return (u ? '<i data-lucide="' + u.icoon + '" class="w-3 h-3 inline ' + u.kleur + '"></i> ' : '') + esc(g.label) + ' · ' + esc(korteDatum(g.datum)) + (g.door ? ' · ' + esc(g.door) : '');
   }
 
   function telefoon(k) {
@@ -100,8 +102,9 @@
     return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
   }
 
-  /** Een poging (voicemail of niemand) vraagt naar de volgende beltaak; een gesprek niet. */
-  function vraagVolgende() { return B.alleenVolgende || B.uitkomst === 'ingesproken' || B.uitkomst === 'niets'; }
+  /** Enkel "Gesprek plannen" vraagt een datum; na een poging plant de sequentie de volgende beltaak. */
+  function vraagVolgende() { return B.alleenVolgende; }
+  function isContact(u) { return u === 'opgenomen' || u === 'teruggebeld'; }
 
   function tekenVenster() {
     var k = B.kans;
@@ -115,15 +118,20 @@
         + k.gesprekken.map(function (g) { return '<div>' + gesprekTekst(g) + '</div>'; }).join('') + '</div>';
     }
     if (!B.alleenVolgende) {
-      h += '<div class="mt-4 font-semibold text-sm">Hoe liep het?</div><div class="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-2">'
+      h += '<div class="mt-4 font-semibold text-sm">Hoe liep het?</div><div class="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">'
         + UITKOMSTEN.map(function (u) {
           var actief = B.uitkomst === u.id;
           return '<button type="button" class="rounded-xl p-3 text-left border-2 ' + (actief ? 'border-success bg-success/10' : 'border-base-content/15') + '" data-action="odoo-kies" data-id="' + u.id + '">'
-            + '<div class="text-lg">' + u.icoon + '</div><div class="font-semibold text-sm">' + esc(u.label) + '</div><div class="text-xs opacity-60">' + esc(u.uitleg) + '</div></button>';
+            + '<div class="text-lg"><i data-lucide="' + u.icoon + '" class="w-5 h-5 ' + u.kleur + '"></i></div><div class="font-semibold text-sm">' + esc(u.label) + '</div><div class="text-xs opacity-60">' + esc(u.uitleg) + '</div></button>';
         }).join('') + '</div>';
-      if (B.uitkomst === 'opgenomen' || B.uitkomst === 'ingesproken') {
-        h += '<label class="form-control mt-3"><span class="label-text text-sm">' + (B.uitkomst === 'opgenomen' ? 'Wat hebben jullie besproken?' : 'Wat heb je ingesproken?') + '</span>'
-          + '<textarea id="pmGesprekNotitie" class="textarea textarea-bordered mt-1" rows="3" placeholder="' + (B.uitkomst === 'opgenomen' ? 'Kort: wat is er gezegd, wat is de volgende stap?' : 'Niet verplicht') + '"></textarea></label>';
+      if (isContact(B.uitkomst) || B.uitkomst === 'ingesproken') {
+        h += '<label class="form-control mt-3"><span class="label-text text-sm">' + (isContact(B.uitkomst) ? 'Wat hebben jullie besproken?' : 'Wat heb je ingesproken?') + '</span>'
+          + '<textarea id="pmGesprekNotitie" class="textarea textarea-bordered mt-1" rows="3" placeholder="' + (isContact(B.uitkomst) ? 'Kort: wat is er gezegd, wat is de volgende stap?' : 'Niet verplicht') + '"></textarea></label>';
+      }
+      if (B.uitkomst === 'ingesproken' || B.uitkomst === 'niets') {
+        h += '<p class="text-xs opacity-70 mt-3">De volgende poging plant de sequentie (CX Automations, Opvolging).</p>';
+      } else if (isContact(B.uitkomst)) {
+        h += '<p class="text-xs opacity-70 mt-3">Er was contact: de sequentie stopt. Plan zelf de volgende stap in Odoo.</p>';
       }
     }
     if (vraagVolgende()) {
@@ -150,6 +158,7 @@
     document.getElementById('pmGesprekInhoud').innerHTML = h;
     if (oudeNotitie && document.getElementById('pmGesprekNotitie')) document.getElementById('pmGesprekNotitie').value = oudeNotitie;
     if (oudeDatum && document.getElementById('pmGesprekVolgende')) document.getElementById('pmGesprekVolgende').value = oudeDatum;
+    if (window.lucide) window.lucide.createIcons();
   }
 
   async function openVenster(id, alleenVolgende) {
@@ -183,6 +192,7 @@
       var zinnen = [];
       if (!B.alleenVolgende) zinnen.push(r.taken_afgerond ? 'De beltaak is afgevinkt en de oproep staat in de chatter.' : 'De oproep staat in de chatter.');
       if (r.volgende) zinnen.push('Nieuwe beltaak op ' + korteDatum(r.volgende) + '.');
+      if (r.paneel && r.paneel.gepland) zinnen.push('De volgende beltaak volgens de sequentie staat klaar.');
       PM.toast(zinnen.join(' '));
       dialoog().close();
       await PM.laadOdooBel();

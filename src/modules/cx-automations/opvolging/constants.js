@@ -19,6 +19,7 @@ export class OpvolgingError extends Error {
 export const UITKOMSTEN = {
   // `label` gaat over het GESPREK ("de klant nam op"), nooit over de lead.
   opgenomen: { soort: 'contact', label: 'Gebeld, nam op', icoon: '✅', chatter: 'Oproep: opgenomen' },
+  teruggebeld: { soort: 'contact', label: 'Klant belde zelf terug', icoon: '📞', chatter: 'Oproep: klant belde terug' },
   ingesproken: { soort: 'poging', label: 'Gebeld, voicemail ingesproken', icoon: '🎙️', chatter: 'Oproep: voicemail ingesproken' },
   niets: { soort: 'poging', label: 'Gebeld, nam niet op', icoon: '🔇', chatter: 'Oproep: geen antwoord, niets ingesproken' },
 };
@@ -30,6 +31,7 @@ export function uitkomstUitTekst(tekst) {
   if (t.includes(UITKOMSTEN.niets.chatter)) return 'niets';
   if (t.includes(UITKOMSTEN.ingesproken.chatter)) return 'ingesproken';
   if (t.includes(UITKOMSTEN.opgenomen.chatter)) return 'opgenomen';
+  if (t.includes(UITKOMSTEN.teruggebeld.chatter)) return 'teruggebeld';
   return null;
 }
 
@@ -104,6 +106,7 @@ export function dagEnDatum(datum) {
 /** Kleur van de kaart per uitkomst (rand, vlak). */
 const KAART_KLEUR = {
   opgenomen: ['#16a34a', '#f0fdf4'],
+  teruggebeld: ['#16a34a', '#f0fdf4'],
   ingesproken: ['#0369a1', '#f0f9ff'],
   niets: ['#d97706', '#fffbeb'],
 };
@@ -125,7 +128,7 @@ export function chatterKaart({ uitkomst, naam, notitie, volgende }) {
     + `<p style="margin:0;"><b>${u.icoon} ${esc(u.chatter)}</b></p>`
     + `<p style="margin:2px 0 0;font-size:12px;color:#6b7280;">${s.datum} om ${s.uur} · ${esc(naam)}</p>`;
   if (notitie) {
-    const kop = uitkomst === 'opgenomen' ? 'Besproken' : 'Ingesproken';
+    const kop = UITKOMSTEN[uitkomst].soort === 'contact' ? 'Besproken' : 'Ingesproken';
     h += `<p style="margin:6px 0 0;"><b>${kop}:</b> ${esc(notitie).replace(/\n/g, '<br>')}</p>`;
   }
   if (volgende) h += `<p style="margin:6px 0 0;font-size:12px;">Opnieuw bellen: ${dagEnDatum(volgende)}</p>`;

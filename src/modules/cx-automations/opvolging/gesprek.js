@@ -7,7 +7,9 @@
  *      probleem met de losse oproepknoppen). Het afvinken zelf krijgt geen
  *      feedback: Odoo toont die als platte tekst, en dan viel de oproep weg.
  *   2. De medewerker staat als auteur in de chatter, niet "Administrator".
- *   3. Eventueel een nieuwe beltaak op een datum.
+ *   3. Na een poging zonder contact plant de SEQUENTIE de volgende beltaak
+ *      (sequentie.js, via werkPaneelBij in stap 5). Een datum die de
+ *      gebruiker zelf meegeeft ("Gesprek plannen") komt er los van bij.
  *   4. Het gesprek komt in opv_contactmomenten (voor de rapportering later).
  *   5. Het controlepaneel van de kans wordt meteen bijgewerkt.
  *
@@ -107,7 +109,7 @@ export async function rondGesprekAf(env, user, leadId, invoer) {
     if (r?.error) console.error(LOG_PREFIX, 'contactmoment niet bewaard', r.error.message);
   } catch (err) { console.error(LOG_PREFIX, 'contactmoment niet bewaard', err?.message); }
 
-  // 5. Paneel.
+  // 5. Sequentie (volgende beltaak) en paneel.
   const paneel = await werkPaneelBij(env, leadId);
   return { taken_afgerond: bel.length, volgende, paneel };
 }
