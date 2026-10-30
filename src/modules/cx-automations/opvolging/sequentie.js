@@ -5,7 +5,9 @@
  * Opvolging (opv_instellingen, sleutel 'sequentie'):
  *
  *   eerste    de beltaak bij elke nieuwe kans ("Nieuwe lead opvolgen", type
- *             "Syndicoach - Nieuwe aanvraag"), na X werkdagen (standaard 1)
+ *             "Syndicoach - Nieuwe aanvraag"): binnen voor `middag_uur`
+ *             (standaard 12, Brussel) op een werkdag = dezelfde dag, anders
+ *             de werkdag erna (eersteVervaldag() in constants.js)
  *   pogingen  na een oproep ZONDER contact (voicemail of nam niet op): de
  *             volgende beltaak, X werkdagen na die oproep; de eerste poging
  *             hoort bij de eerste rij, de tweede bij de tweede, ...
@@ -24,7 +26,7 @@
 
 import { executeKw } from '../../../lib/odoo.js';
 import { getCoreDb } from '../../../lib/core-db.js';
-import { UITKOMSTEN, LOG_PREFIX, vandaag, plusWerkdagen, korteDatum, esc, OpvolgingError } from './constants.js';
+import { UITKOMSTEN, LOG_PREFIX, vandaag, plusWerkdagen, korteDatum, esc, OpvolgingError, odooDatum, eersteVervaldag } from './constants.js';
 
 const KV = 'opvolging:seq:';
 const DATUM_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -34,7 +36,7 @@ const DATUM_RE = /^\d{4}-\d{2}-\d{2}$/;
 export const STANDAARD = {
   actief: true,
   actief_vanaf: '2026-10-30',
-  eerste: { titel: 'Nieuwe lead opvolgen', na_werkdagen: 1, type_id: 25 },
+  eerste: { titel: 'Nieuwe lead opvolgen', middag_uur: 12, type_id: 25 },
   pogingen: [
     { titel: 'Terugbellen (poging 2)', na_werkdagen: 1 },
     { titel: 'Terugbellen (poging 3)', na_werkdagen: 2 },
@@ -67,7 +69,7 @@ export function normaliseerSequentie(invoer = {}) {
     actief_vanaf: vanaf,
     eerste: {
       titel: tekst(e.titel, s.eerste.titel),
-      na_werkdagen: getal(e.na_werkdagen, 0, 10, s.eerste.na_werkdagen),
+      middag_uur: getal(e.middag_uur, 1, 23, s.eerste.middag_uur),
       type_id: getal(e.type_id, 1, 100000, s.eerste.type_id),
     },
     pogingen: pogingen.map((p, i) => ({
@@ -140,7 +142,8 @@ export function sequentieStand(lead, ctx, cfg, nu = vandaag(), nuMs = Date.now()
   const contactIdx = momenten.map(m => m.contact).lastIndexOf(true);
   const contact = contactIdx >= 0 ? momenten[contactIdx] : null;
   const pogingen = momenten.slice(contactIdx + 1).filter(m => m.soort === 'oproep' && !m.contact);
-  const aangemaakt = String(lead.create_date || '').slice(0, 10);
+  const binnen = odooDatum(lead.create_date);
+  const aangemaakt = binnen ? vandaag(binnen) : '';
   const nieuw = aangemaakt && aangemaakt >= cfg.actief_vanaf;
   // Een oude kans doet enkel mee met een oproep van na de start: anders plant de
   // eerste ronde een taak op elke kans met een oude poging van de vroegere knoppen.
@@ -154,7 +157,7 @@ export function sequentieStand(lead, ctx, cfg, nu = vandaag(), nuMs = Date.now()
     if (contact || !nieuw) return uit; // na contact plant de verkoper zelf
     uit.stap = {
       sleutel: 'eerste', nr: 1, titel: cfg.eerste.titel, type_id: cfg.eerste.type_id,
-      deadline: plusWerkdagen(aangemaakt, cfg.eerste.na_werkdagen),
+      deadline: eersteVervaldag(binnen, cfg.eerste.middag_uur),
       note: '<p>Eerste stap van de opvolging: bel de klant.</p>',
     };
     return uit;

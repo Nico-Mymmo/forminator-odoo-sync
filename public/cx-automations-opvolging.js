@@ -38,7 +38,11 @@
       + '<label class="flex items-center gap-2 text-sm">Geldt voor kansen vanaf <input type="date" class="input input-bordered input-sm" data-seq="actief_vanaf" value="' + esc(c.actief_vanaf) + '"></label>'
       + '</div><ol class="list-none p-0 m-0">';
     h += stapRij('Stap 1 van ' + totaal + ' · elke nieuwe kans', 'bg-info/15 text-info', 'inbox', 'Nieuwe aanvraag: eerste keer bellen',
-      velden('eerste', c.eerste.titel, c.eerste.na_werkdagen, 'werkdagen na de aanvraag (0 = dezelfde dag)')
+      '<div class="flex flex-wrap items-center gap-2">'
+      + '<input class="input input-bordered input-sm w-80 max-w-full" data-seq="eerste.titel" value="' + esc(c.eerste.titel) + '" placeholder="Naam van de taak">'
+      + '<span class="text-sm opacity-70">binnen voor</span>'
+      + '<input type="number" min="1" max="23" class="input input-bordered input-sm w-20" data-seq="eerste.middag_uur" value="' + c.eerste.middag_uur + '">'
+      + '<span class="text-sm opacity-70">uur op een werkdag: dezelfde dag bellen. Later, of in het weekend: de werkdag erna.</span></div>'
       + '<p class="text-xs opacity-60 mt-1">Type in Odoo: Syndicoach - Nieuwe aanvraag. Maakt een koppeling deze taak al, dan komt er geen tweede.</p>');
     c.pogingen.forEach(function (p, i) {
       h += stapRij('Stap ' + (i + 2) + ' van ' + totaal + ' · na een oproep zonder contact', 'bg-warning/15 text-warning', 'phone-missed', 'Opnieuw bellen',
@@ -52,7 +56,7 @@
     h += '</ol>'
       + '<div class="alert text-sm mt-2"><i data-lucide="phone" class="w-4 h-4 text-success"></i><span>Nam de klant op of belde hij zelf terug, dan stopt de sequentie: de verkoper plant zelf de volgende stap. Elke stap wordt een keer gepland; wie een taak wegdoet, krijgt ze niet terug.</span></div>'
       + '<div class="flex items-center gap-3 mt-4"><button type="button" class="btn btn-primary btn-sm" data-seq-actie="bewaar"' + (S.bezig ? ' disabled' : '') + '>Sequentie bewaren</button>'
-      + '<span class="text-sm opacity-60">Voorbeeld: ' + esc(dagen(c.eerste.na_werkdagen)) + ' na de aanvraag, daarna ' + c.pogingen.map(function (p) { return esc(dagen(p.na_werkdagen)); }).join(', ') + ' na elke oproep zonder antwoord.</span></div>';
+      + '<span class="text-sm opacity-60">Voorbeeld: binnen voor ' + c.eerste.middag_uur + ' uur = dezelfde dag, daarna ' + c.pogingen.map(function (p) { return esc(dagen(p.na_werkdagen)); }).join(', ') + ' na elke oproep zonder antwoord.</span></div>';
     el.innerHTML = h;
     if (window.lucide) window.lucide.createIcons();
   }

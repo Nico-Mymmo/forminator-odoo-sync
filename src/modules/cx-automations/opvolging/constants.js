@@ -47,6 +47,22 @@ export function vandaag(nu = new Date()) {
   return new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' }).format(nu);
 }
 
+/** Het uur (0-23) van een moment in Brussel. */
+export function uurInBrussel(d) {
+  return Number(new Intl.DateTimeFormat('en-GB', { timeZone: TZ, hour: '2-digit', hour12: false }).format(d)) % 24;
+}
+
+/**
+ * De vervaldag van de EERSTE beltaak: binnen op een werkdag voor `middagUur`
+ * (Brussel) = dezelfde dag; later, of in het weekend = de werkdag erna.
+ */
+export function eersteVervaldag(aanvraag, middagUur = 12) {
+  const dag = vandaag(aanvraag);
+  const w = new Date(dag + 'T12:00:00Z').getUTCDay();
+  const werkdag = w !== 0 && w !== 6;
+  return werkdag && uurInBrussel(aanvraag) < middagUur ? dag : plusWerkdagen(dag, 1);
+}
+
 /** Een Odoo-datetime (UTC, 'YYYY-MM-DD HH:MM:SS') als Date. */
 export function odooDatum(s) {
   if (!s) return null;

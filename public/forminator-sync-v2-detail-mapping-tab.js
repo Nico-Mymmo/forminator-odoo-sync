@@ -622,8 +622,7 @@
     var e = _opvEerste;
     if (!e) return 'Een nieuwe kans krijgt automatisch de eerste taak van de opvolging.';
     if (!e.actief) return 'De opvolging staat uit (CX Automations): er komt geen taak.';
-    var dagen = e.na_werkdagen === 0 ? 'dezelfde dag' : e.na_werkdagen === 1 ? 'binnen 1 werkdag' : 'binnen ' + e.na_werkdagen + ' werkdagen';
-    return 'Een nieuwe kans krijgt automatisch de taak "' + e.titel + '" (' + dagen + ', voor de verkoper). Instellen in CX Automations, Opvolging.';
+    return 'Een nieuwe kans krijgt automatisch de taak "' + e.titel + '" voor de verkoper: binnen voor ' + e.middag_uur + ' uur op een werkdag = dezelfde dag, anders de werkdag erna. Instellen in CX Automations, Opvolging.';
   }
   async function laadOpvolgEerste() {
     if (_opvEerste || _opvBezig || !document.querySelector('[data-fsv2-opv-eerste]')) return;

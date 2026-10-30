@@ -2333,7 +2333,7 @@ export const routes = {
   // aanmaakt (worker-handler.js, na de stappen). Enkel om te tonen.
   'GET /api/opvolging-eerste': async ({ env }) => {
     const cfg = await leesSequentie(env);
-    return jsonResponse({ success: true, data: { actief: cfg.actief, titel: cfg.eerste.titel, na_werkdagen: cfg.eerste.na_werkdagen } });
+    return jsonResponse({ success: true, data: { actief: cfg.actief, titel: cfg.eerste.titel, middag_uur: cfg.eerste.middag_uur } });
   },
 
   'GET /api/forms/meta': async () => {

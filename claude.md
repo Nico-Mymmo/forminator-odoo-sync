@@ -6795,7 +6795,9 @@ https://claude.ai/artifact/QwXUNv4HtUfr1PfayjeVUu
 
 - **De sequentie beslist wanneer er opnieuw gebeld wordt, niet de verkoper.**
   Stappen (standaard, aan te passen door Thomas): eerste beltaak "Nieuwe lead
-  opvolgen" (type 25, Syndicoach - Nieuwe aanvraag) 1 werkdag na de aanvraag;
+  opvolgen" (type 25, Syndicoach - Nieuwe aanvraag): binnen voor 12 uur
+  (`eerste.middag_uur`, Brussel) op een werkdag = dezelfde dag, later of in het
+  weekend = de werkdag erna (`eersteVervaldag()` in constants.js);
   na elke oproep zonder contact de volgende poging (1, 2, 3 werkdagen na die
   oproep); na de laatste een To-Do om te beslissen. Contact (nam op, klant
   belde terug, mailde zelf, meeting) STOPT de sequentie; daarna plant de
