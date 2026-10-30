@@ -855,6 +855,28 @@ function confirmAddField() {
   if (mergerAllFields.length) renderUnmappedFields();
 }
 
+// ====== Opvolging ======
+
+async function opvolgingPanelen(btn) {
+  var uit = document.getElementById('opvolgingPanelenResult');
+  btn.disabled = true;
+  uit.textContent = 'Bezig, dit duurt een minuutje...';
+  try {
+    var res = await apiFetch('/cx-automations/api/opvolging/panelen', { method: 'POST' });
+    var data = await res.json();
+    if (!data.success) {
+      uit.textContent = data.mode === 'on' ? 'Er ging iets mis.' : 'Het controlepaneel staat uit (OPVOLGING_PANEEL_MODE).';
+    } else {
+      var s = data.data;
+      uit.textContent = s.geschreven + ' van de ' + s.kansen + ' panelen bijgewerkt' + (s.fouten ? ', ' + s.fouten + ' fouten' : '') + '.';
+      showToast('Panelen bijgewerkt', 'success');
+    }
+  } catch (err) {
+    uit.textContent = 'Er ging iets mis: ' + err.message;
+  }
+  btn.disabled = false;
+}
+
 // ====== Events ======
 
 document.addEventListener('click', function(e) {
@@ -879,6 +901,7 @@ document.addEventListener('click', function(e) {
   if (action === 'addFieldExclusions') addFieldExclusions();
   if (action === 'inlineCheckboxes') inlineCheckboxes();
   if (action === 'fixInlineCheckboxes') fixInlineCheckboxes();
+  if (action === 'opvolgingPanelen') opvolgingPanelen(el);
 });
 
 document.addEventListener('click', function(e) {

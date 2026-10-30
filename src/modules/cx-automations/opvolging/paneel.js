@@ -174,8 +174,11 @@ export async function werkPaneelBij(env, leadId) {
   }
 }
 
-/** 15-minutencron: de panelen van alle open kansen bijwerken waar iets veranderde. */
-export async function runOpvolgingCron(env) {
+/**
+ * 15-minutencron: de panelen van alle open kansen bijwerken waar iets veranderde.
+ * `force` (knop in CX Automations) schrijft elk paneel opnieuw, ook als het gelijk bleef.
+ */
+export async function runOpvolgingCron(env, { force = false } = {}) {
   const mode = env.OPVOLGING_PANEEL_MODE;
   if (!['dry', 'on'].includes(mode)) return null;
   if (!(await heeftVelden(env, 'crm.lead', [PANEEL_VELD]))) {
@@ -190,7 +193,7 @@ export async function runOpvolgingCron(env) {
   for (const lead of kansen) {
     if (geschreven >= MAX_SCHRIJVEN) break;
     try {
-      const r = await schrijfPaneel(env, lead, paneelInhoud(env, lead, ctx(lead.id), nu), { mode });
+      const r = await schrijfPaneel(env, lead, paneelInhoud(env, lead, ctx(lead.id), nu), { mode, force });
       stats[r]++;
       if (r === 'geschreven') geschreven++;
     } catch (err) {

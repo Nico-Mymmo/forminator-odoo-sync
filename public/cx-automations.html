@@ -30,6 +30,7 @@
         <div role="tablist" class="tabs tabs-boxed mb-6">
           <button role="tab" class="tab tab-active" data-tab="vlaggen">Vlag-drempelwaarden</button>
           <button role="tab" class="tab" data-tab="mergers">Mergers</button>
+          <button role="tab" class="tab" data-tab="opvolging">Opvolging</button>
         </div>
 
         <!-- ======= Tab: Vlaggen ======= -->
@@ -244,6 +245,20 @@
           </div>
 
         </div> <!-- /tab-mergers -->
+
+        <!-- ======= Tab: Opvolging ======= -->
+        <div id="tab-opvolging" style="display:none;">
+          <div class="card bg-base-100 shadow-sm border border-base-content/10 mb-6">
+            <div class="card-body">
+              <h2 class="card-title text-base">Controlepaneel op de kansen</h2>
+              <p class="text-sm text-base-content/60">Bovenaan elke open kans in Odoo staat een balk met de volgende stap, het laatste contact en de knop "Ik heb gebeld". Die wordt elk kwartier bijgewerkt. Met deze knop werk je alle panelen nu meteen bij.</p>
+              <div class="flex items-center gap-3 mt-2">
+                <button class="btn btn-primary btn-sm gap-2" data-action="opvolgingPanelen"><i data-lucide="refresh-cw" class="w-4 h-4"></i> Alle panelen nu bijwerken</button>
+                <span id="opvolgingPanelenResult" class="text-sm text-base-content/60"></span>
+              </div>
+            </div>
+          </div>
+        </div> <!-- /tab-opvolging -->
 
       </div>
     </div>

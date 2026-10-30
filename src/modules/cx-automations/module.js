@@ -5,6 +5,7 @@
  * en een dagelijkse cron die gebouw-inactiviteit bewaakt en flags zet in Odoo.
  */
 
+import { runOpvolgingCron } from './opvolging/paneel.js';
 import { handleGetOdooConfig, handleGetTechnicalBlocks, handleGetThresholds, handleSaveThresholds, handleGetSettings, handleSaveSettings, handleGetLog, handleRunCron, handleGetMergerConfig, handleGetMergerFields, handleSaveMergerConfig, handlePatchLeadPreview, handleFixLeadSearch, handleUpgradeLeadPreview, handleAddFieldExclusions, handleDisableSanitize, handleInlineCheckboxes, handleFixInlineCheckboxes } from './routes.js';
 
 export default {
@@ -35,6 +36,14 @@ export default {
     'POST /api/settings': handleSaveSettings,
     'GET /api/log': handleGetLog,
     'POST /api/run-cron': handleRunCron,
+
+    // Opvolging: alle controlepanelen op de kansen in Odoo nu opnieuw schrijven.
+    'POST /api/opvolging/panelen': async ({ env }) => {
+      const stats = await runOpvolgingCron(env, { force: true });
+      return new Response(JSON.stringify({ success: !!stats, data: stats, mode: env.OPVOLGING_PANEEL_MODE || '' }), {
+        headers: { 'Content-Type': 'application/json' },
+      });
+    },
 
     'GET /api/merger-config': handleGetMergerConfig,
     'GET /api/merger-fields': handleGetMergerFields,
