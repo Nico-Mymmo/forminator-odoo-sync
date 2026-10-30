@@ -118,7 +118,10 @@ export function chatterKaart({ uitkomst, naam, notitie, volgende }) {
   const u = UITKOMSTEN[uitkomst];
   const [rand, vlak] = KAART_KLEUR[uitkomst];
   const s = brusselsStempel();
-  let h = `<div style="box-sizing:border-box;width:1000px;max-width:100%;border:1px solid ${rand};border-left:4px solid ${rand};background-color:${vlak};padding:8px 12px;border-radius:6px;">`
+  // Een tabel met width="100%": Odoo knipt border en width uit een style weg, en een
+  // tabel van 100% laat het berichtvak zo breed worden als de chatter. De rand is de
+  // buitenste kleur die door de opvulling van de cel heen komt.
+  let h = `<table width="100%" cellpadding="0" cellspacing="0" style="width:100%;background-color:${rand};border-radius:6px;"><tr><td style="padding:1px 1px 1px 4px;"><div style="background-color:${vlak};padding:8px 12px;border-radius:5px;">`
     + `<p style="margin:0;"><b>${u.icoon} ${esc(u.chatter)}</b></p>`
     + `<p style="margin:2px 0 0;font-size:12px;color:#6b7280;">${s.datum} om ${s.uur} · ${esc(naam)}</p>`;
   if (notitie) {
@@ -126,7 +129,7 @@ export function chatterKaart({ uitkomst, naam, notitie, volgende }) {
     h += `<p style="margin:6px 0 0;"><b>${kop}:</b> ${esc(notitie).replace(/\n/g, '<br>')}</p>`;
   }
   if (volgende) h += `<p style="margin:6px 0 0;font-size:12px;">Opnieuw bellen: ${dagEnDatum(volgende)}</p>`;
-  return h + '</div>';
+  return h + '</div></td></tr></table>';
 }
 
 /** De notitie bij een nieuwe beltaak: waarom er opnieuw gebeld moet worden. */
