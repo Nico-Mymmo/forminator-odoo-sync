@@ -6802,6 +6802,10 @@ https://claude.ai/artifact/QwXUNv4HtUfr1PfayjeVUu
   oproep); na de laatste een To-Do om te beslissen. Contact (nam op, klant
   belde terug, mailde zelf, meeting) STOPT de sequentie; daarna plant de
   verkoper zelf. Pogingen na een contact tellen opnieuw vanaf 1.
+  Een volgende poging komt ENKEL na een GEREGISTREERDE oproep zonder contact
+  (Nico, 2026-10-30). Een gemiste beltaak blijft gewoon openstaan (rood in Odoo,
+  "te laat" in de balk) en er komt niets bij; een taak afvinken zonder een oproep
+  te registreren plant ook niets.
 - **De OM plant, op twee momenten**: meteen na het registreren (Odoo via de
   `act_url` van 1207 naar `/vernieuw`, Mijn taken via `gesprek.js`), en als
   vangnet in de 5-minutencron (`pasSequentieToe()`). Elke stap EEN keer (vlag
