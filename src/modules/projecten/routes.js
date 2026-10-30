@@ -25,7 +25,7 @@ import { vandaagInBrussel } from './lib/datum.js';
 import { searchRead } from '../../lib/odoo.js';
 import { odooOrigin } from '../../lib/medewerkers.js';
 import { teamVan, managers } from './lib/team.js';
-import { mijnBeltaken, kansVoorGesprek, rondGesprekAf, OpvolgingError } from '../cx-automations/opvolging/api.js';
+import { mijnBeltaken, kansVoorGesprek, rondGesprekAf, werkPaneelBij, leadUrl, OpvolgingError } from '../cx-automations/opvolging/api.js';
 import {
   ASSET_CATEGORY_PREFIXES, isWithinAssetNamespace, canReadAssetPrefix, listDynamicAssetCategories,
 } from '../asset-manager/lib/namespace.js';
@@ -352,6 +352,16 @@ export const routes = {
       if (!Number.isInteger(id)) throw new PmError('Ongeldige kans.');
       return json({ success: true, data: await kansVoorGesprek(env, id) });
     } catch (err) { return fout(err); }
+  },
+
+  // De knop 🔄 in het controlepaneel: het paneel van die kans nu bijwerken en
+  // terug naar de kans in Odoo. Bewust een redirect en geen JSON: de knop is een
+  // gewone link in Odoo, en zo ziet de verkoper meteen het nieuwe paneel.
+  'GET /api/odoo-kansen/:id/vernieuw': async ({ env, params }) => {
+    const id = Number.parseInt(params.id, 10);
+    if (!Number.isInteger(id)) return json({ success: false, error: 'Ongeldige kans.' }, 400);
+    await werkPaneelBij(env, id);
+    return Response.redirect(leadUrl(env, id), 302);
   },
 
   'POST /api/odoo-kansen/:id/gesprek': async ({ env, user, params, request }) => {

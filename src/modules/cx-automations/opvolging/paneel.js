@@ -122,6 +122,9 @@ export function paneelInhoud(env, lead, ctx = {}, nu = vandaag(), nuMs = Date.no
   // De knoppen openen Mijn taken in Projecten, met het venster voor deze kans al open.
   const knoppen = [knop('Ik heb gebeld', `${basis(env)}/projecten#/mijn?gesprek=${lead.id}`, !!bel)];
   if (!volgende && !komend) knoppen.push(knop('Volgende stap plannen', `${basis(env)}/projecten#/mijn?gesprek=${lead.id}&stap=volgende`, false));
+  // Nu bijwerken: opent in HETZELFDE tabblad, de OM werkt het paneel bij en
+  // stuurt terug naar de kans (GET /projecten/api/odoo-kansen/:id/vernieuw).
+  knoppen.push(`<a href="${esc(`${basis(env)}/projecten/api/odoo-kansen/${lead.id}/vernieuw`)}" title="Paneel nu bijwerken" style="display:inline-block;padding:3px 8px;margin-left:6px;border-radius:7px;font-size:12px;text-decoration:none;background-color:#ffffff;border:1px solid #dbe4f0;color:#4b5563;">🔄</a>`);
   return { stap, gesprek, knoppen };
 }
 

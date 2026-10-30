@@ -87,3 +87,5 @@ export async function kansVoorGesprek(env, id) {
 }
 
 export { rondGesprekAf };
+export { werkPaneelBij } from './paneel.js';
+export { leadUrl };
