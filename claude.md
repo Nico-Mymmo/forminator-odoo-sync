@@ -6809,10 +6809,14 @@ https://claude.ai/artifact/QwXUNv4HtUfr1PfayjeVUu
 - **Enkel nieuwe kansen doen mee** (`actief_vanaf`, standaard 30/10/2026), of
   een oude kans met een oproep NA die datum. Anders plande de eerste ronde een
   taak op elke kans met een oude poging van de vroegere knoppen.
-- **De eerste beltaak maakt meestal de koppeling** (stap "Nieuwe lead
-  opvolgen", 1 werkdag); de OM maakt ze enkel als ze ontbreekt. De
-  Odoo-automatisering 1 ("Nieuwe lead zonder activiteit", na 30 minuten) vuurt
-  daardoor niet meer: de OM is er binnen 5 minuten.
+- **Een koppeling die een kans AANMAAKT, plant meteen de eerste taak**
+  (`werkPaneelBij()` na alle stappen in `worker-handler.js`, voor elke stap op
+  `crm.lead` met resultaat `created`). Een aparte stap "Activiteit aanmaken"
+  is daarvoor niet meer nodig; op de lead-stap zegt het koppelingsscherm welke
+  taak er komt (`GET /forminator-v2/api/opvolging-eerste`). Staat er toch nog
+  zo'n stap, dan plant de sequentie niets extra (er staat al een beltaak open).
+  De Odoo-automatisering 1 ("Nieuwe lead zonder activiteit", na 30 minuten)
+  vuurt daardoor niet meer.
 - **De beltaken blijven activiteiten in Odoo** (daar haakt veel op in). Een
   beltaak = een activiteit met categorie `phonecall` (Call, Syndicoach -
   Nieuwe aanvraag). Mijn taken toont de eigen beltaken tot en met vandaag; CX
