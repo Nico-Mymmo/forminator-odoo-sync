@@ -173,7 +173,7 @@
 		//   ""    niets
 		//   "dry" berekenen wat er naar Odoo zou gaan, en loggen ([opvolging])
 		//   "on"  naar Odoo schrijven (ook meteen na een afgerond gesprek)
-		"OPVOLGING_PANEEL_MODE": "",
+		"OPVOLGING_PANEEL_MODE": "on",
 		// Nieuwsbrieven (src/modules/newsletters/). Alles behalve exact "live" is
 		// TESTSTAND: dan kan de OM enkel een testmail sturen, en enkel naar
 		// NEWSLETTER_TEST_EMAILS (via een eigen Odoo-lijst "OM nieuwsbrief -
