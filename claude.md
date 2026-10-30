@@ -6787,6 +6787,7 @@ en afspraken: https://claude.ai/artifact/QwXUNv4HtUfr1PfayjeVUu
 | Groep "Bellen (uit Odoo)" + venster | `public/projecten-odoo.js` (Mijn taken, `#/mijn?gesprek=<kans-id>`) |
 | Controlepaneel bovenaan de kans | `opvolging/paneel.js`, 15-min-cron, Studio-veld `x_studio_om_paneel_html` op crm.lead |
 | Bijhouden (voor de rapportering later) | tabel `opv_contactmomenten` in D1 om-core (`0017_opvolging.sql`) |
+| Overzicht voor het team: tabblad Opvolging in CX Powerboard | `opvolging/overzicht.js`, `GET /cx-powerboard/api/opvolging`, `public/cx-powerboard-opvolging.js` |
 
 - **De beltaken blijven activiteiten in Odoo** (daar haakt veel op in). Mijn
   taken toont ze bovenaan in een eigen groep, enkel tot en met vandaag; wat
@@ -6835,6 +6836,19 @@ en afspraken: https://claude.ai/artifact/QwXUNv4HtUfr1PfayjeVUu
   ernaar (de 🔄 is weg, Nico 30/10). De oude knop "Opgenomen" (1204) opent
   hetzelfde venster met "Nam op" gekozen. Het paneel draait daarom in de
   5-minutentak: een telefoonactie in Odoo zelf kan de OM niet melden.
+- **Tabblad Opvolging in CX Powerboard** (2026-10-30): ALLE open beltaken op
+  kansen, van het hele team (filter per persoon), met wat niet klopt: kans
+  verloren/gearchiveerd of gewonnen, nog een lead, taak bij iemand anders dan
+  de verkoper, geen verkoper, twee beltaken op een kans. Daaronder de open
+  kansen zonder enige taak of komende afspraak. Enkel lezen. Mijn taken toont
+  enkel de eigen beltaken; dit is het teamoverzicht.
+- **Na "Opslaan" in Odoo werkt de OM het paneel meteen bij**: serveractie
+  1207 eindigt met een `act_url` naar `/projecten/api/odoo-kansen/:id/vernieuw`,
+  die het paneel schrijft en terugstuurt naar de kans. Zonder aanmelding in
+  de OM komt eerst het aanmeldscherm.
+- **De oproepkaart is een TABEL met `width="100%"`**: Odoo knipt `border`,
+  `width` en `max-width` uit een style. De rand is de buitenste kleur die door
+  de opvulling van de cel komt.
 - **CX Automations -> Opvolging -> "Alle panelen nu bijwerken"** schrijft elk
   paneel opnieuw (`POST /cx-automations/api/opvolging/panelen`, force).
 - **Nog niet gebouwd:** de sequentie zelf (instellen in CX Automations), het

@@ -245,6 +245,9 @@ export function cxPowerboardDashboardUI(user) {
         <button role="tab" class="tab" id="tabBtnWins" onclick="switchTab('wins')">
           <i data-lucide="trophy" class="w-4 h-4 mr-1"></i> Wins
         </button>
+        <button role="tab" class="tab" id="tabBtnOpvolging" onclick="switchTab('opvolging')">
+          <i data-lucide="phone-call" class="w-4 h-4 mr-1"></i> Opvolging
+        </button>
         ${teamTab}
       </div>
 
@@ -399,6 +402,11 @@ export function cxPowerboardDashboardUI(user) {
         </div>
       </div>
 
+      <!-- ── Opvolging tab: public/cx-powerboard-opvolging.js ───────────────── -->
+      <div id="tabOpvolging" style="display:none;">
+        <div id="opvolgingContent"></div>
+      </div>
+
       <!-- ── Team tab (manager only) ──────────────────────────────────────── -->
       ${teamPanel}
 
@@ -490,7 +498,7 @@ export function cxPowerboardDashboardUI(user) {
 
     // ── Tab switching ─────────────────────────────────────────────────────────
     function switchTab(tab) {
-      var ids = ['dashboard', 'calendar', 'wins', 'team'];
+      var ids = ['dashboard', 'calendar', 'wins', 'opvolging', 'team'];
       for (var i = 0; i < ids.length; i++) {
         var t   = ids[i];
         var cap = t.charAt(0).toUpperCase() + t.slice(1);
@@ -511,6 +519,7 @@ export function cxPowerboardDashboardUI(user) {
         }
       }
       if (tab === 'wins') renderWins();
+      if (tab === 'opvolging' && window.PBOpvolging) window.PBOpvolging.laad();
       if (tab === 'team') loadTeam();
     }
 
@@ -1947,6 +1956,7 @@ export function cxPowerboardDashboardUI(user) {
     initTheme();
     lucide.createIcons();
   </script>
+  <script src="/cx-powerboard-opvolging.js"></script>
 </body>
 </html>`;
 }

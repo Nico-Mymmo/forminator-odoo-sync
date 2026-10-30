@@ -24,6 +24,7 @@ import {
 } from './odoo-client.js';
 import { getMappings, createMapping, updateMapping, deleteMapping, confirmKeepDone } from './services/mapping-service.js';
 import { getUserWins } from './services/win-service.js';
+import { opvolgingOverzicht } from '../cx-automations/opvolging/overzicht.js';
 
 // Strip HTML tags from Odoo note field (which is HTML)
 function stripHtml(html) {
@@ -964,6 +965,20 @@ async function handleGetUsers(context) {
 // API: Teams CRUD
 // ---------------------------------------------------------------------------
 
+// Tabblad Opvolging: alle beltaken uit Odoo van het hele team (cx-automations/opvolging/overzicht.js).
+async function handleGetOpvolging(context) {
+  const denied = requireCxAccess(context);
+  if (denied) return denied;
+  try {
+    const data = await opvolgingOverzicht(context.env);
+    return new Response(JSON.stringify({ success: true, data }), { headers: { 'Content-Type': 'application/json' } });
+  } catch (err) {
+    return new Response(JSON.stringify({ success: false, error: err?.message || 'Onbekende fout' }), {
+      status: 500, headers: { 'Content-Type': 'application/json' },
+    });
+  }
+}
+
 async function handleGetTeams(context) {
   const denied = requireCxAccess(context);
   if (denied) return denied;
@@ -1504,6 +1519,7 @@ export const routes = {
   'GET /':                                       handleDashboard,
   'GET /settings':                               handleSettings,
   'GET /api/activities':                         handleGetActivities,
+  'GET /api/opvolging':                          handleGetOpvolging,
   'GET /api/wins':                               handleGetWins,
   'GET /api/team':                               handleGetTeamStats,
   'GET /api/users':                              handleGetUsers,
