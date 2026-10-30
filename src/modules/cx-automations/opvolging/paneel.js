@@ -33,8 +33,10 @@ const KLEUR = {
   stil: { bg: '#f3f4f6', fg: '#4b5563' },
 };
 
+// Het adres waarop collega's aangemeld zijn. NIET APP_BASE_URL: dat is het
+// workers.dev-adres, en daar heeft niemand een sessie (dan eerst opnieuw aanmelden).
 function basis(env) {
-  return String(env.APP_BASE_URL || '').replace(/\/+$/, '');
+  return String(env.OM_PUBLIC_ORIGIN || 'https://operations.openvme.be').replace(/\/+$/, '');
 }
 
 function pil(tekst, toon) {
