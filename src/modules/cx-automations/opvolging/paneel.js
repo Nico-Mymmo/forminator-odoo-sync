@@ -119,13 +119,10 @@ export function paneelInhoud(env, lead, ctx = {}, nu = vandaag(), nuMs = Date.no
     gesprek += `<span title="Laatste poging van ons, nog zonder antwoord" style="font-size:11px;color:#6b7280;white-space:nowrap;">daarna: ${esc(poging.tekst)} · ${esc(geleden(vandaag(poging.datum), nu))}</span>`;
   }
 
-  // "Telefoonactie registreren" is een ECHTE Odoo-knop naast het paneel (in de
+  // "Oproep registreren" is een ECHTE Odoo-knop naast het paneel (in de
   // overervende view "OM controlepaneel bovenaan de kans"), geen link naar de OM:
-  // sales blijft in Odoo. In het paneel zelf staat enkel nog de knop om bij te werken.
+  // sales blijft in Odoo. In het paneel zelf staan geen knoppen (Nico, 30/10).
   const knoppen = [];
-  // Nu bijwerken: opent in HETZELFDE tabblad, de OM werkt het paneel bij en
-  // stuurt terug naar de kans (GET /projecten/api/odoo-kansen/:id/vernieuw).
-  knoppen.push(`<a href="${esc(`${basis(env)}/projecten/api/odoo-kansen/${lead.id}/vernieuw`)}" title="Paneel nu bijwerken" style="display:inline-block;padding:3px 8px;margin-left:6px;border-radius:7px;font-size:12px;text-decoration:none;background-color:#ffffff;border:1px solid #dbe4f0;color:#4b5563;">🔄</a>`);
   return { stap, gesprek, knoppen };
 }
 
@@ -136,7 +133,7 @@ export function paneelHtml(inhoud, stempel = '') {
   return `<table${titel} style="width:100%;border-collapse:separate;border:1px solid #dbe4f0;border-radius:8px;background-color:#f8fafc;font-size:12px;"><tr>`
     + `<td style="${cel}text-align:left;">${inhoud.stap.join('')}</td>`
     + `<td style="${cel}text-align:center;">${inhoud.gesprek}</td>`
-    + `<td style="${cel}text-align:right;white-space:nowrap;">${inhoud.knoppen.join('')}</td>`
+    + (inhoud.knoppen.length ? `<td style="${cel}text-align:right;white-space:nowrap;">${inhoud.knoppen.join('')}</td>` : '')
     + `</tr></table>`;
 }
 

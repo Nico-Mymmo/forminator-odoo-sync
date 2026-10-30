@@ -1,6 +1,6 @@
 /**
  * Projecten -- de groep "Bellen (uit Odoo)" bovenaan Mijn taken, en het
- * venster "Ik heb gebeld".
+ * venster "Oproep registreren".
  *
  * De beltaken blijven activiteiten in Odoo; hier zie je ze en rond je ze af.
  * Afronden vinkt de beltaak af, zet de uitkomst in de chatter van de kans en
@@ -60,7 +60,7 @@
         +   '<div class="text-xs mt-0.5">' + gesprekTekst(k.laatste_gesprek) + '</div>'
         + '</div>'
         + '<div class="flex items-center gap-2 shrink-0">' + badge
-        +   '<button type="button" class="btn btn-sm btn-primary" data-action="odoo-gesprek" data-id="' + k.id + '">Telefoonactie registreren</button>'
+        +   '<button type="button" class="btn btn-sm btn-success" data-action="odoo-gesprek" data-id="' + k.id + '">Oproep registreren</button>'
         + '</div></div>';
     }).join('');
     return '<div class="card bg-base-100 border border-base-content/10 shadow-sm mb-4"><div class="card-body p-0">'
@@ -85,14 +85,27 @@
     return dlg;
   }
 
-  function volgendeStandaard() {
-    // Na een poging standaard opnieuw bellen; na echt contact beslist de verkoper zelf.
-    return B.alleenVolgende || (B.uitkomst && B.uitkomst !== 'opgenomen');
+  // Opnieuw bellen: dezelfde keuzes als het Odoo-venster "Oproep registreren".
+  var TERUG = [
+    { id: 'morgen', label: 'Morgen', werkdagen: 1 },
+    { id: '2', label: 'Over 2 werkdagen', werkdagen: 2 },
+    { id: 'week', label: 'Volgende week', werkdagen: 5 },
+    { id: 'datum', label: 'Andere datum' },
+    { id: 'niet', label: 'Niet opnieuw bellen' },
+  ];
+
+  function plusWerkdagen(n) {
+    var d = new Date(); d.setHours(12, 0, 0, 0);
+    while (n > 0) { d.setDate(d.getDate() + 1); if (d.getDay() !== 0 && d.getDay() !== 6) n--; }
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
   }
+
+  /** Een poging (voicemail of niemand) vraagt naar de volgende beltaak; een gesprek niet. */
+  function vraagVolgende() { return B.alleenVolgende || B.uitkomst === 'ingesproken' || B.uitkomst === 'niets'; }
 
   function tekenVenster() {
     var k = B.kans;
-    var h = '<h3 class="font-bold text-lg">' + (B.alleenVolgende ? 'Gesprek plannen' : 'Telefoonactie registreren') + '</h3>'
+    var h = '<h3 class="font-bold text-lg">' + (B.alleenVolgende ? 'Gesprek plannen' : 'Oproep registreren') + '</h3>'
       + '<div class="text-sm mt-1"><a class="link link-hover font-medium" href="' + esc(k.url) + '" target="_blank" rel="noopener">' + esc(k.naam) + '</a></div>'
       + '<div class="text-xs opacity-70 flex flex-wrap gap-x-3 mt-0.5">' + (k.contact ? '<span>' + esc(k.contact) + '</span>' : '') + telefoon(k)
       + '<span>' + esc(k.fase) + '</span><span>' + (k.heeft_verkoper ? 'Verkoper: ' + esc(k.verkoper) : '<span class="text-error">Geen verkoper</span>') + '</span></div>';
@@ -102,26 +115,33 @@
         + k.gesprekken.map(function (g) { return '<div>' + gesprekTekst(g) + '</div>'; }).join('') + '</div>';
     }
     if (!B.alleenVolgende) {
-      h += '<div class="mt-4 font-semibold text-sm">Hoe liep het gesprek?</div><div class="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-2">'
+      h += '<div class="mt-4 font-semibold text-sm">Hoe liep het?</div><div class="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-2">'
         + UITKOMSTEN.map(function (u) {
           var actief = B.uitkomst === u.id;
-          return '<button type="button" class="rounded-xl p-3 text-left border-2 ' + (actief ? 'border-primary bg-primary/10' : 'border-base-content/15') + '" data-action="odoo-kies" data-id="' + u.id + '">'
+          return '<button type="button" class="rounded-xl p-3 text-left border-2 ' + (actief ? 'border-success bg-success/10' : 'border-base-content/15') + '" data-action="odoo-kies" data-id="' + u.id + '">'
             + '<div class="text-lg">' + u.icoon + '</div><div class="font-semibold text-sm">' + esc(u.label) + '</div><div class="text-xs opacity-60">' + esc(u.uitleg) + '</div></button>';
-        }).join('') + '</div>'
-        + '<label class="form-control mt-3"><span class="label-text text-sm">' + (B.uitkomst === 'opgenomen' ? 'Waarover ging het gesprek?' : 'Notitie (niet verplicht)') + '</span>'
-        + '<textarea id="pmGesprekNotitie" class="textarea textarea-bordered mt-1" rows="3"></textarea></label>'
-        + '<p class="text-xs opacity-60 mt-1">' + (k.beltaken
-          ? (k.beltaken === 1 ? 'De beltaak op deze kans wordt afgevinkt.' : 'De ' + k.beltaken + ' beltaken op deze kans worden afgevinkt.')
-          : 'Er staat geen beltaak op deze kans: het gesprek komt als notitie in de chatter.') + '</p>';
+        }).join('') + '</div>';
+      if (B.uitkomst === 'opgenomen' || B.uitkomst === 'ingesproken') {
+        h += '<label class="form-control mt-3"><span class="label-text text-sm">' + (B.uitkomst === 'opgenomen' ? 'Wat hebben jullie besproken?' : 'Wat heb je ingesproken?') + '</span>'
+          + '<textarea id="pmGesprekNotitie" class="textarea textarea-bordered mt-1" rows="3" placeholder="' + (B.uitkomst === 'opgenomen' ? 'Kort: wat is er gezegd, wat is de volgende stap?' : 'Niet verplicht') + '"></textarea></label>';
+      }
     }
-    h += '<div class="mt-4 p-3 rounded-xl bg-base-200">'
-      + '<label class="flex items-center gap-2 text-sm cursor-pointer"><input type="checkbox" id="pmGesprekVolgendeAan" class="checkbox checkbox-sm" '
-      + (volgendeStandaard() ? 'checked' : '') + (B.alleenVolgende ? ' disabled' : '') + '> Nieuwe beltaak op</label>'
-      + '<input type="date" id="pmGesprekVolgende" class="input input-bordered input-sm mt-2" min="' + esc(k.vandaag) + '" value="' + esc(k.standaard_volgende) + '">'
-      + '<p class="text-xs opacity-60 mt-1">Voor ' + (k.heeft_verkoper ? esc(k.verkoper) : 'jou') + '.</p></div>'
-      + '<div class="modal-action"><button type="button" class="btn btn-ghost btn-sm" data-action="odoo-sluit">Annuleren</button>'
-      + '<button type="button" class="btn btn-primary btn-sm" data-action="odoo-bewaar"' + (B.bezig ? ' disabled' : '') + '>'
-      + (B.bezig ? '<span class="loading loading-spinner loading-xs"></span>' : '') + (B.alleenVolgende ? 'Plannen' : 'Afronden') + '</button></div>';
+    if (vraagVolgende()) {
+      h += '<div class="mt-4 font-semibold text-sm">Opnieuw bellen?</div><div class="flex flex-wrap gap-2 mt-2">'
+        + TERUG.filter(function (o) { return !(B.alleenVolgende && o.id === 'niet'); }).map(function (o) {
+          return '<button type="button" class="btn btn-sm ' + (B.terug === o.id ? 'btn-success' : 'btn-outline') + '" data-action="odoo-terug" data-id="' + o.id + '">' + esc(o.label) + '</button>';
+        }).join('') + '</div>'
+        + (B.terug === 'datum' ? '<input type="date" id="pmGesprekVolgende" class="input input-bordered input-sm mt-2" min="' + esc(k.vandaag) + '" value="' + esc(k.standaard_volgende) + '">' : '')
+        + (B.terug !== 'niet' ? '<p class="text-xs opacity-60 mt-1">Beltaak voor ' + (k.heeft_verkoper ? esc(k.verkoper) : 'jou') + '.</p>' : '');
+    }
+    if (B.uitkomst && !B.alleenVolgende) {
+      h += '<p class="text-xs opacity-60 mt-3">' + (k.beltaken
+        ? (k.beltaken === 1 ? 'De beltaak op deze kans wordt afgevinkt.' : 'De ' + k.beltaken + ' beltaken op deze kans worden afgevinkt.')
+        : 'Er staat geen beltaak op deze kans: de oproep komt als notitie in de chatter.') + '</p>';
+    }
+    h += '<div class="modal-action"><button type="button" class="btn btn-ghost btn-sm" data-action="odoo-sluit">Annuleren</button>'
+      + '<button type="button" class="btn btn-success btn-sm" data-action="odoo-bewaar"' + (B.bezig || (!B.alleenVolgende && !B.uitkomst) ? ' disabled' : '') + '>'
+      + (B.bezig ? '<span class="loading loading-spinner loading-xs"></span>' : '') + (B.alleenVolgende ? 'Plannen' : 'Opslaan') + '</button></div>';
 
     var notitie = document.getElementById('pmGesprekNotitie');
     var datum = document.getElementById('pmGesprekVolgende');
@@ -129,11 +149,11 @@
     var oudeDatum = datum ? datum.value : '';
     document.getElementById('pmGesprekInhoud').innerHTML = h;
     if (oudeNotitie && document.getElementById('pmGesprekNotitie')) document.getElementById('pmGesprekNotitie').value = oudeNotitie;
-    if (oudeDatum) document.getElementById('pmGesprekVolgende').value = oudeDatum;
+    if (oudeDatum && document.getElementById('pmGesprekVolgende')) document.getElementById('pmGesprekVolgende').value = oudeDatum;
   }
 
   async function openVenster(id, alleenVolgende) {
-    B.kans = null; B.uitkomst = null; B.alleenVolgende = !!alleenVolgende; B.bezig = false;
+    B.kans = null; B.uitkomst = null; B.terug = '2'; B.alleenVolgende = !!alleenVolgende; B.bezig = false;
     var dlg = dialoog();
     document.getElementById('pmGesprekInhoud').innerHTML = '<div class="py-8 text-center"><span class="loading loading-spinner"></span></div>';
     if (!dlg.open) dlg.showModal();
@@ -147,18 +167,21 @@
 
   async function bewaar() {
     if (B.bezig || !B.kans) return;
-    if (!B.alleenVolgende && !B.uitkomst) { PM.toast('Kies hoe het gesprek afliep.', 'error'); return; }
-    var aan = B.alleenVolgende || document.getElementById('pmGesprekVolgendeAan').checked;
-    var datum = document.getElementById('pmGesprekVolgende').value;
+    if (!B.alleenVolgende && !B.uitkomst) { PM.toast('Kies hoe het liep.', 'error'); return; }
+    var volgende = null;
+    if (vraagVolgende() && B.terug !== 'niet') {
+      var keuze = TERUG.filter(function (o) { return o.id === B.terug; })[0];
+      volgende = B.terug === 'datum' ? document.getElementById('pmGesprekVolgende').value : plusWerkdagen(keuze.werkdagen);
+      if (!volgende) { PM.toast('Kies een datum voor de beltaak.', 'error'); return; }
+    }
     var notitieEl = document.getElementById('pmGesprekNotitie');
-    if (aan && !datum) { PM.toast('Kies een datum voor de beltaak.', 'error'); return; }
     var body = { uitkomst: B.alleenVolgende ? null : B.uitkomst, notitie: notitieEl ? notitieEl.value : '',
-      volgende: aan ? datum : null, alleen_volgende: B.alleenVolgende };
+      volgende: volgende, alleen_volgende: B.alleenVolgende };
     B.bezig = true; tekenVenster();
     try {
       var r = await PM.api('/odoo-kansen/' + B.kans.id + '/gesprek', { method: 'POST', body: body });
       var zinnen = [];
-      if (!B.alleenVolgende) zinnen.push(r.taken_afgerond ? 'De beltaak is afgevinkt en de uitkomst staat in de chatter.' : 'Het gesprek staat in de chatter.');
+      if (!B.alleenVolgende) zinnen.push(r.taken_afgerond ? 'De beltaak is afgevinkt en de oproep staat in de chatter.' : 'De oproep staat in de chatter.');
       if (r.volgende) zinnen.push('Nieuwe beltaak op ' + korteDatum(r.volgende) + '.');
       PM.toast(zinnen.join(' '));
       dialoog().close();
@@ -171,11 +194,8 @@
   }
 
   PM.actie('odoo-gesprek', function (el) { openVenster(el.dataset.id, false); });
-  PM.actie('odoo-kies', function (el) {
-    B.uitkomst = el.dataset.id;
-    tekenVenster();
-    document.getElementById('pmGesprekVolgendeAan').checked = volgendeStandaard();
-  });
+  PM.actie('odoo-kies', function (el) { B.uitkomst = el.dataset.id; tekenVenster(); });
+  PM.actie('odoo-terug', function (el) { B.terug = el.dataset.id; tekenVenster(); });
   PM.actie('odoo-bewaar', function () { bewaar(); });
   PM.actie('odoo-sluit', function () { dialoog().close(); });
 
