@@ -1,16 +1,17 @@
 /**
  * Een gesprek afronden: EEN handeling die alles doet wat bij "ik heb gebeld" hoort.
  *
- *   1. De open beltaken van de kans worden afgevinkt, met de uitkomst als
- *      feedback. Is er geen beltaak, dan komt de uitkomst als notitie in de
- *      chatter. Zo staat er nooit een gesprek in de chatter terwijl de beltaak
- *      nog openstaat (dat was het probleem met de losse oproepknoppen).
+ *   1. De open beltaken van de kans worden afgevinkt, en de uitkomst komt als
+ *      gekleurde kaart in de chatter (`chatterKaart()`). Zo staat er nooit een
+ *      gesprek in de chatter terwijl de beltaak nog openstaat (dat was het
+ *      probleem met de losse oproepknoppen). Het afvinken zelf krijgt geen
+ *      feedback: Odoo toont die als platte tekst, en dan viel de oproep weg.
  *   2. De medewerker staat als auteur in de chatter, niet "Administrator".
  *   3. Eventueel een nieuwe beltaak op een datum.
  *   4. Het gesprek komt in opv_contactmomenten (voor de rapportering later).
  *   5. Het controlepaneel van de kans wordt meteen bijgewerkt.
  *
- * De tekst in de chatter is die van de oude knoppen (UITKOMSTEN in constants.js).
+ * De kaart bevat de zin van de oude knoppen (UITKOMSTEN in constants.js).
  */
 
 import { executeKw } from '../../../lib/odoo.js';
@@ -18,7 +19,7 @@ import { getCoreDb } from '../../../lib/core-db.js';
 import { gebruikerVoorConnector, odooGebruiker } from '../../claude-sales/lib/toegang.js';
 import { leesLead, activiteiten } from './odoo-data.js';
 import { werkPaneelBij } from './paneel.js';
-import { UITKOMSTEN, OpvolgingError, LOG_PREFIX, brusselsStempel, vandaag, esc } from './constants.js';
+import { UITKOMSTEN, OpvolgingError, LOG_PREFIX, vandaag, chatterKaart, beltaakNotitie } from './constants.js';
 
 const DATUM_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -28,20 +29,15 @@ export async function odooVan(env, user) {
   return g ? odooGebruiker(env, g) : null;
 }
 
-function chatterTekst(uitkomst, naam, notitie) {
-  const u = UITKOMSTEN[uitkomst];
-  const s = brusselsStempel();
-  let t = `${u.icoon} ${u.chatter} (${s.datum} om ${s.uur}, ${naam})`;
-  if (notitie) t += ` – ${notitie}`;
-  return t;
-}
-
 /** Een beltaak op een datum, voor de verkoper van de kans (anders voor wie het plant). */
-async function planBeltaak(env, lead, odoo, datum) {
+async function planBeltaak(env, lead, odoo, datum, { terug = false, note = '' } = {}) {
   const voor = Array.isArray(lead.user_id) ? lead.user_id[0] : odoo?.uid;
   await executeKw(env, {
     model: 'crm.lead', method: 'activity_schedule', args: [[lead.id]],
-    kwargs: { act_type_xmlid: 'mail.mail_activity_data_call', date_deadline: datum, summary: 'Bellen', ...(voor ? { user_id: voor } : {}) },
+    kwargs: {
+      act_type_xmlid: 'mail.mail_activity_data_call', date_deadline: datum,
+      summary: terug ? 'Terugbellen' : 'Bellen', ...(note ? { note } : {}), ...(voor ? { user_id: voor } : {}),
+    },
   });
 }
 
@@ -71,32 +67,34 @@ export async function rondGesprekAf(env, user, leadId, invoer) {
     return { taken_afgerond: 0, volgende, paneel: await werkPaneelBij(env, leadId) };
   }
   const naam = odoo?.naam || user.full_name || user.email;
-  const tekst = chatterTekst(uitkomst, naam, notitie);
   const auteur = odoo?.partner_id ? { author_id: odoo.partner_id } : {};
 
-  // 1. Beltaken afvinken (of een notitie als er geen is).
+  // 1. Beltaken afvinken, zonder feedback (zie bovenaan).
   const bel = (await activiteiten(env, [leadId])).get(leadId)?.filter(a => a.bellen) || [];
-  let berichtId = null;
   if (bel.length) {
-    berichtId = await executeKw(env, {
-      model: 'mail.activity', method: 'action_feedback',
-      args: [bel.map(a => a.id)], kwargs: { feedback: tekst },
-    });
+    const doneId = await executeKw(env, { model: 'mail.activity', method: 'action_feedback', args: [bel.map(a => a.id)], kwargs: {} });
     // 2. Auteur rechtzetten: action_feedback schrijft als de technische gebruiker.
-    if (Number.isInteger(berichtId) && odoo?.partner_id) {
+    if (Number.isInteger(doneId) && odoo?.partner_id) {
       try {
-        await executeKw(env, { model: 'mail.message', method: 'write', args: [[berichtId], { author_id: odoo.partner_id }] });
+        await executeKw(env, { model: 'mail.message', method: 'write', args: [[doneId], { author_id: odoo.partner_id }] });
       } catch (err) { console.warn(LOG_PREFIX, 'auteur niet gezet', err?.message); }
     }
-  } else {
-    berichtId = await executeKw(env, {
-      model: 'crm.lead', method: 'message_post', args: [[leadId]],
-      kwargs: { body: `<p>${esc(tekst)}</p>`, body_is_html: true, message_type: 'comment', subtype_xmlid: 'mail.mt_note', ...auteur },
-    });
   }
+  // De oproep zelf: als kaart, NA het afvinken, zodat ze bovenaan staat.
+  const berichtId = await executeKw(env, {
+    model: 'crm.lead', method: 'message_post', args: [[leadId]],
+    kwargs: {
+      body: chatterKaart({ uitkomst, naam, notitie, volgende }), body_is_html: true,
+      message_type: 'comment', subtype_xmlid: 'mail.mt_note', ...auteur,
+    },
+  });
 
   // 3. Volgende beltaak, voor de verkoper van de kans (anders voor wie belde).
-  if (volgende) await planBeltaak(env, lead, odoo, volgende);
+  if (volgende) {
+    await planBeltaak(env, lead, odoo, volgende, {
+      terug: true, note: beltaakNotitie({ uitkomst, naam, notitie: uitkomst === 'ingesproken' ? notitie : '' }),
+    });
+  }
 
   // 4. Bijhouden. Mislukt dat, dan staat het gesprek wel in Odoo: niet fataal.
   try {

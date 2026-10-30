@@ -6797,9 +6797,17 @@ en afspraken: https://claude.ai/artifact/QwXUNv4HtUfr1PfayjeVUu
   1206, 1207: "Oproep: opgenomen", "Oproep: voicemail ingesproken", "Oproep:
   geen antwoord, niets ingesproken"). Het paneel leest gesprekken uit de
   chatter op die tekst, dus oude en nieuwe tellen allebei. Wijzig die zinnen
-  niet.
-- **Afvinken gebeurt met `action_feedback`**; daarna wordt de auteur van dat
-  bericht op de partner van de medewerker gezet. Geen beltaak = een notitie.
+  niet: ze staat letterlijk en aaneen in de kaart.
+- **Een oproep is een gekleurde KAART in de chatter** (`chatterKaart()` in
+  constants.js, en dezelfde in serveractie 1207): groen nam op, blauw
+  voicemail, oranje nam niet op; datum, uur, wie, wat besproken/ingesproken en
+  wanneer opnieuw. Eerst gaat de beltaak af met `action_feedback` ZONDER
+  feedback (Odoo 17 toont feedback als platte tekst, en dan viel de oproep weg
+  in een lange chatter), daarna komt de kaart met `message_post`, zodat ze
+  bovenaan staat. Auteur = de medewerker.
+- **De nieuwe beltaak heet "Terugbellen"** met als notitie de vorige poging
+  (`beltaakNotitie()`: uitkomst, datum, wie, en wat ingesproken werd).
+  "Over 2 werkdagen" telt het weekend niet mee.
 - **`OPVOLGING_PANEEL_MODE`** (wrangler.jsonc): leeg = niets, `dry` = loggen,
   `on` = schrijven. Zonder het Studio-veld wordt er niets geschreven (melding
   in de log). Het paneel wordt enkel geschreven als het veranderde (hash in KV);

@@ -93,6 +93,52 @@ export function brusselsStempel(nu = new Date()) {
   return { datum: `${p.day}/${p.month}/${p.year}`, uur: `${p.hour}:${p.minute}` };
 }
 
+const DAGEN = ['zondag', 'maandag', 'dinsdag', 'woensdag', 'donderdag', 'vrijdag', 'zaterdag'];
+
+/** '2026-11-03' -> 'dinsdag 3 nov'. */
+export function dagEnDatum(datum) {
+  const d = new Date(String(datum || '') + 'T12:00:00Z');
+  return Number.isNaN(d.getTime()) ? '' : `${DAGEN[d.getUTCDay()]} ${korteDatum(datum)}`;
+}
+
+/** Kleur van de kaart per uitkomst (rand, vlak). */
+const KAART_KLEUR = {
+  opgenomen: ['#16a34a', '#f0fdf4'],
+  ingesproken: ['#0369a1', '#f0f9ff'],
+  niets: ['#d97706', '#fffbeb'],
+};
+
+/**
+ * Het bericht in de chatter: een gekleurde kaart, zodat een oproep opvalt
+ * tussen de rest. De zin `UITKOMSTEN[..].chatter` staat er letterlijk en
+ * aaneen in: het controlepaneel leest gesprekken op die zin. Dezelfde kaart
+ * maakt serveractie 1207 in Odoo (scratch: odoo_ik_heb_gebeld.mjs); wijzig ze samen.
+ */
+export function chatterKaart({ uitkomst, naam, notitie, volgende }) {
+  const u = UITKOMSTEN[uitkomst];
+  const [rand, vlak] = KAART_KLEUR[uitkomst];
+  const s = brusselsStempel();
+  let h = `<div style="border-left:4px solid ${rand};background-color:${vlak};padding:8px 12px;border-radius:6px;">`
+    + `<p style="margin:0;"><b>${u.icoon} ${esc(u.chatter)}</b></p>`
+    + `<p style="margin:2px 0 0;font-size:12px;color:#6b7280;">${s.datum} om ${s.uur} · ${esc(naam)}</p>`;
+  if (notitie) {
+    const kop = uitkomst === 'opgenomen' ? 'Besproken' : 'Ingesproken';
+    h += `<p style="margin:6px 0 0;"><b>${kop}:</b> ${esc(notitie).replace(/\n/g, '<br>')}</p>`;
+  }
+  if (volgende) h += `<p style="margin:6px 0 0;font-size:12px;">Opnieuw bellen: ${dagEnDatum(volgende)}</p>`;
+  return h + '</div>';
+}
+
+/** De notitie bij een nieuwe beltaak: waarom er opnieuw gebeld moet worden. */
+export function beltaakNotitie({ uitkomst, naam, notitie }) {
+  const u = UITKOMSTEN[uitkomst];
+  if (!u) return '';
+  const s = brusselsStempel();
+  let h = `<p>Vorige poging: ${esc(u.label.toLowerCase())} op ${s.datum} om ${s.uur} (${esc(naam)}).</p>`;
+  if (notitie) h += `<p>Ingesproken: ${esc(notitie)}</p>`;
+  return h;
+}
+
 export function esc(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
