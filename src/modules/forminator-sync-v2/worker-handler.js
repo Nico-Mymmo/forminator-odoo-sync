@@ -1,4 +1,5 @@
 import { reportWebConversion, reportWebLinks } from '../../lib/web-conversions.js';
+import { werkPaneelBij } from '../cx-automations/opvolging/paneel.js';
 import {
   createSubmission,
   createSubmissionTargetResult,
@@ -2695,6 +2696,22 @@ async function runSubmissionAttempt(env, {
     // Welke Odoo-records hoort deze bezoeker nu bij? Rechtstreeks uit de stappen,
     // ook bij een retry of replay. Faalt nooit (src/lib/web-conversions.js).
     await reportWebLinks(env, { normalizedForm, sortedTargets, targetResults });
+
+    // Een kans die deze koppeling net AANMAAKTE, krijgt meteen de eerste stap
+    // van de opvolging ("Nieuwe lead opvolgen", CX Automations -> Opvolging)
+    // en haar controlepaneel. Na alle stappen, zodat de verkoper er al op staat.
+    // Staat er al een beltaak open, dan plant de sequentie niets. Faalt nooit.
+    for (const r of targetResults) {
+      if (r.action_result !== 'created' || !r.odoo_record_id) continue;
+      const t = sortedTargets.find((x) => x.id === r.target_id);
+      if (t?.odoo_model !== 'crm.lead') continue;
+      try {
+        const o = await werkPaneelBij(env, r.odoo_record_id);
+        console.log(`${LOG} ${attemptTag} opvolging kans ${r.odoo_record_id}:`, o.ok ? `${o.gepland || 0} taak gepland` : o.reden);
+      } catch (err) {
+        console.error(`${LOG} ${attemptTag} opvolging kans ${r.odoo_record_id} mislukt:`, err?.message);
+      }
+    }
 
     console.log(`${LOG} ${attemptTag} ==== EINDE ${submission.id}: ${finalStatus} ====`);
     for (const r of targetResults) {

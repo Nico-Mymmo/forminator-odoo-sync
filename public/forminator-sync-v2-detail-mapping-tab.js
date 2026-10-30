@@ -510,6 +510,16 @@
         html += '</div>';
       }
 
+      // Callout 2c: een stap die een kans (crm.lead) AANMAAKT, krijgt vanzelf de
+      // eerste taak van de opvolging. Geen instelling: dat beslist CX Automations.
+      if (target.odoo_model === 'crm.lead' && (target.operation_type === 'create' || target.operation_type === 'upsert' || !target.operation_type)) {
+        html += '<div class="border border-base-200 rounded-xl px-3.5 py-2.5 flex items-center gap-3">' +
+                  '<i data-lucide="phone-call" class="w-3.5 h-3.5 shrink-0 text-success"></i>' +
+                  '<span class="text-xs font-medium w-36 shrink-0">Opvolging</span>' +
+                  '<span class="text-xs flex-1 opacity-70" data-fsv2-opv-eerste>' + esc(opvolgEersteTekst()) + '</span>' +
+                '</div>';
+      }
+
       // Callout 3: Koppeling vorige stap (niet voor mail: een mail wordt niet
       // aan een andere stap gekoppeld, hij wordt gewoon klaargezet en
       // verstuurd — dit koppelkader zou hier enkel leeg opengaan).
@@ -602,6 +612,28 @@
     });
 
     if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons({ context: container });
+    laadOpvolgEerste();
+  }
+
+  // De eerste taak van de opvolging (CX Automations -> Opvolging), een keer opgehaald.
+  var _opvEerste = null;
+  var _opvBezig = false;
+  function opvolgEersteTekst() {
+    var e = _opvEerste;
+    if (!e) return 'Een nieuwe kans krijgt automatisch de eerste taak van de opvolging.';
+    if (!e.actief) return 'De opvolging staat uit (CX Automations): er komt geen taak.';
+    var dagen = e.na_werkdagen === 0 ? 'dezelfde dag' : e.na_werkdagen === 1 ? 'binnen 1 werkdag' : 'binnen ' + e.na_werkdagen + ' werkdagen';
+    return 'Een nieuwe kans krijgt automatisch de taak "' + e.titel + '" (' + dagen + ', voor de verkoper). Instellen in CX Automations, Opvolging.';
+  }
+  async function laadOpvolgEerste() {
+    if (_opvEerste || _opvBezig || !document.querySelector('[data-fsv2-opv-eerste]')) return;
+    _opvBezig = true;
+    try {
+      var body = await window.FSV2.api('/opvolging-eerste');
+      if (body && body.data) _opvEerste = body.data;
+    } catch (e) { /* de algemene zin blijft staan */ }
+    _opvBezig = false;
+    document.querySelectorAll('[data-fsv2-opv-eerste]').forEach(function (el) { el.textContent = opvolgEersteTekst(); });
   }
 
   // Body of the per-target loop in renderDetailMappings(), split out so a

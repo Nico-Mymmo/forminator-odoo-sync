@@ -1,4 +1,5 @@
 import { executeKw } from '../../lib/odoo.js';
+import { leesSequentie } from '../cx-automations/opvolging/sequentie.js';
 import { fetchFsv2ActivityTypes, fetchFsv2OdooUsers, fetchFsv2OdooEmployees } from './odoo-client.js';
 import { renderPlainMailHtml, renderPlainSubject, nietPlatteOpmaak } from '../../lib/mail/render-plain.js';
 import { describeMailAttachments, MAX_MAIL_ATTACHMENTS, MAX_MAIL_ATTACHMENT_BYTES } from './mail-attachments.js';
@@ -2313,6 +2314,13 @@ export const routes = {
   // Odoo-types mag je eraan hangen. De bouwer leest dit uit in plaats van een
   // eigen kopie van de lijst bij te houden — anders lopen bouwer en validatie
   // uit elkaar zodra er een type bijkomt.
+  // De eerste stap van de opvolging: die krijgt elke kans die een koppeling
+  // aanmaakt (worker-handler.js, na de stappen). Enkel om te tonen.
+  'GET /api/opvolging-eerste': async ({ env }) => {
+    const cfg = await leesSequentie(env);
+    return jsonResponse({ success: true, data: { actief: cfg.actief, titel: cfg.eerste.titel, na_werkdagen: cfg.eerste.na_werkdagen } });
+  },
+
   'GET /api/forms/meta': async () => {
     return jsonResponse({
       success: true,
