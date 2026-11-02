@@ -348,7 +348,7 @@
                   '<i data-lucide="map-pin" class="w-4 h-4 text-info shrink-0 mt-0.5"></i>' +
                   '<div class="flex-1 min-w-0">' +
                     '<p class="text-sm font-medium">Adres uit het formulier naar dit gebouw</p>' +
-                    '<p class="text-xs opacity-60 mt-0.5 leading-relaxed">Postcode, gemeente en straat op het gebouw, de naam wordt "VME" met straat en huisnummer. Een gebouw met hetzelfde adres wordt hergebruikt.</p>' +
+                    '<p class="text-xs opacity-60 mt-0.5 leading-relaxed">Postcode, gemeente en straat op het gebouw, de naam wordt straat en huisnummer. Een gebouw met hetzelfde adres wordt hergebruikt.</p>' +
                   '</div>' +
                   '<button type="button" class="btn btn-info btn-xs" data-action="adres-naar-gebouw" data-target-id="' + esc(tid) + '">Instellen</button>' +
                 '</div>';

@@ -7,7 +7,7 @@
  *   zip    <- de postcode          (zoekt mee)
  *   street <- straat en huisnummer (zoekt mee)
  *   city   <- de gemeente, als die er is
- *   name   <- "VME {straat en huisnummer}", enkel bij een NIEUW gebouw
+ *   name   <- "{straat en huisnummer}", enkel bij een NIEUW gebouw
  *
  * Postcode en straat worden samen het zoekcriterium: een gebouw met exact
  * hetzelfde adres wordt hergebruikt in plaats van een tweede aan te maken. Dat
@@ -61,7 +61,7 @@ export function planAdres(velden, mappings) {
     { odoo_field: 'zip', source_type: 'form', source_value: postcode.field_key, is_identifier: true, is_update_field: true, wat: `Postcode van het gebouw: uit ${naamVan(postcode)} (zoekt mee)` },
     { odoo_field: 'street', ...straatBron, is_identifier: true, is_update_field: true },
     ...(gemeente ? [{ odoo_field: 'city', source_type: 'form', source_value: gemeente.field_key, is_identifier: false, is_update_field: true, wat: `Gemeente van het gebouw: uit ${naamVan(gemeente)}` }] : []),
-    { odoo_field: 'name', source_type: 'template', source_value: `VME ${adres}`, is_identifier: false, is_update_field: false, wat: `Naam van een nieuw gebouw: "VME" met straat en huisnummer` },
+    { odoo_field: 'name', source_type: 'template', source_value: adres, is_identifier: false, is_update_field: false, wat: `Naam van een nieuw gebouw: straat en huisnummer` },
   ];
   const opVeld = (veld) => mappings.find((m) => m.odoo_field === veld);
   const rijen = doel.map((d) => ({ ...d, bestaand: opVeld(d.odoo_field) || null }));
