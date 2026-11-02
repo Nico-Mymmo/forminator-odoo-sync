@@ -2662,7 +2662,11 @@ export const routes = {
       const integrationId = context.params?.id;
       assertIntegrationSelected(integrationId);
 
-      const rows = await listSubmissionsByIntegration(context.env, integrationId, 50);
+      // Standaard de laatste 50 (de lijst). De export vraagt ?limit=5000: anders
+      // bevatte een export enkel wat de lijst toevallig geladen had.
+      const gevraagd = parseInt(new URL(context.request.url).searchParams.get('limit') || '', 10);
+      const limit = Number.isFinite(gevraagd) ? Math.min(5000, Math.max(1, gevraagd)) : 50;
+      const rows = await listSubmissionsByIntegration(context.env, integrationId, limit);
       // Per inzending ook de LEESBARE waarden (labels, tijdstippen in Brussel),
       // met dezelfde functie als de pipeline. Zo tonen de indieningenlijst en
       // het chatter-voorbeeld wat er ook in Odoo komt, en bestaat de omzetting

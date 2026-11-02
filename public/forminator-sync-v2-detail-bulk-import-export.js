@@ -516,61 +516,159 @@
     if (dlg) dlg.showModal();
   }
 
-  function handleExportSubmissions(format) {
+  // Export van de indieningen. Gemeld 2026-11-02 (David): velden als "Waarom
+  // Syndicoach" en "volgende_av_periode" kwamen niet mee. Oorzaken: de export
+  // nam enkel de velden die als kolom in de lijst staan, keek niet onder
+  // form_data (OM-formulieren), schreef keuzelijsten (arrays) niet leesbaar
+  // weg en bevatte enkel de 50 indieningen die de lijst geladen had. Nu: ALLE
+  // formuliervelden in formuliervolgorde, plus elke andere ingevulde sleutel
+  // uit de inzending, met de leesbare waarden, over alle indieningen.
+  var EXPORT_CONTAINERS = ['form_fields', 'form_data', 'data', 'submission', 'raw'];
+  var EXPORT_TECHNISCH = ['form_id', 'form_name', 'form_slug', 'form_version', 'form_type', 'nonce',
+    'referer', 'referrer', '_wp_http_referer', 'action', 'page_id', 'render_id', 'entry_id', 'current_url',
+    'site_url', 'ip', 'user_agent', 'value_labels'];
+
+  function _exportNorm(k) { return String(k || '').toLowerCase().replace(/[-_\s]+/g, '_'); }
+
+  function _exportPayload(sub) {
+    var raw = sub.source_payload;
+    var obj = raw;
+    if (obj && typeof obj !== 'object') { try { obj = JSON.parse(obj); } catch (e) { obj = null; } }
+    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return {};
+    var plat = {};
+    Object.keys(obj).forEach(function (k) {
+      if (EXPORT_CONTAINERS.indexOf(k) !== -1 || k === 'value_labels') return;
+      plat[k] = obj[k];
+    });
+    EXPORT_CONTAINERS.forEach(function (naam) {
+      var binnen = obj[naam];
+      if (!binnen || typeof binnen !== 'object' || Array.isArray(binnen)) return;
+      Object.keys(binnen).forEach(function (k) { if (plat[k] === undefined) plat[k] = binnen[k]; });
+    });
+    var lees = sub.display_values;
+    if (lees && typeof lees === 'object') {
+      Object.keys(lees).forEach(function (k) {
+        if (plat[k] !== undefined && typeof plat[k] !== 'object') plat[k] = lees[k];
+      });
+    }
+    return plat;
+  }
+
+  function _exportTekst(v) {
+    if (v == null) return '';
+    if (Array.isArray(v)) return v.map(_exportTekst).filter(Boolean).join(', ');
+    if (typeof v === 'object') {
+      return Object.keys(v).map(function (k) { return _exportTekst(v[k]); }).filter(Boolean).join(' ');
+    }
+    return String(v).trim();
+  }
+
+  function _exportSleutel(payload, fid) {
+    if (!fid) return null;
+    if (payload[fid] !== undefined) return fid;
+    var n = _exportNorm(fid);
+    var keys = Object.keys(payload);
+    return keys.find(function (k) { return _exportNorm(k) === n; }) ||
+           keys.find(function (k) { return _exportNorm(k).indexOf(n + '_') === 0; }) ||
+           null;
+  }
+
+  async function handleExportSubmissions(format) {
     var dlg = document.getElementById('exportSubmissionsDialog');
     var fromVal = document.getElementById('exportDateFrom') && document.getElementById('exportDateFrom').value;
     var toVal   = document.getElementById('exportDateTo')   && document.getElementById('exportDateTo').value;
 
-    var subs = (S().submissions || []).filter(function (s) {
+    var alle = S().submissions || [];
+    var integId = S().activeId;
+    if (integId) {
+      try {
+        var res = await window.FSV2.api('/integrations/' + integId + '/submissions?limit=5000');
+        if (res && Array.isArray(res.data)) alle = res.data;
+      } catch (e) { /* val terug op wat al geladen is */ }
+    }
+
+    var subs = alle.filter(function (s) {
       if (fromVal && s.created_at < fromVal) return false;
       // to-date: include the whole day (compare up to T23:59:59)
       if (toVal   && s.created_at.slice(0, 10) > toVal) return false;
       return true;
     });
 
-    var fieldMeta    = S()._fieldMeta || {};
+    var fieldMeta     = S()._fieldMeta || {};
     var allFormFields = Array.isArray(S().detailFormFields) ? S().detailFormFields : [];
-    var listFieldIds = Object.keys(fieldMeta).filter(function (k) { return fieldMeta[k] && fieldMeta[k].show_in_list; });
-    var listColumnsMap2 = {};
-    listFieldIds.forEach(function (fid) {
-      var ff    = allFormFields.find(function (f) { return String(f.field_id || '') === fid; });
-      var label = fieldMeta[fid].alias || (ff && ff.label) || fid;
-      if (!listColumnsMap2[label]) { listColumnsMap2[label] = { fids: [], label: label }; }
-      listColumnsMap2[label].fids.push(fid);
-    });
-    var listColumns  = Object.values(listColumnsMap2);
+    var SKIP_T = window.FSV2.SKIP_TYPES || ['page-break', 'group', 'html', 'section', 'captcha'];
 
-    function getPayloadVal(sub, fids) {
-      if (!Array.isArray(fids)) fids = [fids];
-      var raw = sub.source_payload;
-      var payload = (raw && typeof raw === 'object') ? raw : (function () { try { return JSON.parse(raw || '{}'); } catch (e) { return {}; } }());
-      // normalised lookup (same as lookupPayloadValue)
-      var norm = function (k) { return String(k || '').toLowerCase().replace(/[-_\s]+/g, '_'); };
-      var result = '';
-      for (var i = 0; i < fids.length; i++) {
-        var fid    = fids[i];
-        var normFid = norm(fid);
-        if (payload[fid] !== undefined && payload[fid] !== '') { result = payload[fid]; break; }
-        var keys = Object.keys(payload);
-        var m = keys.find(function (k) { return norm(k) === normFid && payload[k]; });
-        if (m) { result = payload[m]; break; }
-        var p = keys.find(function (k) { return norm(k).startsWith(normFid + '_') && payload[k]; });
-        if (p) { result = payload[p]; break; }
-      }
-      return result;
+    // Formuliervelden plat, samengestelde velden opengevouwen.
+    var velden = [];
+    allFormFields.forEach(function (f) {
+      var ftype = String(f.field_type || f.type || 'text');
+      var kinderen = Array.isArray(f.children) ? f.children : [];
+      if (SKIP_T.indexOf(ftype) !== -1 && !kinderen.length) return;
+      if (!kinderen.length) velden.push(f);
+      kinderen.forEach(function (k) { velden.push(k); });
+    });
+
+    var payloads = subs.map(_exportPayload);
+
+    // Kolommen: per label een kolom (hernoemde velden delen hun label).
+    var kolommen = [];
+    var perLabel = {};
+    var gedekt = {}; // genormaliseerde sleutels die al bij een kolom horen
+    function kolomVoor(label) {
+      if (!perLabel[label]) { perLabel[label] = { label: label, fids: [] }; kolommen.push(perLabel[label]); }
+      return perLabel[label];
     }
+    velden.forEach(function (f) {
+      var fid = String(f.field_id || '');
+      if (!fid) return;
+      var meta  = fieldMeta[fid] || {};
+      var label = String(meta.alias || '').trim() || String(f.label || '').trim() || fid;
+      kolomVoor(label).fids.push(fid);
+    });
+    // Welke payloadsleutels vallen al onder een formulierveld?
+    payloads.forEach(function (p) {
+      kolommen.forEach(function (c) {
+        c.fids.forEach(function (fid) {
+          var k = _exportSleutel(p, fid);
+          if (k) gedekt[k] = true;
+        });
+      });
+    });
+    // Alles wat ingevuld is maar (nog) geen formulierveld kent, toch mee.
+    payloads.forEach(function (p) {
+      Object.keys(p).forEach(function (k) {
+        if (gedekt[k]) return;
+        var n = _exportNorm(k);
+        if (EXPORT_TECHNISCH.indexOf(n) !== -1 || n.indexOf('meta_') === 0 || n.indexOf('_') === 0) return;
+        if (!_exportTekst(p[k])) return;
+        gedekt[k] = true;
+        var label = k;
+        if (fieldMeta[k] && String(fieldMeta[k].alias || '').trim()) label = String(fieldMeta[k].alias).trim();
+        kolomVoor(label).fids.push(k);
+      });
+    });
 
     var fixedHeaders = ['id', 'status', 'aangemaakt', 'fout'];
-    var headers = fixedHeaders.concat(listColumns.map(function (c) { return c.label; }));
+    var labels = kolommen.map(function (c) { return c.label; })
+      .map(function (l) { return fixedHeaders.indexOf(l) !== -1 ? l + ' (veld)' : l; });
+    var headers = fixedHeaders.concat(labels);
 
-    var rows = subs.map(function (s) {
+    var rows = subs.map(function (s, i) {
+      var p = payloads[i];
       var row = {
         id: window.FSV2.shortId(s.id),
         status: s.status || '',
         aangemaakt: window.FSV2.fmt(s.created_at),
         fout: s.last_error || '',
       };
-      listColumns.forEach(function (c) { row[c.label] = getPayloadVal(s, c.fids); });
+      kolommen.forEach(function (c, ci) {
+        var waarde = '';
+        for (var fi = 0; fi < c.fids.length && !waarde; fi++) {
+          var k = _exportSleutel(p, c.fids[fi]);
+          if (k) waarde = _exportTekst(p[k]);
+        }
+        row[labels[ci]] = waarde;
+      });
       return row;
     });
 
@@ -582,13 +680,13 @@
       var blob = new Blob([JSON.stringify(rows, null, 2)], { type: 'application/json' });
       _downloadBlob(blob, filename + '.json');
     } else if (format === 'csv') {
-      var csv = [headers.join(',')].concat(rows.map(function (r) {
+      var csv = [headers.map(function (h) { return '"' + String(h).replace(/"/g, '""') + '"'; }).join(',')].concat(rows.map(function (r) {
         return headers.map(function (h) {
           var v = String(r[h] !== undefined ? r[h] : '').replace(/"/g, '""');
           return '"' + v + '"';
         }).join(',');
       })).join('\r\n');
-      var blob2 = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+      var blob2 = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
       _downloadBlob(blob2, filename + '.csv');
     } else if (format === 'xlsx') {
       if (typeof XLSX === 'undefined') { window.FSV2.showAlert('XLSX-bibliotheek niet geladen.', 'error'); return; }

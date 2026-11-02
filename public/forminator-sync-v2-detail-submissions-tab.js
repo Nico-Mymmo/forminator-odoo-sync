@@ -111,10 +111,6 @@
         default:               return 1.5; // 'text' en onbekende/legacy Forminator-typen
       }
     };
-    var totaalGewicht = listColumns.reduce(function (som, c) { return som + gewichtKolom(c.field_type); }, 0) || 1;
-    var kolomBreedtePct = function (c) {
-      return (gewichtKolom(c.field_type) / totaalGewicht * 100).toFixed(1) + '%';
-    };
     var targets = (S().detail && S().detail.targets) || [];
     // Stapnummer zoals op het tabblad Koppeling: de POSITIE in de pijplijn, niet
     // execution_order. Dat volgnummer begint meestal al bij 1 (step.1.record_id),
@@ -969,6 +965,38 @@
     // toont sowieso alles.
     var vasteBreedte = function (rem) { return ' style="width:' + rem + 'rem"'; };
 
+    // Kolombreedte naar de INHOUD, niet enkel naar het veldtype. Gemeld
+    // 2026-11-02: een kolom met enkel een getal (bv. aantal kavels) kreeg
+    // evenveel procent als een tekstveld, en dus veel lege ruimte. Een kolom
+    // waarvan elke waarde kort is (getal, postcode, datum, ja/nee) krijgt nu
+    // een vaste, smalle breedte; de kop wordt dan afgekapt met de volledige
+    // naam in title. De overige kolommen delen de rest volgens gewichtKolom.
+    var KORT_MAX = 10;
+    listColumns.forEach(function (c) {
+      var max = 0;
+      ordered.forEach(function (item) {
+        var p = leesbarePayload(item.sub);
+        var v = '';
+        for (var fi = 0; fi < c.fids.length; fi++) {
+          v = lookupPayloadValue(p, c.fids[fi]);
+          if (v) break;
+        }
+        if (v && String(v).length > max) max = String(v).length;
+      });
+      c._maxLen = max;
+      c._kort = c.field_type !== 'textarea' && c.field_type !== 'paragraph' && max <= KORT_MAX;
+    });
+    var flexGewicht = listColumns.reduce(function (som, c) {
+      return c._kort ? som : som + gewichtKolom(c.field_type);
+    }, 0) || 1;
+    var kolomStijl = function (c) {
+      if (c._kort) {
+        var rem = Math.min(7.5, Math.max(4.5, c._maxLen * 0.55 + 1.5));
+        return 'width:' + rem.toFixed(2) + 'rem';
+      }
+      return 'width:' + (gewichtKolom(c.field_type) / flexGewicht * 100).toFixed(1) + '%';
+    };
+
     el.innerHTML =
       toolbar +
       '<div class="overflow-x-auto">' +
@@ -982,7 +1010,7 @@
             // de buurkolom heen. Afkappen met een ellips houdt de rij op één
             // hoogte; de volledige kop staat in title.
             listColumns.map(function (c) {
-              return '<th class="truncate" style="width:' + kolomBreedtePct(c) + '" title="' + esc(c.label) + '">' + esc(c.label) + '</th>';
+              return '<th class="truncate" style="' + kolomStijl(c) + '" title="' + esc(c.label) + '">' + esc(c.label) + '</th>';
             }).join('') +
             (hasMailStep ? '<th' + vasteBreedte(2.75) + ' class="whitespace-nowrap">Mail</th>' : '') +
             (anyHerkomst ? '<th' + vasteBreedte(7.5) + ' class="truncate" title="Waar de inzending vandaan kwam (advertentie, campagne, website)">Herkomst</th>' : '') +
