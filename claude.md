@@ -5598,11 +5598,15 @@ Link (Meta, URL-parameters van de advertentie):
   (Calendly), anders de verwijzer. Enkel weergave; de waarden zelf zijn mapbaar
   in het koppelingsscherm zoals altijd.
 - **In Odoo blijft het een Meta-lead.** De koppeling "Syndicoach - Calulator
-  Offerte" zet het kanaal op `syndicoach_contact_form`; een laatste stap
-  (update_only op `crm.lead`, zoekt op `id` = `step.3.record_id`) zet het op
+  Offerte" zet het kanaal op `syndicoach_contact_form`; stap 4, direct na de
+  lead (update_only op `crm.lead`, zoekt op `id` = `step.3.record_id`), zet het op
   `syndicoach_meta_lead_ad` als `meta_utm_source` `meta`, `facebook` of `fb`
   is. Bewust niet `ig`: dat is organisch Instagram. `meta` is de bron die
   marketing al gebruikte (utm_medium `paid`).
+- **Een stap "Alleen bijwerken" vraagt geen verplichte velden** (scherm:
+  default_fields worden niet ingevoegd in -detail-mapping-tab.js; server:
+  `getIntegrationWarnings()` slaat update_only over). Zo'n stap maakt nooit
+  iets aan.
 - In de sessie-SQL heetten twee kolommen `fu` (eerste UTM van de bezoeker en de
   popup-gegevens); de eerste heet nu `vu`. Tot dan deed stap 3 van `channelOf()`
   (de UTM op de bezoeker) niets.

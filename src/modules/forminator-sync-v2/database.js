@@ -1408,6 +1408,9 @@ export async function getIntegrationWarnings(env) {
     t.operation_type !== 'send_mail' &&
     t.operation_type !== 'mailing_list' &&
     t.operation_type !== 'search' &&
+    // update_only: maakt nooit iets aan, dus de velden die een NIEUW record
+    // vraagt, zijn hier niet verplicht.
+    t.operation_type !== 'update_only' &&
     // generate_pdf: odoo_model wijst hier enkel aan welk record het
     // ir.attachment krijgt (pdf_res_id_source); de mappings van deze stap
     // schrijven geen res.partner/crm.lead-velden, ze vullen een PAD in het

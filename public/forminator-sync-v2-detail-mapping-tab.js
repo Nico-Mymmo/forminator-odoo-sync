@@ -706,8 +706,14 @@
       // Inject ALL default_fields from model config — ALWAYS (idempotent: stamp existing, push missing).
       // Intentionally outside the init-guard: applyChainSuggestion pre-populates _extraRowsByTarget[tid]
       // before renderDetailMappings runs, so the guard is false and injection would be skipped otherwise.
+      //
+      // NIET bij "Alleen bijwerken": zo'n stap maakt nooit iets aan, dus de velden
+      // die een NIEUW record nodig heeft (naam, e-mail, merk, ...) zijn er niet
+      // verplicht. Ze verschenen als lege verplichte rijen en de kop zei
+      // "4 verplichte velden ontbreken" (2026-11-02, stap "Kanaal: Meta lead ad").
+      // Wat al gekoppeld is, blijft gewoon als vrije rij staan.
       var modelCfgForReq = window.FSV2.getModelCfg(model);
-      if (Array.isArray(modelCfgForReq.default_fields)) {
+      if (Array.isArray(modelCfgForReq.default_fields) && target.operation_type !== 'update_only') {
         // Fields in fixed_fields are auto-filled and must never appear in the table
         var _fixedNamesSet = {};
         (Array.isArray(modelCfgForReq.fixed_fields) ? modelCfgForReq.fixed_fields : []).forEach(function (f) {
