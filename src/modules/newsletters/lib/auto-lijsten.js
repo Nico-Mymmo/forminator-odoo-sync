@@ -18,6 +18,13 @@
  *     dan de helft eraf), doet niets en zegt waarom. Een fout in de selectie mag
  *     een lijst niet leegmaken. "Toch bijwerken" in het scherm forceert.
  *   - Het blacklisten en de bounces blijven van Odoo.
+ *   - Optioneel een filter op BEDRIJFSTYPE (`bedrijfstypes`: id's uit
+ *     x_company_type, 0 = bedrijf zonder type). Leeg/NULL = alle types.
+ *   - De ONDERTITEL (`omschrijving`) is van de OM en gaat naar
+ *     mailing.list.x_studio_description, bij het bewaren en bij elke ronde.
+ *     Wie hem in Odoo aanpast, ziet hem de volgende ochtend terugspringen.
+ *   - De CIJFERS (contacten, uitgeschreven, blacklist, bounces, mailings) komen
+ *     live uit Odoo (odooCijfers), er wordt niets van bewaard.
  */
 
 import { getCoreDb } from '../../../lib/core-db.js';
@@ -31,6 +38,11 @@ const STUK = 200;
 /** Meer dan dit deel eraf (en minstens MIN_WEG adressen) = eerst nakijken. */
 const MAX_WEG_DEEL = 0.5;
 const MIN_WEG = 25;
+const OMSCHRIJVING_VELD = 'x_studio_description';
+const CIJFER_VELDEN = [
+  'contact_count', 'contact_count_email', 'contact_count_opt_out', 'contact_count_blacklisted',
+  'contact_pct_opt_out', 'contact_pct_blacklisted', 'contact_pct_bounce', 'mailing_count',
+];
 
 // ─── Opslag ────────────────────────────────────────────────────────────────
 
@@ -65,7 +77,24 @@ async function normaliseer(env, invoer, bestaand = null) {
   }
   if (!statussen.length) throw new NewsletterError('Kies minstens een bedrijfsstatus.');
   const actief = invoer.actief !== undefined ? Boolean(invoer.actief) : (bestaand ? bestaand.actief : true);
-  return { naam, statussen, actief };
+  const omschrijving = invoer.omschrijving !== undefined
+    ? (String(invoer.omschrijving || '').replace(/\s+/g, ' ').trim() || null)
+    : (bestaand?.omschrijving ?? null);
+  if (omschrijving && omschrijving.length > 300) throw new NewsletterError('De ondertitel is te lang (max. 300 tekens).');
+  let bedrijfstypes = bestaand ? (bestaand.bedrijfstypes ?? null) : null;
+  if (invoer.bedrijfstypes !== undefined) {
+    if (invoer.bedrijfstypes === null) {
+      bedrijfstypes = null;
+    } else {
+      const bekend = [0, ...(await bedrijfsTypes(env)).map((t) => t.id)];
+      bedrijfstypes = [...new Set((Array.isArray(invoer.bedrijfstypes) ? invoer.bedrijfstypes : []).map(Number))];
+      if (bedrijfstypes.some((t) => !bekend.includes(t))) throw new NewsletterError('Onbekend bedrijfstype.');
+      if (!bedrijfstypes.length) throw new NewsletterError('Kies minstens een bedrijfstype.');
+      // Alles aangevinkt = geen filter: een nieuw type in Odoo telt dan vanzelf mee.
+      if (bekend.every((t) => bedrijfstypes.includes(t))) bedrijfstypes = null;
+    }
+  }
+  return { naam, statussen, actief, omschrijving, bedrijfstypes };
 }
 
 export async function maakAutoLijst(env, invoer, doorNaam) {
@@ -83,12 +112,14 @@ export async function bewaarAutoLijst(env, id, invoer, doorNaam) {
   const rij = await normaliseer(env, invoer, bestaand);
   const { error } = await getCoreDb(env).from(TABEL).update({ ...rij, door_naam: doorNaam || null }).eq('id', id);
   if (error) throw new NewsletterError('Bewaren mislukt: ' + error.message, 500);
-  // Een andere naam: ook de lijst in Odoo hernoemen, anders zoekt niemand ze terug.
-  if (bestaand.odoo_list_id && rij.naam !== bestaand.naam) {
+  // Naam en ondertitel meteen ook in Odoo, anders zoekt niemand de lijst terug.
+  const values = { [OMSCHRIJVING_VELD]: rij.omschrijving || false };
+  if (rij.naam !== bestaand.naam) values.name = rij.naam;
+  if (bestaand.odoo_list_id) {
     try {
-      await write(env, { model: 'mailing.list', ids: [bestaand.odoo_list_id], values: { name: rij.naam } });
+      await write(env, { model: 'mailing.list', ids: [bestaand.odoo_list_id], values });
     } catch (err) {
-      console.warn(`${LOG_PREFIX} lijst ${bestaand.odoo_list_id} niet hernoemd:`, err?.message);
+      console.warn(`${LOG_PREFIX} lijst ${bestaand.odoo_list_id} niet bijgewerkt in Odoo:`, err?.message);
     }
   }
   return getAutoLijst(env, id);
@@ -117,6 +148,27 @@ export async function companyStatussen(env) {
   return statusMemo.lijst;
 }
 
+let typeMemo = { at: 0, lijst: null };
+
+/** De bedrijfstypes (x_company_type: VME, VME in beheer, Professioneel Syndicus), uit Odoo. */
+export async function bedrijfsTypes(env) {
+  if (typeMemo.lijst && Date.now() - typeMemo.at < 10 * 60 * 1000) return typeMemo.lijst;
+  const rijen = await searchRead(env, { model: 'x_company_type', domain: [], fields: ['x_name'], order: 'id asc', limit: 50 });
+  typeMemo = { at: Date.now(), lijst: (rijen || []).map((r) => ({ id: r.id, label: r.x_name })) };
+  return typeMemo.lijst;
+}
+
+/** Het stukje domein voor de bedrijfstypes (leeg = geen filter). */
+function typeDomein(bedrijfstypes) {
+  if (!Array.isArray(bedrijfstypes) || !bedrijfstypes.length) return [];
+  const ids = bedrijfstypes.filter((t) => t > 0);
+  const zonder = bedrijfstypes.includes(0);
+  if (ids.length && zonder) {
+    return ['|', ['parent_id.x_studio_company_type', 'in', ids], ['parent_id.x_studio_company_type', '=', false]];
+  }
+  return zonder ? [['parent_id.x_studio_company_type', '=', false]] : [['parent_id.x_studio_company_type', 'in', ids]];
+}
+
 async function alles(env, opties) {
   const uit = [];
   for (let offset = 0; ; offset += PAGINA) {
@@ -132,12 +184,13 @@ function herleid(email) {
 }
 
 /** Wie er volgens de regel op hoort: Map(adres -> { naam, bedrijf }). */
-async function gewenst(env, statussen) {
+async function gewenst(env, statussen, bedrijfstypes) {
   const partners = await alles(env, {
     model: 'res.partner',
     domain: [
       ['is_company', '=', false], ['active', '=', true], ['email', '!=', false],
       ['parent_id.is_company', '=', true], ['parent_id.x_studio_company_status', 'in', statussen],
+      ...typeDomein(bedrijfstypes),
     ],
     fields: ['name', 'email', 'parent_id'],
   });
@@ -154,17 +207,23 @@ async function gewenst(env, statussen) {
 async function zorgVoorLijst(env, regel) {
   if (regel.odoo_list_id) {
     const l = (await searchRead(env, {
-      model: 'mailing.list', domain: [['id', '=', regel.odoo_list_id]], fields: ['id', 'active'], limit: 1, context: { active_test: false },
+      model: 'mailing.list', domain: [['id', '=', regel.odoo_list_id]], fields: ['id', 'active', OMSCHRIJVING_VELD], limit: 1, context: { active_test: false },
     }))?.[0];
     if (l) {
-      if (!l.active) await write(env, { model: 'mailing.list', ids: [l.id], values: { active: true } });
+      const values = {};
+      if (!l.active) values.active = true;
+      if ((l[OMSCHRIJVING_VELD] || null) !== (regel.omschrijving || null)) values[OMSCHRIJVING_VELD] = regel.omschrijving || false;
+      if (Object.keys(values).length) await write(env, { model: 'mailing.list', ids: [l.id], values });
       return l.id;
     }
   }
   let l = (await searchRead(env, {
     model: 'mailing.list', domain: [['name', '=', regel.naam]], fields: ['id'], limit: 1, context: { active_test: false },
   }))?.[0];
-  const id = l ? l.id : Number(await create(env, { model: 'mailing.list', values: { name: regel.naam, is_public: false } }));
+  const id = l ? l.id : Number(await create(env, {
+    model: 'mailing.list', values: { name: regel.naam, is_public: false, [OMSCHRIJVING_VELD]: regel.omschrijving || false },
+  }));
+  if (l && regel.omschrijving) await write(env, { model: 'mailing.list', ids: [id], values: { [OMSCHRIJVING_VELD]: regel.omschrijving } });
   await getCoreDb(env).from(TABEL).update({ odoo_list_id: id }).eq('id', regel.id);
   return id;
 }
@@ -179,7 +238,7 @@ export async function werkAutoLijstBij(env, id, { forceer = false } = {}) {
   let resultaat;
   try {
     const listId = await zorgVoorLijst(env, regel);
-    const wil = await gewenst(env, regel.statussen || []);
+    const wil = await gewenst(env, regel.statussen || [], regel.bedrijfstypes);
 
     // Wie er nu op staat, via de inschrijvingen (daar staat opt_out).
     const subs = await alles(env, {
@@ -242,6 +301,36 @@ export async function werkAutoLijstBij(env, id, { forceer = false } = {}) {
   resultaat.duur_ms = Date.now() - start;
   await getCoreDb(env).from(TABEL).update({ laatste_ronde_at: new Date().toISOString(), laatste_resultaat: resultaat }).eq('id', id);
   return resultaat;
+}
+
+/**
+ * De cijfers van de lijsten zoals Odoo ze op de lijst toont, live:
+ * { [listId]: { contacten, met_email, uitgeschreven, blacklist, pct_*, mailings } }.
+ * Faalt nooit naar buiten: zonder Odoo gewoon geen cijfers.
+ */
+export async function odooCijfers(env, listIds) {
+  const ids = [...new Set((listIds || []).map(Number).filter((n) => n > 0))];
+  if (!ids.length) return {};
+  try {
+    const rijen = await searchRead(env, { model: 'mailing.list', domain: [['id', 'in', ids]], fields: CIJFER_VELDEN, limit: ids.length });
+    const uit = {};
+    for (const r of rijen || []) {
+      uit[r.id] = {
+        contacten: r.contact_count || 0,
+        met_email: r.contact_count_email || 0,
+        uitgeschreven: r.contact_count_opt_out || 0,
+        blacklist: r.contact_count_blacklisted || 0,
+        pct_uitgeschreven: r.contact_pct_opt_out || 0,
+        pct_blacklist: r.contact_pct_blacklisted || 0,
+        pct_bounce: r.contact_pct_bounce || 0,
+        mailings: r.mailing_count || 0,
+      };
+    }
+    return uit;
+  } catch (err) {
+    console.warn(`${LOG_PREFIX} cijfers van de lijsten niet gelezen:`, err?.message);
+    return {};
+  }
 }
 
 /** Elke dag een keer (cron.js), voor elke actieve lijst. */

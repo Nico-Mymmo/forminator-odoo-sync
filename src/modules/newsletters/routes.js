@@ -45,7 +45,7 @@ import { sendSystemChannelMessage, listChannels } from '../mini-apps/lib/chat.js
 import { searchRead } from '../../lib/odoo.js';
 import { checklist } from './lib/checklist.js';
 import {
-  listAutoLijsten, maakAutoLijst, bewaarAutoLijst, verwijderAutoLijst, werkAutoLijstBij, companyStatussen,
+  listAutoLijsten, maakAutoLijst, bewaarAutoLijst, verwijderAutoLijst, werkAutoLijstBij, companyStatussen, odooCijfers, bedrijfsTypes,
 } from './lib/auto-lijsten.js';
 
 function json(body, status = 200) {
@@ -1560,12 +1560,15 @@ export const routes = {
 
   // ─── Automatische lijsten (lib/auto-lijsten.js) ─────────────────────────
 
-  /** De automatische lijsten met hun laatste ronde, en de bedrijfsstatussen uit Odoo. */
+  /** De automatische lijsten met hun laatste ronde en hun cijfers uit Odoo, en de bedrijfsstatussen. */
   'GET /api/auto-lijsten': async ({ env, user }) => {
     try {
       if (!isHoofdredactie(user)) throw new NewsletterError('Enkel de hoofdredactie beheert de automatische lijsten.', 403);
-      const [lijsten, statussen] = await Promise.all([listAutoLijsten(env), companyStatussen(env).catch(() => [])]);
-      return json({ success: true, data: { lijsten, statussen } });
+      const [lijsten, statussen, types] = await Promise.all([
+        listAutoLijsten(env), companyStatussen(env).catch(() => []), bedrijfsTypes(env).catch(() => []),
+      ]);
+      const cijfers = await odooCijfers(env, lijsten.map((l) => l.odoo_list_id));
+      return json({ success: true, data: { lijsten: lijsten.map((l) => ({ ...l, cijfers: cijfers[l.odoo_list_id] || null })), statussen, types } });
     } catch (err) { return fout(err); }
   },
 

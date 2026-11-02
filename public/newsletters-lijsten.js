@@ -10,7 +10,7 @@
   'use strict';
   var NB = window.NB;
   var e = NB.esc;
-  var st = { lijsten: [], statussen: [], bezig: null };
+  var st = { lijsten: [], statussen: [], types: [], bezig: null };
 
   function datum(iso) {
     if (!iso) return '';
@@ -23,6 +23,16 @@
     if (!st.statussen.length) return '<p class="text-sm opacity-60">De bedrijfsstatussen konden niet uit Odoo gelezen worden.</p>';
     return '<div class="flex flex-wrap gap-x-5 gap-y-1">' + st.statussen.map(function (s) {
       return '<label class="label cursor-pointer justify-start gap-2 py-1"><input type="checkbox" class="checkbox checkbox-sm" data-lijst-status="' + e(sleutel) + '" value="' + e(s.value) + '"' + (gekozen.indexOf(s.value) >= 0 ? ' checked' : '') + '><span class="label-text">' + e(s.label) + '</span></label>';
+    }).join('') + '</div>';
+  }
+
+  /** Bedrijfstypes; niets bewaard (null) = alles aangevinkt. 0 = bedrijf zonder type. */
+  function typeVinkjes(sleutel, gekozen) {
+    if (!st.types.length) return '<p class="text-sm opacity-60">De bedrijfstypes konden niet uit Odoo gelezen worden.</p>';
+    var alles = !Array.isArray(gekozen);
+    var opties = st.types.concat([{ id: 0, label: 'Zonder bedrijfstype' }]);
+    return '<div class="flex flex-wrap gap-x-5 gap-y-1">' + opties.map(function (t) {
+      return '<label class="label cursor-pointer justify-start gap-2 py-1"><input type="checkbox" class="checkbox checkbox-sm" data-lijst-type="' + e(sleutel) + '" value="' + e(t.id) + '"' + (alles || gekozen.indexOf(t.id) >= 0 ? ' checked' : '') + '><span class="label-text">' + e(t.label) + '</span></label>';
     }).join('') + '</div>';
   }
 
@@ -40,6 +50,37 @@
       + (r.uitgeschreven ? ', ' + e(r.uitgeschreven) + ' uitgeschreven' : '') + ').</p>';
   }
 
+  function pct(x) {
+    var n = Number(x) || 0;
+    return (n > 0 && n < 0.1 ? '<0,1' : n.toLocaleString('nl-BE', { maximumFractionDigits: 1 })) + '%';
+  }
+
+  /** De cijfers die Odoo op de lijst toont, live gelezen. */
+  function cijfers(l) {
+    var c = l.cijfers;
+    if (!l.odoo_list_id) return '';
+    if (!c) return '<p class="text-xs opacity-60">De cijfers konden niet uit Odoo gelezen worden.</p>';
+    var tegels = [
+      { label: 'Contacten', waarde: c.contacten, uitleg: 'Iedereen op de lijst, ook uitgeschreven en geblokkeerd.' },
+      { label: 'Bereikbaar', waarde: c.met_email, uitleg: 'Zoveel adressen krijgen een mail: niet uitgeschreven en niet op de blacklist.' },
+      { label: 'Uitgeschreven', waarde: c.uitgeschreven, sub: pct(c.pct_uitgeschreven), uitleg: 'Schreven zich uit voor deze lijst. De OM laat ze staan, uitgeschreven.' },
+      { label: 'Blacklist', waarde: c.blacklist, sub: pct(c.pct_blacklist), uitleg: 'Adressen die nergens meer mail krijgen (uitgeschreven voor alles, of geblokkeerd in Odoo).' },
+      { label: 'Bounces', waarde: pct(c.pct_bounce), uitleg: 'Deel van de adressen waarvan een mail terugkwam.' },
+      { label: 'Mailings', waarde: c.mailings, uitleg: 'Zoveel mailings in Odoo gingen al naar deze lijst.' },
+    ];
+    return '<div class="grid grid-cols-3 md:grid-cols-6 gap-2">' + tegels.map(function (t) {
+      return '<div class="rounded-lg bg-base-200 px-3 py-2" title="' + e(t.uitleg) + '"><div class="text-xs opacity-60">' + e(t.label) + '</div>'
+        + '<div class="text-lg font-semibold leading-tight">' + e(typeof t.waarde === 'number' ? t.waarde.toLocaleString('nl-BE') : t.waarde)
+        + (t.sub ? ' <span class="text-xs font-normal opacity-60">' + e(t.sub) + '</span>' : '') + '</div></div>';
+    }).join('') + '</div>';
+  }
+
+  function ondertitelVeld(id, waarde) {
+    return '<label class="form-control"><span class="label-text mb-1">Ondertitel</span>'
+      + '<input class="input input-bordered input-sm" data-lijst-omschrijving="' + e(id) + '" maxlength="300" value="' + e(waarde || '') + '" placeholder="Waarvoor dient deze lijst?">'
+      + '<span class="label-text-alt opacity-60 mt-1">Staat in Odoo als beschrijving bij de lijst.</span></label>';
+  }
+
   function kaart(l) {
     var bezig = st.bezig === l.id;
     return '<div class="card bg-base-100 border border-base-content/10"><div class="card-body p-5 gap-3">'
@@ -47,7 +88,10 @@
       + '<label class="form-control flex-1 min-w-[220px]"><span class="label-text mb-1">Naam van de lijst in Odoo</span><input class="input input-bordered input-sm" data-lijst-naam="' + e(l.id) + '" value="' + e(l.naam) + '"></label>'
       + '<label class="label cursor-pointer gap-2"><input type="checkbox" class="toggle toggle-sm toggle-primary" data-lijst-actief="' + e(l.id) + '"' + (l.actief ? ' checked' : '') + '><span class="label-text">Elke dag bijwerken</span></label>'
       + '</div>'
+      + ondertitelVeld(l.id, l.omschrijving)
       + '<div><span class="label-text">Contactpersonen onder bedrijven met status</span>' + statusVinkjes(l.id, l.statussen || []) + '</div>'
+      + '<div><span class="label-text">En met bedrijfstype</span>' + typeVinkjes(l.id, l.bedrijfstypes) + '</div>'
+      + cijfers(l)
       + ronde(l)
       + '<div class="flex flex-wrap gap-2">'
       + '<button class="btn btn-sm btn-primary" data-action="lijst-bewaar" data-id="' + e(l.id) + '">Bewaren</button>'
@@ -66,7 +110,9 @@
       + '<div class="flex flex-col gap-4">' + st.lijsten.map(kaart).join('')
       + '<div class="card bg-base-100 border border-dashed border-base-content/20"><div class="card-body p-5 gap-3"><h2 class="font-semibold">Nieuwe automatische lijst</h2>'
       + '<label class="form-control"><span class="label-text mb-1">Naam</span><input class="input input-bordered input-sm" data-lijst-naam="nieuw" placeholder="Bv. Betalende klanten"></label>'
+      + ondertitelVeld('nieuw', '')
       + '<div><span class="label-text">Contactpersonen onder bedrijven met status</span>' + statusVinkjes('nieuw', []) + '</div>'
+      + '<div><span class="label-text">En met bedrijfstype</span>' + typeVinkjes('nieuw', null) + '</div>'
       + '<div><button class="btn btn-sm btn-primary" data-action="lijst-nieuw">Toevoegen</button></div>'
       + '</div></div></div></div>';
     NB.ikons();
@@ -76,7 +122,12 @@
     var naam = document.querySelector('[data-lijst-naam="' + id + '"]');
     var actief = document.querySelector('[data-lijst-actief="' + id + '"]');
     var statussen = Array.prototype.slice.call(document.querySelectorAll('[data-lijst-status="' + id + '"]:checked')).map(function (x) { return x.value; });
-    var uit = { naam: naam ? naam.value : '', statussen: statussen };
+    var omschrijving = document.querySelector('[data-lijst-omschrijving="' + id + '"]');
+    var typeVakjes = document.querySelectorAll('[data-lijst-type="' + id + '"]');
+    var uit = { naam: naam ? naam.value : '', omschrijving: omschrijving ? omschrijving.value : '', statussen: statussen };
+    if (typeVakjes.length) {
+      uit.bedrijfstypes = Array.prototype.slice.call(typeVakjes).filter(function (x) { return x.checked; }).map(function (x) { return Number(x.value); });
+    }
     if (actief) uit.actief = actief.checked;
     return uit;
   }
@@ -85,6 +136,7 @@
     var d = await NB.api('/api/auto-lijsten');
     st.lijsten = d.lijsten || [];
     st.statussen = d.statussen || [];
+    st.types = d.types || [];
   }
 
   NB.views.lijsten = async function () {

@@ -4322,6 +4322,16 @@ Freemium Gebruikers = `Free Trial` + `Inactive` (in de migratie gezet).
   fout in de selectie mag geen lijst leegmaken.
 - De statussen komen uit Odoo (`ir.model.fields.selection`), niet uit een kopie.
 - Weghalen in de OM = enkel de instelling; de lijst blijft in Odoo staan.
+- **Bedrijfstype** (`bedrijfstypes`, migratie `0021`): id's uit `x_company_type`
+  (VME, VME in beheer, Professioneel Syndicus) van het BEDRIJF, 0 = bedrijf
+  zonder type. NULL = alle types; alles aanvinken bewaart NULL, zodat een nieuw
+  type in Odoo vanzelf meetelt.
+- **De ondertitel** (`omschrijving`, migratie `0021`) is van de OM en gaat naar
+  `mailing.list.x_studio_description`, bij het bewaren en bij elke ronde: wie
+  hem in Odoo aanpast, ziet hem de volgende ochtend terugspringen.
+- **De cijfers** (contacten, bereikbaar, uitgeschreven, blacklist, bounces,
+  mailings) leest het scherm LIVE uit Odoo (`odooCijfers()`, de velden die Odoo
+  zelf op de lijst toont). Er wordt niets van bewaard.
 
 ## Nieuwsbrief: rechts enkel instellingen, titelblok, kort nieuws (2026-10-15)
 
