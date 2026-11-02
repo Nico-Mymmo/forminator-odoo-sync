@@ -34,7 +34,7 @@
 (function () {
   'use strict';
 
-  var C = { v: 0, start: 1, dur: 2, site: 3, ch: 4, det: 5, pages: 6, offs: 7, flags: 8, dev: 9, scroll: 10, clicks: 11, acts: 12, reo: 13, fun: 14 };
+  var C = { v: 0, start: 1, dur: 2, site: 3, ch: 4, det: 5, pages: 6, offs: 7, flags: 8, dev: 9, scroll: 10, clicks: 11, acts: 12, reo: 13, fun: 14, ad: 15 };
   // Een AANVRAAG = formulier (64) of Calendly-boeking (128). Events, nieuwsbrief,
   // academy en registratie zijn eigen acties (zie de vlaggen in lib/behaviour.js).
   var CONV = 64 | 128;
@@ -107,7 +107,7 @@
   var st = {
     period: '30d', data: null, F: null, loading: false, chart: null, metric: 'sessions', showTable: false,
     // purpose: 'prospect' (standaard) | 'customer' | 'all'. Klant = vanaf de eerste login (web-visits.js).
-    f: { site: null, ch: null, det: null, land: null, visited: null, dev: null, who: 'all', conv: 'all', eng: 'all', visit: 'all', purpose: 'prospect' },
+    f: { site: null, ch: null, det: null, ad: null, land: null, visited: null, dev: null, who: 'all', conv: 'all', eng: 'all', visit: 'all', purpose: 'prospect' },
     pins: {},           // vooruit: stap (0-based) -> token (pagina >= 0, actie < 0)
     bpins: {},          // naar het doel: afstand (1 = vlak ervoor, 0 = het doel, -1 = daarna) -> token
     ppins: {},          // rond een pagina: afstand (1 = vlak ervoor, 0 = de pagina, -1 = vlak erna) -> token
@@ -139,7 +139,7 @@
   // localStorage kan ontbreken (privévenster, geblokkeerde site-data): dan werkt
   // alles gewoon, enkel zonder geheugen.
   var STORE_KEY = 'webgedrag.gedrag.v1';
-  var NAMED = { site: 'site', ch: 'ch', det: 'det', dev: 'dev', land: 'p', visited: 'p' };
+  var NAMED = { site: 'site', ch: 'ch', det: 'det', ad: 'ad', dev: 'dev', land: 'p', visited: 'p' };
   var SCALAR = ['purpose', 'who', 'conv', 'eng', 'visit'];
   var pendingNames = null;
 
@@ -154,7 +154,7 @@
   function applyNames(names) {
     if (!names || !st.data) return;
     Object.keys(NAMED).forEach(function (k) {
-      if (names[k] === undefined) { st.f[k] = null; return; }
+      if (names[k] === undefined || !st.data.dict[NAMED[k]]) { st.f[k] = null; return; }
       var i = st.data.dict[NAMED[k]].indexOf(names[k]);
       st.f[k] = i >= 0 ? i : null;
     });
@@ -359,6 +359,7 @@
     if (f.site !== null && s[C.site] !== f.site) return false;
     if (f.ch !== null && s[C.ch] !== f.ch) return false;
     if (f.det !== null && s[C.det] !== f.det) return false;
+    if (f.ad != null && s[C.ad] !== f.ad) return false;
     if (f.dev !== null && s[C.dev] !== f.dev) return false;
     if (f.land !== null && path(s)[0] !== f.land) return false;
     if (f.visited !== null && path(s).indexOf(f.visited) < 0) return false;
@@ -2572,6 +2573,47 @@
       + '<div class="col-span-2 h-1.5 rounded-full om-spoor overflow-hidden mt-0.5 mb-1.5"><div class="h-full rounded-full" style="width:' + p.toFixed(1) + '%;background-color:' + (warn ? 'oklch(var(--er) / 0.7)' : ACCENT) + '"></div></div>'
       + '</div>';
   }
+  // ── Per advertentie ─────────────────────────────────────────────────────────
+  // De advertentie is utm_content op de landingspagina (bij Meta {{ad.name}} in de
+  // link), kolom 15 / dict.ad uit web-story/lib/behaviour.js. Over het segment, dus
+  // met Kanaal = Betaalde social zie je enkel de Meta-advertenties. Klik = filter.
+  function renderAds(cur) {
+    var el = $('bhAds');
+    if (!el) return;
+    var g = {};
+    cur.forEach(function (s) {
+      var a = s[C.ad];
+      if (a === undefined || a < 0) return;
+      var e = g[a] || (g[a] = { a: a, n: 0, conv: 0, off: 0, ch: s[C.ch], det: s[C.det] });
+      e.n++;
+      if (converted(s)) e.conv++;
+      if (s[C.flags] & st.F.offerte) e.off++;
+    });
+    var rows = Object.keys(g).map(function (k) { return g[k]; }).sort(function (x, y) { return y.n - x.n || y.conv - x.conv; });
+    if (!rows.length) {
+      el.innerHTML = '<p class="text-sm text-base-content/60">Geen bezoeken met een advertentienaam in dit segment. '
+        + 'De naam komt uit <code>utm_content</code> in de link van de advertentie (bij Meta: <code>utm_content={{ad.name}}</code>).</p>';
+      return;
+    }
+    var MAX = 30;
+    el.innerHTML = '<div class="overflow-x-auto"><table class="table table-sm"><thead><tr>'
+      + '<th>Advertentie</th><th>Kanaal en campagne</th><th class="text-right">Bezoeken</th><th class="text-right">Aanvragen</th>'
+      + '<th class="text-right">Offertes</th><th class="text-right" title="Deel van de bezoeken met een aanvraag">Aanvraag</th>'
+      + '</tr></thead><tbody>'
+      + rows.slice(0, MAX).map(function (r) {
+          var on = st.f.ad === r.a, ch = d('ch', r.ch) || '';
+          return '<tr class="hover cursor-pointer' + (on ? ' bg-primary/5' : '') + '" data-bh-action="filter" data-key="ad" data-value="' + r.a + '"'
+            + ' title="' + esc(on ? 'Klik om deze filter weg te halen' : 'Klik om op deze advertentie te filteren') + '">'
+            + '<td class="max-w-[18rem] truncate font-medium">' + esc(d('ad', r.a)) + '</td>'
+            + '<td class="max-w-[18rem]"><span class="flex items-center gap-1.5 min-w-0">' + dot(chColor(ch)) + '<span class="truncate text-base-content/70">'
+            +   esc(ch) + (r.det >= 0 ? ' · ' + esc(d('det', r.det)) : '') + '</span></span></td>'
+            + '<td class="text-right">' + nf(r.n) + '</td><td class="text-right">' + nf(r.conv) + '</td><td class="text-right">' + nf(r.off) + '</td>'
+            + '<td class="text-right">' + pctTxt(r.n ? r.conv / r.n * 100 : null) + '</td></tr>';
+        }).join('')
+      + '</tbody></table></div>'
+      + (rows.length > MAX ? '<p class="text-xs text-base-content/50 mt-1">' + nf(rows.length - MAX) + ' advertenties met minder bezoeken staan er niet bij.</p>' : '');
+  }
+
   function renderForms(cur) {
     var el = $('bhForms');
     if (!el) return;
@@ -2785,7 +2827,9 @@
       return dot(chColor(ch)) + '<span class="truncate" title="' + esc('Zelfde klik-id als de advertentieklik van ' + dayTxt(s[C.reo]) + '. Geen nieuwe klik: dezelfde link werd opnieuw geopend (bladwijzer, adresbalk, herstelde tab). Telt als Direct.') + '">'
         + 'Direct · heropende advertentielink, geklikt op ' + esc(dayTxt(s[C.reo])) + '</span>';
     }
-    return dot(chColor(ch)) + '<span class="truncate">' + esc(ch) + (det ? ' · ' + esc(short(det, 30)) : '') + '</span>'
+    var ad = s[C.ad] >= 0 ? d('ad', s[C.ad]) : '';
+    return dot(chColor(ch)) + '<span class="truncate"' + (ad ? ' title="' + esc('Advertentie: ' + ad) + '"' : '') + '>' + esc(ch) + (det ? ' · ' + esc(short(det, 30)) : '')
+      + (ad ? ' · <span class="font-medium">' + esc(short(ad, 30)) + '</span>' : '') + '</span>'
       + (s[C.flags] & st.F.klikOnbekend ? ' <span class="badge badge-xs badge-ghost shrink-0" title="Van vóór 29 september: of dit een nieuwe advertentieklik was of dezelfde link opnieuw geopend, is niet bewaard.">oude historiek</span>' : '');
   }
 
@@ -2942,7 +2986,7 @@
 
   /** Zoeken in de lijst: e-mailadres, een pagina uit de route, het kanaal of de bron/campagne. */
   function sesMatch(s, q) {
-    var hay = [personLabel(s) || '', d('ch', s[C.ch]) || '', d('det', s[C.det]) || ''];
+    var hay = [personLabel(s) || '', d('ch', s[C.ch]) || '', d('det', s[C.det]) || '', (s[C.ad] >= 0 && d('ad', s[C.ad])) || ''];
     path(s).forEach(function (t) { hay.push(d('p', t) || ''); });
     for (var i = 0; i < hay.length; i++) if (String(hay[i]).toLowerCase().indexOf(q) >= 0) return true;
     return false;
@@ -3014,7 +3058,8 @@
     st.data.sessions.forEach(function (s) {
       if (s[C.flags] & st.F.previous) return;
       var v = key === 'land' ? path(s)[0] : s[C[key] !== undefined ? C[key] : C.det];
-      if (key === 'det' && st.f.ch !== null && s[C.ch] !== st.f.ch) return;
+      if ((key === 'det' || key === 'ad') && st.f.ch !== null && s[C.ch] !== st.f.ch) return;
+      if (key === 'ad' && st.f.det !== null && s[C.det] !== st.f.det) return;
       if (v === undefined || v < 0) return;
       m[v] = (m[v] || 0) + 1;
     });
@@ -3029,7 +3074,7 @@
   // Er staat nooit twee keer hetzelfde woord zonder label erboven: dat was het
   // probleem van de eerste versie ("Iedereen" stond er twee keer, in twee groepen).
 
-  var DEFAULTS = { site: null, ch: null, det: null, land: null, visited: null, dev: null, who: 'all', conv: 'all', eng: 'all', visit: 'all', purpose: 'prospect' };
+  var DEFAULTS = { site: null, ch: null, det: null, ad: null, land: null, visited: null, dev: null, who: 'all', conv: 'all', eng: 'all', visit: 'all', purpose: 'prospect' };
 
   function groupLabel(text, help) {
     return '<div class="text-[11px] font-semibold uppercase tracking-wide text-base-content/50 mb-1 flex items-center gap-1">' + esc(text)
@@ -3072,6 +3117,7 @@
       case 'site': return 'Website: ' + d('site', f.site);
       case 'ch': return 'Kanaal: ' + d('ch', f.ch);
       case 'det': return 'Bron: ' + short(d('det', f.det) || '', 36);
+      case 'ad': return 'Advertentie: ' + short(d('ad', f.ad) || '', 36);
       case 'land': return 'Instap: ' + short(pageName(f.land), 36);
       case 'visited': return 'Bekeken: ' + short(pageName(f.visited), 36);
       case 'dev': return 'Toestel: ' + (DEV_LABELS[d('dev', f.dev)] || d('dev', f.dev));
@@ -3118,7 +3164,10 @@
       + '</div>'
       // 3. verfijn
       + '<div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-4 border-t border-base-content/10 lg:gap-2 lg:pt-3">'
-      +   select('ch', 'Kanaal', 'ch') + select('det', 'Bron of campagne', 'det') + select('land', 'Instappagina', 'p') + select('dev', 'Toestel', 'dev')
+      +   select('ch', 'Kanaal', 'ch') + select('det', 'Bron of campagne', 'det')
+      // Enkel als er in deze periode bezoeken met een advertentienaam (utm_content) zijn.
+      +   (st.data.dict.ad && st.data.dict.ad.length ? select('ad', 'Advertentie', 'ad') : '')
+      +   select('land', 'Instappagina', 'p') + select('dev', 'Toestel', 'dev')
       + '</div>'
       // 4. wat staat er aan
       + (keys.length
@@ -3150,6 +3199,7 @@
     else if (st.data.dict.site.length > 1) w.push(st.data.dict.site.length === 2 ? 'op beide websites' : 'op alle ' + st.data.dict.site.length + ' websites');
     if (f.ch !== null) w.push('via ' + d('ch', f.ch));
     if (f.det !== null) w.push('(' + d('det', f.det) + ')');
+    if (f.ad != null) w.push('van advertentie "' + d('ad', f.ad) + '"');
     if (f.land !== null) w.push('die begonnen op ' + short(pageName(f.land), 40));
     if (f.visited !== null) w.push('die ' + short(pageName(f.visited), 40) + ' bekeken');
     if (f.dev !== null) w.push('op ' + (DEV_LABELS[d('dev', f.dev)] || d('dev', f.dev)).toLowerCase());
@@ -3175,6 +3225,7 @@
     renderPages(p.cur);
     renderSessions(p.cur);
     renderForms(p.cur);
+    renderAds(p.cur);
     renderScope(p.cur);
     var notes = [];
     if (st.f.purpose === 'prospect') {
@@ -3290,7 +3341,11 @@
     else if (a === 'seg-toggle') { var sk = el.dataset.key; st.f[sk] = st.f[sk] === v ? DEFAULTS[sk] : v; }
     else if (a === 'filter') { var k = el.dataset.key, n = Number(v); st.f[k] = st.f[k] === n ? null : n; }
     else if (a === 'reset') { st.f = Object.assign({}, DEFAULTS); clearPins(); }
-    else if (a === 'clear') { st.f[el.dataset.key] = DEFAULTS[el.dataset.key]; if (el.dataset.key === 'ch') st.f.det = null; }
+    else if (a === 'clear') {
+      st.f[el.dataset.key] = DEFAULTS[el.dataset.key];
+      if (el.dataset.key === 'ch') { st.f.det = null; st.f.ad = null; }
+      if (el.dataset.key === 'det') st.f.ad = null;
+    }
     else if (a === 'site') { st.f.site = v === '' ? null : Number(v); }
     else if (a === 'pin') {
       // Wat je net vastzette, komt onder de loep; losmaken geeft de diepste speld terug.
@@ -3409,7 +3464,8 @@
     if (!el) return;
     var k = el.dataset.bhSelect;
     st.f[k] = el.value === '' ? null : Number(el.value);
-    if (k === 'ch') st.f.det = null;
+    if (k === 'ch') { st.f.det = null; st.f.ad = null; }
+    if (k === 'det') st.f.ad = null;
     render();
   });
 

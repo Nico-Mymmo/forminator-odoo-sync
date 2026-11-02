@@ -576,6 +576,16 @@ injectiepad zijn naar elke site die het formulier toont.
 
 ## Versies
 
+**1.25.0** -- een link kan een venster meteen openen: `?popup=<naam>` in de
+adresbalk. Bedoeld voor advertenties (Meta): de bezoeker landt op de
+homepage met de offertecalculator al open, in plaats van een Meta-formulier
+in te vullen. `<naam>` is opstelling + tabblad zoals de knop van Mymmo
+Componenten ze noemt (`contactpopup-extra`), of het id van het venster. Het
+venster staat via de navbar op elke pagina, dus elke pagina werkt. Gebeurt
+in de browser (`vensterUitAdres()` in mymmo-forms-modal.js): de pagina zelf
+hangt niet af van de parameter, dus de paginacache blijft werken. UTM's in
+dezelfde link gaan zoals altijd mee met de inzending.
+
 **1.24.3** -- een andere bedankboodschap, ingesteld bij het FORMULIER in de
 OM ("Andere boodschap als een getal te hoog is", onder de bedanktekst). Zit
 een veld bij het versturen boven een grens (bv. meer dan 25 kavels), dan

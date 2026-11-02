@@ -510,6 +510,12 @@
     });
     var anyActie = deleteUnlocked || rowFlags.some(function (f) { return f.replayAllowed || f.forceReplayAllowed; });
 
+    // Waar de inzending vandaan kwam (kolom Herkomst). Enkel als er minstens een
+    // inzending iets over haar herkomst meestuurt: een webhook zonder UTM of
+    // pagina zou anders overal "Website" tonen, en dat weten we dan niet.
+    var herkomsten = ordered.map(function (item) { return herkomstVan(parsePayload(item.sub)); });
+    var anyHerkomst = herkomsten.some(function (h) { return !!h; });
+
     // Hoeveel knoppen kunnen er naast elkaar staan? Elke knop is ongeveer 1.5rem
     // breed. De kolom op één vaste maat zetten geeft óf een te smalle kolom waar
     // knoppen uit vallen, óf een brede lege kolom bij één prullenbakje.
@@ -525,7 +531,7 @@
 
     // Vaste kolommen zonder ID/Fout: Status, Aangemaakt. Fout staat nu in de
     // uitgeklapte rij (zie buildTimelineRow); ID, Mail en Actie zijn optioneel.
-    var colCount = 2 + (isCalendly ? 1 : 0) + (showIdColumn ? 1 : 0) + (hasMailStep ? 1 : 0) + (anyActie ? 1 : 0) + listColumns.length;
+    var colCount = 2 + (isCalendly ? 1 : 0) + (showIdColumn ? 1 : 0) + (hasMailStep ? 1 : 0) + (anyActie ? 1 : 0) + (anyHerkomst ? 1 : 0) + listColumns.length;
 
     // ── De uitgeklapte rij: wat er ingevuld werd, en wat er mee gebeurde ────
     // Gemeld 2026-10-16: het openklapscherm was een slordige hoop. Bovenaan
@@ -563,6 +569,58 @@
     function isTechnisch(k) {
       var n = normalizeKey(k);
       return TECHNISCHE_SLEUTELS.indexOf(n) !== -1 || n.indexOf('meta_') === 0 || n.indexOf('_') === 0;
+    }
+
+    /**
+     * Waar een inzending vandaan kwam: de UTM's die het formulier meestuurt
+     * (meta_utm_* bij een OM-formulier, met de cookie als terugval in de plugin;
+     * utm_* bij Calendly), anders de verwijzer van de pagina. Bij een advertentie
+     * van Meta staan campagne en advertentie in utm_campaign en utm_content.
+     * Ruwer dan classifyTagged() in dashboards/lib/web-visits.js: hier gaat het
+     * om EEN inzending lezen, niet om kanalen tellen. null = niets bekend.
+     */
+    function herkomstVan(ruw) {
+      function v(k) { return String(waardeTekst(ruw['meta_' + k] || ruw[k]) || '').trim(); }
+      var bron = v('utm_source'), medium = v('utm_medium'), campagne = v('utm_campaign');
+      var adv = v('utm_content'), set = v('utm_term'), ref = v('referrer') || v('referer');
+      var pagina = waardeTekst(ruw.meta_page_url || ruw.page_url || '');
+      if (!bron && !medium && !campagne && !adv && !ref && !pagina && !ruw.meta_site) return null;
+      function host(u) { try { return new URL(u).hostname.replace(/^www\./, '').toLowerCase(); } catch (e_) { return ''; } }
+      var b = bron.toLowerCase(), m = medium.toLowerCase(), label;
+      if (/facebook|instagram|meta|^fb$|^ig$/.test(b)) label = 'Meta';
+      else if (/google/.test(b)) label = /cpc|ppc|paid|display/.test(m) ? 'Google Ads' : 'Google';
+      else if (/linkedin/.test(b)) label = 'LinkedIn';
+      else if (/mail|nieuwsbrief|newsletter/.test(b + ' ' + m)) label = 'E-mail';
+      else if (bron) label = bron;
+      else {
+        var rh = ref ? host(ref) : '', eigen = pagina ? host(pagina) : '';
+        if (!rh || rh === eigen) label = 'Website';
+        else if (/google|bing|ecosia|duckduckgo|yahoo|qwant/.test(rh)) label = 'Zoekmachine';
+        else if (/facebook|instagram|linkedin|t\.co$|twitter|tiktok/.test(rh)) label = 'Social';
+        else label = rh;
+      }
+      return {
+        label: label, betaald: /cpc|ppc|paid|display|cpm/.test(m),
+        campagne: campagne, adv: adv, set: set, bron: bron, medium: medium, ref: ref
+      };
+    }
+    function herkomstTitel(h) {
+      return [
+        'Herkomst: ' + h.label + (h.betaald ? ' (advertentie)' : ''),
+        h.campagne ? 'Campagne: ' + h.campagne : '',
+        h.set ? 'Advertentieset: ' + h.set : '',
+        h.adv ? 'Advertentie: ' + h.adv : '',
+        h.bron || h.medium ? 'utm_source / utm_medium: ' + (h.bron || '-') + ' / ' + (h.medium || '-') : '',
+        !h.bron && h.ref ? 'Verwijzer: ' + h.ref : ''
+      ].filter(Boolean).join('\n');
+    }
+    function herkomstCel(h) {
+      if (!h) return '<span class="text-base-content/30">&ndash;</span>';
+      var detail = h.adv || h.campagne;
+      return '<div class="leading-tight min-w-0" title="' + esc(herkomstTitel(h)) + '">' +
+          '<div class="truncate font-medium">' + esc(h.label) + '</div>' +
+          (detail ? '<div class="truncate text-[11px] text-base-content/50">' + esc(detail) + '</div>' : '') +
+        '</div>';
     }
 
     function vindSleutel(payload, fid) {
@@ -819,6 +877,7 @@
       var ruw = parsePayload(sub);
       var formNaam = waardeTekst(ruw.form_name);
       var pagina   = waardeTekst(ruw.meta_page_url || ruw.page_url || ruw.current_url || ruw.referer || ruw._wp_http_referer);
+      var herkomst = herkomstVan(ruw);
       var kopHtml =
         '<div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs mb-3">' +
           '<span class="inline-flex items-center gap-1.5 font-semibold">' +
@@ -829,6 +888,11 @@
             ? '<span class="badge badge-xs badge-accent">Replay van ' + esc(window.FSV2.shortId(sub.replay_of_submission_id)) + '</span>'
             : '') +
           (formNaam ? '<span class="text-base-content/60 truncate max-w-[20rem]">' + esc(formNaam) + '</span>' : '') +
+          (herkomst
+            ? '<span class="inline-flex items-center gap-1 text-base-content/70 truncate max-w-[28rem]" title="' + esc(herkomstTitel(herkomst)) + '">' +
+                '<i data-lucide="megaphone" class="w-3.5 h-3.5 shrink-0"></i>' +
+                esc([herkomst.label, herkomst.campagne, herkomst.adv].filter(Boolean).join(' · ')) + '</span>'
+            : '') +
           (pagina && /^https?:\/\//.test(pagina)
             ? '<a class="link link-hover text-base-content/50 truncate max-w-[22rem] inline-flex items-center gap-1" href="' + esc(pagina) + '" target="_blank" rel="noopener">' +
                 '<i data-lucide="globe" class="w-3.5 h-3.5 shrink-0"></i>' + esc(pagina.replace(/^https?:\/\//, '')) + '</a>'
@@ -921,6 +985,7 @@
               return '<th class="truncate" style="width:' + kolomBreedtePct(c) + '" title="' + esc(c.label) + '">' + esc(c.label) + '</th>';
             }).join('') +
             (hasMailStep ? '<th' + vasteBreedte(2.75) + ' class="whitespace-nowrap">Mail</th>' : '') +
+            (anyHerkomst ? '<th' + vasteBreedte(7.5) + ' class="truncate" title="Waar de inzending vandaan kwam (advertentie, campagne, website)">Herkomst</th>' : '') +
             '<th' + vasteBreedte(6.5) + ' class="truncate leading-tight" title="Aangemaakt">Aangemaakt</th>' +
             (anyActie ? '<th' + vasteBreedte(anyActieBreedte) + ' class="whitespace-nowrap sticky right-0 bg-base-100 z-10">Actie</th>' : '') +
           '</tr></thead>' +
@@ -979,6 +1044,7 @@
                   : '') +
                 listColumns.map(function (c) { return '<td class="text-xs">' + listColumnValue(sub, c) + '</td>'; }).join('') +
                 (hasMailStep ? '<td class="whitespace-nowrap">' + mailFunnelIcon(sub) + '</td>' : '') +
+                (anyHerkomst ? '<td class="text-xs">' + herkomstCel(herkomsten[idx]) + '</td>' : '') +
                 // De datum mag over twee regels: afkappen zou "10/9/2026, 22:2…"
                 // geven en dan is het tijdstip onleesbaar.
                 '<td class="text-xs leading-tight">' + esc(window.FSV2.fmt(sub.created_at)) + '</td>' +

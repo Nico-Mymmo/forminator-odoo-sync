@@ -26,7 +26,7 @@
 
 import { hasWebEvents, readWebEvents } from '../../../lib/web-events.js';
 import { offerteFormulieren } from '../../../lib/web-conversions.js';
-import { readSessionRows, channelOf, CHANNELS, WEB_PERIODS, readFirstLogins, isCustomerSession, isLoginOnly, isTestPage, readReopenedClicks } from '../../dashboards/lib/web-visits.js';
+import { readSessionRows, channelOf, adOf, CHANNELS, WEB_PERIODS, readFirstLogins, isCustomerSession, isLoginOnly, isTestPage, readReopenedClicks } from '../../dashboards/lib/web-visits.js';
 
 const CACHE_SECONDS = 600;
 export const FLAGS = {
@@ -139,7 +139,7 @@ export async function getBehaviourData(env, { period }) {
   const personOf = new Map();
   for (const x of emailRes.results || []) if (!personOf.has(x.u)) personOf.set(x.u, x.n);
 
-  const dict = { v: [], p: [], ch: CHANNELS.slice(), det: [], site: [], dev: [], pe: [], fm: [] };
+  const dict = { v: [], p: [], ch: CHANNELS.slice(), det: [], site: [], dev: [], pe: [], fm: [], ad: [] };
   const idx = {};
   const id = (kind, value) => {
     if (value === null || value === undefined || value === '') return -1;
@@ -218,6 +218,7 @@ export async function getBehaviourData(env, { period }) {
       acts.length ? acts.map(a => a.slice(0, 3)) : 0,                   // 12 acties (0 = geen)
       kanaalMeta && kanaalMeta.reopened ? unix(kanaalMeta.reopened) : 0, // 13 heropende link: de eerste klik
       funnel.length ? funnel.map(e => [id('fm', e.form), e.bits, e.max, e.stappen]) : 0, // 14 popup-trechter per formulier
+      id('ad', adOf(r)),                                                // 15 advertentie (utm_content)
     ]);
   }
   // persons[i] = de persoon van dict.v[i]: volgnummer in dict.pe, of -1 (anoniem).
@@ -225,7 +226,7 @@ export async function getBehaviourData(env, { period }) {
   return {
     available: true, period, days,
     range: { start: fmt(start), end: fmt(end), prevStart: fmt(prevStart) },
-    cols: ['v', 'start', 'dur', 'site', 'ch', 'det', 'pages', 'offs', 'flags', 'dev', 'scroll', 'clicks', 'acts', 'reo', 'fun'],
+    cols: ['v', 'start', 'dur', 'site', 'ch', 'det', 'pages', 'offs', 'flags', 'dev', 'scroll', 'clicks', 'acts', 'reo', 'fun', 'ad'],
     flags: FLAGS, actKinds: ACT_KINDS, dict, persons, sessions,
     // De popup-trechter: bits (FUN), de namen van de stappen per formulier (uit de
     // events), welke formulieren een offerte zijn, en vanaf wanneer het exact is.
@@ -252,7 +253,8 @@ export async function getBehaviourCached(env, ctx, { period }) {
   // v4: offertes (vlag + actie 7); de sleutel bevat de lijst offertekoppelingen,
   // zodat "Offerte" aanduiden op een koppeling niet tien minuten op zich laat wachten.
   // v5: de popup-trechter (kolom 14, `funnel`).
-  const key = new Request(`https://om-cache.internal/web-story/behaviour/v5/${period}/${offerteKey(await offerteFormulieren(env))}`);
+  // v6: de advertentie (kolom 15, utm_content).
+  const key = new Request(`https://om-cache.internal/web-story/behaviour/v6/${period}/${offerteKey(await offerteFormulieren(env))}`);
   const cache = typeof caches !== 'undefined' ? caches.default : null;
   if (cache) {
     const hit = await cache.match(key);

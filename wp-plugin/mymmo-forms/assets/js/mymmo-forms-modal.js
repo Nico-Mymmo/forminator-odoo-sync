@@ -103,6 +103,32 @@
   }
 
   /**
+   * ?popup=<naam> in de adresbalk opent dat venster meteen (1.25.0): de link
+   * achter een advertentie, die de bezoeker zonder klikken in de calculator zet.
+   * <naam> is het id van het venster, of opstelling en tabblad zoals de knop van
+   * Mymmo Componenten ze noemt: `contactpopup-extra` = het venster met trigger
+   * `.mymmo-opent-contactpopup-extra`. Dat id telt per pagina door en is dus
+   * geen vaste naam; de trigger wel.
+   * Enkel in de browser, de HTML hangt er niet van af (paginacache), zelfde
+   * regel als ?afspraak=. Een naam die niets vindt, doet niets.
+   */
+  function vensterUitAdres(vensters) {
+    var naam = String(urlParam('popup')).trim().toLowerCase();
+    if (!/^[a-z0-9_-]{2,80}$/.test(naam)) return null;
+    var klasse = '.mymmo-opent-' + naam;
+    var viaTrigger = null;
+    for (var i = 0; i < vensters.length; i += 1) {
+      if (String(vensters[i].id).toLowerCase() === naam) return vensters[i];
+      if (viaTrigger) continue;
+      var delen = String(vensters[i].getAttribute('data-mymmo-trigger') || '').split(',');
+      for (var j = 0; j < delen.length; j += 1) {
+        if (delen[j].trim().toLowerCase() === klasse) { viaTrigger = vensters[i]; break; }
+      }
+    }
+    return viaTrigger;
+  }
+
+  /**
    * Een afronding melden: gesprek geboekt, of formulier verstuurd.
    *
    * WAAROM DIT BESTAAT. De marketeer meet conversie op de bedankpagina van
@@ -941,6 +967,7 @@
     document.documentElement.classList.add('mymmo-modal-js');
 
     var ietsMetAgenda = false;
+    var uitAdres = vensterUitAdres(vensters);
 
     for (var i = 0; i < vensters.length; i += 1) {
       var venster = vensters[i];
@@ -957,9 +984,11 @@
 
       // Meteen openen na een inzending: de bezoeker komt terug op deze pagina
       // en moet zijn bevestiging (of zijn foutmelding) zien staan. Het anker in
-      // de URL komt uit Mymmo_Forms_Submit::finish().
+      // de URL komt uit Mymmo_Forms_Submit::finish(). Of: ?popup= in de link
+      // (vensterUitAdres hierboven).
       if (venster.getAttribute('data-mymmo-modal-open-now') === '1'
-          || window.location.hash === '#' + venster.id) {
+          || window.location.hash === '#' + venster.id
+          || venster === uitAdres) {
         openen(venster, null);
       }
     }

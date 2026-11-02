@@ -130,6 +130,8 @@ export const POPUP_KLIKKEN = ['vraag je offerte aan', 'bereken je prijsofferte',
 //       advertentielink? (readReopenedClicks hierboven, channelOf hieronder)
 //   fu  popup en formulieren: "tijdstip~act~form~stap_n~stappen~stap" per event (zie
 //       POPUP_KLIKKEN hierboven); gelezen door funnelVan() in web-story/lib/behaviour.js.
+//   ad  de ADVERTENTIE: utm_content van de eerste pagina die er een had, als
+//       "tijdstip|naam" (adOf() hieronder). Bij Meta: {{ad.name}} in de link.
 //   oq  OFFERTE: een form_submission van een koppeling met web_action 'offerte'.
 //       Telt OOK in fs (een offerte is een aanvraag) en staat in cv als '~offerte'.
 //       __OFFERTE__ wordt ingevuld door offerteSql() hieronder, bij het LEZEN: zo
@@ -159,7 +161,7 @@ s0 AS (
   SELECT g.*, SUM(ns) OVER (PARTITION BY u ORDER BY ts ROWS UNBOUNDED PRECEDING) AS sid FROM g
 )
 SELECT u,
-  MIN(ts) AS st, MAX(ts) AS en, MAX(site) AS site, MAX(vfirst) AS vf, MAX(fu) AS fu,
+  MIN(ts) AS st, MAX(ts) AS en, MAX(site) AS site, MAX(vfirst) AS vf, MAX(fu) AS vu,
   json_group_array(CASE WHEN type = 'page' THEN page END) AS pg,
   json_group_array(CASE WHEN type = 'page' THEN ts END) AS pt,
   json_group_array(CASE WHEN type = 'page' THEN json_extract(data,'$.search') END) AS zq,
@@ -181,6 +183,7 @@ SELECT u,
   MIN(CASE WHEN type = 'page' THEN ts || '|' || COALESCE(json_extract(data,'$.utm.medium'),'') || '|'
            || COALESCE(json_extract(data,'$.utm.source'),'') || '|' || COALESCE(json_extract(data,'$.utm.campaign'),'') END) AS ut,
   MIN(CASE WHEN type = 'page' THEN ts || '|' || COALESCE(json_extract(data,'$.referer'),'') END) AS rf,
+  MIN(CASE WHEN type = 'page' AND COALESCE(json_extract(data,'$.utm.content'),'') <> '' THEN ts || '|' || json_extract(data,'$.utm.content') END) AS ad,
   SUM(type = 'click' AND COALESCE(json_extract(data,'$.text'),'') NOT IN (${sqlList(NOISE_TEXTS)}) AND NOT ${LOGIN_CLICK}) AS ck,
   SUM(${LOGIN_CLICK}) AS lg,
   SUM(type = 'page' AND page <> '/') AS op,
@@ -315,9 +318,11 @@ export function channelOf(row, reopened = null) {
     if (ch) return [ch, detailOf(ch, medium, source, campaign)];
   }
   // 3. eerste sessie van de bezoeker: de UTM op de bezoeker
-  if (row.fu && row.vf && Math.abs(Date.parse(row.st + 'Z') - Date.parse(row.vf + 'Z')) < 30 * 60 * 1000) {
+  //    (kolom `vu`: tot 2026-11-02 heette ze `fu`, net als de popup-gegevens verderop
+  //    in dezelfde query, en dan won die laatste -- deze stap deed toen niets)
+  if (row.vu && row.vf && Math.abs(Date.parse(row.st + 'Z') - Date.parse(row.vf + 'Z')) < 30 * 60 * 1000) {
     try {
-      const u = JSON.parse(row.fu);
+      const u = JSON.parse(row.vu);
       const ch = classifyTagged(u.medium, u.source);
       if (ch) return [ch, detailOf(ch, u.medium, u.source, u.campaign)];
     } catch (_) { /* geen geldige utm */ }
@@ -336,6 +341,17 @@ export function channelOf(row, reopened = null) {
     return ['Verwijzing', host];
   }
   return ['Direct / onbekend', ''];
+}
+
+/**
+ * De advertentie van een sessie: utm_content op de landingspagina (bij Meta zet de
+ * link {{ad.name}} daarin). Leeg als er geen stond. De tracker bewaart utm_content
+ * al sinds het begin (utmFromParams in lib/events-store.js van website-tracker).
+ */
+export function adOf(row) {
+  if (!row || !row.ad) return '';
+  const i = row.ad.indexOf('|');
+  return row.ad.slice(i + 1).trim().slice(0, 200);
 }
 
 function detailOf(ch, medium, source, campaign) {
@@ -485,7 +501,7 @@ export async function readVisitorSessions(env, uuids, { includeInternal = false 
       try { pages = JSON.parse(r.pg || '[]').filter(Boolean); } catch (_) { pages = []; }
       const [channel, detail, meta] = channelOf(r, reopened);
       out.push({
-        uuid: r.u, start: r.st, end: r.en, site: r.site || null, channel, detail: detail || '',
+        uuid: r.u, start: r.st, end: r.en, site: r.site || null, channel, detail: detail || '', ad: adOf(r),
         reopened: (meta && meta.reopened) || null, klikOnbekend: !!(meta && meta.klikOnbekend),
         pages, conversions: { calendly: r.ca || 0, events: r.er || 0, forms: r.fs || 0, offerte: r.oq || 0, newsletter: r.nb || 0, academy: r.ac || 0, register: r.rg || 0 },
         historic: !!r.hi,
@@ -500,7 +516,8 @@ export async function readVisitorSessions(env, uuids, { includeInternal = false 
 /** Met edge-cache: dezelfde periode wordt hoogstens elke 10 minuten opnieuw berekend. */
 export async function getWebVisitsCached(env, ctx, { period }) {
   // v2: heropende advertentielinks tellen als Direct (channelOf).
-  const key = new Request(`https://om-cache.internal/dashboards/web-visits/v2/${period}`);
+  // v3: de UTM op de bezoeker telt weer mee (kolom vu), en de advertentie (ad).
+  const key = new Request(`https://om-cache.internal/dashboards/web-visits/v3/${period}`);
   const cache = typeof caches !== 'undefined' ? caches.default : null;
   if (cache) {
     const hit = await cache.match(key);

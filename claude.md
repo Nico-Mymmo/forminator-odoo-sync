@@ -5570,6 +5570,43 @@ Afspraken die bewust zo zijn:
 
 ---
 
+## Meta-advertenties naar de offertecalculator (2026-11-02)
+
+**Regel: een advertentie linkt naar de site met de calculator meteen open, niet
+naar een Meta-formulier. Herkomst en advertentie reizen als UTM in die link;
+er komt geen eigen opslag of tweede pad bij.**
+
+Link (Meta, URL-parameters van de advertentie):
+`https://syndicoach.be/?popup=contactpopup-extra&utm_source=meta&utm_medium=paid&utm_campaign={{campaign.name}}&utm_term={{adset.name}}&utm_content={{ad.name}}`
+
+- **`?popup=<naam>`** (mymmo-forms 1.25.0, `vensterUitAdres()` in
+  mymmo-forms-modal.js) opent een venster bij het laden: het id, of
+  opstelling-tabblad zoals de knop van Mymmo Componenten het noemt
+  (`contactpopup-extra` = trigger `.mymmo-opent-contactpopup-extra` = "Bereken je
+  prijsofferte"). Het venster staat via de navbar op elke pagina. Enkel in de
+  browser: de HTML hangt niet af van de parameter (paginacache), zoals
+  `?afspraak=`.
+- **De advertentie = `utm_content`.** De tracker bewaarde die al op elke pagina
+  (`data.utm.content`). In de sessie-SQL heet ze `ad` (`adOf()` in
+  web-visits.js), in Marketing kolom 15 / `dict.ad`: filter "Advertentie" (volgt
+  Kanaal en Bron), kaart "Per advertentie" (bezoeken, aanvragen, offertes), en
+  in de bezoekenlijst. Per bron filteren = de bestaande filter Kanaal
+  ("Betaalde social") en "Bron of campagne".
+- **Indieningen:** kolom "Herkomst" (`herkomstVan()` in
+  forminator-sync-v2-detail-submissions-tab.js) uit `meta_utm_*` (OM-formulier;
+  de plugin valt terug op de cookie van het trackingscript) of `utm_*`
+  (Calendly), anders de verwijzer. Enkel weergave; de waarden zelf zijn mapbaar
+  in het koppelingsscherm zoals altijd.
+- **In Odoo blijft het een Meta-lead.** De koppeling "Syndicoach - Calulator
+  Offerte" zet het kanaal op `syndicoach_contact_form`; een laatste stap
+  (update_only op `crm.lead`, zoekt op `id` = `step.3.record_id`) zet het op
+  `syndicoach_meta_lead_ad` als `meta_utm_source` `meta`, `facebook` of `fb`
+  is. Bewust niet `ig`: dat is organisch Instagram. `meta` is de bron die
+  marketing al gebruikte (utm_medium `paid`).
+- In de sessie-SQL heetten twee kolommen `fu` (eerste UTM van de bezoeker en de
+  popup-gegevens); de eerste heet nu `vu`. Tot dan deed stap 3 van `channelOf()`
+  (de UTM op de bezoeker) niets.
+
 ## Dashboards — tabs "Verkoop" en "Targets" (2026-10)
 
 **Regel: de verkoopcijfers komen uit een SPIEGEL van Odoo in D1 (`om-sales`,
