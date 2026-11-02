@@ -24,6 +24,7 @@
     { re: /^#\/editie\/([0-9a-f-]{36})$/i, view: 'editie' },
     { re: /^#\/stukje\/([0-9a-f-]{36})$/i, view: 'stukje' },
     { re: /^#\/reeks\/([0-9a-f-]{36})$/i, view: 'reeks' },
+    { re: /^#\/lijsten$/i, view: 'lijsten' },
   ];
 
   NB.route = async function () {

@@ -4293,6 +4293,36 @@ swirls en kijkt de keuzes na. Geen tweede bouwer per module.**
   daarna naar de instellingen (`#/reeks/:id`). Kleuren op de kalender:
   `KLEUREN[code]`, anders de merkkleur.
 
+## Nieuwsbrief: automatische lijsten (2026-11-02)
+
+**Regel: een mailinglijst die uit Odoo-gegevens volgt (bv. "Freemium
+Gebruikers"), wordt in de OM ingesteld en door de OM elke dag gelijkgezet. Geen
+automatisering of serveractie in Odoo daarvoor.** Een rij in D1 om-core
+(`nb_auto_lijsten`, migratie `0020_nb_auto_lijsten.sql`) = een `mailing.list` in
+Odoo met de contactpersonen (geen bedrijf, actief, met e-mailadres) onder een
+BEDRIJF waarvan `x_studio_company_status` een van de gekozen waarden heeft.
+Freemium Gebruikers = `Free Trial` + `Inactive` (in de migratie gezet).
+
+| Wat | Waar |
+|---|---|
+| Opslag, regel, een ronde | `src/modules/newsletters/lib/auto-lijsten.js` |
+| Routes (enkel hoofdredactie) | `/api/auto-lijsten`, `/api/auto-lijsten/:id`, `POST /api/auto-lijsten/:id/bijwerken` in `routes.js` |
+| Elke dag om 6 uur (Brussel) | `runNewsletterCron()` in `lib/cron.js` |
+| Scherm | `#/lijsten` (knop "Lijsten" in het overzicht), `public/newsletters-lijsten.js` |
+
+- De eerste ronde maakt de lijst in Odoo (of neemt een bestaande met dezelfde
+  naam); het id komt in `odoo_list_id`. Een andere naam hernoemt ze in Odoo.
+- **Wie zich uitschreef (opt_out op `mailing.subscription`) blijft op de lijst
+  staan, uitgeschreven.** Eraf halen zou bij een volgende ronde een nieuwe
+  inschrijving zonder opt_out geven.
+- Een adres staat er een keer op; een bestaande `mailing.contact` met dat adres
+  wordt hergebruikt, anders wordt er een gemaakt (naam en bedrijf uit Odoo).
+- **Een ronde die niemand meer of meer dan de helft eraf zou halen (minstens
+  25), doet niets** en zegt dat in het scherm; "Toch bijwerken" forceert. Een
+  fout in de selectie mag geen lijst leegmaken.
+- De statussen komen uit Odoo (`ir.model.fields.selection`), niet uit een kopie.
+- Weghalen in de OM = enkel de instelling; de lijst blijft in Odoo staan.
+
 ## Nieuwsbrief: rechts enkel instellingen, titelblok, kort nieuws (2026-10-15)
 
 - **Tekstblok** = `article` (label in KINDS: "Tekstblok"): titel, optionele

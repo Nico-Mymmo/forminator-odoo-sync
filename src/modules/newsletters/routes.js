@@ -44,6 +44,9 @@ import { serializeAiError, httpStatusForAiError } from '../mini-apps/lib/ai-erro
 import { sendSystemChannelMessage, listChannels } from '../mini-apps/lib/chat.js';
 import { searchRead } from '../../lib/odoo.js';
 import { checklist } from './lib/checklist.js';
+import {
+  listAutoLijsten, maakAutoLijst, bewaarAutoLijst, verwijderAutoLijst, werkAutoLijstBij, companyStatussen,
+} from './lib/auto-lijsten.js';
 
 function json(body, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -1552,6 +1555,49 @@ export const routes = {
       if (!video) video = await resolveVideoWithoutToken(raw || `https://vimeo.com/${vimeoId}`);
       if (!video) throw new NewsletterError('Geen geldige Vimeo- of YouTube-link herkend.');
       return json({ success: true, data: { url: video.url, title: video.title, thumbnail_url: video.thumbnail_url } });
+    } catch (err) { return fout(err); }
+  },
+
+  // ─── Automatische lijsten (lib/auto-lijsten.js) ─────────────────────────
+
+  /** De automatische lijsten met hun laatste ronde, en de bedrijfsstatussen uit Odoo. */
+  'GET /api/auto-lijsten': async ({ env, user }) => {
+    try {
+      if (!isHoofdredactie(user)) throw new NewsletterError('Enkel de hoofdredactie beheert de automatische lijsten.', 403);
+      const [lijsten, statussen] = await Promise.all([listAutoLijsten(env), companyStatussen(env).catch(() => [])]);
+      return json({ success: true, data: { lijsten, statussen } });
+    } catch (err) { return fout(err); }
+  },
+
+  'POST /api/auto-lijsten': async ({ env, user, request }) => {
+    try {
+      if (!isHoofdredactie(user)) throw new NewsletterError('Enkel de hoofdredactie beheert de automatische lijsten.', 403);
+      return json({ success: true, data: await maakAutoLijst(env, await leesBody(request), user.full_name || user.email) }, 201);
+    } catch (err) { return fout(err); }
+  },
+
+  'PUT /api/auto-lijsten/:id': async ({ env, user, params, request }) => {
+    try {
+      if (!isHoofdredactie(user)) throw new NewsletterError('Enkel de hoofdredactie beheert de automatische lijsten.', 403);
+      return json({ success: true, data: await bewaarAutoLijst(env, params.id, await leesBody(request), user.full_name || user.email) });
+    } catch (err) { return fout(err); }
+  },
+
+  /** Enkel de instelling weg; de lijst in Odoo blijft staan. */
+  'DELETE /api/auto-lijsten/:id': async ({ env, user, params }) => {
+    try {
+      if (!isHoofdredactie(user)) throw new NewsletterError('Enkel de hoofdredactie beheert de automatische lijsten.', 403);
+      await verwijderAutoLijst(env, params.id);
+      return json({ success: true });
+    } catch (err) { return fout(err); }
+  },
+
+  /** Nu bijwerken (body { forceer: true } = ook als er veel af zou gaan). */
+  'POST /api/auto-lijsten/:id/bijwerken': async ({ env, user, params, request }) => {
+    try {
+      if (!isHoofdredactie(user)) throw new NewsletterError('Enkel de hoofdredactie beheert de automatische lijsten.', 403);
+      const b = await leesBody(request);
+      return json({ success: true, data: await werkAutoLijstBij(env, params.id, { forceer: Boolean(b.forceer) }) });
     } catch (err) { return fout(err); }
   },
 

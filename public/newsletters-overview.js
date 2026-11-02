@@ -50,6 +50,7 @@
       + '<div class="join"><button class="btn btn-sm join-item' + (st.weergave === 'kalender' ? ' btn-active' : '') + '" data-action="kal-weergave" data-weergave="kalender"><i data-lucide="calendar" class="w-4 h-4"></i> Kalender</button>'
       + '<button class="btn btn-sm join-item' + (st.weergave === 'lijst' ? ' btn-active' : '') + '" data-action="kal-weergave" data-weergave="lijst"><i data-lucide="list" class="w-4 h-4"></i> Lijst</button></div>'
       + '<button class="btn btn-sm btn-outline" data-action="open-idee"><i data-lucide="lightbulb" class="w-4 h-4"></i> Idee</button>'
+      + (NB.state.boot.me.is_editor ? '<a class="btn btn-sm btn-outline" href="#/lijsten" title="Mailinglijsten die de OM zelf bijhoudt"><i data-lucide="users" class="w-4 h-4"></i> Lijsten</a>' : '')
       + (NB.state.boot.me.is_editor || (NB.state.boot.series || []).some(function (s) { return s.is_editor; })
         ? '<button class="btn btn-sm btn-primary" data-action="open-nieuwe-editie"><i data-lucide="plus" class="w-4 h-4"></i> Nieuwe mailing</button>' : '')
       + '</div></div>';

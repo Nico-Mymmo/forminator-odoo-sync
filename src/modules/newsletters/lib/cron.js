@@ -6,6 +6,7 @@
  *   - herinneringen in het chatkanaal van de reeks, 3 en 1 dag voor de deadline
  *     (enkel als er een kanaal ingesteld is -- standaard niet)
  *   - rijpe antwoorden op vragen in de mail naar de koppeling
+ *   - de automatische mailinglijsten gelijkzetten (elke dag om 6 uur, lib/auto-lijsten.js)
  *   - een ingeplande editie op haar verzendmoment via Odoo laten vertrekken
  *     (lib/verzending.js), en de cijfers bijhouden
  *
@@ -23,8 +24,13 @@ import { zorgVoorEdities } from './editions.js';
 import { zetAntwoordenDoor } from './answers.js';
 import { vulTokens, leesCijfers } from './odoo-mailing.js';
 import { verzendKlaargezette } from './verzending.js';
+import { werkAutoLijstenBij } from './auto-lijsten.js';
 
 const DAG_MS = 24 * 60 * 60 * 1000;
+
+function uurInBrussel(d) {
+  return Number(new Intl.DateTimeFormat('nl-BE', { timeZone: 'Europe/Brussels', hour: '2-digit', hourCycle: 'h23' }).format(d));
+}
 
 function datumKort(iso) {
   try {
@@ -134,6 +140,15 @@ export async function runNewsletterCron(env, { scheduledTime } = {}) {
   if (String(env.NEWSLETTER_CRON || '1') === '0') return;
   const nu = new Date(scheduledTime || Date.now());
   const eersteKwartier = nu.getUTCMinutes() < 15;
+
+  // Automatische mailinglijsten (lib/auto-lijsten.js): elke dag om 6 uur (Brussel).
+  if (eersteKwartier && uurInBrussel(nu) === 6) {
+    try {
+      await werkAutoLijstenBij(env);
+    } catch (error) {
+      console.error(`${LOG_PREFIX} automatische lijsten mislukt:`, error?.message);
+    }
+  }
 
   const reeksen = await listSeries(env, { activeOnly: true });
   if (!reeksen.length) return;
