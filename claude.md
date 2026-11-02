@@ -4326,6 +4326,8 @@ Freemium Gebruikers = `Free Trial` + `Inactive` (in de migratie gezet).
   (VME, VME in beheer, Professioneel Syndicus) van het BEDRIJF, 0 = bedrijf
   zonder type. NULL = alle types; alles aanvinken bewaart NULL, zodat een nieuw
   type in Odoo vanzelf meetelt.
+- **Gearchiveerd** (`met_gearchiveerd`, standaard uit): aan = ook gearchiveerde
+  contactpersonen en bedrijven (`active_test: false`).
 - **De ondertitel** (`omschrijving`, migratie `0021`) is van de OM en gaat naar
   `mailing.list.x_studio_description`, bij het bewaren en bij elke ronde: wie
   hem in Odoo aanpast, ziet hem de volgende ochtend terugspringen.

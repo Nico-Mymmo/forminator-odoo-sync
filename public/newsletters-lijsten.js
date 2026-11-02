@@ -36,6 +36,11 @@
     }).join('') + '</div>';
   }
 
+  function gearchiveerdSchakelaar(sleutel, aan) {
+    return '<label class="label cursor-pointer justify-start gap-2 py-0"><input type="checkbox" class="toggle toggle-sm" data-lijst-archief="' + e(sleutel) + '"' + (aan ? ' checked' : '') + '>'
+      + '<span class="label-text">Ook gearchiveerde contactpersonen en bedrijven</span></label>';
+  }
+
   function ronde(l) {
     var r = l.laatste_resultaat;
     if (!r) return '<p class="text-sm opacity-60">Nog niet bijgewerkt. De eerste ronde maakt de lijst in Odoo aan.</p>';
@@ -91,6 +96,7 @@
       + ondertitelVeld(l.id, l.omschrijving)
       + '<div><span class="label-text">Contactpersonen onder bedrijven met status</span>' + statusVinkjes(l.id, l.statussen || []) + '</div>'
       + '<div><span class="label-text">En met bedrijfstype</span>' + typeVinkjes(l.id, l.bedrijfstypes) + '</div>'
+      + gearchiveerdSchakelaar(l.id, l.met_gearchiveerd)
       + cijfers(l)
       + ronde(l)
       + '<div class="flex flex-wrap gap-2">'
@@ -113,6 +119,7 @@
       + ondertitelVeld('nieuw', '')
       + '<div><span class="label-text">Contactpersonen onder bedrijven met status</span>' + statusVinkjes('nieuw', []) + '</div>'
       + '<div><span class="label-text">En met bedrijfstype</span>' + typeVinkjes('nieuw', null) + '</div>'
+      + gearchiveerdSchakelaar('nieuw', false)
       + '<div><button class="btn btn-sm btn-primary" data-action="lijst-nieuw">Toevoegen</button></div>'
       + '</div></div></div></div>';
     NB.ikons();
@@ -124,7 +131,9 @@
     var statussen = Array.prototype.slice.call(document.querySelectorAll('[data-lijst-status="' + id + '"]:checked')).map(function (x) { return x.value; });
     var omschrijving = document.querySelector('[data-lijst-omschrijving="' + id + '"]');
     var typeVakjes = document.querySelectorAll('[data-lijst-type="' + id + '"]');
+    var archief = document.querySelector('[data-lijst-archief="' + id + '"]');
     var uit = { naam: naam ? naam.value : '', omschrijving: omschrijving ? omschrijving.value : '', statussen: statussen };
+    if (archief) uit.met_gearchiveerd = archief.checked;
     if (typeVakjes.length) {
       uit.bedrijfstypes = Array.prototype.slice.call(typeVakjes).filter(function (x) { return x.checked; }).map(function (x) { return Number(x.value); });
     }

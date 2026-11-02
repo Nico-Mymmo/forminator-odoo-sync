@@ -4,9 +4,11 @@
 --   omschrijving   de OM zet hem in Odoo in mailing.list.x_studio_description
 --   bedrijfstypes  id's uit x_company_type (res.partner.x_studio_company_type
 --                  van het BEDRIJF); 0 = bedrijven zonder type. NULL = alle.
+--   met_gearchiveerd  ook gearchiveerde contactpersonen en bedrijven (standaard niet)
 
 ALTER TABLE nb_auto_lijsten ADD COLUMN omschrijving TEXT;
 ALTER TABLE nb_auto_lijsten ADD COLUMN bedrijfstypes JSON_TEXT;
+ALTER TABLE nb_auto_lijsten ADD COLUMN met_gearchiveerd BOOLEAN NOT NULL DEFAULT 0;
 
 UPDATE nb_auto_lijsten
 SET omschrijving = 'Contactpersonen onder bedrijven met status Free Trial of Inactive. Dagelijks bijgewerkt door de OM.'

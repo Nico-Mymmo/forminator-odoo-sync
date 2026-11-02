@@ -20,6 +20,8 @@
  *   - Het blacklisten en de bounces blijven van Odoo.
  *   - Optioneel een filter op BEDRIJFSTYPE (`bedrijfstypes`: id's uit
  *     x_company_type, 0 = bedrijf zonder type). Leeg/NULL = alle types.
+ *   - Gearchiveerde contactpersonen en bedrijven tellen NIET mee, tenzij
+ *     `met_gearchiveerd` aan staat.
  *   - De ONDERTITEL (`omschrijving`) is van de OM en gaat naar
  *     mailing.list.x_studio_description, bij het bewaren en bij elke ronde.
  *     Wie hem in Odoo aanpast, ziet hem de volgende ochtend terugspringen.
@@ -94,7 +96,9 @@ async function normaliseer(env, invoer, bestaand = null) {
       if (bekend.every((t) => bedrijfstypes.includes(t))) bedrijfstypes = null;
     }
   }
-  return { naam, statussen, actief, omschrijving, bedrijfstypes };
+  const metGearchiveerd = invoer.met_gearchiveerd !== undefined
+    ? Boolean(invoer.met_gearchiveerd) : Boolean(bestaand?.met_gearchiveerd);
+  return { naam, statussen, actief, omschrijving, bedrijfstypes, met_gearchiveerd: metGearchiveerd };
 }
 
 export async function maakAutoLijst(env, invoer, doorNaam) {
@@ -184,11 +188,14 @@ function herleid(email) {
 }
 
 /** Wie er volgens de regel op hoort: Map(adres -> { naam, bedrijf }). */
-async function gewenst(env, statussen, bedrijfstypes) {
+async function gewenst(env, statussen, bedrijfstypes, metGearchiveerd) {
   const partners = await alles(env, {
     model: 'res.partner',
+    // active_test: false = ook gearchiveerde contacten EN bedrijven (de
+    // voorwaarden op parent_id volgen dezelfde context).
+    context: metGearchiveerd ? { active_test: false } : undefined,
     domain: [
-      ['is_company', '=', false], ['active', '=', true], ['email', '!=', false],
+      ['is_company', '=', false], ...(metGearchiveerd ? [] : [['active', '=', true]]), ['email', '!=', false],
       ['parent_id.is_company', '=', true], ['parent_id.x_studio_company_status', 'in', statussen],
       ...typeDomein(bedrijfstypes),
     ],
@@ -238,7 +245,7 @@ export async function werkAutoLijstBij(env, id, { forceer = false } = {}) {
   let resultaat;
   try {
     const listId = await zorgVoorLijst(env, regel);
-    const wil = await gewenst(env, regel.statussen || [], regel.bedrijfstypes);
+    const wil = await gewenst(env, regel.statussen || [], regel.bedrijfstypes, regel.met_gearchiveerd);
 
     // Wie er nu op staat, via de inschrijvingen (daar staat opt_out).
     const subs = await alles(env, {
