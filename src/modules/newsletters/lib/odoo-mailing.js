@@ -20,7 +20,7 @@
 
 import { executeKw, searchRead, create, write } from '../../../lib/odoo.js';
 import {
-  TOKEN_FIELD, BROADCAST_MAIL_SERVER_ID, TEST_LIST_NAME, LOG_PREFIX, sendMode, testEmails,
+  TOKEN_FIELD, BROADCAST_MAIL_SERVER_ID, TEST_LIST_NAME, TEST_LIST_FIELD, LOG_PREFIX, sendMode, testEmails,
 } from './constants.js';
 import { tokenVoor } from './answers.js';
 import { NewsletterError } from './store.js';
@@ -190,6 +190,58 @@ export async function verstuurTest(env, { series, edition, html, subject, prehea
 }
 
 /**
+ * De Odoo-lijsten met het vinkje Testlijst (x_studio_testlijst). Bestaat het
+ * veld niet, dan `veld: false` en geen lijsten: dan kan er niets naar een
+ * testlijst, en het scherm zegt wat er in Studio moet gebeuren.
+ */
+export async function testLijsten(env) {
+  const velden = await executeKw(env, {
+    model: 'mailing.list', method: 'fields_get', args: [[TEST_LIST_FIELD]], kwargs: { attributes: ['type'] },
+  }).catch(() => ({}));
+  if (!velden?.[TEST_LIST_FIELD]) return { veld: false, lijsten: [] };
+  const rijen = await searchRead(env, {
+    model: 'mailing.list', domain: [['active', '=', true], [TEST_LIST_FIELD, '=', true]],
+    fields: ['id', 'name', 'contact_count'], limit: 100, order: 'name asc',
+  });
+  return {
+    veld: true,
+    lijsten: (rijen || []).map((r) => ({ id: r.id, name: r.name, contacts: Number(r.contact_count) || 0 })),
+  };
+}
+
+/**
+ * Een mailing in TESTMODUS naar een testlijst: exact de weg van de echte
+ * mailing (live-weergave, tokens, gehoste beelden, Postmark broadcast), maar
+ * enkel naar een lijst met het vinkje Testlijst. De server kijkt dat zelf na:
+ * een id uit de browser is geen bewijs. Telt nergens mee: de mailing komt in
+ * test_mailing_ids, nooit in odoo_mailing_id.
+ */
+export async function verstuurNaarTestlijst(env, { series, edition, html, subject, preheader, listId }) {
+  const { veld, lijsten } = await testLijsten(env);
+  if (!veld) throw new NewsletterError(`In Odoo bestaat het vinkje "${TEST_LIST_FIELD}" op Mailing List nog niet.`, 409);
+  const lijst = lijsten.find((l) => l.id === Number(listId));
+  if (!lijst) throw new NewsletterError('Die lijst is geen testlijst in Odoo.', 403);
+  if (!lijst.contacts) throw new NewsletterError(`De testlijst "${lijst.name}" is leeg.`, 409);
+  const ontbreekt = await vulTokens(env, [lijst.id], { max: 400 });
+  if (ontbreekt > 0) throw new NewsletterError(`Nog ${ontbreekt} contacten op de testlijst zonder antwoordtoken. Probeer opnieuw.`);
+  const stempel = new Date().toISOString().slice(0, 16).replace('T', ' ');
+  const mailingId = await maakMailing(env, {
+    series, edition, html, preheader,
+    subject: `[TEST] ${subject}`,
+    listIds: [lijst.id],
+    naam: `[OM-test] ${series.name} ${edition.title} -> ${lijst.name} (${stempel})`,
+  });
+  try {
+    await executeKw(env, { model: 'mailing.mailing', method: 'action_send_mail', args: [[mailingId]] });
+    return { mailingId, queued: false, lijst };
+  } catch (error) {
+    console.warn(`${LOG_PREFIX} action_send_mail mislukt, in de wachtrij:`, error?.message);
+    await executeKw(env, { model: 'mailing.mailing', method: 'action_launch', args: [[mailingId]] });
+    return { mailingId, queued: true, lijst };
+  }
+}
+
+/**
  * De ECHTE mailing naar de lijsten van de reeks, en METEEN vertrekken. Wordt
  * enkel door de cron aangeroepen op het verzendmoment (lib/verzending.js):
  * er staat nooit een nieuwsbrief vooraf "geplaatst" in Odoo. Kan enkel met
@@ -199,6 +251,7 @@ export async function verstuurEchteMailing(env, { series, edition, html, subject
   if (sendMode(env) !== 'live') {
     throw new NewsletterError('Echte verzending staat uit (NEWSLETTER_SEND_MODE is niet "live"). Enkel testen kan.', 403);
   }
+  if (edition.testmodus !== false) throw new NewsletterError('Deze mailing staat in testmodus.', 409);
   const listIds = (series.odoo_list_ids || []).map(Number).filter((n) => n > 0);
   if (!listIds.length) throw new NewsletterError('Deze reeks heeft geen Odoo-lijst.', 409);
   const mailingId = await maakMailing(env, {

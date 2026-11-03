@@ -64,6 +64,8 @@
     var m = /^\/t\/_v\/([0-9a-f-]{36})\/([a-z0-9-]{1,40})\/?$/i.exec(window.location.pathname);
     var q = new URLSearchParams(window.location.search);
     var voorbeeld = q.get('voorbeeld') === '1';
+    // Een link uit een testmail: het antwoord telt nergens mee.
+    var test = q.get('test') === '1';
     var inhoud = document.getElementById('inhoud');
     var staat = null;
 
@@ -71,7 +73,7 @@
       return String(v === null || v === undefined ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     }
 
-    function sleutelNaam() { return 'nb-antwoord-' + (m ? m[1] : ''); }
+    function sleutelNaam() { return 'nb-antwoord-' + (test ? 'test-' : '') + (m ? m[1] : ''); }
     function leesSleutel() { try { return localStorage.getItem(sleutelNaam()) || ''; } catch (e) { return ''; } }
     function bewaarSleutel(k) { try { if (k) localStorage.setItem(sleutelNaam(), k); } catch (e) { /* privévenster */ } }
 
@@ -117,6 +119,7 @@
             + '<textarea id="waarom" rows="3"></textarea><button type="button" class="knop" id="verstuur">Versturen</button>') + '</div>'
         : '';
       inhoud.innerHTML = (voorbeeld ? '<div class="melding">Dit is een voorbeeld: er wordt niets bewaard.</div>' : '')
+        + (d.test ? '<div class="melding">Dit kwam uit een testmail: je antwoord telt niet mee.</div>' : '')
         + '<div class="titel"><div class="vink" aria-hidden="true"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"></path></svg></div>'
         + '<h1>Bedankt, je antwoord is genoteerd</h1></div>'
         + '<div class="vraag">' + (d.kicker ? '<div class="label">' + esc(d.kicker) + '</div>' : '')
@@ -127,7 +130,7 @@
 
     async function antwoord(optie) {
       if (voorbeeld) { render(staat, optie); return; }
-      var d = await post('answer', { cid: m[1], opt: optie, c: q.get('c') || '', t: q.get('t') || '', key: leesSleutel() });
+      var d = await post('answer', { cid: m[1], opt: optie, c: q.get('c') || '', t: q.get('t') || '', key: leesSleutel(), test: test });
       bewaarSleutel(d.answer_key);
       render(d, d.chosen);
     }

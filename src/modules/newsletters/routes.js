@@ -22,9 +22,9 @@ import { listFeatures as listProductFeatures } from '../product-features/lib/sto
 import { platteBoom as featureBoom } from '../product-features/lib/boom.js';
 import { CATEGORIEEN as FEATURE_CATEGORIEEN } from '../product-features/lib/constants.js';
 import { renderEdition, renderContribution, heeftInhoud, kopVan, inToc, kopWaarden, voetWaarden } from './lib/render.js';
-import { verzamel, maakEditieOp, vernieuwNieuws, ondertekenaarId, metOndertekening, isBlanco } from './lib/editions.js';
+import { verzamel, maakEditieOp, kopieerEditie, vernieuwNieuws, ondertekenaarId, metOndertekening, isBlanco } from './lib/editions.js';
 import { antwoordLinks, antwoordenVanEditie } from './lib/answers.js';
-import { tokenVeldBestaat, verstuurTest, leesCijfers } from './lib/odoo-mailing.js';
+import { tokenVeldBestaat, verstuurTest, leesCijfers, testLijsten, verstuurNaarTestlijst } from './lib/odoo-mailing.js';
 import { voorgesteldMoment, controleerMoment, bouwEchteMail, datumKort } from './lib/verzending.js';
 import { stelStukjeVoor, stelOnderwerpVoor } from './lib/ai.js';
 import { linkVoorbeeld, eventsVoorEditie, auteurs, tekeningen, eventsTussen, bedrijf } from './lib/sources.js';
@@ -638,6 +638,16 @@ export const routes = {
       }
       if (!isActiveEdition(edition)) throw new NewsletterError('Deze editie is al verstuurd of geannuleerd.', 409);
       const w = {};
+      // Testmodus: aan = "Verzenden" gaat naar een testlijst. Uit kan enkel als
+      // de echte verzending op de server aanstaat.
+      if (b.testmodus !== undefined) {
+        const aan = b.testmodus !== false;
+        if (!aan && sendMode(env) !== 'live') throw new NewsletterError('Echte verzending staat nog uit op de server. Vraag Nico om ze aan te zetten.', 403);
+        if (aan !== (edition.testmodus !== false)) {
+          w.testmodus = aan;
+          await logActivity(env, { editionId: edition.id, userId: user.id, kind: 'updated', text: aan ? 'Testmodus aangezet' : 'Testmodus uitgezet: Verzenden gaat nu naar de echte lijsten' });
+        }
+      }
       if (b.title !== undefined) w.title = kort(b.title, 120);
       if (b.subject !== undefined) w.subject = kort(b.subject, 200);
       if (b.preheader !== undefined) w.preheader = kort(b.preheader, 200);
@@ -931,6 +941,47 @@ export const routes = {
     } catch (err) { return fout(err); }
   },
 
+  /** De Odoo-lijsten met het vinkje Testlijst. */
+  'GET /api/test-lijsten': async ({ env }) => {
+    try {
+      return json({ success: true, data: await testLijsten(env) });
+    } catch (err) { return fout(err); }
+  },
+
+  /**
+   * "Verzenden" in TESTMODUS: meteen naar een testlijst, via exact dezelfde
+   * weg als de echte verzending (enkel bevestigde blokken, gehoste beelden,
+   * tokens, Odoo). Kan zo vaak als nodig; telt nergens mee.
+   */
+  'POST /api/editions/:id/test-lijst': async ({ env, user, params, request }) => {
+    try {
+      const { edition, series } = await editieMetReeks(env, params.id);
+      eisEditor(user, series);
+      if (!isActiveEdition(edition)) throw new NewsletterError('Deze mailing is al ingepland, verstuurd of geannuleerd.', 409);
+      if (edition.testmodus === false) throw new NewsletterError('De testmodus staat uit voor deze mailing.', 409);
+      const b = await leesBody(request);
+      const subject = edition.subject || `${series.name} ${edition.title}`;
+      const { html, problemen } = await bouwEchteMail(env, series, edition, { test: true });
+      const r = await verstuurNaarTestlijst(env, { series, edition, html, subject, preheader: edition.preheader, listId: b.list_id });
+      await updateEdition(env, edition.id, {
+        test_mailing_ids: [...(edition.test_mailing_ids || []), r.mailingId],
+        last_test_at: new Date().toISOString(),
+      });
+      await logActivity(env, { editionId: edition.id, userId: user.id, kind: 'test', text: `Testverzending naar de lijst ${r.lijst.name} (${r.lijst.contacts})` });
+      return json({ success: true, data: { ...r, beeld_problemen: problemen } });
+    } catch (err) { return fout(err); }
+  },
+
+  /** Een kopie van een mailing: nieuwe mailing in testmodus, om van te vertrekken. */
+  'POST /api/editions/:id/kopie': async ({ env, user, params, request }) => {
+    try {
+      const { edition, series } = await editieMetReeks(env, params.id);
+      eisEditor(user, series);
+      const b = await leesBody(request);
+      return json({ success: true, data: await kopieerEditie(env, series, edition, { date: b.date, userId: user.id }) }, 201);
+    } catch (err) { return fout(err); }
+  },
+
   /**
    * "Verzenden": de editie op Ingepland zetten met een verzendmoment. Er
    * wordt NIETS in Odoo klaargezet; de cron verstuurt op het moment zelf
@@ -944,6 +995,7 @@ export const routes = {
       const b = await leesBody(request);
       if (b.confirm !== 'VERSTUREN') throw new NewsletterError('Bevestig met VERSTUREN.');
       if (!isActiveEdition(edition)) throw new NewsletterError('Deze editie is al ingepland, verstuurd of geannuleerd.', 409);
+      if (edition.testmodus !== false) throw new NewsletterError('Deze mailing staat in testmodus. Zet de testmodus uit om naar de echte lijsten te sturen.', 409);
       const moment = controleerMoment(b.send_at || voorgesteldMoment(series, edition).toISOString());
       // Dezelfde checklist als in het scherm: wat daar rood staat, houdt hier tegen.
       const { items, ctx, tokenVeld, problemen } = await bouwEchteMail(env, series, edition);

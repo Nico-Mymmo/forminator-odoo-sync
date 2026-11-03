@@ -73,13 +73,16 @@ async function meld(env, series, tekst) {
   }
 }
 
-/** De HTML van de echte mail, met elk beeld bij ons gehost. */
-export async function bouwEchteMail(env, series, edition) {
+/**
+ * De HTML van de echte mail, met elk beeld bij ons gehost. `test`: dezelfde
+ * mail, maar de antwoordlinks dragen `test=1` (een testverzending).
+ */
+export async function bouwEchteMail(env, series, edition, { test = false } = {}) {
   const v = await verzamel(env, series, edition, { png: true });
   const tokenVeld = await tokenVeldBestaat(env);
   const { html } = renderEdition({
     series, edition, items: v.items, mode: 'live',
-    ctx: { ...v.ctx, answerLink: antwoordLinks(series, 'live', tokenVeld) },
+    ctx: { ...v.ctx, answerLink: antwoordLinks(series, 'live', tokenVeld, { test }) },
   });
   const gehost = await hostBeelden(env, html, { series });
   return { html: gehost.html, problemen: gehost.problemen, items: v.items, ctx: v.ctx, tokenVeld };
@@ -97,6 +100,8 @@ export async function verzendKlaargezette(env, nu = new Date()) {
   let gedaan = 0;
   for (const editie of ingepland) {
     if (editie.odoo_mailing_id || new Date(editie.send_at).getTime() > nu.getTime()) continue;
+    // Een mailing in testmodus vertrekt nooit naar de echte lijsten.
+    if (editie.testmodus !== false) continue;
     const series = reeksen.find((s) => s.id === editie.series_id);
     if (!series) continue;
     // Eerst claimen, zodat twee crons nooit twee keer versturen.

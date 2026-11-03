@@ -332,6 +332,13 @@ export const TOKEN_FIELD = 'x_studio_om_token';
 /** Odoo ir.mail_server 4 = Postmark broadcast (PM-B-newsletter). */
 export const BROADCAST_MAIL_SERVER_ID = 4;
 
+/**
+ * Het Studio-vinkje op mailing.list dat een lijst als TESTLIJST aanduidt. Enkel
+ * zo'n lijst kan een mailing in testmodus krijgen: nooit op naam (risico dat
+ * een klantenlijst "test" in haar naam draagt).
+ */
+export const TEST_LIST_FIELD = 'x_studio_testlijst';
+
 /** De Odoo-lijst waar testmails naartoe gaan. Bevat ENKEL de testadressen. */
 export const TEST_LIST_NAME = 'OM nieuwsbrief - testadressen';
 

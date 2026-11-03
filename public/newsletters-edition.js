@@ -94,6 +94,8 @@
   }
   function lezer() { return modus() === 'lees'; }
   function layout() { return modus() === 'layout'; }
+  /** Testmodus (per mailing): "Verzenden" gaat naar een testlijst in Odoo. */
+  function testmodus() { return d().edition.testmodus !== false; }
   function schrijver() { return modus() === 'schrijf'; }
   NB.isLayout = function () { return !!d() && layout(); };
   NB.isSchrijver = function () { return !!d() && schrijver(); }
@@ -154,10 +156,15 @@
     if (layout() && ed.status !== 'sent' && ed.status !== 'cancelled') {
       knoppen.push('<button class="btn btn-sm btn-outline btn-primary" data-action="test-versturen"><i data-lucide="send" class="w-4 h-4"></i> Testmail</button>');
     }
-    if (layout() && actief()) {
+    if (layout() && actief() && testmodus()) {
+      knoppen.push('<button class="btn btn-sm btn-warning" data-action="testlijst-open" title="Testmodus: gaat naar een testlijst in Odoo, precies zoals de echte verzending"><i data-lucide="flask-conical" class="w-4 h-4"></i> Verzenden naar testlijst</button>');
+    } else if (layout() && actief()) {
       var tegen = blokkades();
       var kan = !tegen.length;
       knoppen.push('<button class="btn btn-sm btn-error" data-action="open-inplannen"' + (kan ? '' : ' disabled title="' + e('Nog niet klaar: ' + tegen.map(function (x) { return x.label; }).join('; ')) + '"') + '><i data-lucide="send" class="w-4 h-4"></i> Verzenden</button>');
+    }
+    if (editor()) {
+      knoppen.push('<button class="btn btn-sm btn-ghost" data-action="kopie-open" title="Een nieuwe mailing in testmodus, met dezelfde blokken"><i data-lucide="copy" class="w-4 h-4"></i> Kopie maken</button>');
     }
     if (layout() && ed.status === 'scheduled' && !ed.odoo_mailing_id) {
       knoppen.push('<button class="btn btn-sm btn-outline" data-action="open-moment"><i data-lucide="calendar-clock" class="w-4 h-4"></i> Moment wijzigen</button>');
@@ -167,6 +174,7 @@
     // een regel uitleg eronder, de acties rechts. Daaronder de stappen en de weergave.
     var info = [];
     info.push(e(d().series.name));
+    if (actief() && testmodus()) info.push('<span class="badge badge-warning badge-sm align-middle">Testmodus</span>');
     if (wanneer) info.push(wanneer);
     if (actief()) {
       info.push('verzenddag ' + e(NB.datum(ed.send_at, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })));
@@ -234,7 +242,7 @@
         + '<span class="min-w-0"><span>' + e(p.label) + '</span>' + (p.uitleg && !p.ok ? '<span class="block text-xs opacity-60 truncate">' + e(p.uitleg) + '</span>' : '') + '</span></' + tag + '>';
     }).join('');
     var slot = cl.ok ? '<p class="text-xs text-success font-semibold">Alles klaar: je kan inplannen.</p>'
-      : cl.klaar_op_live_na ? '<p class="text-xs opacity-70">Alles klaar, enkel de echte verzending staat nog uit (teststand).</p>' : '';
+      : cl.klaar_op_live_na ? '<p class="text-xs opacity-70">' + (d().send_mode === 'live' ? 'Alles klaar. Zet de testmodus uit om naar de echte lijsten te sturen.' : 'Alles klaar, enkel de echte verzending staat nog uit op de server.') + '</p>' : '';
     return kaart('<h3 class="font-semibold flex items-center gap-2"><i data-lucide="list-checks" class="w-4 h-4"></i> Klaar om te verzenden?</h3><div>' + rijen + '</div>' + slot, cl.ok ? ' border-success/50' : '');
   }
 
@@ -267,7 +275,11 @@
       + (mag ? '<div class="flex gap-2 items-center"><span class="text-xs opacity-60">Verzenden gebeurt pas na "Inplannen".</span><button class="btn btn-sm btn-ghost ml-auto" data-action="bewaar-datums">Bewaren</button></div>' : '')
       + (ed.status === 'scheduled' ? '<div class="alert alert-info text-sm py-2"><i data-lucide="calendar-clock" class="w-4 h-4"></i><span>Vertrekt op <strong>' + e(NB.datum(ed.send_at)) + '</strong>. Tot dan: Terughalen of Moment wijzigen, bovenaan.</span></div>' : '')
       + '<div class="divider my-1"></div>'
-      + '<div class="text-sm"><span class="text-xs opacity-60 block">Ontvangers</span>' + (sm === 'live' ? lijstNamen() : '<span class="opacity-80">Teststand: een testmail gaat enkel naar de collega\'s die je aanvinkt.</span><span class="block text-xs opacity-60">Bij een echte verzending: ' + lijstNamen() + '</span>') + '</div>'
+      + (mag && editor() ? '<label class="flex items-start gap-3 cursor-pointer"><input type="checkbox" class="toggle toggle-sm toggle-warning mt-0.5" data-change="testmodus"' + (testmodus() ? ' checked' : '') + '>'
+        + '<span class="min-w-0"><span class="block text-sm font-medium">Testmodus</span><span class="block text-xs opacity-60">' + (testmodus()
+          ? 'Verzenden gaat naar een testlijst in Odoo, zo vaak als je wil. Telt nergens mee.'
+          : 'Uit: Verzenden gaat naar de echte lijsten hieronder.') + '</span></span></label>' : '')
+      + '<div class="text-sm"><span class="text-xs opacity-60 block">Ontvangers</span>' + (sm === 'live' && !testmodus() ? lijstNamen() : '<span class="opacity-80">Testmodus: Verzenden gaat naar een testlijst.</span><span class="block text-xs opacity-60">Zonder testmodus: ' + lijstNamen() + '</span>') + '</div>'
       + (d().series.chat_channel && mag ? '<button class="btn btn-sm btn-ghost self-start" data-action="herinner"><i data-lucide="bell" class="w-4 h-4"></i> Herinner iedereen in de chat</button>' : '')
       + (mag || (ed.status === 'scheduled' && !ed.odoo_mailing_id) ? '<button class="btn btn-sm btn-ghost text-error self-start" data-action="verwijder-editie" data-id="' + e(ed.id) + '"><i data-lucide="trash-2" class="w-4 h-4"></i> Mailing verwijderen</button>' : ''));
   }
@@ -1820,6 +1832,88 @@
     el.disabled = false;
     el.innerHTML = '<i data-lucide="send" class="w-4 h-4"></i> Versturen';
     NB.ikons();
+  };
+
+  // ─── Testmodus: naar een testlijst, en de schakelaar ───────────────────────
+
+  NB.changes['testmodus'] = async function (el) {
+    var aan = el.checked;
+    if (!aan) {
+      var ja = await NB.bevestig({ titel: 'Testmodus uitzetten?', tekst: 'Verzenden gaat dan naar de echte lijsten: ' + lijstNamen().replace(/<[^>]+>/g, '') + '.', knop: 'Uitzetten', soort: 'error' });
+      if (!ja) { el.checked = true; return; }
+    }
+    try {
+      await NB.api('/api/editions/' + d().edition.id, { method: 'PUT', body: { testmodus: aan } });
+      NB.toast(aan ? 'Testmodus staat aan.' : 'Testmodus staat uit.');
+      herlaad();
+    } catch (err) { el.checked = !aan; NB.fout(err); }
+  };
+
+  NB.actions['testlijst-open'] = async function () {
+    var bak = document.getElementById('testlijstInhoud');
+    var knop = document.getElementById('testlijstKnop');
+    knop.disabled = true;
+    bak.innerHTML = '<div class="flex justify-center py-6"><span class="loading loading-spinner"></span></div>';
+    NB.dialoog('dlgTestlijst').showModal();
+    try {
+      var r = await NB.api('/api/test-lijsten');
+      if (!r.veld) {
+        bak.innerHTML = '<div class="alert alert-warning text-sm"><span>In Odoo bestaat het vinkje <strong>Testlijst</strong> nog niet. Open in Odoo Studio <strong>Mailing List</strong>, sleep er een vinkje (Checkbox) bij met de naam <code>x_studio_testlijst</code>, en vink het aan bij je testlijsten.</span></div>';
+        return;
+      }
+      if (!r.lijsten.length) {
+        bak.innerHTML = '<div class="alert alert-warning text-sm"><span>Er is nog geen lijst aangevinkt als <strong>Testlijst</strong> in Odoo (Mailing List).</span></div>';
+        return;
+      }
+      var onthouden = null;
+      try { onthouden = Number(localStorage.getItem('nbTestlijst')) || null; } catch (err) { onthouden = null; }
+      var gekozen = r.lijsten.some(function (l) { return l.id === onthouden; }) ? onthouden : r.lijsten[0].id;
+      bak.innerHTML = r.lijsten.map(function (l) {
+        return '<label class="label cursor-pointer justify-start gap-3 py-1.5"><input type="radio" name="nbTestlijst" class="radio radio-sm" value="' + l.id + '"' + (l.id === gekozen ? ' checked' : '') + '>'
+          + '<span class="label-text">' + e(l.name) + '</span><span class="text-xs opacity-50">' + l.contacts + ' ' + (l.contacts === 1 ? 'contact' : 'contacten') + '</span></label>';
+      }).join('');
+      knop.disabled = false;
+    } catch (err) { bak.innerHTML = '<div class="alert alert-error text-sm">' + e(err.message) + '</div>'; }
+  };
+
+  NB.actions['testlijst-bevestig'] = async function (el) {
+    var keuze = document.querySelector('input[name="nbTestlijst"]:checked');
+    if (!keuze) return;
+    try { localStorage.setItem('nbTestlijst', keuze.value); } catch (err) { /* geen opslag */ }
+    el.disabled = true;
+    el.innerHTML = '<span class="loading loading-spinner loading-xs"></span> Versturen…';
+    try {
+      await bewaarOpen();
+      var r = await NB.api('/api/editions/' + d().edition.id + '/test-lijst', { method: 'POST', body: { list_id: Number(keuze.value) } });
+      NB.dialoog('dlgTestlijst').close();
+      NB.toast('Testverzending naar ' + r.lijst.name + (r.queued ? ' staat in de wachtrij van Odoo.' : ' is vertrokken.'));
+      if (r.beeld_problemen && r.beeld_problemen.length) NB.toast(r.beeld_problemen.length + ' beeld(en) konden niet klaargezet worden. Bij de echte verzending houdt dat tegen: laad ze opnieuw op als PNG of JPEG.', 'warning');
+      NB.vernieuwStand();
+    } catch (err) { NB.fout(err); }
+    el.disabled = false;
+    el.innerHTML = '<i data-lucide="send" class="w-4 h-4"></i> Versturen';
+    NB.ikons();
+  };
+
+  // ─── Kopie maken ───────────────────────────────────────────────────────────
+
+  NB.actions['kopie-open'] = function () {
+    var morgen = new Date(Date.now() + 24 * 3600 * 1000);
+    document.getElementById('kopieDatum').value = morgen.getFullYear() + '-' + String(morgen.getMonth() + 1).padStart(2, '0') + '-' + String(morgen.getDate()).padStart(2, '0');
+    NB.dialoog('dlgKopie').showModal();
+  };
+
+  NB.actions['kopie-bevestig'] = async function (el) {
+    var datum = document.getElementById('kopieDatum').value;
+    if (!datum) { NB.toast('Kies een verzenddag.', 'warning'); return; }
+    el.disabled = true;
+    try {
+      var nieuw = await NB.api('/api/editions/' + d().edition.id + '/kopie', { method: 'POST', body: { date: datum } });
+      NB.dialoog('dlgKopie').close();
+      NB.toast('Kopie gemaakt, in testmodus.');
+      NB.ga('#/editie/' + nieuw.id);
+    } catch (err) { NB.fout(err); }
+    el.disabled = false;
   };
 
   NB.actions['herinner'] = async function () {

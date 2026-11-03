@@ -68,18 +68,24 @@ function gelijk(a, b) {
  * waarna iedereen dezelfde, verkorte link krijgt. `href` blijft staan als
  * terugval zonder token (een anoniem antwoord), mocht de QWeb ooit wegvallen.
  *
+ * Een TEST (testmail aan collega's, of een mailing in testmodus naar een
+ * testlijst) krijgt `test=1` in de link: dat antwoord wordt bewaard als test
+ * en telt nergens mee.
+ *
  * @param {'preview'|'test'|'live'} mode
  * @param {boolean} tokenVeld  bestaat x_studio_om_token op mailing.contact?
+ * @param {{test?: boolean}} [opties]
  */
-export function antwoordLinks(series, mode, tokenVeld) {
+export function antwoordLinks(series, mode, tokenVeld, { test = false } = {}) {
   const host = (BRAND[series.brand] || BRAND.openvme).linkHost;
+  const vlag = test || mode === 'test' ? 'test=1&' : '';
   return (item, optie) => {
     const basis = `${host}/t/_v/${item.id}/${encodeURIComponent(optie.value)}`;
     if (mode === 'preview') return { href: `${basis}?voorbeeld=1` };
     const expr = tokenVeld
-      ? `{'href': '${basis}?c=%s&t=%s' % (object.id, object.${TOKEN_FIELD} or '')}`
-      : `{'href': '${basis}?c=%s' % (object.id,)}`;
-    return { href: basis, tAtt: expr };
+      ? `{'href': '${basis}?${vlag}c=%s&t=%s' % (object.id, object.${TOKEN_FIELD} or '')}`
+      : `{'href': '${basis}?${vlag}c=%s' % (object.id,)}`;
+    return { href: vlag ? `${basis}?test=1` : basis, tAtt: expr };
   };
 }
 
@@ -101,7 +107,7 @@ async function vraagContext(env, cid) {
 }
 
 async function telling(env, cid) {
-  const { data, error } = await db(env).from(TABLES.answers).select('option_value').eq('contribution_id', cid).limit(20000);
+  const { data, error } = await db(env).from(TABLES.answers).select('option_value').eq('contribution_id', cid).eq('test', false).limit(20000);
   if (error) throw new Error(error.message);
   const uit = {};
   for (const r of data || []) uit[r.option_value] = (uit[r.option_value] || 0) + 1;
@@ -125,6 +131,7 @@ function antwoordVorm(ctx, rij, results) {
     series_name: series?.name || '',
     site: (BRAND[series?.brand] || BRAND.openvme).site,
     verified: Boolean(rij?.verified),
+    test: Boolean(rij?.test),
   };
 }
 
@@ -134,10 +141,13 @@ export async function vraagVoorbeeld(env, { cid }) {
   return antwoordVorm(ctx, null, await telling(env, cid));
 }
 
-export async function registreerAntwoord(env, { cid, opt, c, t, key }) {
+export async function registreerAntwoord(env, { cid, opt, c, t, key, test = false }) {
   const ctx = await vraagContext(env, cid);
   const optie = opties(ctx.item).find((o) => o.value === String(opt || ''));
   if (!optie) throw new NewsletterError('Dat antwoord bestaat niet bij deze vraag.', 400);
+  // Een antwoord uit een TESTmail: bewaard, maar los van alles (geen contact,
+  // niet in de cijfers, niet naar de koppeling).
+  if (test === true) return registreerTestAntwoord(env, ctx, optie, key);
 
   const contactId = Number.parseInt(String(c || ''), 10);
   let verified = false;
@@ -181,6 +191,35 @@ export async function registreerAntwoord(env, { cid, opt, c, t, key }) {
   return antwoordVorm(ctx, rij, await telling(env, cid));
 }
 
+async function registreerTestAntwoord(env, ctx, optie, key) {
+  const nu = new Date().toISOString();
+  let rij = null;
+  if (key) {
+    const { data } = await db(env).from(TABLES.answers).select('*')
+      .eq('contribution_id', ctx.item.id).eq('answer_key', String(key)).eq('test', true).maybeSingle();
+    if (data) {
+      const { data: bij, error } = await db(env).from(TABLES.answers)
+        .update({ option_value: optie.value, updated_at: nu }).eq('id', data.id).select('*').single();
+      if (error) throw new Error(error.message);
+      rij = bij;
+    }
+  }
+  if (!rij) {
+    const { data, error } = await db(env).from(TABLES.answers).insert({
+      contribution_id: ctx.item.id,
+      edition_id: ctx.item.edition_id,
+      option_value: optie.value,
+      contact_id: null,
+      verified: false,
+      test: true,
+      answer_key: sleutel(),
+    }).select('*').single();
+    if (error) throw new Error(error.message);
+    rij = data;
+  }
+  return antwoordVorm(ctx, rij, await telling(env, ctx.item.id));
+}
+
 export async function registreerToelichting(env, { answer_id, key, comment }) {
   const tekst = String(comment || '').trim().slice(0, 1000);
   const { data: rij } = await db(env).from(TABLES.answers).select('*').eq('id', String(answer_id || '')).maybeSingle();
@@ -196,7 +235,7 @@ export async function registreerToelichting(env, { answer_id, key, comment }) {
 
 export async function antwoordenVanEditie(env, editionId) {
   const { data, error } = await db(env).from(TABLES.answers).select('*')
-    .eq('edition_id', editionId).order('updated_at', { ascending: false }).limit(5000);
+    .eq('edition_id', editionId).eq('test', false).order('updated_at', { ascending: false }).limit(5000);
   if (error) throw new Error(error.message);
   const rijen = data || [];
   const ids = [...new Set(rijen.filter((r) => r.contact_id).map((r) => r.contact_id))];

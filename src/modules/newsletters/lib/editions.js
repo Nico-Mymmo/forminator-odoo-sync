@@ -208,6 +208,55 @@ export async function maakEditieOp(env, series, { date, userId, blanco = false, 
   return e;
 }
 
+/**
+ * Een kopie van een mailing: een nieuwe mailing in dezelfde soort, in
+ * testmodus, met dezelfde blokken, onderwerp, voorbeeldtekst en kop. Ze
+ * gedraagt zich als een blanco mailing (geen inleverdag) en staat meteen op
+ * Nalezen. Ontvangers: die van de soort, zoals elke mailing. Valt het moment
+ * samen met een andere mailing van die soort, dan schuift het een minuut op.
+ */
+export async function kopieerEditie(env, series, bron, { date, userId }) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(date || ''));
+  if (!m) throw new NewsletterError('Kies een verzenddag (JJJJ-MM-DD).');
+  let send = brussel(Number(m[1]), Number(m[2]), Number(m[3]), series.send_hour, 0);
+  if (send.getTime() < Date.now()) throw new NewsletterError('Die dag ligt in het verleden.');
+  let editie = null;
+  for (let i = 0; i < 10 && !editie; i += 1) {
+    editie = await insertEdition(env, {
+      series_id: series.id,
+      title: `Kopie van ${bron.title || 'mailing'}`.slice(0, 120),
+      send_at: send.toISOString(),
+      deadline_at: send.toISOString(),
+      status: EDITION_STATUS.REVIEW,
+      subject: bron.subject || '',
+      preheader: bron.preheader || '',
+      header: bron.header || null,
+      testmodus: true,
+      created_by: userId,
+    });
+    if (!editie) send = new Date(send.getTime() + 60 * 1000);
+  }
+  if (!editie) throw new NewsletterError('Op die dag staan al te veel mailings van deze soort.', 409);
+  const blokken = await listContributions(env, bron.id);
+  if (blokken.length) {
+    await insertContributions(env, blokken.map((b) => ({
+      edition_id: editie.id,
+      section_key: b.section_key || '',
+      position: b.position,
+      kind: b.kind,
+      title: b.title || '',
+      content: b.content || {},
+      raw_notes: b.raw_notes || '',
+      owner_user_id: b.owner_user_id || null,
+      status: b.status,
+      source: b.source || '',
+      created_by: userId,
+    })));
+  }
+  await logActivity(env, { editionId: editie.id, userId, kind: 'created', text: `Kopie van "${bron.title}"` });
+  return editie;
+}
+
 /** Het nieuws opnieuw ophalen voor een "Uit het nieuws"-rubriek. */
 export async function vernieuwNieuws(env, editie, item) {
   const vorige = (await listEditions(env, { seriesId: editie.series_id, statuses: [EDITION_STATUS.SENT], limit: 1 }))[0];

@@ -316,6 +316,37 @@
     <form method="dialog" class="modal-backdrop"><button>sluiten</button></form>
   </dialog>
 
+  <!-- Testmodus: verzenden naar een testlijst in Odoo -->
+  <dialog id="dlgTestlijst" class="modal">
+    <div class="modal-box max-w-md">
+      <h3 class="font-bold text-lg mb-1">Verzenden naar een testlijst</h3>
+      <p class="text-sm opacity-70 mb-3">Precies zoals de echte verzending: via Odoo, enkel de bevestigde blokken, met uitschrijflink en antwoordlinks. Het onderwerp krijgt [TEST] ervoor. Telt nergens mee, en kan zo vaak als je wil.</p>
+      <div id="testlijstInhoud" class="flex flex-col gap-1 max-h-[50vh] overflow-y-auto"></div>
+      <div class="modal-action">
+        <button id="testlijstKnop" class="btn btn-sm btn-warning" data-action="testlijst-bevestig"><i data-lucide="send" class="w-4 h-4"></i> Versturen</button>
+        <button class="btn btn-ghost btn-sm" data-action="sluit-dialoog" data-dialoog="dlgTestlijst">Annuleren</button>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>sluiten</button></form>
+  </dialog>
+
+  <!-- Kopie van een mailing -->
+  <dialog id="dlgKopie" class="modal">
+    <div class="modal-box max-w-md">
+      <h3 class="font-bold text-lg mb-1">Kopie maken</h3>
+      <p class="text-sm opacity-70 mb-3">Een nieuwe mailing met dezelfde blokken, hetzelfde onderwerp en dezelfde kop. Ze staat in testmodus: je werkt eraan verder en verstuurt ze wanneer ze klaar is.</p>
+      <label class="form-control">
+        <span class="label-text mb-1">Verzenddag</span>
+        <input id="kopieDatum" type="date" class="input input-bordered input-sm">
+      </label>
+      <div class="modal-action">
+        <button class="btn btn-sm btn-primary" data-action="kopie-bevestig"><i data-lucide="copy" class="w-4 h-4"></i> Kopie maken</button>
+        <button class="btn btn-ghost btn-sm" data-action="sluit-dialoog" data-dialoog="dlgKopie">Annuleren</button>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>sluiten</button></form>
+  </dialog>
+
   <!-- Een tekening als icoon voor een titel -->
   <dialog id="dlgIcoon" class="modal">
     <div class="modal-box max-w-2xl">

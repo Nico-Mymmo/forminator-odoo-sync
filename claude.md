@@ -6276,6 +6276,26 @@ Afspraken die bewust zo zijn:
   Odoo-lijst, dan vertrekt er niets. Bewust NIET lijst 2 "Test Inhouse" (te veel
   mensen). Een test gaat via exact dezelfde weg als de echte mailing, zodat hij
   ook bewijst dat Odoo de HTML laat staan.
+- **Testmodus PER MAILING** (2026-11-03, `newsletter_editions.testmodus`,
+  standaard aan, migratie `20261103120000_newsletters_testmodus.sql`). In
+  testmodus is "Verzenden" = "Verzenden naar testlijst"
+  (`POST /api/editions/:id/test-lijst`, `verstuurNaarTestlijst()`): meteen,
+  zo vaak als nodig, via EXACT de weg van de echte verzending (`bouwEchteMail`
+  in live-weergave, tokens, gehoste beelden, Odoo), maar enkel naar een
+  `mailing.list` met het Studio-vinkje `x_studio_testlijst` (de server kijkt
+  dat na; bewust NIET op naam). Telt nergens mee: de mailing komt in
+  `test_mailing_ids`, de antwoordlinks dragen `test=1` en zo'n antwoord wordt
+  bewaard met `newsletter_answers.test = true` (niet in de cijfers, niet naar
+  de koppeling). Uitzetten (schakelaar in het paneel Editie) kan enkel als
+  `NEWSLETTER_SEND_MODE` `live` is; de env-variabele blijft de hoofdschakelaar.
+  Inplannen en de cron weigeren een mailing in testmodus. Na de echte
+  verzending is de mailing vergrendeld (zoals altijd).
+- **Kopie maken** (`POST /api/editions/:id/kopie`, `kopieerEditie()`): een
+  nieuwe mailing in dezelfde soort, in testmodus, met dezelfde blokken,
+  onderwerp, voorbeeldtekst en kop, als blanco mailing (geen inleverdag) op
+  een gekozen dag. Kan van elke mailing, ook een verstuurde: zo dient een
+  mailing als basis. Valt het moment samen met een andere mailing van die
+  soort, dan schuift het een minuut op (unieke index).
 - **Elke test is een nieuwe `mailing.mailing`** ("[OM-test] ..."): een verstuurde
   mailing kan in Odoo niet opnieuw. Bewerk die mailings NOOIT in de editor van
   Odoo -- die herschrijft `body_arch`.

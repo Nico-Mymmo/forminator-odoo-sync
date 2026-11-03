@@ -92,10 +92,12 @@ export function checklist({ series, edition, items, ctx = {}, tokenVeld = true, 
     ok: (series.odoo_list_ids || []).length > 0,
     blokkeert: live,
   });
+  const testmodus = edition.testmodus !== false;
   punten.push({
     key: 'live',
-    label: live ? 'Echte verzending staat aan' : 'Teststand: er kan enkel een testmail vertrekken',
-    ok: live,
+    label: !live ? 'Echte verzending staat uit op de server'
+      : testmodus ? 'Testmodus staat aan: zet ze uit om naar de echte lijsten te sturen' : 'Testmodus staat uit',
+    ok: live && !testmodus,
     blokkeert: true,
   });
 
