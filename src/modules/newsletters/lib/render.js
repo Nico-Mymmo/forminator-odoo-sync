@@ -302,11 +302,15 @@ function schikBeeld({ b, ctx, id, inhoud, padding, bg = '' }) {
     // Rechtsboven in de hoek, boven alles (ook het labeltje en de titel); de
     // tekst loopt er links van. Een tekening op haar grootte, een foto in
     // het vierkante kader. `align` op het beeld: dat volgen Outlook en Gmail.
+    // Het beeld krimpt mee tot hoogstens 40% van de kolom (zoals naast een alinea): een
+    // vaste breedte werd op een gsm enkel afgeknipt, en de tekst ontweek dan een te breed vak.
     const breedte = beeldBreedte(b, pl);
-    const tag = beeldTag(b, ctx, breedte, { radius: b.thingie ? 0 : 14 }).replace('width:100%', `width:${breedte}px`);
+    const r = b.thingie ? 0 : 14;
+    const marge = '0 0 12px 20px';
+    const src = esc(beeldSrc(b, ctx));
     const hoek = id
-      ? `<div data-nb-eiland="1" data-nb-beeld="1" contenteditable="false" style="float:right;width:${breedte}px;max-width:46%;margin:0 0 14px 24px">${tag}</div>`
-      : tag.replace('<img ', `<img align="right" `).replace('style="display:block;', 'style="display:block;float:right;margin:0 0 14px 24px;');
+      ? `<div data-nb-eiland="1" data-nb-beeld="1" contenteditable="false" style="float:right;width:${breedte}px;max-width:40%;margin:${marge}"><img src="${src}" width="${breedte}" alt="" style="display:block;width:100%;height:auto;border:0;border-radius:${r}px"></div>`
+      : `<img src="${src}" width="${breedte}" align="right" alt="" style="float:right;width:${breedte}px;max-width:40%;height:auto;margin:${marge};border:0;border-radius:${r}px">`;
     return `<tr${attr}><td class="nb-cel" style="padding:${padding};${bgStijl}">${hoek}${inhoud}<div style="clear:both;font-size:0;line-height:0">&nbsp;</div></td></tr>`;
   }
   if (!b || !k || !pl.startsWith('kolom') || !beeldSrc(b, ctx)) {
