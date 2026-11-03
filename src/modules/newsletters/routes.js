@@ -174,6 +174,8 @@ export function normaliseerInhoud(kind, c = {}) {
   if (typeof c?.toc_titel === 'string' && c.toc_titel.trim()) uit.toc_titel = kort(c.toc_titel, 160);
   // In of uit de inhoudstafel, als marketing dat uitdrukkelijk koos (anders de standaard per soort, inToc()).
   if (c?.in_toc === false || c?.in_toc === true) uit.in_toc = c.in_toc;
+  // De schrijver niet tonen onder het blok (schrijver() in render.js).
+  if (c?.zonder_schrijver === true) uit.zonder_schrijver = true;
   return uit;
 }
 
@@ -1054,6 +1056,7 @@ export const routes = {
         if (metOpmaak.in_toc === undefined && typeof item.content?.in_toc === 'boolean') metOpmaak.in_toc = item.content.in_toc;
         if (metOpmaak.uit === undefined && item.content?.uit) metOpmaak.uit = true;
         if (metOpmaak.toc_titel === undefined && item.content?.toc_titel) metOpmaak.toc_titel = item.content.toc_titel;
+        if (metOpmaak.zonder_schrijver === undefined && item.content?.zonder_schrijver) metOpmaak.zonder_schrijver = true;
         w.content = normaliseerInhoud(kind, metOpmaak);
         // De achtergrond zet de hoofdredactie in de opmaakstand; een schrijver
         // die zijn tekst bewaart, wist ze niet.
@@ -1151,6 +1154,19 @@ export const routes = {
       const titel = kort((await leesBody(request)).titel, 160).replace(/\s+/g, ' ');
       const content = { ...(item.content || {}) };
       if (titel && titel !== kopVan(item)) content.toc_titel = titel; else delete content.toc_titel;
+      return json({ success: true, data: await updateContribution(env, item.id, { content }) });
+    } catch (err) { return fout(err); }
+  },
+
+  /** De schrijver onder het blok tonen of niet (opmaakstand), zoals de achtergrond. */
+  'POST /api/contributions/:id/schrijver': async ({ env, user, params, request }) => {
+    try {
+      const { item, edition, series } = await stukjeMetContext(env, params.id);
+      eisEditor(user, series);
+      if (edition && !isActiveEdition(edition)) throw new NewsletterError('Deze editie is al verstuurd.', 409);
+      const tonen = (await leesBody(request)).tonen !== false;
+      const content = { ...(item.content || {}) };
+      if (tonen) delete content.zonder_schrijver; else content.zonder_schrijver = true;
       return json({ success: true, data: await updateContribution(env, item.id, { content }) });
     } catch (err) { return fout(err); }
   },

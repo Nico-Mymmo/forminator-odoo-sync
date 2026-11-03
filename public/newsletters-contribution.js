@@ -541,6 +541,26 @@
     } catch (err) { NB.fout(err); }
   };
 
+  // Blokken waaronder een schrijver staat (woordje vooraf: de handtekening).
+  var MET_SCHRIJVER = { intro: 1, article: 1, snippet: 1, link: 1, linkedin: 1, question: 1, statement: 1, poll: 1 };
+
+  NB.actions['schrijver-zet'] = async function (el) {
+    try {
+      var tonen = el.dataset.aan === '1';
+      var bij = await NB.api('/api/contributions/' + s().item.id + '/schrijver', { method: 'POST', body: { tonen: tonen } });
+      s().item.content = bij.content;
+      zet('content.zonder_schrijver', bij.content.zonder_schrijver || undefined);
+      if (NB.vernieuwBrief) NB.vernieuwBrief();
+      render();
+    } catch (err) { NB.fout(err); }
+  };
+
+  function schrijverKeuze(kind) {
+    var tonen = !lees('content.zonder_schrijver');
+    var naam = kind === 'intro' ? 'Handtekening tonen' : kind === 'snippet' ? '"Gedeeld door" tonen' : NB.isVraag(kind) ? '"Gesteld door" tonen' : 'Schrijver tonen';
+    return '<label class="flex items-center gap-3 cursor-pointer"><input type="checkbox" class="toggle toggle-sm toggle-primary" data-action="schrijver-zet" data-aan="' + (tonen ? '0' : '1') + '"' + (tonen ? ' checked' : '') + '><span class="label-text text-xs">' + e(naam) + '</span></label>';
+  }
+
   function opmaakKaart() {
     if (!editor() || !s().edition || !actiefEditie()) return '';
     var kind = c().kind;
@@ -551,6 +571,7 @@
     if (kind === 'feature') delen.push(featureVormKeuze());
     var bg = lees('content.achtergrond');
     delen.push('<div class="flex items-center gap-3"><span class="label-text text-xs">Achtergrond van het blok</span><button type="button" class="btn btn-sm btn-ghost gap-2 px-2" data-action="achtergrond-kies">' + NB.kleurBol(bg) + '<span>' + (bg ? e(String(bg).toUpperCase()) : 'Standaard') + '</span></button></div>');
+    if (MET_SCHRIJVER[kind]) delen.push(schrijverKeuze(kind));
     if (kind === 'toc') delen.push('<p class="text-xs opacity-70">Wat erin staat, kies je per lijn met de schakelaar in de inhoudstafel zelf.</p>');
     return '<div class="card bg-base-100 border border-base-content/10"><div class="card-body p-4 gap-3"><h3 class="font-semibold text-sm flex items-center gap-2"><i data-lucide="layout-template" class="w-4 h-4"></i> Opmaak</h3>' + delen.join('') + '</div></div>';
   }

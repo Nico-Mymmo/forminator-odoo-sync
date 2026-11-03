@@ -129,6 +129,14 @@ function bijdrageVan(it) {
   return a?.name && !isTechnisch(a.name) ? a : null;
 }
 
+/**
+ * Wie onder een blok staat (schrijver, "gedeeld door", "gesteld door"), tenzij
+ * de hoofdredactie koos om de schrijver niet te tonen (`content.zonder_schrijver`).
+ */
+function schrijver(item, a) {
+  return item?.content?.zonder_schrijver ? null : a;
+}
+
 function byline(author, { onDark = false, prefix = '' } = {}) {
   // Een technisch account is geen collega: dan liever geen naam.
   if (!author?.name || isTechnisch(author.name)) return '';
@@ -457,6 +465,7 @@ function antwoordA(item, optie, ctx, stijl, inhoud) {
  * foto en functie komen uit hr.employee in Odoo.
  */
 function handtekening(item) {
+  if (item.content?.zonder_schrijver) return '';
   const a = item.signer || item.author || {};
   const voornaam = String(a.name || '').trim().split(/\s+/)[0] || '';
   if (!voornaam) return '';
@@ -519,7 +528,7 @@ function blokArticle(item, ctx, id) {
     ? `<div style="line-height:1"><span data-nb-veld="@title" data-nb-optioneel="1" data-placeholder="Label (optioneel)" style="display:inline-block;font-family:${S.fontBody};font-size:12px;font-weight:700;letter-spacing:0.02em;padding:5px 12px;border-radius:999px;background-color:${S.pink50};color:${S.pink700}">${esc(item.title || '')}</span></div>`
     : pil(item.title, S.pink50, S.pink700);
   const tekst = `${titel}${sub}${lijf}${c.link_url ? `<div style="margin-top:18px">${leesLink(c.link_label, c.link_url)}</div>` : ''}`;
-  return schikBeeld({ b, ctx, id, inhoud: `${labeltje}${tekst}${byline(item.author)}`, padding: '44px 40px 4px' });
+  return schikBeeld({ b, ctx, id, inhoud: `${labeltje}${tekst}${byline(schrijver(item, item.author))}`, padding: '44px 40px 4px' });
 }
 
 /**
@@ -532,7 +541,7 @@ function blokArticle(item, ctx, id) {
 function blokSnippet(item, ctx, id) {
   const c = item.content || {};
   const tag = String(c.tag || '').trim() || item.title;
-  const door = byline(c.door, { prefix: 'Gedeeld door' });
+  const door = byline(schrijver(item, c.door), { prefix: 'Gedeeld door' });
   const b = beeldVan(c, { plaats: 'tekst' });
   const bron = esc(c.source || '');
   switch (c.vorm) {
@@ -555,7 +564,7 @@ ${kop(c.title, { size: 32, color: '#ffffff', margin: '16px 0 12px' })}
 ${foto ? `<div style="margin:6px 0 18px">${foto}</div>` : ''}
 ${alineas(c.text, { size: 16, color: S.sky100, linkColor: '#ffffff' }).join('')}
 <div style="margin-top:20px">${knop(c.link_label || 'Lees verder', c.link_url)}</div>
-${byline(c.door, { onDark: true, prefix: 'Gedeeld door' })}`, S.primary, { padding: '36px 32px 30px', id });
+${byline(schrijver(item, c.door), { onDark: true, prefix: 'Gedeeld door' })}`, S.primary, { padding: '36px 32px 30px', id });
     }
     case 'compact': {
       const k = BEELD_KADERS.compact;
@@ -618,7 +627,7 @@ ${typbaar(id, 'title', c.title || (id ? '' : c.url), { plaatshouder: 'Titel van 
 ${typbaar(id, 'text', c.text, { plaatshouder: 'Waarom we dit delen (optioneel)', optioneel: true, html: tekstNaarHtml(c.text, { size: 15, lineHeight: 1.55 }), stijl: '' })}
 <div style="margin-top:14px">${leesLink(c.link_label || (linkedin ? 'Lees de post' : 'Lees meer'), c.url)}</div>
 </td></tr></table>`;
-  return rij(`${pil(item.title, S.sky50, S.primary)}<div style="margin-top:16px">${kaart}</div>${byline(item.author)}`, { padding: '44px 40px 4px', id });
+  return rij(`${pil(item.title, S.sky50, S.primary)}<div style="margin-top:16px">${kaart}</div>${byline(schrijver(item, item.author))}`, { padding: '44px 40px 4px', id });
 }
 
 function blokQuote(item, ctx, id) {
@@ -676,7 +685,7 @@ function blokVraag(item, ctx, id) {
     : (introWaarde || standaardIntro) ? `<div style="font-family:${S.fontBody};font-size:15px;line-height:1.55;color:${kleur};${extra}">${esc(introWaarde || standaardIntro)}</div>` : '');
   const letter = (i, achter, voor) => (kind === 'poll'
     ? `<span style="display:inline-block;width:24px;height:24px;line-height:24px;text-align:center;border-radius:50%;background-color:${achter};color:${voor};font-size:12px;margin-right:10px">${letters[i]}</span>` : '');
-  const door = byline(item.author, { onDark: opVlak && k.opTekst === '#ffffff', prefix: 'Gesteld door' });
+  const door = byline(schrijver(item, item.author), { onDark: opVlak && k.opTekst === '#ffffff', prefix: 'Gesteld door' });
   const omhul = (html) => (id ? `<div data-nb-antwoorden="1">${html}</div>` : html);
 
   if (stijl === 'subtiel') {
