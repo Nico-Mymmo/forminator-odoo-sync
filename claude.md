@@ -6876,7 +6876,7 @@ https://claude.ai/artifact/QwXUNv4HtUfr1PfayjeVUu
 | Teamoverzicht: tabblad Opvolging in CX Powerboard | `opvolging/overzicht.js`, `GET /cx-powerboard/api/opvolging`, `public/cx-powerboard-opvolging.js` |
 | Odoo-kant (venster, opslaan, knop) | view 3968 (`x_oproep_notitie`), serveracties 1207 (opslaan) en "Ik heb gebeld - Venster openen", view 3978 (knop naast het paneel) |
 | Berichtteksten (macro's): opslag, placeholders, voorbeeld op een kans | `opvolging/berichten.js`, tabel `opv_berichten` in D1 om-core (`0022_opv_berichten.sql`), routes `/cx-automations/api/opvolging/berichten*` |
-| Berichten schrijven | CX Automations -> Opvolging -> Berichten, `public/cx-automations-berichten.js` |
+| Berichten schrijven | CX Automations -> tabblad Berichten, `public/cx-automations-berichten.js` (tabbladen sinds 2026-11-03: Opvolging, Berichten, Actiebladen = vlag-drempelwaarden + mergers) |
 
 - **De sequentie beslist wanneer er opnieuw gebeld wordt, niet de verkoper.**
   Stappen (standaard, aan te passen door Thomas): eerste beltaak "Nieuwe lead

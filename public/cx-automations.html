@@ -21,22 +21,22 @@
     <div id="navbar"></div>
 
     <div style="padding-top: 48px;">
-      <div class="container mx-auto px-6 py-8 max-w-4xl">
+      <div class="container mx-auto px-6 py-8 max-w-5xl">
 
         <div class="mb-6">
           <h1 class="text-2xl font-bold">CX Automations</h1>
-          <p class="text-sm text-base-content/60 mt-1">Vlag-drempelwaarden, technische blokkades en merger-instellingen.</p>
+          <p class="text-sm text-base-content/60 mt-1">Opvolging van nieuwe aanvragen, berichten voor de verkopers, en de instellingen van de actiebladen.</p>
         </div>
 
         <!-- ======= Tab navigatie ======= -->
         <div role="tablist" class="tabs tabs-boxed mb-6">
-          <button role="tab" class="tab tab-active" data-tab="vlaggen">Vlag-drempelwaarden</button>
-          <button role="tab" class="tab" data-tab="mergers">Mergers</button>
-          <button role="tab" class="tab" data-tab="opvolging">Opvolging</button>
+          <button role="tab" class="tab tab-active" data-tab="opvolging">Opvolging</button>
+          <button role="tab" class="tab" data-tab="berichten">Berichten</button>
+          <button role="tab" class="tab" data-tab="actiebladen">Actiebladen</button>
         </div>
 
-        <!-- ======= Tab: Vlaggen ======= -->
-        <div id="tab-vlaggen">
+        <!-- ======= Tab: Actiebladen (vlag-drempelwaarden + mergers) ======= -->
+        <div id="tab-actiebladen" style="display:none;">
 
         <!-- ======= Drempelwaarden ======= -->
         <div class="card bg-base-100 shadow-sm border border-base-content/10 mb-6">
@@ -116,10 +116,7 @@
           </div>
         </div>
 
-        </div> <!-- /tab-vlaggen -->
-
-        <!-- ======= Tab: Mergers ======= -->
-        <div id="tab-mergers" style="display:none;">
+        <!-- ======= Mergers ======= -->
 
           <div class="card bg-base-100 shadow-sm border border-base-content/10 mb-6">
             <div class="card-body p-6">
@@ -246,22 +243,15 @@
             </div>
           </div>
 
-        </div> <!-- /tab-mergers -->
+        </div> <!-- /tab-actiebladen -->
 
         <!-- ======= Tab: Opvolging ======= -->
-        <div id="tab-opvolging" style="display:none;">
+        <div id="tab-opvolging">
           <div class="card bg-base-100 shadow-sm border border-base-content/10 mb-6">
             <div class="card-body">
               <h2 class="card-title text-base">Sequentie voor nieuwe aanvragen</h2>
               <p class="text-sm text-base-content/60">Welke beltaken de OM plant bij een nieuwe kans en na elke oproep zonder antwoord. Het overzicht van alle beltaken staat in CX Powerboard, tabblad Opvolging.</p>
               <div id="opvSequentie" class="mt-3"></div>
-            </div>
-          </div>
-          <div class="card bg-base-100 shadow-sm border border-base-content/10 mb-6">
-            <div class="card-body">
-              <h2 class="card-title text-base">Berichten</h2>
-              <p class="text-sm text-base-content/60">De mails die een verkoper vanuit de opvolging stuurt. Ze lezen als een gewone mail van de verkoper, met zijn handtekening eronder, en vullen zich in met de gegevens van de kans. Versturen komt in een volgende stap; hier schrijf je ze en bekijk je ze op een echte kans.</p>
-              <div id="opvBerichten" class="mt-3"></div>
             </div>
           </div>
           <div class="card bg-base-100 shadow-sm border border-base-content/10 mb-6">
@@ -275,6 +265,17 @@
             </div>
           </div>
         </div> <!-- /tab-opvolging -->
+
+        <!-- ======= Tab: Berichten ======= -->
+        <div id="tab-berichten" style="display:none;">
+          <div class="card bg-base-100 shadow-sm border border-base-content/10 mb-6">
+            <div class="card-body">
+              <h2 class="card-title text-base">Berichten</h2>
+              <p class="text-sm text-base-content/60">De mails die een verkoper vanuit de opvolging stuurt. Ze lezen als een gewone mail van de verkoper, met zijn handtekening eronder, en vullen zich in met de gegevens van de kans. Versturen komt in een volgende stap; hier schrijf je ze en bekijk je ze op een echte kans.</p>
+              <div id="opvBerichten" class="mt-3"></div>
+            </div>
+          </div>
+        </div> <!-- /tab-berichten -->
 
       </div>
     </div>

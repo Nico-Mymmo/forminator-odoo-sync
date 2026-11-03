@@ -41,15 +41,19 @@
       + '<button type="button" class="btn btn-primary btn-xs gap-1" data-ber="nieuw"><i data-lucide="plus" class="w-3 h-3"></i> Nieuw</button></div>';
     if (!lijst.length) h += '<p class="text-sm opacity-60">Nog geen berichten.</p>';
     Object.keys(groepen).sort().forEach(function (g) {
-      h += '<div class="text-xs uppercase tracking-wide opacity-50 mt-3 mb-1">' + esc(g) + '</div><ul class="menu menu-sm p-0">';
+      h += '<div class="text-xs uppercase tracking-wide text-base-content/50 mt-4 mb-1">' + esc(g) + '</div><div class="flex flex-col gap-1">';
       groepen[g].forEach(function (b) {
-        var actief = S.kies === b.id ? ' active' : '';
-        h += '<li><a class="flex items-center gap-2' + actief + '" data-ber="kies" data-id="' + esc(b.id) + '">'
-          + '<span class="flex-1 truncate">' + esc(b.naam) + '</span>'
-          + '<span class="badge badge-ghost badge-xs">' + esc((S.data.merken[b.merk] || b.merk) + ' · ' + b.taal.toUpperCase()) + '</span>'
-          + (b.actief ? '' : '<span class="badge badge-warning badge-xs">concept</span>') + '</a></li>';
+        var gekozen = S.kies === b.id;
+        h += '<button type="button" data-ber="kies" data-id="' + esc(b.id) + '" class="text-left rounded-lg border px-3 py-2 '
+          + (gekozen ? 'border-primary bg-primary/10' : 'border-base-content/10 hover:bg-base-200') + '">'
+          + '<div class="text-sm font-medium truncate" title="' + esc(b.naam) + '">' + esc(b.naam) + '</div>'
+          + '<div class="flex flex-wrap items-center gap-1 mt-1">'
+          + '<span class="badge badge-ghost badge-sm">' + esc(S.data.merken[b.merk] || b.merk) + '</span>'
+          + '<span class="badge badge-ghost badge-sm">' + esc(b.taal.toUpperCase()) + '</span>'
+          + (b.actief ? '<span class="badge badge-success badge-sm">klaar</span>' : '<span class="badge badge-warning badge-sm">concept</span>')
+          + '</div></button>';
       });
-      h += '</ul>';
+      h += '</div>';
     });
     el('opvBerLijst').innerHTML = h;
   }

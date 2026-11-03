@@ -408,9 +408,9 @@ function switchTab(name) {
   document.querySelectorAll('[id^="tab-"]').forEach(function(panel) {
     panel.style.display = panel.id === 'tab-' + name ? '' : 'none';
   });
-  if (name === 'mergers' && !mergerState[currentMergerPair].loaded) loadMergerConfig();
+  if (name === 'actiebladen' && !mergerState[currentMergerPair].loaded) loadMergerConfig();
   if (name === 'opvolging' && window.OpvSequentie) window.OpvSequentie.laad();
-  if (name === 'opvolging' && window.OpvBerichten) window.OpvBerichten.laad();
+  if (name === 'berichten' && window.OpvBerichten) window.OpvBerichten.laad();
 }
 
 // ====== Merger state ======
@@ -925,3 +925,5 @@ loadConfig();
 loadSettings();
 loadTechnicalBlocks();
 loadLog();
+// Opvolging staat vooraan; de scripts van dat tabblad staan na dit bestand.
+document.addEventListener('DOMContentLoaded', function() { switchTab('opvolging'); });
