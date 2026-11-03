@@ -115,7 +115,7 @@
       var toelichting = d.ask_comment && !voorbeeld
         ? '<div id="toelichtingBlok">' + (d.comment
           ? '<div class="bedankt">Dank je voor je toelichting. We lezen ze allemaal.</div>'
-          : '<label for="waarom">Wil je kort zeggen waarom? <span style="font-weight:400;color:#6b7280">(mag ook niet)</span></label>'
+          : '<label for="waarom">Wil je kort zeggen waarom? <span style="font-weight:400;color:#6b7280">(zonder verplichting)</span></label>'
             + '<textarea id="waarom" rows="3"></textarea><button type="button" class="knop" id="verstuur">Versturen</button>') + '</div>'
         : '';
       inhoud.innerHTML = (voorbeeld ? '<div class="melding">Dit is een voorbeeld: er wordt niets bewaard.</div>' : '')
