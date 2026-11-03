@@ -29,9 +29,9 @@ import { heeftVelden } from './odoo-data.js';
 import { OpvolgingError } from './constants.js';
 
 const TABEL = 'opv_berichten';
-
-/** Voorgestelde groepen (vrij aan te vullen, deze staan eerst in de keuzelijst). */
-export const GROEPEN = ['Niet bereikbaar', 'Na offerte', 'Laatste kans', 'Na gesprek'];
+// De groepen staan in een eigen lijst (zoals de mappen in Koppelingen), in de
+// linkerkolom van het tabblad Berichten. groep_id leeg = "Zonder groep".
+const GROEPEN_TABEL = 'opv_bericht_groepen';
 export const MERKEN = { alle: 'Alle merken', syndicoach: 'Syndicoach', openvme: 'OpenVME' };
 export const TALEN = { nl: 'Nederlands', fr: 'Frans' };
 
@@ -66,7 +66,7 @@ function m2o(v) { return Array.isArray(v) ? v[0] : (Number.isInteger(v) ? v : nu
 export function normaliseerBericht(invoer = {}) {
   const naam = tekst(invoer.naam, 80);
   if (!naam) throw new OpvolgingError('Geef het bericht een naam.', 400);
-  const groep = tekst(invoer.groep, 40) || GROEPEN[0];
+  const groepId = tekst(invoer.groep_id, 80) || null;
   const merk = Object.prototype.hasOwnProperty.call(MERKEN, invoer.merk) ? invoer.merk : 'alle';
   const taal = Object.prototype.hasOwnProperty.call(TALEN, invoer.taal) ? invoer.taal : 'nl';
   const onderwerp = tekst(invoer.onderwerp, 200).replace(/\s+/g, ' ');
@@ -80,14 +80,71 @@ export function normaliseerBericht(invoer = {}) {
     throw new OpvolgingError('Een bericht dat aan staat, heeft een onderwerp en een tekst nodig.', 400);
   }
   const volgorde = Number.isInteger(Number(invoer.volgorde)) ? Number(invoer.volgorde) : 0;
-  return { naam, groep, merk, taal, onderwerp, tekst_html: tekstHtml, actief, volgorde };
+  // `groep` (de naam als tekst, migratie 0022) is verplicht in de tabel maar
+  // wordt niet meer gelezen: de groep is groep_id.
+  return { naam, groep: '', groep_id: groepId, merk, taal, onderwerp, tekst_html: tekstHtml, actief, volgorde };
 }
 
 export async function lijstBerichten(env) {
   const { data, error } = await getCoreDb(env).from(TABEL).select('*')
-    .order('groep', { ascending: true }).order('volgorde', { ascending: true }).order('naam', { ascending: true });
+    .order('volgorde', { ascending: true }).order('naam', { ascending: true });
   if (error) throw new OpvolgingError(`Berichten lezen mislukt: ${error.message}`, 500);
   return data || [];
+}
+
+/** Een bericht naar een andere groep (slepen in de lijst). Leeg = zonder groep. */
+export async function verplaatsBericht(env, id, groepId) {
+  const { error } = await getCoreDb(env).from(TABEL).update({ groep_id: tekst(groepId, 80) || null }).eq('id', id);
+  if (error) throw new OpvolgingError(`Verplaatsen mislukt: ${error.message}`, 500);
+  return { id, groep_id: tekst(groepId, 80) || null };
+}
+
+// ─── Groepen ─────────────────────────────────────────────────────────────────
+
+export async function lijstGroepen(env) {
+  const { data, error } = await getCoreDb(env).from(GROEPEN_TABEL).select('*')
+    .order('volgorde', { ascending: true }).order('naam', { ascending: true });
+  if (error) throw new OpvolgingError(`Groepen lezen mislukt: ${error.message}`, 500);
+  return data || [];
+}
+
+function groepNaam(v) {
+  const naam = tekst(v, 40);
+  if (!naam) throw new OpvolgingError('Geef de groep een naam.', 400);
+  return naam;
+}
+
+export async function maakGroep(env, invoer = {}) {
+  const naam = groepNaam(invoer.naam);
+  const bestaande = await lijstGroepen(env);
+  if (bestaande.some((g) => g.naam.toLowerCase() === naam.toLowerCase())) {
+    throw new OpvolgingError(`Er is al een groep "${naam}".`, 409);
+  }
+  const rij = { id: crypto.randomUUID(), naam, volgorde: (bestaande.reduce((m, g) => Math.max(m, g.volgorde || 0), 0) + 10) };
+  const { error } = await getCoreDb(env).from(GROEPEN_TABEL).insert(rij);
+  if (error) throw new OpvolgingError(`Groep maken mislukt: ${error.message}`, 500);
+  return rij;
+}
+
+export async function hernoemGroep(env, id, invoer = {}) {
+  const naam = groepNaam(invoer.naam);
+  const bestaande = await lijstGroepen(env);
+  if (bestaande.some((g) => g.id !== id && g.naam.toLowerCase() === naam.toLowerCase())) {
+    throw new OpvolgingError(`Er is al een groep "${naam}".`, 409);
+  }
+  const { error } = await getCoreDb(env).from(GROEPEN_TABEL).update({ naam }).eq('id', id);
+  if (error) throw new OpvolgingError(`Hernoemen mislukt: ${error.message}`, 500);
+  return { id, naam };
+}
+
+/** Een groep weghalen; haar berichten blijven, zonder groep. */
+export async function verwijderGroep(env, id) {
+  const db = getCoreDb(env);
+  const { error: e1 } = await db.from(TABEL).update({ groep_id: null }).eq('groep_id', id);
+  if (e1) throw new OpvolgingError(`Berichten losmaken mislukt: ${e1.message}`, 500);
+  const { error } = await db.from(GROEPEN_TABEL).delete().eq('id', id);
+  if (error) throw new OpvolgingError(`Verwijderen mislukt: ${error.message}`, 500);
+  return { id };
 }
 
 export async function bewaarBericht(env, id, invoer, doorNaam) {

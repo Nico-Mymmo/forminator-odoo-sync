@@ -7,7 +7,7 @@
 
 import { runOpvolgingCron } from './opvolging/paneel.js';
 import { leesSequentie, bewaarSequentie, STANDAARD } from './opvolging/sequentie.js';
-import { lijstBerichten, bewaarBericht, verwijderBericht, voorbeeldBericht, TOKENS, GROEPEN, MERKEN, TALEN } from './opvolging/berichten.js';
+import { lijstBerichten, bewaarBericht, verwijderBericht, voorbeeldBericht, verplaatsBericht, lijstGroepen, maakGroep, hernoemGroep, verwijderGroep, TOKENS, MERKEN, TALEN } from './opvolging/berichten.js';
 
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } });
@@ -73,12 +73,17 @@ export default {
 
     // Opvolging: de berichtteksten (opvolging/berichten.js).
     'GET /api/opvolging/berichten': ({ env }) => veilig(async () => ({
-      berichten: await lijstBerichten(env), tokens: TOKENS, groepen: GROEPEN, merken: MERKEN, talen: TALEN,
+      berichten: await lijstBerichten(env), groepen: await lijstGroepen(env), tokens: TOKENS, merken: MERKEN, talen: TALEN,
     })),
     'POST /api/opvolging/berichten': async ({ env, user, request }) =>
       veilig(async () => bewaarBericht(env, null, await request.json(), user?.full_name || user?.email)),
     'PUT /api/opvolging/berichten/:id': async ({ env, user, request, params }) =>
       veilig(async () => bewaarBericht(env, params.id, await request.json(), user?.full_name || user?.email)),
+    'PUT /api/opvolging/berichten/:id/groep': async ({ env, request, params }) =>
+      veilig(async () => verplaatsBericht(env, params.id, (await request.json()).groep_id)),
+    'POST /api/opvolging/bericht-groepen': async ({ env, request }) => veilig(async () => maakGroep(env, await request.json())),
+    'PUT /api/opvolging/bericht-groepen/:id': async ({ env, request, params }) => veilig(async () => hernoemGroep(env, params.id, await request.json())),
+    'DELETE /api/opvolging/bericht-groepen/:id': ({ env, params }) => veilig(async () => verwijderGroep(env, params.id)),
     'DELETE /api/opvolging/berichten/:id': ({ env, params }) =>
       veilig(async () => { await verwijderBericht(env, params.id); return { id: params.id }; }),
     'POST /api/opvolging/berichten/voorbeeld': async ({ env, request }) => veilig(async () => {

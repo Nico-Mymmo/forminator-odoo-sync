@@ -6875,7 +6875,7 @@ https://claude.ai/artifact/QwXUNv4HtUfr1PfayjeVUu
 | Bijhouden (voor de rapportering later) | tabel `opv_contactmomenten` in D1 om-core (`0017_opvolging.sql`) |
 | Teamoverzicht: tabblad Opvolging in CX Powerboard | `opvolging/overzicht.js`, `GET /cx-powerboard/api/opvolging`, `public/cx-powerboard-opvolging.js` |
 | Odoo-kant (venster, opslaan, knop) | view 3968 (`x_oproep_notitie`), serveracties 1207 (opslaan) en "Ik heb gebeld - Venster openen", view 3978 (knop naast het paneel) |
-| Berichtteksten (macro's): opslag, placeholders, voorbeeld op een kans | `opvolging/berichten.js`, tabel `opv_berichten` in D1 om-core (`0022_opv_berichten.sql`), routes `/cx-automations/api/opvolging/berichten*` |
+| Berichtteksten (macro's): opslag, groepen, placeholders, voorbeeld op een kans | `opvolging/berichten.js`, tabellen `opv_berichten` + `opv_bericht_groepen` in D1 om-core (`0022`, `0023`), routes `/cx-automations/api/opvolging/berichten*` en `/bericht-groepen*` |
 | Berichten schrijven | CX Automations -> tabblad Berichten, `public/cx-automations-berichten.js` (tabbladen sinds 2026-11-03: Opvolging, Berichten, Actiebladen = vlag-drempelwaarden + mergers) |
 
 - **De sequentie beslist wanneer er opnieuw gebeld wordt, niet de verkoper.**
@@ -6961,7 +6961,11 @@ https://claude.ai/artifact/QwXUNv4HtUfr1PfayjeVUu
   paneel opnieuw (`POST /cx-automations/api/opvolging/panelen`, force).
 - **Berichtteksten (macro's)** (2026-11-03): een bericht = naam, groep (Niet
   bereikbaar, Na offerte, Laatste kans, ... vrij aan te vullen), merk, taal,
-  onderwerp en tekst. EEN plek om ze te schrijven: de OM. De vorm is die van de
+  onderwerp en tekst. De GROEPEN zijn een eigen lijst in de linkerkolom, zoals
+  de mappen in Koppelingen (aanmaken, hernoemen, verwijderen; een bericht
+  sleep je naar een groep; verwijderen laat de berichten staan, zonder groep).
+  Een bericht verwijst met `groep_id`; de tekstkolom `groep` uit 0022 wordt
+  niet meer gelezen. EEN plek om ze te schrijven: de OM. De vorm is die van de
   mailstap van de koppelingen: platte tekst (`renderPlainMailHtml()`, geen
   tweede renderer) met de handtekening van de VERKOPER van de kans
   (`res.users.signature`) eronder; de editor is dezelfde (EOQuill, vet,

@@ -1,7 +1,11 @@
 /**
- * CX Automations -- tabblad Opvolging: de BERICHTTEKSTEN (macro's).
- * Server: /cx-automations/api/opvolging/berichten
+ * CX Automations -- tabblad Berichten: de BERICHTTEKSTEN (macro's).
+ * Server: /cx-automations/api/opvolging/berichten en /bericht-groepen
  * (src/modules/cx-automations/opvolging/berichten.js).
+ *
+ * Drie kolommen, zoals Koppelingen: links de GROEPEN (aanmaken, hernoemen,
+ * verwijderen; een bericht sleep je naar een groep), in het midden de berichten
+ * van de gekozen groep, rechts het gekozen bericht.
  *
  * Dezelfde teksteditor als de mailstap van de koppelingen (EOQuill, enkel vet,
  * cursief, lijstjes en links): een bericht hoort te lezen als een mail die de
@@ -10,7 +14,8 @@
  * verkoper), en kan op een echte kans.
  */
 (function () {
-  var S = { data: null, fout: null, kies: null, concept: null, quill: null, laatsteVeld: 'tekst', bezig: false };
+  var GEEN = '__none__';
+  var S = { data: null, fout: null, groep: null, kies: null, concept: null, quill: null, laatsteVeld: 'tekst', bezig: false };
 
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -20,7 +25,7 @@
   function el(id) { return document.getElementById(id); }
 
   async function api(pad, opties) {
-    var res = await apiFetch('/cx-automations/api/opvolging/berichten' + (pad || ''), Object.assign({
+    var res = await apiFetch('/cx-automations/api/opvolging' + pad, Object.assign({
       headers: { 'Content-Type': 'application/json' },
     }, opties || {}));
     var j = await res.json();
@@ -29,36 +34,75 @@
   }
 
   function leeg() {
-    return { id: null, naam: '', groep: (S.data && S.data.groepen[0]) || 'Niet bereikbaar', merk: 'syndicoach', taal: 'nl', onderwerp: '', tekst_html: '', actief: false, volgorde: 0 };
+    var groepId = S.groep && S.groep !== GEEN ? S.groep : null;
+    return { id: null, naam: '', groep_id: groepId, merk: 'syndicoach', taal: 'nl', onderwerp: '', tekst_html: '', actief: false, volgorde: 0 };
+  }
+  function inGroep(b, g) {
+    if (g === null) return true;
+    if (g === GEEN) return !b.groep_id || !groepBestaat(b.groep_id);
+    return b.groep_id === g;
+  }
+  function groepBestaat(id) { return S.data.groepen.some(function (g) { return g.id === id; }); }
+  function tel(g) { return S.data.berichten.filter(function (b) { return inGroep(b, g); }).length; }
+
+  // ── Links: de groepen ──────────────────────────────────────────────────────
+  function groepRij(id, naam, icoon, aantal, menu) {
+    var gekozen = S.groep === id;
+    var drop = id === null ? '' : ' data-ber-drop="' + esc(id === GEEN ? '' : id) + '"';
+    return '<div class="flex items-center gap-1.5 rounded-lg px-1.5 py-1 cursor-pointer hover:bg-base-200 '
+      + (gekozen ? 'bg-primary/10 text-primary font-medium' : '') + '" data-ber="groep" data-groep="' + esc(id === null ? '' : id) + '"' + drop + '>'
+      + '<i data-lucide="' + icoon + '" class="w-3.5 h-3.5 shrink-0 text-base-content/40"></i>'
+      + '<span class="flex-1 truncate text-sm">' + esc(naam) + '</span>'
+      + '<span class="text-xs text-base-content/35">' + aantal + '</span>'
+      + (menu ? '<div class="dropdown dropdown-end shrink-0"><button tabindex="0" type="button" class="btn btn-ghost btn-xs px-1" data-ber-stop="1"><i data-lucide="more-horizontal" class="w-3.5 h-3.5"></i></button>'
+        + '<ul tabindex="0" class="dropdown-content z-[20] menu menu-xs p-1 shadow-lg bg-base-100 rounded-lg w-36 border border-base-content/10">'
+        + '<li><a data-ber="groep-hernoem" data-groep="' + esc(id) + '"><i data-lucide="pencil" class="w-3.5 h-3.5"></i>Hernoemen</a></li>'
+        + '<li><a data-ber="groep-weg" data-groep="' + esc(id) + '" class="text-error"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i>Verwijderen</a></li>'
+        + '</ul></div>' : '')
+      + '</div>';
   }
 
-  // ── Lijst ──────────────────────────────────────────────────────────────────
+  function tekenGroepen() {
+    var h = '<div class="flex items-center justify-between mb-2 px-1">'
+      + '<p class="text-xs font-semibold text-base-content/50 uppercase tracking-wide">Groepen</p>'
+      + '<button type="button" class="btn btn-ghost btn-xs" data-ber="groep-nieuw" title="Nieuwe groep"><i data-lucide="folder-plus" class="w-3.5 h-3.5"></i></button></div>'
+      + '<div class="space-y-0.5">'
+      + groepRij(null, 'Alle berichten', 'layout-grid', S.data.berichten.length, false)
+      + groepRij(GEEN, 'Zonder groep', 'inbox', tel(GEEN), false)
+      + '<div class="divider my-1"></div>';
+    if (!S.data.groepen.length) h += '<p class="text-xs text-base-content/40 italic px-1.5 py-2">Nog geen groepen.</p>';
+    S.data.groepen.forEach(function (g) { h += groepRij(g.id, g.naam, 'folder', tel(g.id), true); });
+    h += '</div><p class="text-xs text-base-content/40 px-1.5 mt-3">Sleep een bericht naar een groep om het te verplaatsen.</p>';
+    el('opvBerGroepen').innerHTML = h;
+  }
+
+  // ── Midden: de berichten van de gekozen groep ──────────────────────────────
   function tekenLijst() {
-    var lijst = S.data.berichten;
-    var groepen = {};
-    lijst.forEach(function (b) { (groepen[b.groep] = groepen[b.groep] || []).push(b); });
-    var h = '<div class="flex items-center justify-between mb-2"><span class="text-sm font-medium">Berichten</span>'
-      + '<button type="button" class="btn btn-primary btn-xs gap-1" data-ber="nieuw"><i data-lucide="plus" class="w-3 h-3"></i> Nieuw</button></div>';
-    if (!lijst.length) h += '<p class="text-sm opacity-60">Nog geen berichten.</p>';
-    Object.keys(groepen).sort().forEach(function (g) {
-      h += '<div class="text-xs uppercase tracking-wide text-base-content/50 mt-4 mb-1">' + esc(g) + '</div><div class="flex flex-col gap-1">';
-      groepen[g].forEach(function (b) {
-        var gekozen = S.kies === b.id;
-        h += '<button type="button" data-ber="kies" data-id="' + esc(b.id) + '" class="text-left rounded-lg border px-3 py-2 '
-          + (gekozen ? 'border-primary bg-primary/10' : 'border-base-content/10 hover:bg-base-200') + '">'
-          + '<div class="text-sm font-medium truncate" title="' + esc(b.naam) + '">' + esc(b.naam) + '</div>'
-          + '<div class="flex flex-wrap items-center gap-1 mt-1">'
-          + '<span class="badge badge-ghost badge-sm">' + esc(S.data.merken[b.merk] || b.merk) + '</span>'
-          + '<span class="badge badge-ghost badge-sm">' + esc(b.taal.toUpperCase()) + '</span>'
-          + (b.actief ? '<span class="badge badge-success badge-sm">klaar</span>' : '<span class="badge badge-warning badge-sm">concept</span>')
-          + '</div></button>';
-      });
-      h += '</div>';
+    var lijst = S.data.berichten.filter(function (b) { return inGroep(b, S.groep); });
+    var titel = S.groep === null ? 'Alle berichten' : S.groep === GEEN ? 'Zonder groep'
+      : ((S.data.groepen.find(function (g) { return g.id === S.groep; }) || {}).naam || '');
+    var h = '<div class="flex items-center justify-between mb-2"><span class="text-sm font-medium truncate">' + esc(titel) + '</span>'
+      + '<button type="button" class="btn btn-primary btn-xs gap-1" data-ber="nieuw"><i data-lucide="plus" class="w-3 h-3"></i> Nieuw bericht</button></div>'
+      + '<div class="flex flex-col gap-1">';
+    if (!lijst.length) h += '<p class="text-sm text-base-content/50 py-2">Nog geen berichten in deze groep.</p>';
+    lijst.forEach(function (b) {
+      var gekozen = S.kies === b.id;
+      var groep = S.groep === null && b.groep_id ? ((S.data.groepen.find(function (g) { return g.id === b.groep_id; }) || {}).naam || '') : '';
+      h += '<button type="button" draggable="true" data-ber="kies" data-id="' + esc(b.id) + '" class="text-left rounded-lg border px-3 py-2 '
+        + (gekozen ? 'border-primary bg-primary/10' : 'border-base-content/10 hover:bg-base-200') + '">'
+        + '<div class="text-sm font-medium truncate" title="' + esc(b.naam) + '">' + esc(b.naam) + '</div>'
+        + '<div class="flex flex-wrap items-center gap-1 mt-1">'
+        + (groep ? '<span class="badge badge-ghost badge-sm"><i data-lucide="folder" class="w-3 h-3 mr-1"></i>' + esc(groep) + '</span>' : '')
+        + '<span class="badge badge-ghost badge-sm">' + esc(S.data.merken[b.merk] || b.merk) + '</span>'
+        + '<span class="badge badge-ghost badge-sm">' + esc(String(b.taal || '').toUpperCase()) + '</span>'
+        + (b.actief ? '<span class="badge badge-success badge-sm">klaar</span>' : '<span class="badge badge-warning badge-sm">concept</span>')
+        + '</div></button>';
     });
+    h += '</div>';
     el('opvBerLijst').innerHTML = h;
   }
 
-  // ── Editor ─────────────────────────────────────────────────────────────────
+  // ── Rechts: het bericht ────────────────────────────────────────────────────
   function opties(map, gekozen) {
     return Object.keys(map).map(function (k) {
       return '<option value="' + esc(k) + '"' + (k === gekozen ? ' selected' : '') + '>' + esc(map[k]) + '</option>';
@@ -69,26 +113,27 @@
     var doel = el('opvBerEditor');
     var b = S.concept;
     if (!b) {
-      doel.innerHTML = '<div class="text-sm opacity-60 p-4 border border-dashed border-base-content/20 rounded-lg">Kies een bericht links, of maak een nieuw.</div>';
+      doel.innerHTML = '<div class="text-sm text-base-content/60 p-4 border border-dashed border-base-content/20 rounded-lg">Kies een bericht, of maak een nieuw.</div>';
       return;
     }
     var tokenOpties = S.data.tokens.map(function (t) { return '<option value="' + esc(t.pad) + '">' + esc(t.label) + '</option>'; }).join('');
-    var groepOpties = S.data.groepen.map(function (g) { return '<option value="' + esc(g) + '"></option>'; }).join('');
+    var groepOpties = '<option value=""' + (b.groep_id ? '' : ' selected') + '>Zonder groep</option>'
+      + S.data.groepen.map(function (g) { return '<option value="' + esc(g.id) + '"' + (g.id === b.groep_id ? ' selected' : '') + '>' + esc(g.naam) + '</option>'; }).join('');
     doel.innerHTML = ''
       + '<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">'
       + '<label class="form-control"><span class="label-text text-xs mb-1">Naam (intern)</span><input class="input input-bordered input-sm" data-berveld="naam" value="' + esc(b.naam) + '" placeholder="Bijv. Ik probeerde je te bellen"></label>'
-      + '<label class="form-control"><span class="label-text text-xs mb-1">Groep</span><input class="input input-bordered input-sm" list="opvBerGroepen" data-berveld="groep" value="' + esc(b.groep) + '"><datalist id="opvBerGroepen">' + groepOpties + '</datalist></label>'
+      + '<label class="form-control"><span class="label-text text-xs mb-1">Groep</span><select class="select select-bordered select-sm" data-berveld="groep_id">' + groepOpties + '</select></label>'
       + '<label class="form-control"><span class="label-text text-xs mb-1">Merk</span><select class="select select-bordered select-sm" data-berveld="merk">' + opties(S.data.merken, b.merk) + '</select></label>'
       + '<label class="form-control"><span class="label-text text-xs mb-1">Taal</span><select class="select select-bordered select-sm" data-berveld="taal">' + opties(S.data.talen, b.taal) + '</select></label>'
       + '</div>'
       + '<label class="label cursor-pointer justify-start gap-2 mt-2"><input type="checkbox" class="toggle toggle-sm toggle-success" data-berveld="actief"' + (b.actief ? ' checked' : '') + '>'
-      + '<span class="text-sm">Klaar voor gebruik</span><span class="text-xs opacity-50">(uit = concept)</span></label>'
+      + '<span class="text-sm">Klaar voor gebruik</span><span class="text-xs text-base-content/50">(uit = concept)</span></label>'
       + '<label class="form-control mt-2"><span class="label-text text-xs mb-1">Onderwerp</span><input id="opvBerOnderwerp" class="input input-bordered input-sm" data-berveld="onderwerp" value="' + esc(b.onderwerp) + '" placeholder="Bijv. Ik probeerde je te bellen"></label>'
       + '<div class="flex items-center justify-between gap-2 mt-3 mb-1"><span class="label-text text-xs">Tekst</span>'
       + '<span class="flex items-center gap-1"><select id="opvBerToken" class="select select-bordered select-xs max-w-xs"><option value="">Gegeven invoegen…</option>' + tokenOpties + '</select>'
       + '<button type="button" class="btn btn-xs" data-ber="token">Invoegen</button></span></div>'
       + '<div id="opvBerQuill"></div>'
-      + '<p class="text-xs opacity-60 mt-1">De handtekening van de verkoper (met foto) komt er vanzelf onder. Gegevens zoals de voornaam vullen zich in per kans. '
+      + '<p class="text-xs text-base-content/60 mt-1">De handtekening van de verkoper (met foto) komt er vanzelf onder. Gegevens zoals de voornaam vullen zich in per kans. '
       + 'Een afspraaklink achter een woord: selecteer het woord en voeg <strong>Afspraaklink verkoper</strong> in.</p>'
       + '<div class="flex flex-wrap items-center gap-2 mt-4">'
       + '<button type="button" class="btn btn-primary btn-sm" data-ber="bewaar"' + (S.bezig ? ' disabled' : '') + '>Bewaren</button>'
@@ -98,7 +143,7 @@
       + '<div class="flex flex-wrap items-center gap-2 mb-2"><span class="text-sm font-medium">Voorbeeld</span>'
       + '<input id="opvBerKans" class="input input-bordered input-xs w-56" placeholder="Kansnummer of link uit Odoo (optioneel)">'
       + '<button type="button" class="btn btn-xs" data-ber="voorbeeld">Toon</button></div>'
-      + '<div id="opvBerVoorbeeld" class="border border-base-content/10 rounded-lg bg-base-100 p-3 text-xs opacity-70">Zonder kans zie je het bericht met voorbeeldgegevens. Met een kans zie je het zoals die klant het zou krijgen, met de handtekening van de verkoper.</div>';
+      + '<div id="opvBerVoorbeeld" class="border border-base-content/10 rounded-lg bg-base-100 p-3 text-xs text-base-content/70">Zonder kans zie je het bericht met voorbeeldgegevens. Met een kans zie je het zoals die klant het zou krijgen, met de handtekening van de verkoper.</div>';
 
     S.quill = null;
     var host = el('opvBerQuill');
@@ -115,19 +160,25 @@
         S.quill.quill.on('selection-change', function (r) { if (r) S.laatsteVeld = 'tekst'; });
       }
     }
-    if (window.lucide) window.lucide.createIcons();
   }
 
-  function teken() {
+  function teken(opties) {
     var doel = el('opvBerichten');
     if (!doel) return;
     if (S.fout) { doel.innerHTML = '<div class="alert alert-warning text-sm"><span>' + esc(S.fout) + '</span></div>'; return; }
     if (!S.data) { doel.innerHTML = '<span class="loading loading-spinner"></span>'; return; }
-    if (!el('opvBerLijst')) {
-      doel.innerHTML = '<div class="grid grid-cols-1 md:grid-cols-3 gap-4"><div id="opvBerLijst"></div><div id="opvBerEditor" class="md:col-span-2"></div></div>';
+    if (!el('opvBerGroepen')) {
+      doel.innerHTML = '<div class="flex flex-col lg:flex-row gap-5">'
+        + '<aside id="opvBerGroepen" class="w-full lg:w-56 shrink-0"></aside>'
+        + '<div class="flex-1 min-w-0 grid grid-cols-1 md:grid-cols-5 gap-4">'
+        + '<div id="opvBerLijst" class="md:col-span-2"></div><div id="opvBerEditor" class="md:col-span-3"></div></div></div>';
     }
+    tekenGroepen();
     tekenLijst();
-    tekenEditor();
+    // Het bericht enkel opnieuw tekenen als het verandert: anders gooit een
+    // klik op een groep wat iemand aan het typen was weg.
+    if (!opties || opties.editor !== false) tekenEditor();
+    if (window.lucide) window.lucide.createIcons();
   }
 
   function leesEditor() {
@@ -144,7 +195,7 @@
   async function laad() {
     if (S.data) { teken(); return; }
     teken();
-    try { S.data = await api(''); S.fout = null; }
+    try { S.data = await api('/berichten'); S.fout = null; }
     catch (e) { S.fout = 'De berichten konden niet geladen worden: ' + e.message; }
     teken();
   }
@@ -157,15 +208,17 @@
     teken();
   }
 
+  function zetBericht(uit) {
+    S.data.berichten = S.data.berichten.filter(function (x) { return x.id !== uit.id; }).concat([uit]);
+  }
+
   async function bewaar() {
     var b = leesEditor();
     if (!b) return;
     S.bezig = true;
     try {
-      var uit = await api(b.id ? '/' + encodeURIComponent(b.id) : '', { method: b.id ? 'PUT' : 'POST', body: JSON.stringify(b) });
-      var lijst = S.data.berichten.filter(function (x) { return x.id !== uit.id; });
-      lijst.push(uit);
-      S.data.berichten = lijst;
+      var uit = await api(b.id ? '/berichten/' + encodeURIComponent(b.id) : '/berichten', { method: b.id ? 'PUT' : 'POST', body: JSON.stringify(b) });
+      zetBericht(uit);
       S.kies = uit.id;
       S.concept = Object.assign({}, uit);
       showToast('Bericht bewaard', 'success');
@@ -179,11 +232,65 @@
     if (!b || !b.id) return;
     if (!window.confirm('Bericht "' + b.naam + '" verwijderen?')) return;
     try {
-      await api('/' + encodeURIComponent(b.id), { method: 'DELETE' });
+      await api('/berichten/' + encodeURIComponent(b.id), { method: 'DELETE' });
       S.data.berichten = S.data.berichten.filter(function (x) { return x.id !== b.id; });
       S.kies = null; S.concept = null;
       showToast('Bericht verwijderd', 'success');
     } catch (e) { showToast('Verwijderen mislukt: ' + e.message, 'error'); }
+    teken();
+  }
+
+  async function groepNieuw() {
+    var naam = window.prompt('Naam van de nieuwe groep:');
+    if (!naam || !naam.trim()) return;
+    try {
+      var g = await api('/bericht-groepen', { method: 'POST', body: JSON.stringify({ naam: naam.trim() }) });
+      S.data.groepen.push(g);
+      S.groep = g.id;
+      showToast('Groep aangemaakt', 'success');
+    } catch (e) { showToast(e.message, 'error'); }
+    teken({ editor: false });
+  }
+
+  async function groepHernoem(id) {
+    var g = S.data.groepen.find(function (x) { return x.id === id; });
+    if (!g) return;
+    var naam = window.prompt('Nieuwe naam voor deze groep:', g.naam);
+    if (!naam || !naam.trim() || naam.trim() === g.naam) return;
+    try {
+      await api('/bericht-groepen/' + encodeURIComponent(id), { method: 'PUT', body: JSON.stringify({ naam: naam.trim() }) });
+      g.naam = naam.trim();
+      showToast('Groep hernoemd', 'success');
+    } catch (e) { showToast(e.message, 'error'); }
+    leesEditor();
+    teken();
+  }
+
+  async function groepWeg(id) {
+    var g = S.data.groepen.find(function (x) { return x.id === id; });
+    if (!g) return;
+    if (!window.confirm('Groep "' + g.naam + '" verwijderen?\n\nDe berichten zelf blijven bestaan, zonder groep.')) return;
+    try {
+      await api('/bericht-groepen/' + encodeURIComponent(id), { method: 'DELETE' });
+      S.data.groepen = S.data.groepen.filter(function (x) { return x.id !== id; });
+      S.data.berichten.forEach(function (b) { if (b.groep_id === id) b.groep_id = null; });
+      if (S.concept && S.concept.groep_id === id) S.concept.groep_id = null;
+      if (S.groep === id) S.groep = null;
+      showToast('Groep verwijderd', 'success');
+    } catch (e) { showToast(e.message, 'error'); }
+    leesEditor();
+    teken();
+  }
+
+  async function verplaats(id, groepId) {
+    var b = S.data.berichten.find(function (x) { return x.id === id; });
+    if (!b || (b.groep_id || null) === (groepId || null)) return;
+    try {
+      await api('/berichten/' + encodeURIComponent(id) + '/groep', { method: 'PUT', body: JSON.stringify({ groep_id: groepId || null }) });
+      b.groep_id = groepId || null;
+      if (S.concept && S.concept.id === id) { leesEditor(); S.concept.groep_id = b.groep_id; }
+      showToast('Bericht verplaatst', 'success');
+    } catch (e) { showToast('Verplaatsen mislukt: ' + e.message, 'error'); }
     teken();
   }
 
@@ -228,33 +335,62 @@
     if (!b || !doel) return;
     doel.innerHTML = '<span class="loading loading-spinner loading-sm"></span>';
     try {
-      var r = await api('/voorbeeld', { method: 'POST', body: JSON.stringify({ onderwerp: b.onderwerp, tekst_html: b.tekst_html, kans: (el('opvBerKans') || {}).value || '' }) });
+      var r = await api('/berichten/voorbeeld', { method: 'POST', body: JSON.stringify({ onderwerp: b.onderwerp, tekst_html: b.tekst_html, kans: (el('opvBerKans') || {}).value || '' }) });
       var meld = '';
-      if (r.kans) meld += '<div class="mb-2 opacity-70">Kans ' + esc(r.kans.id) + ': ' + esc(r.kans.naam) + '</div>';
+      if (r.kans) meld += '<div class="mb-2 text-base-content/70">Kans ' + esc(r.kans.id) + ': ' + esc(r.kans.naam) + '</div>';
       if (r.ontbreekt && r.ontbreekt.length) meld += '<div class="alert alert-warning py-1 px-2 text-xs mb-2"><span>Leeg voor deze kans: ' + esc(r.ontbreekt.join(', ')) + '</span></div>';
       if (r.melding) meld += '<div class="alert py-1 px-2 text-xs mb-2"><span>' + esc(r.melding) + '</span></div>';
-      doel.classList.remove('opacity-70');
+      doel.classList.remove('text-base-content/70');
       doel.innerHTML = meld
-        + '<div class="text-xs opacity-60 mb-2 pb-2 border-b border-base-content/10"><strong>Onderwerp:</strong> ' + esc(r.onderwerp) + '</div>'
-        + '<div class="text-sm text-base-content">' + (r.html || '<span class="opacity-50">Nog geen tekst.</span>') + '</div>';
+        + '<div class="text-xs text-base-content/60 mb-2 pb-2 border-b border-base-content/10"><strong>Onderwerp:</strong> ' + esc(r.onderwerp) + '</div>'
+        + '<div class="text-sm text-base-content">' + (r.html || '<span class="text-base-content/50">Nog geen tekst.</span>') + '</div>';
     } catch (e) {
       doel.innerHTML = '<span class="text-error">' + esc(e.message) + '</span>';
     }
   }
 
+  // ── Luisteraars ────────────────────────────────────────────────────────────
   document.addEventListener('focusin', function (e) {
     if (e.target && e.target.id === 'opvBerOnderwerp') S.laatsteVeld = 'onderwerp';
   });
   document.addEventListener('click', function (e) {
+    if (e.target.closest('[data-ber-stop]')) return; // het menu van een groep opent, de groep niet
     var k = e.target.closest('[data-ber]');
     if (!k || !S.data) return;
     var a = k.dataset.ber;
+    if (a === 'groep') { S.groep = k.dataset.groep || null; teken({ editor: false }); }
+    if (a === 'groep-nieuw') groepNieuw();
+    if (a === 'groep-hernoem') groepHernoem(k.dataset.groep);
+    if (a === 'groep-weg') groepWeg(k.dataset.groep);
     if (a === 'nieuw') { S.kies = null; S.concept = leeg(); teken(); }
     if (a === 'kies') kies(k.dataset.id);
     if (a === 'bewaar') bewaar();
     if (a === 'weg') weg();
     if (a === 'token') voegTokenIn();
     if (a === 'voorbeeld') voorbeeld();
+  });
+  // Slepen: een bericht uit de lijst op een groep links.
+  document.addEventListener('dragstart', function (e) {
+    var k = e.target.closest && e.target.closest('[data-ber="kies"]');
+    if (k) e.dataTransfer.setData('text/plain', k.dataset.id);
+  });
+  document.addEventListener('dragover', function (e) {
+    var z = e.target.closest && e.target.closest('[data-ber-drop]');
+    if (!z) return;
+    e.preventDefault();
+    z.classList.add('bg-primary/20');
+  });
+  document.addEventListener('dragleave', function (e) {
+    var z = e.target.closest && e.target.closest('[data-ber-drop]');
+    if (z) z.classList.remove('bg-primary/20');
+  });
+  document.addEventListener('drop', function (e) {
+    var z = e.target.closest && e.target.closest('[data-ber-drop]');
+    if (!z) return;
+    e.preventDefault();
+    z.classList.remove('bg-primary/20');
+    var id = e.dataTransfer.getData('text/plain');
+    if (id) verplaats(id, z.dataset.berDrop || null);
   });
 
   window.OpvBerichten = { laad: laad };
