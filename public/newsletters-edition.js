@@ -430,8 +430,10 @@
     + '.nb-gekozen span[data-nb-optioneel]:empty{display:inline-block!important}'
     // Een veld dat je zelf toevoegt (bv. de subtitel): leeg enkel na de knop in de werkbalk.
     + '.nb-gekozen [data-nb-op-vraag]:empty:not(.nb-open){display:none!important}'
-    // Het tekstveld omvat een beeld ernaast, en een lege alinea toont waar je typt.
-    + '[data-nb-veld="text"]{display:flow-root}'
+    // Het tekstveld omvat een beeld ernaast (enkel als dat beeld IN het veld staat: een beeld
+    // in de hoek staat erbuiten, en dan moet de tekst eronder weer over de volle breedte lopen),
+    // en een lege alinea toont waar je typt.
+    + '[data-nb-veld="text"]:has([data-nb-eiland]){display:flow-root}'
     + '[data-nb-veld] p[data-nb-leeg]:empty::before{content:"Typ hier je tekst.";color:#9ca3af;font-style:italic}'
     + '[data-nb-veld][contenteditable]{outline:none;border-radius:6px;cursor:text;transition:box-shadow .15s;min-width:1em}'
     + '[data-nb-veld][contenteditable]:focus{caret-color:#0284c7}'
