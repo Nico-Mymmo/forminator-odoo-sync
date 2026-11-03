@@ -181,7 +181,7 @@
 		// een nieuwsbrief naar klanten sturen. Pas op "live" zetten na een
 		// geslaagde test EN na het beantwoorden van de open vragen over de
 		// doelgroepen (docs/ontwerp-om-nieuwsbrieven.md, §12).
-		"NEWSLETTER_SEND_MODE": "test",
+		"NEWSLETTER_SEND_MODE": "live",
 		// Nieuws & updates <-> Google Chat (src/modules/content-feed/lib/chat-*.js).
 		// Het kanaal staat in het kanaalregister (Mini-apps -> Chat-kanalen), op
 		// naam; de webhook-URL bevat een sleutel en staat daarom NIET hier.
