@@ -598,20 +598,45 @@ ${leesLink(c.link_label, c.link_url)}${door}`, S.teal50, { id });
 }
 
 /**
- * Een video is enkel het stilstaand beeld, met het labeltje erboven; klikken
- * op het beeld opent de video (Vimeo of YouTube). Geen titel, tekst of knop:
- * wie daar iets bij wil, zet er een tekstblok naast (beslissing 2026-10-15).
+ * Een video: het labeltje, een optionele titel en korte tekst (in de brief
+ * getypt), en het stilstaand beeld; klikken op het beeld opent de video
+ * (Vimeo of YouTube). Titel en tekst staan IN het blok, zodat ze niet zo ver
+ * van het beeld staan als een los tekstblok (vraag David, 2026-11-03).
+ *
+ * Playknop (`content.play`): een mail kan niets over een beeld leggen (geen
+ * position in Gmail, geen achtergrondbeeld in Outlook), dus het scherm maakt
+ * een kopie van het beeld MET de tekening "play" erop (`play_beeld`), en
+ * onthoudt van welk beeld (`play_bron`). Hoort die kopie niet meer bij het
+ * huidige beeld, dan staat in de mail het gewone beeld; in het voorbeeld ligt
+ * de knop er dan los bovenop tot de kopie klaar is.
  */
 function blokVideo(item, ctx, id) {
   const c = item.content || {};
   const b = beeldVan(c, { fotoVeld: 'thumbnail_url', plaats: 'video' });
-  const thumbTag = beeldTag(b, ctx, BEELD_KADERS.video.breedte, { href: c.video_url, alt: item.title || 'Video' });
-  const thumb = thumbTag ? `<div${id ? ' data-nb-beeld="1"' : ''} style="margin-top:14px">${thumbTag}</div>`
-    : id ? `<div data-nb-video="1" style="margin-top:14px;border:2px dashed #d1d5db;border-radius:14px;padding:40px 20px;text-align:center;font-family:${S.fontBody};font-size:14px;color:${S.muted}">Klik hier om een video te kiezen</div>` : '';
+  const src = beeldSrc(b, ctx);
+  const metPlay = c.play === true && b && !b.thingie && src;
+  const playKlaar = metPlay && safeUrl(c.play_beeld) && c.play_bron === src;
+  const toon = playKlaar ? { url: c.play_beeld, vulling: 'heel' } : b;
+  let thumbTag = beeldTag(toon, ctx, BEELD_KADERS.video.breedte, { href: c.video_url, alt: c.title || item.title || 'Video' });
+  if (metPlay && !playKlaar && id && ctx.thingieUrl) {
+    const knop = ctx.thingieUrl('play');
+    if (knop) thumbTag = `<div style="position:relative">${thumbTag}<img src="${esc(knop)}" alt="" style="position:absolute;left:50%;top:50%;width:20%;transform:translate(-50%,-50%);pointer-events:none"></div>`;
+  }
+  const heeftTekst = Boolean(String(c.title || '').trim() || String(c.text || '').trim());
+  const boven = id || heeftTekst ? 18 : 14;
+  const thumb = thumbTag ? `<div${id ? ' data-nb-beeld="1"' : ''} style="margin-top:${boven}px">${thumbTag}</div>`
+    : id ? `<div data-nb-video="1" style="margin-top:${boven}px;border:2px dashed #d1d5db;border-radius:14px;padding:40px 20px;text-align:center;font-family:${S.fontBody};font-size:14px;color:${S.muted}">Klik hier om een video te kiezen</div>` : '';
   const labeltje = id
     ? `<div style="line-height:1"><span data-nb-veld="@title" data-nb-optioneel="1" data-placeholder="Label (optioneel)" style="display:inline-block;font-family:${S.fontBody};font-size:12px;font-weight:700;letter-spacing:0.02em;padding:5px 12px;border-radius:999px;background-color:${S.sky50};color:${S.primary}">${esc(item.title || '')}</span></div>`
     : pil(item.title, S.sky50, S.primary);
-  return rij(`${labeltje}${thumb}`, { padding: '44px 40px 0', id });
+  const titelStijl = `margin:14px 0 10px;font-family:${S.fontHead};font-weight:400;font-size:28px;line-height:1.15;color:${S.heading}`;
+  const titel = id
+    ? `<h2 data-nb-veld="title" data-nb-optioneel="1" data-placeholder="Titel (optioneel)" style="${titelStijl}">${esc(c.title || '')}</h2>`
+    : kop(c.title, { margin: '14px 0 10px' });
+  const lijf = id
+    ? `<div data-nb-veld="text" data-nb-rijk="1" data-nb-optioneel="1" data-placeholder="Korte tekst (optioneel)" style="font-family:${S.fontBody};font-size:16px;line-height:1.6;color:${S.text}">${alineas(c.text).join('')}</div>`
+    : alineas(c.text).join('');
+  return rij(`${labeltje}${titel}${lijf}${thumb}`, { padding: '44px 40px 0', id });
 }
 
 function blokLink(item, ctx, id, { linkedin = false } = {}) {

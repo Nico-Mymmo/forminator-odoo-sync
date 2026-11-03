@@ -287,7 +287,42 @@
 
   // ─── Openen en acties ─────────────────────────────────────────────────────
 
+  /**
+   * Het stilstaand beeld van een video met de tekening "play" in het midden,
+   * als eigen JPEG (een mail kan niets over een beeld leggen).
+   */
+  async function metPlay(adres) {
+    var origin = (NB.state.boot && NB.state.boot.asset_origin) || '';
+    adres = await eigenUrl(adres);
+    var pad = adres.indexOf(origin + '/assets/') === 0 ? adres.slice(origin.length) : adres;
+    await NB.laadTekeningen();
+    var t = (NB.state.tekeningen || []).find(function (x) { return x.name === 'play'; });
+    if (!t) throw new Error('De tekening "play" staat niet in Assetbeheer (brand/thingies/).');
+    await NB.zorgVoorPng('play');
+    var lees = async function (p) {
+      var r = await fetch(p, { credentials: 'include' });
+      if (!r.ok) throw new Error('Het beeld kon niet gelezen worden.');
+      return createImageBitmap(await r.blob());
+    };
+    var bron = await lees(pad);
+    var knop = await lees(t.png);
+    var uitW = Math.round(Math.min(bron.width, 1120));
+    var uitH = Math.round(uitW * bron.height / bron.width);
+    var c = document.createElement('canvas');
+    c.width = uitW;
+    c.height = uitH;
+    var ctx = c.getContext('2d');
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(bron, 0, 0, uitW, uitH);
+    var kw = Math.round(Math.min(uitW * 0.2, uitH * 0.45));
+    var kh = Math.round(kw * knop.height / knop.width);
+    ctx.drawImage(knop, Math.round((uitW - kw) / 2), Math.round((uitH - kh) / 2), kw, kh);
+    var blob = await new Promise(function (ok, nok) { c.toBlob(function (x) { x ? ok(x) : nok(new Error('Beeld met playknop maken mislukt')); }, 'image/jpeg', 0.88); });
+    return (await NB.upload('/api/upload', blob)).url;
+  }
+
   NB.beeld = {
+    metPlay: metPlay,
     /** Opnieuw bijsnijden met een andere verhouding (zelfde focuspunt). */
     snij: async function (b, verhouding) {
       st = st || { opties: {} };

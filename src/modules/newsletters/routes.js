@@ -279,6 +279,8 @@ function inhoudPerSoort(kind, c = {}) {
         title: kort(c.title, 160), text: kort(c.text, 2000), video_url: url(c.video_url),
         thumbnail_url: url(c.thumbnail_url), button_label: kort(c.button_label, 60),
         beeld: normaliseerBeeld(c.beeld, 'video'),
+        // Playknop: het beeld met de tekening erop (gemaakt door het scherm) en van welk beeld.
+        play: c.play === true, play_beeld: url(c.play_beeld), play_bron: url(c.play_bron),
       };
     case 'link':
     case 'linkedin':

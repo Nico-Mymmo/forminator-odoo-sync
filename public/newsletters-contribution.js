@@ -426,6 +426,31 @@
     }
   }
 
+  /**
+   * Video met playknop: zorg dat er een kopie van het huidige beeld MET de
+   * knop bestaat (`play_beeld`), en dat ze bij dat beeld hoort (`play_bron`).
+   * Loopt op de achtergrond; opnieuw zodra het beeld verandert.
+   */
+  var playBezig = {};
+  async function zorgVoorPlay() {
+    if (!s() || !s().can_edit || c().kind !== 'video' || lees('content.play') !== true || !NB.beeld || !NB.beeld.metPlay) return;
+    var b = NB.beeldVan(c().content, 'thumbnail_url', 'video');
+    if (!b || b.thingie) return;
+    var bron = b.vulling === 'vullen' && b.uitsnede ? b.uitsnede : b.url;
+    if (!bron || playBezig[bron]) return;
+    if (lees('content.play_beeld') && lees('content.play_bron') === bron) return;
+    playBezig[bron] = true;
+    try {
+      var url = await NB.beeld.metPlay(bron);
+      if (lees('content.play') !== true) return;
+      zet('content.play_bron', bron);
+      zet('content.play_beeld', url);
+      gewijzigd();
+    } catch (err) {
+      NB.toast('De playknop kon niet op het beeld gezet worden: ' + err.message, 'warning');
+    } finally { delete playBezig[bron]; }
+  }
+
   NB.actions['nieuws-weg'] = function (el) {
     var items = lees('content.items') || [];
     items.splice(Number(el.dataset.i), 1);
@@ -823,7 +848,9 @@
             + berichtBron()
           : '');
       case 'video':
-        return uitleg('In de brief staat enkel het stilstaand beeld; klikken opent de video. Een titel of tekst erbij? Zet er een tekstblok naast.')
+        setTimeout(zorgVoorPlay, 0);
+        return uitleg('Label, titel en korte tekst typ je <strong>in de brief</strong> (alle drie optioneel). Klikken op het beeld opent de video.')
+          + '<label class="label cursor-pointer justify-start gap-3 py-1"><input type="checkbox" class="toggle toggle-sm toggle-primary" data-veld="content.play"' + (lees('content.play') === true ? ' checked' : '') + (s().can_edit ? '' : ' disabled') + '><span class="label-text">Playknop op het beeld</span></label>'
           + '<div class="flex items-center gap-2">' + (s().can_edit ? '<button class="btn btn-sm btn-primary" data-action="video-open"><i data-lucide="circle-play" class="w-4 h-4"></i> ' + (lees('content.video_url') ? 'Andere video' : 'Video kiezen') + '</button>' : '')
           + (lees('content.video_url') ? '<a class="link text-xs truncate" href="' + e(lees('content.video_url')) + '" target="_blank" rel="noopener">' + e(lees('content.video_url')) + '</a>' : '') + '</div>'
           + (lees('content.video_url') ? beeldRij('Stilstaand beeld (komt van de video; kies er zelf een om het te vervangen)') : '');
@@ -1001,6 +1028,7 @@
     // Een lijstveld (bv. de USP's): één regel = één punt.
     if (el.dataset.lijst) waarde = String(waarde).split('\n').map(function (x) { return x.trim(); }).filter(Boolean);
     zet(pad, waarde);
+    if (pad === 'content.play') zorgVoorPlay();
     // Notities voor de AI staan niet in de mail: de brief hoeft niet opnieuw.
     if (pad === 'raw_notes') { gewijzigdStil(); return; }
     gewijzigd();
