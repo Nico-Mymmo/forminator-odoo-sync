@@ -142,10 +142,10 @@ function byline(author, { onDark = false, prefix = '' } = {}) {
   if (!author?.name || isTechnisch(author.name)) return '';
   const kleur = onDark ? S.sky100 : S.muted;
   const naamKleur = onDark ? '#ffffff' : S.headingSoft;
-  const functie = author.job_title ? ` · ${esc(author.job_title)}` : '';
+  // Enkel de voornaam, nooit de functie erbij.
   return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin-top:22px"><tr>
 <td valign="middle" style="padding-right:10px">${avatar(author, 32, { onDark })}</td>
-<td valign="middle" style="font-family:${S.fontBody};font-size:13px;line-height:1.4;color:${kleur}">${prefix ? esc(prefix) + ' ' : ''}<strong style="color:${naamKleur}">${esc(String(author.name).trim().split(/\s+/)[0])}</strong>${functie}</td>
+<td valign="middle" style="font-family:${S.fontBody};font-size:13px;line-height:1.4;color:${kleur}">${prefix ? esc(prefix) + ' ' : ''}<strong style="color:${naamKleur}">${esc(String(author.name).trim().split(/\s+/)[0])}</strong></td>
 </tr></table>`;
 }
 
