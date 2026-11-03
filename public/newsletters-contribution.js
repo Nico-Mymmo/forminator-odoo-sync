@@ -432,19 +432,29 @@
    * Loopt op de achtergrond; opnieuw zodra het beeld verandert.
    */
   var playBezig = {};
+  function videoIsGif() {
+    var b = NB.beeldVan(c().content, 'thumbnail_url', 'video');
+    return Boolean(b && !b.thingie && NB.isGifUrl(b.vulling === 'vullen' && b.uitsnede ? b.uitsnede : b.url));
+  }
   async function zorgVoorPlay() {
     if (!s() || !s().can_edit || c().kind !== 'video' || lees('content.play') !== true || !NB.beeld || !NB.beeld.metPlay) return;
     var b = NB.beeldVan(c().content, 'thumbnail_url', 'video');
     if (!b || b.thingie) return;
     var bron = b.vulling === 'vullen' && b.uitsnede ? b.uitsnede : b.url;
-    if (!bron || playBezig[bron]) return;
-    if (lees('content.play_beeld') && lees('content.play_bron') === bron) return;
+    if (!bron || playBezig[bron] || NB.isGifUrl(bron)) return;
+    // Welke versie van de tekening "play" er nu is: vervangen in Assetbeheer = een nieuwe kopie.
+    await NB.laadTekeningen();
+    var t = (NB.state.tekeningen || []).find(function (x) { return x.name === 'play'; });
+    var versie = (t && t.tag) || '';
+    if (lees('content.play_beeld') && lees('content.play_bron') === bron && (!versie || lees('content.play_knop') === versie)) return;
+    if (playBezig[bron]) return;
     playBezig[bron] = true;
     try {
-      var url = await NB.beeld.metPlay(bron);
+      var uit = await NB.beeld.metPlay(bron);
       if (lees('content.play') !== true) return;
       zet('content.play_bron', bron);
-      zet('content.play_beeld', url);
+      zet('content.play_beeld', uit.url);
+      zet('content.play_knop', uit.knop);
       gewijzigd();
     } catch (err) {
       NB.toast('De playknop kon niet op het beeld gezet worden: ' + err.message, 'warning');
@@ -851,6 +861,7 @@
         setTimeout(zorgVoorPlay, 0);
         return uitleg('Label, titel en korte tekst typ je <strong>in de brief</strong> (alle drie optioneel). Klikken op het beeld opent de video.')
           + '<label class="label cursor-pointer justify-start gap-3 py-1"><input type="checkbox" class="toggle toggle-sm toggle-primary" data-veld="content.play"' + (lees('content.play') === true ? ' checked' : '') + (s().can_edit ? '' : ' disabled') + '><span class="label-text">Playknop op het beeld</span></label>'
+          + (lees('content.play') === true && videoIsGif() ? uitleg('Een bewegend beeld (GIF) krijgt geen playknop: een mail kan niets over een GIF leggen. Het bewegen zegt al dat het een video is.') : '')
           + '<div class="flex items-center gap-2">' + (s().can_edit ? '<button class="btn btn-sm btn-primary" data-action="video-open"><i data-lucide="circle-play" class="w-4 h-4"></i> ' + (lees('content.video_url') ? 'Andere video' : 'Video kiezen') + '</button>' : '')
           + (lees('content.video_url') ? '<a class="link text-xs truncate" href="' + e(lees('content.video_url')) + '" target="_blank" rel="noopener">' + e(lees('content.video_url')) + '</a>' : '') + '</div>'
           + (lees('content.video_url') ? beeldRij('Stilstaand beeld (komt van de video; kies er zelf een om het te vervangen)') : '');

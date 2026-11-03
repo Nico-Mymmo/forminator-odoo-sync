@@ -6153,8 +6153,10 @@ Afspraken die bewust zo zijn:
   kan niets over een beeld leggen, dus het scherm maakt een kopie van het beeld
   met de tekening `play` uit Assetbeheer (`brand/thingies/thingies_play.svg`)
   erop (`NB.beeld.metPlay()`, bewaard als `play_beeld` + `play_bron` = van welk
-  beeld). Hoort de kopie niet bij het huidige beeld, dan toont de mail het
-  gewone beeld en maakt het scherm een nieuwe. De video kies je uit DEZELFDE Vimeo-lijst als bij de events
+  beeld + `play_knop` = welke versie van de tekening, de etag uit Assetbeheer).
+  Hoort de kopie niet bij het huidige beeld of de huidige tekening, dan toont
+  de mail het gewone beeld en maakt het scherm een nieuwe zodra het blok
+  geopend wordt. De video kies je uit DEZELFDE Vimeo-lijst als bij de events
   (`lib/vimeo.js` van Eventbeheer: `GET /api/vimeo/videos`, `POST /api/video`
   voor een geplakte Vimeo- of YouTube-link zonder token), via de werkbalk, de
   lege plek in de brief (`data-nb-video`) of het paneel (`dlgVideo`). Het
@@ -6239,6 +6241,20 @@ Afspraken die bewust zo zijn:
   wordt gewone tekst licht (`lichteTekst`: enkel styles zonder eigen
   achtergrond, dus knoppen, labels en gezichtjes blijven); blokken met een eigen
   kader (citaat, vragen, agenda) houden hun tekstkleuren.
+- **Elk beeld wordt MAILKLAAR gemaakt voor het opgeladen wordt** (2026-11-03,
+  `public/newsletters-compressie.js`, `NB.mailbeeld()`): een foto hoogstens
+  1200 px breed, JPEG (PNG als er doorzichtigheid in zit), en het origineel
+  als dat al kleiner is; een GIF met gifsicle (WebAssembly van jsdelivr,
+  `gifsicle-wasm-browser@1.5.16`, pas geladen bij de eerste GIF): hoogstens
+  600 px breed en steeds meer "lossy" tot onder 1,5 MB, en hij BLIJFT
+  BEWEGEN. Ook "kader vullen" bij een GIF gaat met gifsicle (`--crop`,
+  `NB.gifSnij`) in plaats van een canvas, anders valt hij stil. Een GIF krijgt
+  geen playknop (de kopie met de knop zou stilstaan). Het beeldvenster kan
+  ook kiezen **Uit Assetbeheer** (`GET /api/assets?prefix=`, de rechten van
+  Assetbeheer, enkel beelden); van wat je daar kiest, komt een gecomprimeerde
+  KOPIE in `public/nieuwsbrieven/`, zodat een mail niet breekt als iemand het
+  origineel verplaatst. Outlook op Windows toont van een GIF enkel het eerste
+  beeld: zet het belangrijkste daar.
 - **Elk beeld in een verstuurde mail staat bij ons** (`lib/beelden-hosten.js`,
   2026-10-13). Vlak voor een test of een echte verzending kopieert de OM elk
   `<img>` naar `public/nieuwsbrieven/mail/<hash>` en zet het adres op

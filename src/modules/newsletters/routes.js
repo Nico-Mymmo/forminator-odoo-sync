@@ -36,6 +36,10 @@ import { isEmail, vasteVolgorde, VASTE_PLEK } from './lib/constants.js';
 import { taakVoorToewijzing, takenVoorVermeldingen, zetTakenKlaar } from './lib/taken.js';
 import { lijstTekeningen, pngSleutel, vergeetTekeningen } from '../av-slides/lib/thingies.js';
 import { listIntegrations } from '../forminator-sync-v2/database.js';
+import { listObjects } from '../asset-manager/lib/r2-client.js';
+import {
+  ASSET_CATEGORY_PREFIXES, canReadAssetPrefix, isWithinAssetNamespace, listDynamicAssetCategories,
+} from '../asset-manager/lib/namespace.js';
 import { listVimeoVideos, getVimeoVideo, idFromVimeoUrl, resolveVideoWithoutToken } from '../event-operations-v2/lib/vimeo.js';
 import { ArticleFetchError } from '../content-feed/lib/article-fetch.js';
 import { listSnippets, getSnippet, getSnippetImage, listTaxonomy, importImageFromUrl } from '../content-feed/lib/content-service.js';
@@ -281,6 +285,8 @@ function inhoudPerSoort(kind, c = {}) {
         beeld: normaliseerBeeld(c.beeld, 'video'),
         // Playknop: het beeld met de tekening erop (gemaakt door het scherm) en van welk beeld.
         play: c.play === true, play_beeld: url(c.play_beeld), play_bron: url(c.play_bron),
+        // Met welke versie van de tekening "play" de kopie gemaakt is: een nieuwe tekening = een nieuwe kopie.
+        play_knop: /^[a-z0-9]{1,16}$/i.test(String(c.play_knop || '')) ? c.play_knop : '',
       };
     case 'link':
     case 'linkedin':
@@ -422,6 +428,8 @@ async function inhoudHash(bytes) {
   return [...new Uint8Array(d)].slice(0, 16).map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 const BEELD_TYPES = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif' };
+/** Wat het beeldvenster uit Assetbeheer toont; WebP zet het scherm om voor het naar de mail gaat. */
+const ASSET_BEELD = /\.(png|jpe?g|gif|webp)$/i;
 
 // ─── De routes ──────────────────────────────────────────────────────────────
 
@@ -1291,7 +1299,7 @@ export const routes = {
       };
       const html = renderContribution({
         series, item: metOndertekening(ontwerp, perUser),
-        ctx: { events, thingieUrl: tek.url, answerLink: antwoordLinks(series, 'preview', false) },
+        ctx: { events, thingieUrl: tek.url, thingieTag: tek.tag, answerLink: antwoordLinks(series, 'preview', false) },
       });
       return json({ success: true, data: { html } });
     } catch (err) { return fout(err); }
@@ -1395,6 +1403,37 @@ export const routes = {
       if (err instanceof ArticleFetchError) return json({ success: false, error: err.message, code: err.code }, 422);
       return fout(err);
     }
+  },
+
+  /**
+   * Bladeren in Assetbeheer voor het beeldvenster: enkel beelden, met de
+   * rechten van Assetbeheer (zelfde regels als de bijlagekiezer van
+   * Koppelingen). Zonder prefix: de mappen die deze gebruiker mag lezen. Het
+   * scherm maakt van een gekozen beeld een gecomprimeerde kopie in
+   * public/nieuwsbrieven/: een mail mag niet stukgaan als iemand het origineel
+   * in Assetbeheer verplaatst.
+   */
+  'GET /api/assets': async ({ env, user, request }) => {
+    try {
+      const prefix = new URL(request.url).searchParams.get('prefix') || '';
+      if (!prefix) {
+        const dynamisch = await listDynamicAssetCategories(env);
+        const kandidaten = [
+          ...ASSET_CATEGORY_PREFIXES.map((p) => ({ prefix: p, name: p.replace(/\/$/, '') })),
+          ...dynamisch.map((cat) => ({ prefix: cat.prefix, name: cat.label || cat.prefix.replace(/\/$/, '') })),
+          ...(user && user.id ? [{ prefix: `users/${user.id}/`, name: 'Mijn bestanden' }] : []),
+        ];
+        return json({ success: true, data: { folders: kandidaten.filter((f) => canReadAssetPrefix(user, f.prefix)), files: [], prefix: '' } });
+      }
+      if (!isWithinAssetNamespace(prefix)) throw new NewsletterError('Dit pad hoort niet bij Assetbeheer.');
+      if (!canReadAssetPrefix(user, prefix)) throw new NewsletterError('Geen toegang tot deze map.', 403);
+      const result = await listObjects(env, { prefix, limit: 500, delimiter: '/' });
+      const files = (result.objects || [])
+        .filter((o) => ASSET_BEELD.test(String(o.key)))
+        .map((o) => ({ key: o.key, name: String(o.key).split('/').pop(), size: o.size, url: `/assets/${o.key}` }));
+      const folders = (result.delimitedPrefixes || []).map((p) => ({ prefix: p, name: p.slice(prefix.length).replace(/\/$/, '') }));
+      return json({ success: true, data: { folders, files, prefix, truncated: !!result.truncated } });
+    } catch (err) { return fout(err); }
   },
 
   /** Een foto voor een stukje, naar R2 (newsletters/). Enkel PNG, JPEG of GIF. */
@@ -1554,7 +1593,7 @@ export const routes = {
       const lijst = await lijstTekeningen(env);
       return json({
         success: true,
-        data: lijst.map((t) => ({ name: t.name, label: t.label, svg: `/assets/${t.svgKey}`, png: t.pngKey ? `/assets/${t.pngKey}` : null })),
+        data: lijst.map((t) => ({ name: t.name, label: t.label, tag: t.tag, svg: `/assets/${t.svgKey}`, png: t.pngKey ? `/assets/${t.pngKey}` : null })),
       });
     } catch (err) { return fout(err); }
   },

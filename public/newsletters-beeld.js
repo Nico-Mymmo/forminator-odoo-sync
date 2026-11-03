@@ -125,7 +125,8 @@
     return '<h3 class="font-bold text-lg mb-1">Beeld kiezen</h3>'
       + '<p class="text-sm opacity-70 mb-4">Laad een foto op, of kies een van onze tekeningen.</p>'
       + '<label class="flex items-center justify-center gap-2 rounded-xl border-2 border-dashed border-primary/40 hover:border-primary hover:bg-primary/5 p-6 cursor-pointer mb-5 text-primary font-semibold">'
-      + '<i data-lucide="upload" class="w-5 h-5"></i> Foto opladen<input type="file" accept="image/*" class="hidden" data-change="beeld-dlg-foto"></label>'
+      + '<i data-lucide="upload" class="w-5 h-5"></i> Foto of GIF opladen<input type="file" accept="image/*" class="hidden" data-change="beeld-dlg-foto"></label>'
+      + '<button type="button" class="btn btn-outline btn-sm w-full -mt-2 mb-5" data-action="beeld-dlg-assets" data-prefix=""><i data-lucide="folder-open" class="w-4 h-4"></i> Uit Assetbeheer</button>'
       + (lijst.length
         ? '<div class="text-sm font-semibold mb-2">Of een tekening</div><div class="grid grid-cols-4 sm:grid-cols-6 gap-2 max-h-[45vh] overflow-y-auto pr-1">'
           + (st.opties.vast ? '' : '') + lijst.map(function (t) {
@@ -133,6 +134,38 @@
           }).join('') + '</div>'
         : '')
       + '<div class="modal-action">' + (st.beeld ? '<button class="btn btn-ghost btn-sm mr-auto" data-action="beeld-dlg-terug">Terug</button>' : '')
+      + '<button class="btn btn-ghost btn-sm" data-action="sluit-dialoog" data-dialoog="dlgBeeld">Annuleren</button></div>';
+  }
+
+  /** Bladeren in Assetbeheer (enkel beelden), met de rechten van Assetbeheer. */
+  function stapAssets() {
+    var a = st.assets || { folders: [], files: [] };
+    var terug = a.prefix
+      ? '<div class="flex items-center gap-2 text-xs mb-3"><button type="button" class="btn btn-ghost btn-xs" data-action="beeld-dlg-assets" data-prefix="' + e(a.ouder || '') + '"><i data-lucide="arrow-left" class="w-3 h-3"></i> Map terug</button><span class="opacity-60 truncate">' + e(a.prefix) + '</span></div>'
+      : '';
+    var lijf;
+    if (a.laden) lijf = '<div class="flex justify-center py-10"><span class="loading loading-spinner"></span></div>';
+    else if (a.fout) lijf = '<p class="text-sm text-error">' + e(a.fout) + '</p>';
+    else if (!a.folders.length && !a.files.length) lijf = '<p class="text-sm opacity-60 py-4">' + (a.prefix ? 'Geen beelden in deze map.' : 'Je hebt in Assetbeheer geen mappen die je mag lezen.') + '</p>';
+    else {
+      lijf = (a.folders.length
+        ? '<div class="flex flex-wrap gap-2 mb-4">' + a.folders.map(function (f) {
+          return '<button type="button" class="btn btn-sm btn-ghost border border-base-content/10" data-action="beeld-dlg-assets" data-prefix="' + e(f.prefix) + '"><i data-lucide="folder" class="w-4 h-4"></i> ' + e(f.name) + '</button>';
+        }).join('') + '</div>'
+        : '')
+        + (a.files.length
+          ? '<div class="grid grid-cols-3 sm:grid-cols-5 gap-2 max-h-[45vh] overflow-y-auto pr-1">' + a.files.map(function (f) {
+            return '<button type="button" class="group flex flex-col gap-1 text-left rounded-xl border border-base-content/10 hover:border-primary p-1.5" data-action="beeld-dlg-asset" data-key="' + e(f.key) + '" title="' + e(f.name) + '">'
+              + '<img src="' + e(f.url) + '" alt="" loading="lazy" class="w-full aspect-square object-contain bg-base-200 rounded-lg">'
+              + '<span class="text-[11px] truncate opacity-70">' + e(f.name) + '</span></button>';
+          }).join('') + '</div>'
+          : '')
+        + (a.truncated ? '<p class="text-xs opacity-60 mt-2">Niet alles staat erbij: deze map heeft meer dan 500 bestanden.</p>' : '');
+    }
+    return '<h3 class="font-bold text-lg mb-1">Uit Assetbeheer</h3>'
+      + '<p class="text-sm opacity-70 mb-3">Kies een beeld. Het wordt voor de mail verkleind en gecomprimeerd; een GIF blijft bewegen.</p>'
+      + terug + lijf
+      + '<div class="modal-action"><button class="btn btn-ghost btn-sm mr-auto" data-action="beeld-dlg-ander">Terug</button>'
       + '<button class="btn btn-ghost btn-sm" data-action="sluit-dialoog" data-dialoog="dlgBeeld">Annuleren</button></div>';
   }
 
@@ -202,7 +235,7 @@
 
   function teken() {
     var bak = document.getElementById('dlgBeeldInhoud');
-    bak.innerHTML = st.stap === 'bron' ? stapBron() : stapOpmaak();
+    bak.innerHTML = st.stap === 'bron' ? stapBron() : st.stap === 'assets' ? stapAssets() : stapOpmaak();
     NB.ikons();
     var vlak = document.getElementById('bdFocus');
     if (vlak) koppelFocus(vlak);
@@ -264,7 +297,8 @@
     var pad = b.url.indexOf(origin + '/assets/') === 0 ? b.url.slice(origin.length) : b.url;
     var res = await fetch(pad, { credentials: 'include' });
     if (!res.ok) throw new Error('Het beeld kon niet gelezen worden.');
-    var bron = await createImageBitmap(await res.blob());
+    var blob = await res.blob();
+    var bron = await createImageBitmap(blob);
     var W = bron.width;
     var H = bron.height;
     var r = k.verhouding;
@@ -273,6 +307,8 @@
     var f = b.focus || { x: 0.5, y: 0.5 };
     var cx = Math.max(0, Math.min(W - cw, f.x * W - cw / 2));
     var cy = Math.max(0, Math.min(H - ch, f.y * H - ch / 2));
+    // Een GIF met een canvas bijsnijden maakt er een stilstaand beeld van: gifsicle houdt hem bewegend.
+    if (blob.type === 'image/gif') return (await NB.upload('/api/upload', await NB.gifSnij(blob, { x: cx, y: cy, w: cw, h: ch }))).url;
     var uitW = Math.round(Math.min(cw, k.breedte * 2));
     var uitH = Math.round(uitW / r);
     var c = document.createElement('canvas');
@@ -292,6 +328,7 @@
    * als eigen JPEG (een mail kan niets over een beeld leggen).
    */
   async function metPlay(adres) {
+    if (NB.isGifUrl(adres)) throw new Error('Een bewegend beeld (GIF) kan geen playknop krijgen.');
     var origin = (NB.state.boot && NB.state.boot.asset_origin) || '';
     adres = await eigenUrl(adres);
     var pad = adres.indexOf(origin + '/assets/') === 0 ? adres.slice(origin.length) : adres;
@@ -318,7 +355,7 @@
     var kh = Math.round(kw * knop.height / knop.width);
     ctx.drawImage(knop, Math.round((uitW - kw) / 2), Math.round((uitH - kh) / 2), kw, kh);
     var blob = await new Promise(function (ok, nok) { c.toBlob(function (x) { x ? ok(x) : nok(new Error('Beeld met playknop maken mislukt')); }, 'image/jpeg', 0.88); });
-    return (await NB.upload('/api/upload', blob)).url;
+    return { url: (await NB.upload('/api/upload', blob)).url, knop: t.tag || '' };
   }
 
   NB.beeld = {
@@ -360,11 +397,42 @@
   NB.changes['beeld-dlg-foto'] = async function (el) {
     var bestand = el.files && el.files[0];
     if (!bestand) return;
-    document.getElementById('dlgBeeldInhoud').innerHTML = '<div class="flex flex-col items-center gap-3 py-10"><span class="loading loading-spinner"></span><span class="text-sm opacity-70">Foto opladen…</span></div>';
+    document.getElementById('dlgBeeldInhoud').innerHTML = '<div class="flex flex-col items-center gap-3 py-10"><span class="loading loading-spinner"></span><span class="text-sm opacity-70">Beeld klaarmaken voor de mail…</span></div>';
     try {
-      var blob = await NB.naarMailbeeld(bestand);
+      var blob = await NB.mailbeeld(bestand);
       var r = await NB.upload('/api/upload', blob);
       // Een foto vult standaard het kader: dat oogt in een mail het rustigst.
+      nieuw({ url: r.url, thingie: '', vulling: 'vullen' });
+    } catch (err) { NB.fout(err); teken(); }
+  };
+
+  NB.actions['beeld-dlg-assets'] = async function (el) {
+    var prefix = el.dataset.prefix || '';
+    st.stap = 'assets';
+    st.assets = { prefix: prefix, ouder: prefix.replace(/[^/]+\/$/, ''), laden: true, folders: [], files: [] };
+    teken();
+    try {
+      var d = await NB.api('/api/assets?prefix=' + encodeURIComponent(prefix));
+      st.assets = Object.assign(st.assets, { laden: false, folders: d.folders || [], files: d.files || [], truncated: d.truncated });
+    } catch (err) {
+      st.assets.laden = false;
+      st.assets.fout = err.message;
+    }
+    if (st.stap === 'assets') teken();
+  };
+
+  var SOORT_PER_EXT = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp' };
+
+  NB.actions['beeld-dlg-asset'] = async function (el) {
+    var key = el.dataset.key;
+    document.getElementById('dlgBeeldInhoud').innerHTML = '<div class="flex flex-col items-center gap-3 py-10"><span class="loading loading-spinner"></span><span class="text-sm opacity-70">Beeld klaarmaken voor de mail…</span></div>';
+    try {
+      var res = await fetch('/assets/' + key.split('/').map(encodeURIComponent).join('/'), { credentials: 'include' });
+      if (!res.ok) throw new Error('Dit bestand kon niet gelezen worden.');
+      var ruw = await res.blob();
+      var soort = SOORT_PER_EXT[String(key.split('.').pop()).toLowerCase()];
+      if (soort && ruw.type !== soort) ruw = new Blob([ruw], { type: soort });
+      var r = await NB.upload('/api/upload', await NB.mailbeeld(ruw));
       nieuw({ url: r.url, thingie: '', vulling: 'vullen' });
     } catch (err) { NB.fout(err); teken(); }
   };

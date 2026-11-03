@@ -606,16 +606,19 @@ ${leesLink(c.link_label, c.link_url)}${door}`, S.teal50, { id });
  * Playknop (`content.play`): een mail kan niets over een beeld leggen (geen
  * position in Gmail, geen achtergrondbeeld in Outlook), dus het scherm maakt
  * een kopie van het beeld MET de tekening "play" erop (`play_beeld`), en
- * onthoudt van welk beeld (`play_bron`). Hoort die kopie niet meer bij het
- * huidige beeld, dan staat in de mail het gewone beeld; in het voorbeeld ligt
- * de knop er dan los bovenop tot de kopie klaar is.
+ * onthoudt van welk beeld (`play_bron`) en met welke versie van de tekening
+ * (`play_knop`). Hoort die kopie niet meer bij het huidige beeld of de
+ * huidige tekening, dan staat in de mail het gewone beeld; in het voorbeeld
+ * ligt de (nieuwe) knop er dan los bovenop tot de kopie opnieuw gemaakt is.
  */
 function blokVideo(item, ctx, id) {
   const c = item.content || {};
   const b = beeldVan(c, { fotoVeld: 'thumbnail_url', plaats: 'video' });
   const src = beeldSrc(b, ctx);
-  const metPlay = c.play === true && b && !b.thingie && src;
-  const playKlaar = metPlay && safeUrl(c.play_beeld) && c.play_bron === src;
+  // Een GIF krijgt geen playknop: de kopie met de knop zou een stilstaand beeld zijn.
+  const metPlay = c.play === true && b && !b.thingie && src && !/\.gif(\?|#|$)/i.test(src);
+  const knopVersie = ctx.thingieTag ? ctx.thingieTag('play') : null;
+  const playKlaar = metPlay && safeUrl(c.play_beeld) && c.play_bron === src && (!knopVersie || c.play_knop === knopVersie);
   const toon = playKlaar ? { url: c.play_beeld, vulling: 'heel' } : b;
   let thumbTag = beeldTag(toon, ctx, BEELD_KADERS.video.breedte, { href: c.video_url, alt: c.title || item.title || 'Video' });
   if (metPlay && !playKlaar && id && ctx.thingieUrl) {

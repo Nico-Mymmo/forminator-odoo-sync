@@ -301,7 +301,7 @@ export async function verzamel(env, series, editie, { png = true, items = null }
     items: metAuteur,
     users,
     auteurs: perUser,
-    ctx: { events, company: comp, thingieUrl: tek.url, now: Date.now() },
+    ctx: { events, company: comp, thingieUrl: tek.url, thingieTag: tek.tag, now: Date.now() },
     thingies: tek.lijst,
   };
 }

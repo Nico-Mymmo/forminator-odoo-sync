@@ -182,9 +182,11 @@ export async function bedrijf(env) {
 export async function tekeningen(env, { enkelPng = true } = {}) {
   try {
     const lijst = await lijstTekeningen(env);
-    return { lijst, url: tekeningZoeker(lijst, ASSET_ORIGIN, { enkelPng }) };
+    // `tag` = de versie van een tekening (verandert als iemand ze vervangt in Assetbeheer).
+    const tag = (naam) => lijst.find((t) => t.name === naam)?.tag || null;
+    return { lijst, url: tekeningZoeker(lijst, ASSET_ORIGIN, { enkelPng }), tag };
   } catch (error) {
     console.warn(`${LOG_PREFIX} tekeningen niet gelezen:`, error?.message);
-    return { lijst: [], url: () => null };
+    return { lijst: [], url: () => null, tag: () => null };
   }
 }
