@@ -92,7 +92,7 @@ export default {
       const kans = String(b.kans || '');
       const m = kans.match(/[?#&]id=(\d+)/) || kans.match(/(\d+)\D*$/);
       const leadId = m ? Number.parseInt(m[1], 10) : null;
-      return voorbeeldBericht(env, { onderwerp: b.onderwerp, tekst_html: b.tekst_html, leadId });
+      return voorbeeldBericht(env, { onderwerp: b.onderwerp, tekst_html: b.tekst_html, leadId, taal: b.taal || null });
     }),
 
     'GET /api/merger-config': handleGetMergerConfig,

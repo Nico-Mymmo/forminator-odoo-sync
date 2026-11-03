@@ -25,7 +25,7 @@ import { vandaagInBrussel } from './lib/datum.js';
 import { searchRead } from '../../lib/odoo.js';
 import { odooOrigin } from '../../lib/medewerkers.js';
 import { teamVan, managers } from './lib/team.js';
-import { mijnBeltaken, kansVoorGesprek, rondGesprekAf, werkPaneelBij, leadUrl, OpvolgingError } from '../cx-automations/opvolging/api.js';
+import { mijnBeltaken, kansVoorGesprek, rondGesprekAf, werkPaneelBij, leadUrl, OpvolgingError, berichtenVoorKans, berichtIngevuld, verstuurBericht } from '../cx-automations/opvolging/api.js';
 import {
   ASSET_CATEGORY_PREFIXES, isWithinAssetNamespace, canReadAssetPrefix, listDynamicAssetCategories,
 } from '../asset-manager/lib/namespace.js';
@@ -369,6 +369,32 @@ export const routes = {
       const id = Number.parseInt(params.id, 10);
       if (!Number.isInteger(id)) throw new PmError('Ongeldige kans.');
       return json({ success: true, data: await rondGesprekAf(env, user, id, await leesBody(request)) });
+    } catch (err) { return fout(err); }
+  },
+
+  // Een bericht sturen vanuit de kans (cx-automations/opvolging/berichten.js):
+  // de berichten die bij de kans passen, een bericht ingevuld, en versturen.
+  'GET /api/odoo-kansen/:id/berichten': async ({ env, params }) => {
+    try {
+      const id = Number.parseInt(params.id, 10);
+      if (!Number.isInteger(id)) throw new PmError('Ongeldige kans.');
+      return json({ success: true, data: await berichtenVoorKans(env, id) });
+    } catch (err) { return fout(err); }
+  },
+  'POST /api/odoo-kansen/:id/berichten/:berichtId': async ({ env, params, request }) => {
+    try {
+      const id = Number.parseInt(params.id, 10);
+      if (!Number.isInteger(id)) throw new PmError('Ongeldige kans.');
+      const b = await leesBody(request);
+      return json({ success: true, data: await berichtIngevuld(env, { leadId: id, berichtId: params.berichtId, taal: b.taal || null }) });
+    } catch (err) { return fout(err); }
+  },
+  'POST /api/odoo-kansen/:id/bericht': async ({ env, params, request }) => {
+    try {
+      const id = Number.parseInt(params.id, 10);
+      if (!Number.isInteger(id)) throw new PmError('Ongeldige kans.');
+      const b = await leesBody(request);
+      return json({ success: true, data: await verstuurBericht(env, { leadId: id, berichtId: b.bericht_id || null, onderwerp: b.onderwerp, tekst_html: b.tekst_html, sleutel: b.sleutel }) });
     } catch (err) { return fout(err); }
   },
 

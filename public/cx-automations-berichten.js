@@ -15,7 +15,8 @@
  */
 (function () {
   var GEEN = '__none__';
-  var S = { data: null, fout: null, groep: null, kies: null, concept: null, quill: null, laatsteVeld: 'tekst', bezig: false };
+  var STANDAARD = 'nl';
+  var S = { data: null, fout: null, groep: null, kies: null, concept: null, quill: null, laatsteVeld: 'tekst', bezig: false, taal: STANDAARD };
 
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -35,8 +36,21 @@
 
   function leeg() {
     var groepId = S.groep && S.groep !== GEEN ? S.groep : null;
-    return { id: null, naam: '', groep_id: groepId, merk: 'syndicoach', taal: 'nl', onderwerp: '', tekst_html: '', actief: false, volgorde: 0 };
+    return { id: null, naam: '', groep_id: groepId, merk: 'syndicoach', onderwerp: '', tekst_html: '', vertalingen: {}, actief: false, volgorde: 0 };
   }
+
+  // Een taal: de standaard staat in onderwerp/tekst_html, de andere in vertalingen.
+  function heeftTekst(html) { return String(html || '').replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim() !== ''; }
+  function versie(b, taal) {
+    if (taal === STANDAARD) return { onderwerp: b.onderwerp || '', tekst_html: b.tekst_html || '' };
+    return (b.vertalingen && b.vertalingen[taal]) || { onderwerp: '', tekst_html: '' };
+  }
+  function zetVersie(b, taal, v) {
+    if (taal === STANDAARD) { b.onderwerp = v.onderwerp; b.tekst_html = v.tekst_html; return; }
+    b.vertalingen = b.vertalingen || {};
+    b.vertalingen[taal] = v;
+  }
+  function volledig(b, taal) { var v = versie(b, taal); return !!String(v.onderwerp).trim() && heeftTekst(v.tekst_html); }
   function inGroep(b, g) {
     if (g === null) return true;
     if (g === GEEN) return !b.groep_id || !groepBestaat(b.groep_id);
@@ -94,7 +108,9 @@
         + '<div class="flex flex-wrap items-center gap-1 mt-1">'
         + (groep ? '<span class="badge badge-ghost badge-sm"><i data-lucide="folder" class="w-3 h-3 mr-1"></i>' + esc(groep) + '</span>' : '')
         + '<span class="badge badge-ghost badge-sm">' + esc(S.data.merken[b.merk] || b.merk) + '</span>'
-        + '<span class="badge badge-ghost badge-sm">' + esc(String(b.taal || '').toUpperCase()) + '</span>'
+        + Object.keys(S.data.talen).map(function (tl) {
+          return '<span class="badge badge-sm ' + (volledig(b, tl) ? 'badge-ghost' : 'badge-outline opacity-40') + '" title="' + esc(S.data.talen[tl] + (volledig(b, tl) ? '' : ': nog niet vertaald')) + '">' + esc(tl.toUpperCase()) + '</span>';
+        }).join('')
         + (b.actief ? '<span class="badge badge-success badge-sm">klaar</span>' : '<span class="badge badge-warning badge-sm">concept</span>')
         + '</div></button>';
     });
@@ -123,12 +139,17 @@
       + '<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">'
       + '<label class="form-control"><span class="label-text text-xs mb-1">Naam (intern)</span><input class="input input-bordered input-sm" data-berveld="naam" value="' + esc(b.naam) + '" placeholder="Bijv. Ik probeerde je te bellen"></label>'
       + '<label class="form-control"><span class="label-text text-xs mb-1">Groep</span><select class="select select-bordered select-sm" data-berveld="groep_id">' + groepOpties + '</select></label>'
-      + '<label class="form-control"><span class="label-text text-xs mb-1">Merk</span><select class="select select-bordered select-sm" data-berveld="merk">' + opties(S.data.merken, b.merk) + '</select></label>'
-      + '<label class="form-control"><span class="label-text text-xs mb-1">Taal</span><select class="select select-bordered select-sm" data-berveld="taal">' + opties(S.data.talen, b.taal) + '</select></label>'
+      + '<label class="form-control sm:col-span-2"><span class="label-text text-xs mb-1">Merk</span><select class="select select-bordered select-sm" data-berveld="merk">' + opties(S.data.merken, b.merk) + '</select>'
+      + '<span class="text-xs text-base-content/50 mt-1">Een kans van Syndicoach krijgt enkel berichten van Syndicoach of van alle merken; idem voor OpenVME. Het merk bepaalt ook het afzenderadres (thomas@syndicoach.be of thomas@openvme.be).</span></label>'
       + '</div>'
       + '<label class="label cursor-pointer justify-start gap-2 mt-2"><input type="checkbox" class="toggle toggle-sm toggle-success" data-berveld="actief"' + (b.actief ? ' checked' : '') + '>'
       + '<span class="text-sm">Klaar voor gebruik</span><span class="text-xs text-base-content/50">(uit = concept)</span></label>'
-      + '<label class="form-control mt-2"><span class="label-text text-xs mb-1">Onderwerp</span><input id="opvBerOnderwerp" class="input input-bordered input-sm" data-berveld="onderwerp" value="' + esc(b.onderwerp) + '" placeholder="Bijv. Ik probeerde je te bellen"></label>'
+      + '<div role="tablist" class="tabs tabs-boxed w-fit mt-3">' + Object.keys(S.data.talen).map(function (tl) {
+          return '<button type="button" role="tab" class="tab' + (S.taal === tl ? ' tab-active' : '') + '" data-ber="taal" data-taal="' + esc(tl) + '">' + esc(S.data.talen[tl])
+            + (tl !== STANDAARD && !volledig(b, tl) ? ' <span class="badge badge-warning badge-xs ml-1">leeg</span>' : '') + '</button>';
+        }).join('') + '</div>'
+      + (S.taal !== STANDAARD ? '<p class="text-xs text-base-content/60 mt-1">De taal van de contactpersoon in Odoo kiest de versie. Zonder vertaling krijgt hij de Nederlandse.</p>' : '')
+      + '<label class="form-control mt-2"><span class="label-text text-xs mb-1">Onderwerp</span><input id="opvBerOnderwerp" class="input input-bordered input-sm" value="' + esc(versie(b, S.taal).onderwerp) + '" placeholder="' + (S.taal === STANDAARD ? 'Bijv. Ik probeerde je te bellen' : esc(b.onderwerp)) + '"></label>'
       + '<div class="flex items-center justify-between gap-2 mt-3 mb-1"><span class="label-text text-xs">Tekst</span>'
       + '<span class="flex items-center gap-1"><select id="opvBerToken" class="select select-bordered select-xs max-w-xs"><option value="">Gegeven invoegen…</option>' + tokenOpties + '</select>'
       + '<button type="button" class="btn btn-xs" data-ber="token">Invoegen</button></span></div>'
@@ -150,8 +171,8 @@
     if (host && window.EOQuill) {
       S.quill = window.EOQuill.create({
         target: host,
-        initialHtml: b.tekst_html || '',
-        placeholder: 'Hoi {{contact.first_name}},',
+        initialHtml: versie(b, S.taal).tekst_html || '',
+        placeholder: S.taal === STANDAARD ? 'Hoi {{contact.first_name}},' : 'Bonjour {{contact.first_name}},',
         toolbar: [['bold', 'italic', 'underline'], [{ list: 'ordered' }, { list: 'bullet' }], ['link', 'clean']],
       });
       if (S.quill) {
@@ -187,7 +208,9 @@
     document.querySelectorAll('[data-berveld]').forEach(function (v) {
       b[v.dataset.berveld] = v.type === 'checkbox' ? v.checked : v.value;
     });
-    if (S.quill) b.tekst_html = S.quill.getHTML();
+    // Onderwerp en tekst horen bij de taal van het open tabblad.
+    var onderwerp = el('opvBerOnderwerp');
+    if (onderwerp && S.quill) zetVersie(b, S.taal, { onderwerp: onderwerp.value, tekst_html: S.quill.getHTML() });
     return b;
   }
 
@@ -204,7 +227,8 @@
     var b = S.data.berichten.find(function (x) { return x.id === id; });
     if (!b) return;
     S.kies = id;
-    S.concept = Object.assign({}, b);
+    S.concept = JSON.parse(JSON.stringify(b));
+    S.taal = STANDAARD;
     teken();
   }
 
@@ -220,7 +244,7 @@
       var uit = await api(b.id ? '/berichten/' + encodeURIComponent(b.id) : '/berichten', { method: b.id ? 'PUT' : 'POST', body: JSON.stringify(b) });
       zetBericht(uit);
       S.kies = uit.id;
-      S.concept = Object.assign({}, uit);
+      S.concept = JSON.parse(JSON.stringify(uit));
       showToast('Bericht bewaard', 'success');
     } catch (e) { showToast('Bewaren mislukt: ' + e.message, 'error'); }
     S.bezig = false;
@@ -335,7 +359,8 @@
     if (!b || !doel) return;
     doel.innerHTML = '<span class="loading loading-spinner loading-sm"></span>';
     try {
-      var r = await api('/berichten/voorbeeld', { method: 'POST', body: JSON.stringify({ onderwerp: b.onderwerp, tekst_html: b.tekst_html, kans: (el('opvBerKans') || {}).value || '' }) });
+      var v = versie(b, S.taal);
+      var r = await api('/berichten/voorbeeld', { method: 'POST', body: JSON.stringify({ onderwerp: v.onderwerp, tekst_html: v.tekst_html, taal: S.taal, kans: (el('opvBerKans') || {}).value || '' }) });
       var meld = '';
       if (r.kans) meld += '<div class="mb-2 text-base-content/70">Kans ' + esc(r.kans.id) + ': ' + esc(r.kans.naam) + '</div>';
       if (r.ontbreekt && r.ontbreekt.length) meld += '<div class="alert alert-warning py-1 px-2 text-xs mb-2"><span>Leeg voor deze kans: ' + esc(r.ontbreekt.join(', ')) + '</span></div>';
@@ -362,7 +387,8 @@
     if (a === 'groep-nieuw') groepNieuw();
     if (a === 'groep-hernoem') groepHernoem(k.dataset.groep);
     if (a === 'groep-weg') groepWeg(k.dataset.groep);
-    if (a === 'nieuw') { S.kies = null; S.concept = leeg(); teken(); }
+    if (a === 'nieuw') { S.kies = null; S.concept = leeg(); S.taal = STANDAARD; teken(); }
+    if (a === 'taal') { leesEditor(); S.taal = k.dataset.taal; teken(); }
     if (a === 'kies') kies(k.dataset.id);
     if (a === 'bewaar') bewaar();
     if (a === 'weg') weg();

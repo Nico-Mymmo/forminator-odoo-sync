@@ -6146,10 +6146,15 @@ Afspraken die bewust zo zijn:
   tekstveld als Odoo niet antwoordt), het chatkanaal uit `GET
   /api/chat-channels` (het kanaalregister van Mini-apps), de hoofdredactie als
   vinkjes (enkel een beheerder bewaart `editor_user_ids`).
-- **Een video is enkel het stilstaand beeld** (beslissing Nico, 2026-10-15):
-  het labeltje erboven, daaronder het beeld, en klikken op het beeld opent de
-  video. Geen titel, tekst of knop in het blok; wie dat wil, zet er een
-  tekstblok naast. De video kies je uit DEZELFDE Vimeo-lijst als bij de events
+- **Een video: labeltje, optionele titel en korte tekst, dan het beeld**
+  (2026-11-03, op vraag van David: met een los tekstblok stond de tekst te ver
+  van het beeld). Titel en tekst typ je in de brief; klikken op het beeld opent
+  de video. **Playknop** (`content.play`, schakelaar in het paneel): een mail
+  kan niets over een beeld leggen, dus het scherm maakt een kopie van het beeld
+  met de tekening `play` uit Assetbeheer (`brand/thingies/thingies_play.svg`)
+  erop (`NB.beeld.metPlay()`, bewaard als `play_beeld` + `play_bron` = van welk
+  beeld). Hoort de kopie niet bij het huidige beeld, dan toont de mail het
+  gewone beeld en maakt het scherm een nieuwe. De video kies je uit DEZELFDE Vimeo-lijst als bij de events
   (`lib/vimeo.js` van Eventbeheer: `GET /api/vimeo/videos`, `POST /api/video`
   voor een geplakte Vimeo- of YouTube-link zonder token), via de werkbalk, de
   lege plek in de brief (`data-nb-video`) of het paneel (`dlgVideo`). Het
@@ -6906,6 +6911,7 @@ https://claude.ai/artifact/QwXUNv4HtUfr1PfayjeVUu
 | Teamoverzicht: tabblad Opvolging in CX Powerboard | `opvolging/overzicht.js`, `GET /cx-powerboard/api/opvolging`, `public/cx-powerboard-opvolging.js` |
 | Odoo-kant (venster, opslaan, knop) | view 3968 (`x_oproep_notitie`), serveracties 1207 (opslaan) en "Ik heb gebeld - Venster openen", view 3978 (knop naast het paneel) |
 | Berichtteksten (macro's): opslag, groepen, placeholders, voorbeeld op een kans | `opvolging/berichten.js`, tabellen `opv_berichten` + `opv_bericht_groepen` in D1 om-core (`0022`, `0023`), routes `/cx-automations/api/opvolging/berichten*` en `/bericht-groepen*` |
+| Bericht sturen vanuit een kans (venster, knop Mail in "Bellen (uit Odoo)", `#/mijn?bericht=<kans>`) | `public/projecten-bericht.js`, routes `/projecten/api/odoo-kansen/:id/berichten*` en `/bericht`, `berichtenVoorKans()` / `berichtIngevuld()` / `verstuurBericht()` in `opvolging/berichten.js` |
 | Berichten schrijven | CX Automations -> tabblad Berichten, `public/cx-automations-berichten.js` (tabbladen sinds 2026-11-03: Opvolging, Berichten, Actiebladen = vlag-drempelwaarden + mergers) |
 
 - **De sequentie beslist wanneer er opnieuw gebeld wordt, niet de verkoper.**
@@ -7009,8 +7015,29 @@ https://claude.ai/artifact/QwXUNv4HtUfr1PfayjeVUu
   `{{offerte.datum}}` van te kennen; nummer en bedrag komen enkel uit een
   offerte in Odoo (OpenVME). Uit = concept (`actief`); een bericht dat aan
   staat heeft een onderwerp en een tekst. Er staan drie concepten klaar
-  (migratie 0022). VERSTUREN is nog niet gebouwd (volgende stap: vanuit de
-  kans, eerst als klaargezet concept, op naam van de verkoper).
+  (migratie 0022).
+- **Talen: EEN bericht, een versie per taal** (migratie 0024). Nederlands staat
+  in onderwerp/tekst_html, een andere taal in `vertalingen` ({fr: {onderwerp,
+  tekst_html}}); de editor heeft een tabblad per taal. De taal van de
+  contactpersoon (`res.partner.lang`) kiest de versie; ontbreekt ze, dan de
+  Nederlandse, en het venster zegt dat. Datums volgen de taal. De kolom `taal`
+  uit 0022 wordt niet meer gelezen.
+- **Merk** = welke kansen het bericht krijgen: `leadMerk()` (dezelfde regel als
+  de dashboards) op de kans; een bericht van Syndicoach of van alle merken voor
+  een Syndicoach-kans, idem OpenVME. Het merk van de KANS bepaalt ook het
+  afzenderdomein (`opAfzenderdomein()`: thomas@syndicoach.be) en de naam
+  ("Thomas van Syndicoach").
+- **Versturen vanuit de kans** (Mijn taken, knop Mail): de verkoper kiest een
+  bericht, ziet het INGEVULD (en kan het aanpassen), met zijn handtekening
+  eronder, en verstuurt. Een `mail.mail` in Odoo op naam en adres van de
+  VERKOPER van de kans (`author_id` = zijn partner, `message_type` comment,
+  subtype Discussions, server `OPVOLGING_MAIL_SERVER_ID`, standaard 5 =
+  Postmark Outbound Contact Replies), aan de contactpersoon, in de chatter van
+  de kans; blacklist wordt gerespecteerd. Het paneel leest ze als MANUEEL.
+  `message_id` = `<opv<kans>-<sleutel>@opvolging.mymmo.com>`: de sleutel maakt
+  het venster per gekozen bericht, dus dubbelklikken stuurt niets dubbel.
+  Bewust NIET op `@om.mymmo.com`: dat domein betekent "automatisch" in het
+  paneel. Automatisch versturen vanuit de sequentie is nog niet gebouwd.
 - **Wat Odoo vandaag al vanzelf naar klanten stuurt** (gemeten 2026-11-03,
   1 okt - 3 nov): de OM (offertemail ~71, bedankt voor aanvraag/VME-check,
   nieuwsbriefinschrijving, eventmails), marketingautomatisering in Odoo

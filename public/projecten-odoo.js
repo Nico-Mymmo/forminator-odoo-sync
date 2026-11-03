@@ -62,6 +62,7 @@
         +   '<div class="text-xs mt-0.5">' + gesprekTekst(k.laatste_gesprek) + '</div>'
         + '</div>'
         + '<div class="flex items-center gap-2 shrink-0">' + badge
+        +   '<button type="button" class="btn btn-sm btn-ghost gap-1" data-action="odoo-bericht" data-id="' + k.id + '" title="Een bericht sturen"><i data-lucide="mail" class="w-4 h-4"></i>Mail</button>'
         +   '<button type="button" class="btn btn-sm btn-success" data-action="odoo-gesprek" data-id="' + k.id + '">Oproep registreren</button>'
         + '</div></div>';
     }).join('');
