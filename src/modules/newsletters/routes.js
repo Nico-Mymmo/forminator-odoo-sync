@@ -284,6 +284,8 @@ function inhoudPerSoort(kind, c = {}) {
         thumbnail_url: url(c.thumbnail_url), button_label: kort(c.button_label, 60),
         beeld: normaliseerBeeld(c.beeld, 'video'),
         // Playknop: het beeld met de tekening erop (gemaakt door het scherm) en van welk beeld.
+        // Beeld onder de tekst (standaard) of ernaast, rechts of links (voor een staande video).
+        indeling: ['rechts', 'links'].includes(c.indeling) ? c.indeling : 'onder',
         play: c.play === true, play_beeld: url(c.play_beeld), play_bron: url(c.play_bron),
         // Met welke versie van de tekening "play" de kopie gemaakt is: een nieuwe tekening = een nieuwe kopie.
         play_knop: /^[a-z0-9]{1,16}$/i.test(String(c.play_knop || '')) ? c.play_knop : '',

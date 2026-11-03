@@ -620,7 +620,12 @@ function blokVideo(item, ctx, id) {
   const knopVersie = ctx.thingieTag ? ctx.thingieTag('play') : null;
   const playKlaar = metPlay && safeUrl(c.play_beeld) && c.play_bron === src && (!knopVersie || c.play_knop === knopVersie);
   const toon = playKlaar ? { url: c.play_beeld, vulling: 'heel' } : b;
-  let thumbTag = beeldTag(toon, ctx, BEELD_KADERS.video.breedte, { href: c.video_url, alt: c.title || item.title || 'Video' });
+  // Naast de tekst (`content.indeling` rechts/links): het beeld in een kolom van 240 px, zoals
+  // "Halve blok" bij een tekstblok. Voor een staande video (9:16). Op een gsm onder elkaar.
+  const naast = (c.indeling === 'rechts' || c.indeling === 'links') && Boolean(src);
+  const breedte = naast ? BEELD_KADERS['kolom-rechts'].breedte : BEELD_KADERS.video.breedte;
+  let thumbTag = beeldTag(toon, ctx, breedte, { href: c.video_url, alt: c.title || item.title || 'Video' });
+  if (naast) thumbTag = thumbTag.replace('style="display:block;', 'style="display:block;margin:0 auto;');
   if (metPlay && !playKlaar && id && ctx.thingieUrl) {
     const knop = ctx.thingieUrl('play');
     if (knop) thumbTag = `<div style="position:relative">${thumbTag}<img src="${esc(knop)}" alt="" style="position:absolute;left:50%;top:50%;width:20%;transform:translate(-50%,-50%);pointer-events:none"></div>`;
@@ -639,6 +644,12 @@ function blokVideo(item, ctx, id) {
   const lijf = id
     ? `<div data-nb-veld="text" data-nb-rijk="1" data-nb-optioneel="1" data-placeholder="Korte tekst (optioneel)" style="font-family:${S.fontBody};font-size:16px;line-height:1.6;color:${S.text}">${alineas(c.text).join('')}</div>`
     : alineas(c.text).join('');
+  if (naast) {
+    const links = c.indeling === 'links';
+    const beeldCel = `<td class="nb-kol${links ? '' : ' nb-kol-na'}" width="${breedte}" valign="top" align="center" style="width:${breedte}px;padding:0"${id ? ' data-nb-beeld="1"' : ''}>${thumbTag}</td>`;
+    const tekstCel = `<td class="nb-kol${links ? ' nb-kol-na' : ''}" valign="middle" style="padding:0 ${links ? 0 : 24}px 0 ${links ? 24 : 0}px">${labeltje}${titel}${lijf}</td>`;
+    return rij(`<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>${links ? beeldCel + tekstCel : tekstCel + beeldCel}</tr></table>`, { padding: '44px 40px 0', id });
+  }
   return rij(`${labeltje}${titel}${lijf}${thumb}`, { padding: '44px 40px 0', id });
 }
 

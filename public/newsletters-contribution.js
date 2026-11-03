@@ -860,6 +860,10 @@
       case 'video':
         setTimeout(zorgVoorPlay, 0);
         return uitleg('Label, titel en korte tekst typ je <strong>in de brief</strong> (alle drie optioneel). Klikken op het beeld opent de video.')
+          + '<label class="form-control w-full"><span class="label-text text-xs mb-1">Waar staat het beeld?</span><select class="select select-bordered select-sm w-full" data-veld="content.indeling"' + (s().can_edit ? '' : ' disabled') + '>'
+          + [['onder', 'Onder de tekst'], ['rechts', 'Naast de tekst, rechts'], ['links', 'Naast de tekst, links']].map(function (o) {
+            return '<option value="' + o[0] + '"' + ((lees('content.indeling') || 'onder') === o[0] ? ' selected' : '') + '>' + o[1] + '</option>';
+          }).join('') + '</select><span class="label-text-alt opacity-60 mt-1">Naast de tekst past bij een staande video. Op een gsm staan tekst en beeld altijd onder elkaar.</span></label>'
           + '<label class="label cursor-pointer justify-start gap-3 py-1"><input type="checkbox" class="toggle toggle-sm toggle-primary" data-veld="content.play"' + (lees('content.play') === true ? ' checked' : '') + (s().can_edit ? '' : ' disabled') + '><span class="label-text">Playknop op het beeld</span></label>'
           + (lees('content.play') === true && videoIsGif() ? uitleg('Een bewegend beeld (GIF) krijgt geen playknop: een mail kan niets over een GIF leggen. Het bewegen zegt al dat het een video is.') : '')
           + '<div class="flex items-center gap-2">' + (s().can_edit ? '<button class="btn btn-sm btn-primary" data-action="video-open"><i data-lucide="circle-play" class="w-4 h-4"></i> ' + (lees('content.video_url') ? 'Andere video' : 'Video kiezen') + '</button>' : '')
