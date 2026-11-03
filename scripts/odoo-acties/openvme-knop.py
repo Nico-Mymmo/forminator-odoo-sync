@@ -6,7 +6,7 @@
 
 # De VME is een bedrijf in Odoo: het Bedrijf (parent_id) van de contactpersoon.
 # Wat verplicht is (afspraak met de ontwikkelaars van OpenVME). Zet op True of False.
-KBO_VERPLICHT = True
+KBO_VERPLICHT = False
 LEDEN_VERPLICHT = False
 WEBHOOK_ID = __WEBHOOK_ID__
 VENSTER = 'OpenVME: bevestigen'

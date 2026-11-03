@@ -13,7 +13,7 @@ def h(s):
             .replace('"', '&quot;').replace("'", '&#39;'))
 
 
-KBO_VERPLICHT = True
+KBO_VERPLICHT = False
 for record in self:
     p = record.partner_id
     vme = p.parent_id if p else False
@@ -65,7 +65,7 @@ for record in self:
     if nodig:
         uitleg = ''
         if not vme:
-            uitleg = (' Maak de VME aan als bedrijf (met adres en ondernemingsnummer) en kies ze bij de contactpersoon als Bedrijf.')
+            uitleg = (' Maak de VME aan als bedrijf (met adres) en kies ze bij de contactpersoon als Bedrijf.')
         kop += ("<div style='padding:8px 12px;border-radius:6px;background-color:#fee2e2;color:#991b1b;margin-bottom:8px;'>"
                 + "Nog nodig voor je kan doorsturen: " + h(', '.join(nodig)) + "." + h(uitleg) + "</div>")
     if leeg:
