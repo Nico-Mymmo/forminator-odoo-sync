@@ -19,6 +19,7 @@
 import { getSnippet, getSnippetImage } from '../../content-feed/lib/content-service.js';
 import { updateContribution } from './store.js';
 import { BEELDEN_MAP } from './beelden-hosten.js';
+import { BEELD_MODULE } from './beelden-opruimen.js';
 import { ASSET_ORIGIN, LOG_PREFIX } from './constants.js';
 
 const BEELD_TYPES = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif' };
@@ -54,7 +55,7 @@ export async function hostBerichtBeeld(env, snippetId) {
   const ext = img && BEELD_TYPES[img.contentType];
   if (!ext || img.bytes.byteLength > MAX_BEELD) return null;
   const key = `${BEELDEN_MAP}${crypto.randomUUID()}.${ext}`;
-  await env.R2_ASSETS.put(key, img.bytes, { httpMetadata: { contentType: img.contentType } });
+  await env.R2_ASSETS.put(key, img.bytes, { httpMetadata: { contentType: img.contentType }, customMetadata: { module: BEELD_MODULE } });
   return `${ASSET_ORIGIN}/assets/${key}`;
 }
 

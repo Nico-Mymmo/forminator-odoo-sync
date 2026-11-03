@@ -186,6 +186,24 @@ export async function inhoudVanSoort(env, kind) {
 }
 
 
+/**
+ * Alles wat naar een beeld in public/nieuwsbrieven/ kan wijzen: de inhoud van
+ * elk blok (ook verstuurd, ook in de voorraad), de kop van elke mailing en de
+ * instellingen van elke soort. Voor lib/beelden-opruimen.js. Gooit bij een
+ * fout: dan gaat er niets weg.
+ */
+export async function beeldVerwijzingen(env) {
+  const [c, e, s] = await Promise.all([
+    db(env).from(TABLES.contributions).select('content'),
+    db(env).from(TABLES.editions).select('header'),
+    db(env).from(TABLES.series).select('*'),
+  ]);
+  check(c.error, 'Stukjes lezen');
+  check(e.error, 'Edities lezen');
+  check(s.error, 'Soorten lezen');
+  return [...(c.data || []), ...(e.data || []), ...(s.data || [])];
+}
+
 export async function listContributions(env, editionId) {
   const { data, error } = await db(env).from(TABLES.contributions).select('*')
     .eq('edition_id', editionId).order('position').order('created_at');

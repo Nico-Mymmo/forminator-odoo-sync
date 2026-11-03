@@ -6248,6 +6248,16 @@ Afspraken die bewust zo zijn:
   het beeld in een al verstuurde mail.** Sinds 2026-10-20 heet een opgeladen of
   geimporteerd beeld naar een hash van zijn BYTES (`inhoudHash()` in
   routes.js): dezelfde uitsnede of foto nog eens wordt geen tweede bestand.
+- **Ongebruikte beelden gaan na een dag weg** (2026-11-03,
+  `lib/beelden-opruimen.js`, elke dag om 5 uur in de cron). Weg gaat een bestand
+  in `public/nieuwsbrieven/` dat de nieuwsbrief zelf oplaadde
+  (`customMetadata.module = 'newsletters'`, of geen metadata: van voor die dag)
+  en dat in geen enkel blok (ook verstuurd, ook voorraad), geen kop van een
+  mailing, geen instelling van een soort en geen `mailing.mailing.body_html` in
+  Odoo staat, en ouder is dan 24 uur. De map `mail/` en wat via Assetbeheer in de
+  map kwam, blijven altijd. Faalt het lezen van de database of Odoo, dan gaat er
+  niets weg. Een nieuwe plek die zo'n beeld bewaart, hoort in
+  `beeldVerwijzingen()` (store.js), anders ruimt de cron het op.
 - **Een interessant artikel komt ALTIJD uit Nieuws & updates.** Er is geen blokje
   meer om zelf een link te plakken ("Interessant gelezen" is weg); bestaande
   link-blokken werken nog. Laden de berichten niet, dan toont het paneel de

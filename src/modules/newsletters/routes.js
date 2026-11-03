@@ -30,6 +30,7 @@ import { stelStukjeVoor, stelOnderwerpVoor } from './lib/ai.js';
 import { linkVoorbeeld, eventsVoorEditie, auteurs, tekeningen, eventsTussen, bedrijf } from './lib/sources.js';
 import { stuurHerinnering } from './lib/cron.js';
 import { hostBeelden, BEELDEN_MAP } from './lib/beelden-hosten.js';
+import { BEELD_MODULE } from './lib/beelden-opruimen.js';
 import { naamVoor, medewerkerVoorOdooGebruiker, medewerkersVoorGebruikers } from '../../lib/medewerkers.js';
 import { isEmail, vasteVolgorde, VASTE_PLEK } from './lib/constants.js';
 import { taakVoorToewijzing, takenVoorVermeldingen, zetTakenKlaar } from './lib/taken.js';
@@ -1403,7 +1404,7 @@ export const routes = {
       const bytes = await request.arrayBuffer();
       if (!bytes.byteLength || bytes.byteLength > MAX_BEELD) throw new NewsletterError('Het beeld is leeg of groter dan 3 MB.');
       const key = `${BEELDEN_MAP}${await inhoudHash(bytes)}.${ext}`;
-      await env.R2_ASSETS.put(key, bytes, { httpMetadata: { contentType: type } });
+      await env.R2_ASSETS.put(key, bytes, { httpMetadata: { contentType: type }, customMetadata: { module: BEELD_MODULE } });
       return json({ success: true, data: { url: `${ASSET_ORIGIN}/assets/${key}` } }, 201);
     } catch (err) { return fout(err); }
   },
@@ -1425,7 +1426,7 @@ export const routes = {
       const bytes = await res.arrayBuffer();
       if (!bytes.byteLength || bytes.byteLength > MAX_BEELD) throw new NewsletterError('Het beeld is leeg of groter dan 3 MB.');
       const key = `${BEELDEN_MAP}${await inhoudHash(bytes)}.${ext}`;
-      await env.R2_ASSETS.put(key, bytes, { httpMetadata: { contentType: type } });
+      await env.R2_ASSETS.put(key, bytes, { httpMetadata: { contentType: type }, customMetadata: { module: BEELD_MODULE } });
       return json({ success: true, data: { url: `${ASSET_ORIGIN}/assets/${key}` } }, 201);
     } catch (err) { return fout(err); }
   },
@@ -1482,7 +1483,7 @@ export const routes = {
         const ext = img && BEELD_TYPES[img.contentType];
         if (ext && img.bytes.byteLength <= MAX_BEELD) {
           const key = `${BEELDEN_MAP}${crypto.randomUUID()}.${ext}`;
-          await env.R2_ASSETS.put(key, img.bytes, { httpMetadata: { contentType: img.contentType } });
+          await env.R2_ASSETS.put(key, img.bytes, { httpMetadata: { contentType: img.contentType }, customMetadata: { module: BEELD_MODULE } });
           inhoud.beeld = { url: `${ASSET_ORIGIN}/assets/${key}`, plaats: 'tekst', na_alinea: 0, vulling: 'heel' };
         } else if (img && img.contentType === 'image/webp' && img.bytes.byteLength <= MAX_BEELD) {
           let bin = '';

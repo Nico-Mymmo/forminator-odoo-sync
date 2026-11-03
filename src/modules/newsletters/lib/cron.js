@@ -7,6 +7,7 @@
  *     (enkel als er een kanaal ingesteld is -- standaard niet)
  *   - rijpe antwoorden op vragen in de mail naar de koppeling
  *   - de automatische mailinglijsten gelijkzetten (elke dag om 6 uur, lib/auto-lijsten.js)
+ *   - beelden die niemand nog gebruikt weghalen (elke dag om 5 uur, lib/beelden-opruimen.js)
  *   - een ingeplande editie op haar verzendmoment via Odoo laten vertrekken
  *     (lib/verzending.js), en de cijfers bijhouden
  *
@@ -25,6 +26,7 @@ import { zetAntwoordenDoor } from './answers.js';
 import { vulTokens, leesCijfers } from './odoo-mailing.js';
 import { verzendKlaargezette } from './verzending.js';
 import { werkAutoLijstenBij } from './auto-lijsten.js';
+import { ruimBeeldenOp } from './beelden-opruimen.js';
 
 const DAG_MS = 24 * 60 * 60 * 1000;
 
@@ -147,6 +149,15 @@ export async function runNewsletterCron(env, { scheduledTime } = {}) {
       await werkAutoLijstenBij(env);
     } catch (error) {
       console.error(`${LOG_PREFIX} automatische lijsten mislukt:`, error?.message);
+    }
+  }
+
+  // Beelden die niemand nog gebruikt (lib/beelden-opruimen.js): elke dag om 5 uur.
+  if (eersteKwartier && uurInBrussel(nu) === 5) {
+    try {
+      await ruimBeeldenOp(env);
+    } catch (error) {
+      console.error(`${LOG_PREFIX} beelden opruimen mislukt (niets weggehaald):`, error?.message);
     }
   }
 
