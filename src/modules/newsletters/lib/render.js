@@ -1103,8 +1103,18 @@ function uitRij(item) {
  */
 const RUIMTE_ONDER_MIN = 36;
 function ruimteOnder(stijl) {
-  return stijl.replace(/padding:\s*(\d+)px\s+(\d+)px\s+(\d+)px(\s+\d+px)?/, (heel, boven, zij, onder, links) =>
+  // Ook "44px 40px 0" (zonder px achter de 0): anders bleef een video zonder ruimte onder.
+  return stijl.replace(/padding:\s*(\d+)px\s+(\d+)px\s+(\d+)(?:px)?(\s+\d+px)?/, (heel, boven, zij, onder, links) =>
     Number(onder) >= RUIMTE_ONDER_MIN ? heel : `padding:${boven}px ${zij}px ${RUIMTE_ONDER_MIN}px${links || ''}`);
+}
+
+/**
+ * Het blok VOOR een gekleurd blok: zonder kleur leunt het voor zijn ruimte
+ * onderaan op het volgende blok, en dat vlak begint dan meteen onder de tekst.
+ */
+function ruimteVoorKleur(html) {
+  if (!html) return html;
+  return html.replace(/<td((?:\s+class="[^"]*")?) style="([^"]*)"/, (_, klasse, stijl) => `<td${klasse} style="${ruimteOnder(stijl)}"`);
 }
 
 /** Een blok met een eigen achtergrond: over de hele breedte van het blok. */
@@ -1265,6 +1275,7 @@ export function renderEdition({ series, edition, items, mode = 'preview', ctx = 
       const maak = BLOKKEN[it.kind];
       if (maak) {
         const html = metAchtergrond(maak(it, blokCtx, id), it.content?.achtergrond, it.kind);
+        if (html && merkkleur(it.content?.achtergrond) && rijen.length > 1) rijen[rijen.length - 1] = ruimteVoorKleur(rijen[rijen.length - 1]);
         // Lezer in de OM: het blok aanwijsbaar maken voor een opmerking (nooit in een echte mail).
         rijen.push(ctx.markeer && html ? html.replace(/<tr/, `<tr data-nb-lees="${esc(it.id)}"`) : html);
       }
