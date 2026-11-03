@@ -114,7 +114,7 @@ export function paneelInhoud(env, lead, ctx = {}, cfg, nu = vandaag(), nuMs = Da
       const wat = m.soort === 'mail_in' ? 'Inkomende mail van de klant'
         : `Uitgaande mail, ${m.auto ? 'automatisch' : 'manueel'}`;
       const uitleg = [wat, m.onderwerp ? `"${m.onderwerp}"` : '', korteDatum(vandaag(m.datum)),
-        m.soort === 'mail_uit' && !m.auto && m.door ? m.door : '', m.id ? 'klik om de mail te openen' : ''].filter(Boolean).join(' · ');
+        m.soort === 'mail_uit' && !m.auto && m.door ? m.door : ''].filter(Boolean).join(' · ');
       const ic = icoon(fa, toon, uitleg, { hoek });
       delen.push(m.id ? `<a href="${esc(berichtUrl(env, m.id))}" target="_blank" style="text-decoration:none;">${ic}</a>` : ic);
       continue;
