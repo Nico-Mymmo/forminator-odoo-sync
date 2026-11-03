@@ -5,10 +5,12 @@
  * zoals het webgedrag op lead en actieblad (web-story/lib/push.js). Een smalle
  * balk met drie vakken:
  *   links   het VERLOOP als iconen (Font Awesome 4, dat Odoo zelf laadt): de
- *           aanvraag, elke oproep, mail van de klant en meeting, de volgende
- *           stap, en wat de sequentie nog voorziet. Kleur zegt of het lukte:
- *           groen = contact, oranje = voicemail, rood = nam niet op, blauw =
- *           gepland, grijs = nog te komen.
+ *           aanvraag, elke oproep, mail (van de klant: envelop; van ons: papieren
+ *           vliegtuigje, blauw = manueel, paars = automatisch) en meeting, de
+ *           volgende stap, en wat de sequentie nog voorziet. Kleur zegt of het
+ *           lukte: groen = contact, oranje = voicemail, rood = nam niet op,
+ *           blauw = gepland, grijs = nog te komen. Een mail is aanklikbaar en
+ *           opent die mail (berichtUrl in odoo-data.js).
  *   midden  het laatste echte contact, en hoeveel pogingen er sindsdien waren
  *   rechts  de volgende stap (eerste open beltaak, anders eerste taak)
  *
@@ -24,20 +26,21 @@
  */
 
 import { write } from '../../../lib/odoo.js';
-import { openKansen, leesLead, activiteiten, gesprekken, mails, meetings, heeftVelden } from './odoo-data.js';
+import { openKansen, leesLead, activiteiten, gesprekken, mails, meetings, heeftVelden, berichtUrl } from './odoo-data.js';
 import { LOG_PREFIX, vandaag, dagenTussen, korteDatum, geleden, brusselsStempel, esc } from './constants.js';
 import { leesSequentie, sequentieStand, pasSequentieToe } from './sequentie.js';
 
 export const PANEEL_VELD = 'x_studio_om_paneel_html';
 const KV = 'opvolging:paneel:';
 const MAX_SCHRIJVEN = 200;
-const MAX_MOMENTEN = 7;
+const MAX_MOMENTEN = 9;
 
 const KLEUR = {
   goed: { bg: '#ecfdf5', fg: '#047857' },
   info: { bg: '#eff6ff', fg: '#1d4ed8' },
   let: { bg: '#fffbeb', fg: '#b45309' },
   laat: { bg: '#fef2f2', fg: '#b91c1c' },
+  auto: { bg: '#f5f3ff', fg: '#6d28d9' },
   stil: { bg: '#f3f4f6', fg: '#4b5563' },
 };
 
@@ -62,6 +65,8 @@ const MOMENT = {
   ingesproken: ['fa-microphone', 'let'],
   niets: ['fa-phone', 'laat'],
   mail_in: ['fa-envelope', 'goed'],
+  mail_uit: ['fa-paper-plane', 'info'],
+  mail_auto: ['fa-paper-plane-o', 'auto'],
   meeting: ['fa-calendar-check-o', 'goed'],
 };
 
@@ -89,10 +94,20 @@ export function paneelInhoud(env, lead, ctx = {}, cfg, nu = vandaag(), nuMs = Da
   const delen = [];
   const aangemaakt = String(lead.create_date || '').slice(0, 10);
   delen.push(icoon('fa-inbox', 'stil', aangemaakt ? `Aanvraag binnen op ${korteDatum(aangemaakt)}` : 'Aanvraag'));
-  const momenten = stand.momenten.filter(m => m.soort !== 'mail_uit');
+  const momenten = stand.momenten;
   if (momenten.length > MAX_MOMENTEN) delen.push(`<span title="${momenten.length - MAX_MOMENTEN} eerdere" style="font-size:11px;color:#9ca3af;vertical-align:middle;">+${momenten.length - MAX_MOMENTEN}</span>`);
   for (const m of momenten.slice(-MAX_MOMENTEN)) {
-    const [fa, toon] = MOMENT[m.soort === 'oproep' ? m.uitkomst : m.soort] || ['fa-circle', 'stil'];
+    const sleutel = m.soort === 'oproep' ? m.uitkomst : (m.soort === 'mail_uit' && m.auto ? 'mail_auto' : m.soort);
+    const [fa, toon] = MOMENT[sleutel] || ['fa-circle', 'stil'];
+    if (m.soort === 'mail_in' || m.soort === 'mail_uit') {
+      const wat = m.soort === 'mail_in' ? 'Inkomende mail van de klant'
+        : `Uitgaande mail, ${m.auto ? 'automatisch' : 'manueel'}`;
+      const uitleg = [wat, m.onderwerp ? `"${m.onderwerp}"` : '', korteDatum(vandaag(m.datum)),
+        m.soort === 'mail_uit' && !m.auto && m.door ? m.door : '', m.id ? 'klik om de mail te openen' : ''].filter(Boolean).join(' · ');
+      const ic = icoon(fa, toon, uitleg);
+      delen.push(m.id ? `<a href="${esc(berichtUrl(env, m.id))}" target="_blank" style="text-decoration:none;">${ic}</a>` : ic);
+      continue;
+    }
     delen.push(icoon(fa, toon, `${m.tekst} · ${korteDatum(vandaag(m.datum))}${m.door ? ` · ${m.door}` : ''}`));
   }
   if (komend) delen.push(icoon('fa-calendar', 'info', `Meeting gepland op ${korteDatum(vandaag(komend.start))}`, { gepland: true }));

@@ -15,6 +15,15 @@ export function leadUrl(env, id) {
   return `${odooOrigin(env)}/web#id=${id}&model=crm.lead&view_type=form`;
 }
 
+/**
+ * Een bericht uit de chatter op zich (onderwerp, afzender, inhoud). Odoo 17 kent
+ * geen link die IN de chatter naar een bericht springt (/mail/view?message_id=
+ * opent enkel het record); dit opent de mail zelf.
+ */
+export function berichtUrl(env, id) {
+  return `${odooOrigin(env)}/web#id=${id}&model=mail.message&view_type=form`;
+}
+
 /** Open kansen: verkoopkansen die niet gewonnen en niet verloren (gearchiveerd) zijn. */
 export async function openKansen(env, { userIds = null, limit = 1000 } = {}) {
   const domain = [['type', '=', 'opportunity'], ['active', '=', true], ['stage_id.is_won', '=', false]];
@@ -116,20 +125,32 @@ export async function gesprekken(env, leadIds, { perLead = 5 } = {}) {
   return per;
 }
 
+// Partners van de systeemgebruikers (OdooBot, Administrator): wat zij posten is automatisch.
+const SYSTEEM_PARTNERS = new Set([2, 3]);
+
 /**
- * Mails in de chatter (van de Gmail-app, of door Odoo/de OM verstuurd), nieuwste
- * eerst: Map(leadId -> [{ inkomend, datum: Date, van }]). Inkomend = de afzender
- * staat niet op een van onze eigen domeinen (dezelfde lijst als de Gmail-app).
+ * Mails in de chatter, nieuwste eerst: Map(leadId -> [{ id, inkomend, auto,
+ * onderwerp, datum: Date, van }]).
+ *   inkomend   de afzender staat niet op een van onze eigen domeinen (dezelfde
+ *              lijst als de Gmail-app)
+ *   uitgaand   manueel: verstuurd vanuit de chatter ("Bericht verzenden", een
+ *              bericht met subtype Discussions) of vanuit Gmail (de Gmail-app zet
+ *              een kopie zonder auteur); automatisch: door Odoo zelf verstuurd
+ *              (email_outgoing: automatiseringen, nurture), door een
+ *              systeemgebruiker gepost, of door de OM (message_id @om.mymmo.com)
+ * Notities (subtype Note) tellen niet: daar staan ook de oproepkaarten.
  */
-export async function mails(env, leadIds, { perLead = 5 } = {}) {
+export async function mails(env, leadIds, { perLead = 15 } = {}) {
   const per = new Map();
   if (!leadIds.length) return per;
   const eigen = eigenDomeinen(env);
   for (let i = 0; i < leadIds.length; i += 400) {
     const rijen = (await searchRead(env, {
       model: 'mail.message',
-      domain: [['model', '=', 'crm.lead'], ['res_id', 'in', leadIds.slice(i, i + 400)], ['message_type', 'in', ['email', 'email_outgoing']]],
-      fields: ['res_id', 'date', 'email_from', 'author_id'],
+      domain: [['model', '=', 'crm.lead'], ['res_id', 'in', leadIds.slice(i, i + 400)],
+        '|', ['message_type', 'in', ['email', 'email_outgoing']],
+        '&', ['message_type', '=', 'comment'], ['subtype_id.internal', '=', false]],
+      fields: ['id', 'res_id', 'date', 'email_from', 'author_id', 'message_type', 'subject', 'message_id'],
       order: 'date desc',
       limit: 4000,
     })) || [];
@@ -140,7 +161,14 @@ export async function mails(env, leadIds, { perLead = 5 } = {}) {
       const adres = (String(r.email_from || '').match(/[^\s<>"]+@([^\s<>"]+)/) || [])[1] || '';
       const domein = adres.toLowerCase();
       const ons = !domein || eigen.some(d => domein === d || domein.endsWith('.' + d));
-      lijst.push({ inkomend: !ons, datum: odooDatum(r.date), van: Array.isArray(r.author_id) ? r.author_id[1] : '' });
+      const auteur = Array.isArray(r.author_id) ? r.author_id[0] : null;
+      const auto = ons && (r.message_type === 'email_outgoing' || SYSTEEM_PARTNERS.has(auteur)
+        || /@om\.mymmo\.com>?$/i.test(String(r.message_id || '')));
+      const naamUitAdres = (String(r.email_from || '').match(/^\s*"?([^"<]+?)"?\s*</) || [])[1] || '';
+      lijst.push({
+        id: r.id, inkomend: !ons, auto, onderwerp: r.subject || '', datum: odooDatum(r.date),
+        van: (Array.isArray(r.author_id) ? r.author_id[1] : '') || naamUitAdres,
+      });
     }
   }
   return per;

@@ -122,7 +122,12 @@ export function contactmomenten({ gespr = [], mails: ml = [], meet = [] }, nuMs 
     if (g.datum) uit.push({ soort: 'oproep', uitkomst: g.uitkomst, id: g.id, datum: g.datum, contact: u.soort === 'contact', tekst: u.label, door: g.door });
   }
   for (const m of ml) {
-    if (m.datum) uit.push({ soort: m.inkomend ? 'mail_in' : 'mail_uit', datum: m.datum, contact: m.inkomend, tekst: m.inkomend ? 'Klant mailde' : 'Mail gestuurd', door: m.inkomend ? '' : m.van });
+    if (m.datum) {
+      uit.push({
+        soort: m.inkomend ? 'mail_in' : 'mail_uit', id: m.id, auto: !!m.auto, onderwerp: m.onderwerp || '',
+        datum: m.datum, contact: m.inkomend, tekst: m.inkomend ? 'Klant mailde' : 'Mail gestuurd', door: m.inkomend ? '' : m.van,
+      });
+    }
   }
   for (const m of meet) {
     if (m.start && m.start.getTime() <= nuMs) uit.push({ soort: 'meeting', datum: m.start, contact: true, tekst: 'Meeting gehad', door: '' });

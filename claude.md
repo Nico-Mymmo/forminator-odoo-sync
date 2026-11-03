@@ -6930,6 +6930,14 @@ https://claude.ai/artifact/QwXUNv4HtUfr1PfayjeVUu
   rood nam niet op, blauw gepland, grijs nog te komen. Midden het laatste
   echte contact en het aantal pogingen; rechts de volgende stap. Geen emoji in
   de balk, geen knoppen erin.
+- **Mails in de balk** (2026-11-03, `mails()` in odoo-data.js): inkomend =
+  envelop (groen); uitgaand = papieren vliegtuigje, blauw = MANUEEL (vanuit de
+  chatter met subtype Discussions, of een Gmail-kopie zonder auteur), paars =
+  AUTOMATISCH (`email_outgoing`, gepost door OdooBot/Administrator, of een
+  message_id op `@om.mymmo.com`). Notities tellen niet (daar staan ook de
+  oproepkaarten). Een klik opent DE MAIL ZELF (`berichtUrl()`: het formulier van
+  `mail.message`): Odoo 17 kent geen link die in de chatter naar een bericht
+  springt (`/mail/view?message_id=` opent enkel het record).
 - **`OPVOLGING_PANEEL_MODE`** (wrangler.jsonc): leeg = niets, `dry` = loggen,
   `on` = schrijven en plannen. Het paneel wordt enkel geschreven als het
   veranderde (hash in KV).
