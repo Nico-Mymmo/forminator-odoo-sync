@@ -6875,6 +6875,8 @@ https://claude.ai/artifact/QwXUNv4HtUfr1PfayjeVUu
 | Bijhouden (voor de rapportering later) | tabel `opv_contactmomenten` in D1 om-core (`0017_opvolging.sql`) |
 | Teamoverzicht: tabblad Opvolging in CX Powerboard | `opvolging/overzicht.js`, `GET /cx-powerboard/api/opvolging`, `public/cx-powerboard-opvolging.js` |
 | Odoo-kant (venster, opslaan, knop) | view 3968 (`x_oproep_notitie`), serveracties 1207 (opslaan) en "Ik heb gebeld - Venster openen", view 3978 (knop naast het paneel) |
+| Berichtteksten (macro's): opslag, placeholders, voorbeeld op een kans | `opvolging/berichten.js`, tabel `opv_berichten` in D1 om-core (`0022_opv_berichten.sql`), routes `/cx-automations/api/opvolging/berichten*` |
+| Berichten schrijven | CX Automations -> Opvolging -> Berichten, `public/cx-automations-berichten.js` |
 
 - **De sequentie beslist wanneer er opnieuw gebeld wordt, niet de verkoper.**
   Stappen (standaard, aan te passen door Thomas): eerste beltaak "Nieuwe lead
@@ -6957,8 +6959,35 @@ https://claude.ai/artifact/QwXUNv4HtUfr1PfayjeVUu
   kansen zonder volgende stap. Enkel lezen.
 - **CX Automations -> Opvolging -> "Alle panelen nu bijwerken"** schrijft elk
   paneel opnieuw (`POST /cx-automations/api/opvolging/panelen`, force).
+- **Berichtteksten (macro's)** (2026-11-03): een bericht = naam, groep (Niet
+  bereikbaar, Na offerte, Laatste kans, ... vrij aan te vullen), merk, taal,
+  onderwerp en tekst. EEN plek om ze te schrijven: de OM. De vorm is die van de
+  mailstap van de koppelingen: platte tekst (`renderPlainMailHtml()`, geen
+  tweede renderer) met de handtekening van de VERKOPER van de kans
+  (`res.users.signature`) eronder; de editor is dezelfde (EOQuill, vet,
+  cursief, lijstjes, links). Placeholders (`TOKENS` in berichten.js):
+  contact, gebouw (+ Syndicoach-pakket), offerte, verkoper (ook als
+  `{{sender.*}}`) en `{{afspraak.sender.standaard}}` (de agenda van de
+  verkoper, `resolveSenderAfspraak()`). Het voorbeeld kan op een echte kans
+  (nummer of Odoo-link) en zegt welke gebruikte gegevens voor die kans leeg
+  zijn. **Een Syndicoach-offerte is geen `sale.order`** maar een pdf van de OM
+  (bijlage `Offerte-*.pdf` bij de mail aan de contactpersoon): daar is enkel
+  `{{offerte.datum}}` van te kennen; nummer en bedrag komen enkel uit een
+  offerte in Odoo (OpenVME). Uit = concept (`actief`); een bericht dat aan
+  staat heeft een onderwerp en een tekst. Er staan drie concepten klaar
+  (migratie 0022). VERSTUREN is nog niet gebouwd (volgende stap: vanuit de
+  kans, eerst als klaargezet concept, op naam van de verkoper).
+- **Wat Odoo vandaag al vanzelf naar klanten stuurt** (gemeten 2026-11-03,
+  1 okt - 3 nov): de OM (offertemail ~71, bedankt voor aanvraag/VME-check,
+  nieuwsbriefinschrijving, eventmails), marketingautomatisering in Odoo
+  (Starter NL: 4 mails dag 0/3/6/9; Meta-lead Syndicoach dag 0/2; Meta-lead
+  OpenVME dag 0/3; VME-check; nieuwsbrief OpenVME; reactivatie; "Van niks tot
+  in orde" 0/3/6/9; Starter FR) en de abonnementsherinnering van Odoo
+  (`sale.order`). Geen enkele `base.automation` stuurt nog zelf een mail. Een
+  Meta-aanvraag voor Syndicoach krijgt zo in twee dagen al drie mails: een
+  opvolgbericht moet daar rekening mee houden.
 - **Nog niet gebouwd:** meerdere sequenties (per merk of soort aanvraag), mail
-  of WhatsApp als stap, berichten (macro's), Dstny, en een optionele mail na
+  of WhatsApp als stap, berichten VERSTUREN, Dstny, en een optionele mail na
   een oproep zonder antwoord ("ik heb je vandaag gebeld ...").
 
 ## Bestandsstructuur

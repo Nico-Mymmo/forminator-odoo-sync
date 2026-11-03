@@ -410,6 +410,7 @@ function switchTab(name) {
   });
   if (name === 'mergers' && !mergerState[currentMergerPair].loaded) loadMergerConfig();
   if (name === 'opvolging' && window.OpvSequentie) window.OpvSequentie.laad();
+  if (name === 'opvolging' && window.OpvBerichten) window.OpvBerichten.laad();
 }
 
 // ====== Merger state ======

@@ -7,6 +7,15 @@
 
 import { runOpvolgingCron } from './opvolging/paneel.js';
 import { leesSequentie, bewaarSequentie, STANDAARD } from './opvolging/sequentie.js';
+import { lijstBerichten, bewaarBericht, verwijderBericht, voorbeeldBericht, TOKENS, GROEPEN, MERKEN, TALEN } from './opvolging/berichten.js';
+
+function json(data, status = 200) {
+  return new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } });
+}
+async function veilig(fn) {
+  try { return json({ success: true, data: await fn() }); }
+  catch (err) { return json({ success: false, error: err.message }, err.status || 500); }
+}
 import { handleGetOdooConfig, handleGetTechnicalBlocks, handleGetThresholds, handleSaveThresholds, handleGetSettings, handleSaveSettings, handleGetLog, handleRunCron, handleGetMergerConfig, handleGetMergerFields, handleSaveMergerConfig, handlePatchLeadPreview, handleFixLeadSearch, handleUpgradeLeadPreview, handleAddFieldExclusions, handleDisableSanitize, handleInlineCheckboxes, handleFixInlineCheckboxes } from './routes.js';
 
 export default {
@@ -61,6 +70,25 @@ export default {
         });
       }
     },
+
+    // Opvolging: de berichtteksten (opvolging/berichten.js).
+    'GET /api/opvolging/berichten': ({ env }) => veilig(async () => ({
+      berichten: await lijstBerichten(env), tokens: TOKENS, groepen: GROEPEN, merken: MERKEN, talen: TALEN,
+    })),
+    'POST /api/opvolging/berichten': async ({ env, user, request }) =>
+      veilig(async () => bewaarBericht(env, null, await request.json(), user?.full_name || user?.email)),
+    'PUT /api/opvolging/berichten/:id': async ({ env, user, request, params }) =>
+      veilig(async () => bewaarBericht(env, params.id, await request.json(), user?.full_name || user?.email)),
+    'DELETE /api/opvolging/berichten/:id': ({ env, params }) =>
+      veilig(async () => { await verwijderBericht(env, params.id); return { id: params.id }; }),
+    'POST /api/opvolging/berichten/voorbeeld': async ({ env, request }) => veilig(async () => {
+      const b = await request.json();
+      // Een kansnummer, of een link uit Odoo (…#id=11937&… of …/crm/11937).
+      const kans = String(b.kans || '');
+      const m = kans.match(/[?#&]id=(\d+)/) || kans.match(/(\d+)\D*$/);
+      const leadId = m ? Number.parseInt(m[1], 10) : null;
+      return voorbeeldBericht(env, { onderwerp: b.onderwerp, tekst_html: b.tekst_html, leadId });
+    }),
 
     'GET /api/merger-config': handleGetMergerConfig,
     'GET /api/merger-fields': handleGetMergerFields,
