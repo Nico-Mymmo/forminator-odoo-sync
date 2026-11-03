@@ -647,7 +647,7 @@ function blokVideo(item, ctx, id) {
   if (naast) {
     const links = c.indeling === 'links';
     const beeldCel = `<td class="nb-kol${links ? '' : ' nb-kol-na'}" width="${breedte}" valign="top" align="center" style="width:${breedte}px;padding:0"${id ? ' data-nb-beeld="1"' : ''}>${thumbTag}</td>`;
-    const tekstCel = `<td class="nb-kol${links ? ' nb-kol-na' : ''}" valign="middle" style="padding:0 ${links ? 0 : 24}px 0 ${links ? 24 : 0}px">${labeltje}${titel}${lijf}</td>`;
+    const tekstCel = `<td class="nb-kol${links ? ' nb-kol-na' : ''}" valign="top" style="padding:0 ${links ? 0 : 24}px 0 ${links ? 24 : 0}px">${labeltje}${titel}${lijf}</td>`;
     return rij(`<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>${links ? beeldCel + tekstCel : tekstCel + beeldCel}</tr></table>`, { padding: '44px 40px 0', id });
   }
   return rij(`${labeltje}${titel}${lijf}${thumb}`, { padding: '44px 40px 0', id });

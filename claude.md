@@ -6158,7 +6158,7 @@ Afspraken die bewust zo zijn:
   de mail het gewone beeld en maakt het scherm een nieuwe zodra het blok
   geopend wordt. **Beeld naast de tekst** (`content.indeling`: onder /
   rechts / links, keuze in het paneel): voor een staande video (9:16) het
-  beeld in een kolom van 240 px naast label, titel en tekst; op een gsm onder
+  beeld in een kolom van 240 px naast label, titel en tekst (bovenaan uitgelijnd); op een gsm onder
   elkaar (`nb-kol`), het beeld gecentreerd op 240 px. De video kies je uit DEZELFDE Vimeo-lijst als bij de events
   (`lib/vimeo.js` van Eventbeheer: `GET /api/vimeo/videos`, `POST /api/video`
   voor een geplakte Vimeo- of YouTube-link zonder token), via de werkbalk, de
