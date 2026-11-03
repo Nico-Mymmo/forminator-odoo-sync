@@ -6930,9 +6930,14 @@ https://claude.ai/artifact/QwXUNv4HtUfr1PfayjeVUu
   rood nam niet op, blauw gepland, grijs nog te komen. Midden het laatste
   echte contact en het aantal pogingen; rechts de volgende stap. Geen emoji in
   de balk, geen knoppen erin.
+- **Elk icoon = een cirkel met het TYPE (telefoon, envelop, agenda, inbox) en
+  een HOEKJE rechtsonder met meer** (`MOMENT` in paneel.js): pijl omlaag =
+  inkomend, pijl omhoog = uitgaand, tandwiel = automatisch/sequentie, vinkje =
+  gelukt, kruis = nam niet op, microfoon = voicemail, klok = gepland, ! = te laat.
+  Het veld heeft `sanitize_style` uit, dus `position` blijft staan.
 - **Mails in de balk** (2026-11-03, `mails()` in odoo-data.js): inkomend =
-  envelop (groen); uitgaand = papieren vliegtuigje, blauw = MANUEEL (vanuit de
-  chatter met subtype Discussions, of een Gmail-kopie zonder auteur), paars =
+  envelop (groen, pijl omlaag); uitgaand = envelop met pijl omhoog, blauw = MANUEEL (vanuit de
+  chatter met subtype Discussions, of een Gmail-kopie zonder auteur), paars met tandwiel =
   AUTOMATISCH (`email_outgoing`, gepost door OdooBot/Administrator, of een
   message_id op `@om.mymmo.com`). Notities tellen niet (daar staan ook de
   oproepkaarten). Een klik opent DE MAIL ZELF (`berichtUrl()`: het formulier van

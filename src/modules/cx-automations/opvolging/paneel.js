@@ -5,8 +5,8 @@
  * zoals het webgedrag op lead en actieblad (web-story/lib/push.js). Een smalle
  * balk met drie vakken:
  *   links   het VERLOOP als iconen (Font Awesome 4, dat Odoo zelf laadt): de
- *           aanvraag, elke oproep, mail (van de klant: envelop; van ons: papieren
- *           vliegtuigje, blauw = manueel, paars = automatisch) en meeting, de
+ *           aanvraag, elke oproep, mail en meeting (de cirkel = het type, het
+ *           hoekje rechtsonder = meer: inkomend, uitgaand, automatisch), de
  *           volgende stap, en wat de sequentie nog voorziet. Kleur zegt of het
  *           lukte: groen = contact, oranje = voicemail, rood = nam niet op,
  *           blauw = gepland, grijs = nog te komen. Een mail is aanklikbaar en
@@ -49,25 +49,36 @@ function pil(tekst, toon, uitleg = '') {
   return `<span${uitleg ? ` title="${esc(uitleg)}"` : ''} style="display:inline-block;padding:2px 9px;margin:1px 4px 1px 0;border-radius:999px;font-size:12px;font-weight:600;white-space:nowrap;background-color:${k.bg};color:${k.fg};">${esc(tekst)}</span>`;
 }
 
-/** Een rond icoon. `gepland` = gestippelde rand (nog niet gebeurd). */
-function icoon(fa, toon, uitleg, { gepland = false } = {}) {
+/**
+ * Een rond icoon: de cirkel zegt WAT het is (telefoon, mail, agenda), het hoekje
+ * rechtsonder zegt MEER (uitgaand, inkomend, automatisch, gelukt, te laat).
+ * `gepland` = gestippelde rand (nog niet gebeurd). Het veld laat de stijl
+ * ongemoeid (sanitize_style uit, nagekeken 03/11/2026), dus position mag.
+ */
+function icoon(fa, toon, uitleg, { gepland = false, hoek = null } = {}) {
   const k = KLEUR[toon] || KLEUR.stil;
   const rand = gepland ? `border:1px dashed ${k.fg};` : `border:1px solid ${k.bg};`;
-  return `<span title="${esc(uitleg)}" style="display:inline-block;width:22px;height:22px;line-height:20px;text-align:center;border-radius:999px;font-size:11px;vertical-align:middle;box-sizing:border-box;${rand}background-color:${gepland ? '#ffffff' : k.bg};color:${k.fg};"><i class="fa ${fa}"></i></span>`;
+  const cirkel = `<span style="display:inline-block;width:22px;height:22px;line-height:20px;text-align:center;border-radius:999px;font-size:11px;vertical-align:middle;box-sizing:border-box;${rand}background-color:${gepland ? '#ffffff' : k.bg};color:${k.fg};"><i class="fa ${fa}"></i></span>`;
+  let klein = '';
+  if (hoek) {
+    const h = KLEUR[hoek[1]] || KLEUR.stil;
+    klein = `<span style="position:absolute;right:-4px;bottom:-3px;display:inline-block;width:13px;height:13px;line-height:11px;text-align:center;border-radius:999px;font-size:7px;box-sizing:border-box;border:1px solid #ffffff;background-color:${h.fg};color:#ffffff;"><i class="fa ${hoek[0]}"></i></span>`;
+  }
+  return `<span title="${esc(uitleg)}" style="position:relative;display:inline-block;vertical-align:middle;margin-right:2px;">${cirkel}${klein}</span>`;
 }
 
 const PIJL = '<i class="fa fa-angle-right" style="color:#cbd5e1;margin:0 3px;vertical-align:middle;"></i>';
 
-// Per soort moment: icoon en kleur.
+// Per soort moment: [cirkel, kleur, [hoekje, kleur]].
 const MOMENT = {
-  opgenomen: ['fa-phone', 'goed'],
-  teruggebeld: ['fa-reply', 'goed'],
-  ingesproken: ['fa-microphone', 'let'],
-  niets: ['fa-phone', 'laat'],
-  mail_in: ['fa-envelope', 'goed'],
-  mail_uit: ['fa-paper-plane', 'info'],
-  mail_auto: ['fa-paper-plane-o', 'auto'],
-  meeting: ['fa-calendar-check-o', 'goed'],
+  opgenomen: ['fa-phone', 'goed', ['fa-check', 'goed']],
+  teruggebeld: ['fa-phone', 'goed', ['fa-arrow-down', 'goed']],
+  ingesproken: ['fa-phone', 'let', ['fa-microphone', 'let']],
+  niets: ['fa-phone', 'laat', ['fa-times', 'laat']],
+  mail_in: ['fa-envelope', 'goed', ['fa-arrow-down', 'goed']],
+  mail_uit: ['fa-envelope', 'info', ['fa-arrow-up', 'info']],
+  mail_auto: ['fa-envelope', 'auto', ['fa-cog', 'auto']],
+  meeting: ['fa-calendar', 'goed', ['fa-check', 'goed']],
 };
 
 /**
@@ -93,35 +104,35 @@ export function paneelInhoud(env, lead, ctx = {}, cfg, nu = vandaag(), nuMs = Da
   // ── Verloop ───────────────────────────────────────────────────────────
   const delen = [];
   const aangemaakt = String(lead.create_date || '').slice(0, 10);
-  delen.push(icoon('fa-inbox', 'stil', aangemaakt ? `Aanvraag binnen op ${korteDatum(aangemaakt)}` : 'Aanvraag'));
+  delen.push(icoon('fa-inbox', 'stil', aangemaakt ? `Aanvraag binnen op ${korteDatum(aangemaakt)}` : 'Aanvraag', { hoek: ['fa-arrow-down', 'stil'] }));
   const momenten = stand.momenten;
   if (momenten.length > MAX_MOMENTEN) delen.push(`<span title="${momenten.length - MAX_MOMENTEN} eerdere" style="font-size:11px;color:#9ca3af;vertical-align:middle;">+${momenten.length - MAX_MOMENTEN}</span>`);
   for (const m of momenten.slice(-MAX_MOMENTEN)) {
     const sleutel = m.soort === 'oproep' ? m.uitkomst : (m.soort === 'mail_uit' && m.auto ? 'mail_auto' : m.soort);
-    const [fa, toon] = MOMENT[sleutel] || ['fa-circle', 'stil'];
+    const [fa, toon, hoek] = MOMENT[sleutel] || ['fa-circle', 'stil', null];
     if (m.soort === 'mail_in' || m.soort === 'mail_uit') {
       const wat = m.soort === 'mail_in' ? 'Inkomende mail van de klant'
         : `Uitgaande mail, ${m.auto ? 'automatisch' : 'manueel'}`;
       const uitleg = [wat, m.onderwerp ? `"${m.onderwerp}"` : '', korteDatum(vandaag(m.datum)),
         m.soort === 'mail_uit' && !m.auto && m.door ? m.door : '', m.id ? 'klik om de mail te openen' : ''].filter(Boolean).join(' · ');
-      const ic = icoon(fa, toon, uitleg);
+      const ic = icoon(fa, toon, uitleg, { hoek });
       delen.push(m.id ? `<a href="${esc(berichtUrl(env, m.id))}" target="_blank" style="text-decoration:none;">${ic}</a>` : ic);
       continue;
     }
-    delen.push(icoon(fa, toon, `${m.tekst} · ${korteDatum(vandaag(m.datum))}${m.door ? ` · ${m.door}` : ''}`));
+    delen.push(icoon(fa, toon, `${m.tekst} · ${korteDatum(vandaag(m.datum))}${m.door ? ` · ${m.door}` : ''}`, { hoek }));
   }
-  if (komend) delen.push(icoon('fa-calendar', 'info', `Meeting gepland op ${korteDatum(vandaag(komend.start))}`, { gepland: true }));
+  if (komend) delen.push(icoon('fa-calendar', 'info', `Meeting gepland op ${korteDatum(vandaag(komend.start))}`, { gepland: true, hoek: ['fa-clock-o', 'info'] }));
   if (volgende) {
     const n = volgende.deadline ? dagenTussen(volgende.deadline, nu) : 0;
     delen.push(icoon(volgende.bellen ? 'fa-phone' : 'fa-check-square-o', n > 0 ? 'laat' : 'info',
       `Gepland: ${volgende.samenvatting || volgende.typeNaam || 'taak'}${volgende.deadline ? ` · ${korteDatum(volgende.deadline)}` : ''}${volgende.userNaam ? ` · ${volgende.userNaam}` : ''}`,
-      { gepland: true }));
+      { gepland: true, hoek: n > 0 ? ['fa-exclamation', 'laat'] : ['fa-clock-o', 'info'] }));
   }
   // Wat de sequentie nog voorziet, zolang er geen contact was.
   if (stand.in_seq && !(stand.contact && !stand.pogingen.length)) {
     const gedaan = stand.pogingen.length + (volgende && volgende.bellen ? 1 : 0);
-    for (let i = gedaan; i < stand.totaal; i++) delen.push(icoon('fa-phone', 'stil', `Poging ${i + 1} van ${stand.totaal} (sequentie)`, { gepland: true }));
-    if (cfg.einde.aan) delen.push(icoon('fa-flag-o', 'stil', `Na de laatste poging: ${cfg.einde.titel}`, { gepland: true }));
+    for (let i = gedaan; i < stand.totaal; i++) delen.push(icoon('fa-phone', 'stil', `Poging ${i + 1} van ${stand.totaal} (sequentie)`, { gepland: true, hoek: ['fa-cog', 'stil'] }));
+    if (cfg.einde.aan) delen.push(icoon('fa-flag-o', 'stil', `Na de laatste poging: ${cfg.einde.titel}`, { gepland: true, hoek: ['fa-cog', 'stil'] }));
   }
 
   // ── Laatste contact ───────────────────────────────────────────────────
